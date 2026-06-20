@@ -4,6 +4,8 @@ import dev.otectus.mcacrime.McaCrime;
 import dev.otectus.mcacrime.McaCrimeConfig;
 import dev.otectus.mcacrime.crime.CrimeMath;
 import dev.otectus.mcacrime.crime.KarmaSource;
+import dev.otectus.mcacrime.jail.JailConfine;
+import dev.otectus.mcacrime.jail.JailService;
 import dev.otectus.mcacrime.state.CrimeCapabilities;
 import dev.otectus.mcacrime.state.PlayerCrimeData;
 import net.minecraft.server.level.ServerPlayer;
@@ -47,11 +49,19 @@ public final class CrimeDecayHandler {
         }
         PlayerCrimeData data = opt.get();
         long online = data.incrementOnlineTicks(); // the only clock decay reads
+        // Jail sentence decrements every online tick (matching the clock) BEFORE the throttle return.
+        if (data.isJailed()) {
+            JailService.tick(player, data);
+        }
         if (player.tickCount % 20 != 0) {
             return; // throttle decay work to ~once per second
         }
         applyHeatDecay(player, data, online);
         applyKarmaDecay(player, data, online);
+        // Throttled (~1/s) soft-confine / breakout check.
+        if (data.isJailed()) {
+            JailConfine.tick(player, data);
+        }
     }
 
     private static void applyHeatDecay(ServerPlayer player, PlayerCrimeData data, long online) {

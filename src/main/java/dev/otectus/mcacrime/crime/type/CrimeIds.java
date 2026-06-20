@@ -9,6 +9,7 @@ public final class CrimeIds {
     public static final ResourceLocation HARM_VILLAGER = new ResourceLocation(McaCrime.MOD_ID, "harm_villager");
     public static final ResourceLocation KILL_VILLAGER = new ResourceLocation(McaCrime.MOD_ID, "kill_villager");
     public static final ResourceLocation ASSAULT_GUARD = new ResourceLocation(McaCrime.MOD_ID, "assault_guard");
+    public static final ResourceLocation JAILBREAK = new ResourceLocation(McaCrime.MOD_ID, "jailbreak");
 
     private CrimeIds() {
     }

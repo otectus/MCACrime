@@ -10,13 +10,24 @@ import dev.otectus.mcacrime.config.ConfigValidator;
 import dev.otectus.mcacrime.crime.Band;
 import dev.otectus.mcacrime.crime.KarmaSource;
 import dev.otectus.mcacrime.crime.type.CrimeTypeRegistry;
+import dev.otectus.mcacrime.economy.FineService;
+import dev.otectus.mcacrime.economy.SurrenderService;
 import dev.otectus.mcacrime.engine.CrimeState;
+import dev.otectus.mcacrime.McaCrimeConfig;
+import dev.otectus.mcacrime.enforcement.LegalTarget;
+import dev.otectus.mcacrime.jail.JailAnchor;
+import dev.otectus.mcacrime.jail.JailRegistry;
+import dev.otectus.mcacrime.jail.JailService;
+import dev.otectus.mcacrime.jail.ReleaseReason;
 import dev.otectus.mcacrime.ledger.CrimeLedger;
 import dev.otectus.mcacrime.ledger.CrimeRecord;
 import net.minecraft.ChatFormatting;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.commands.arguments.EntityArgument;
+import net.minecraft.commands.arguments.coordinates.BlockPosArgument;
+import net.minecraft.core.BlockPos;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.server.MinecraftServer;
@@ -54,6 +65,10 @@ public final class CrimeCommand {
                         .executes(CrimeCommand::karma))
                 .then(Commands.literal("status")
                         .executes(CrimeCommand::status))
+                .then(Commands.literal("payfine")
+                        .executes(CrimeCommand::payFine))
+                .then(Commands.literal("surrender")
+                        .executes(CrimeCommand::surrender))
                 .then(Commands.literal("query")
                         .requires(src -> src.hasPermission(2))
                         .then(Commands.argument("target", EntityArgument.player())
@@ -82,6 +97,21 @@ public final class CrimeCommand {
                                 .then(Commands.argument("target", EntityArgument.player())
                                         .then(Commands.argument("value", IntegerArgumentType.integer(0))
                                                 .executes(CrimeCommand::setHeat)))))
+                .then(Commands.literal("jail")
+                        .requires(src -> src.hasPermission(3))
+                        .then(Commands.argument("target", EntityArgument.player())
+                                .then(Commands.argument("ticks", IntegerArgumentType.integer(1))
+                                        .executes(CrimeCommand::jail))))
+                .then(Commands.literal("release")
+                        .requires(src -> src.hasPermission(3))
+                        .then(Commands.argument("target", EntityArgument.player())
+                                .executes(CrimeCommand::release)))
+                .then(Commands.literal("assignjail")
+                        .requires(src -> src.hasPermission(3))
+                        .then(Commands.argument("pos", BlockPosArgument.blockPos())
+                                .executes(ctx -> assignJail(ctx, McaCrimeConfig.COMMON.jailRadiusDefault.get()))
+                                .then(Commands.argument("radius", IntegerArgumentType.integer(1, 64))
+                                        .executes(ctx -> assignJail(ctx, IntegerArgumentType.getInteger(ctx, "radius"))))))
                 .then(Commands.literal("debug")
                         .requires(src -> src.hasPermission(2))
                         .then(Commands.literal("villager")
@@ -121,8 +151,15 @@ public final class CrimeCommand {
                 ? Component.translatable("mcacrime.command.status.wanted").withStyle(ChatFormatting.RED)
                 : Component.empty();
         src.sendSuccess(() -> Component.translatable("mcacrime.command.status.heat", heat, wantedSuffix), false);
-        src.sendSuccess(() -> Component.translatable("mcacrime.command.status.jail",
-                Component.translatable("mcacrime.command.status.jail.none")), false);
+        long jailTicks = JailService.remainingTicks(player);
+        Component jailInfo;
+        if (jailTicks > 0) {
+            String s = (jailTicks / 20L) + "s" + (LegalTarget.isEscapedPrisoner(player) ? " (escaped)" : "");
+            jailInfo = Component.literal(s);
+        } else {
+            jailInfo = Component.translatable("mcacrime.command.status.jail.none");
+        }
+        src.sendSuccess(() -> Component.translatable("mcacrime.command.status.jail", jailInfo), false);
     }
 
     // --- op mutators (all via CrimeState) ---
@@ -198,6 +235,49 @@ public final class CrimeCommand {
                 + " village=" + village
                 + " " + r.resolution().name().toLowerCase(java.util.Locale.ROOT)
                 + " @" + r.timeCommitted();
+    }
+
+    // --- player release valves ---
+
+    private static int payFine(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
+        return FineService.payFine(ctx.getSource().getPlayerOrException());
+    }
+
+    private static int surrender(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
+        return SurrenderService.surrender(ctx.getSource().getPlayerOrException());
+    }
+
+    // --- op jail control (all via JailService — server-authoritative, idempotent) ---
+
+    private static int jail(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
+        ServerPlayer target = EntityArgument.getPlayer(ctx, "target");
+        int ticks = IntegerArgumentType.getInteger(ctx, "ticks");
+        if (JailService.jail(target, ticks, null)) {
+            ctx.getSource().sendSuccess(() -> Component.translatable("mcacrime.command.jail.ok", target.getName(), ticks), true);
+            return 1;
+        }
+        ctx.getSource().sendFailure(Component.translatable("mcacrime.command.jail.refused", target.getName()));
+        return 0;
+    }
+
+    private static int release(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
+        ServerPlayer target = EntityArgument.getPlayer(ctx, "target");
+        if (!JailService.isJailed(target)) {
+            ctx.getSource().sendSuccess(() -> Component.translatable("mcacrime.command.release.notjailed", target.getName()), false);
+            return 0;
+        }
+        JailService.release(target, ReleaseReason.ADMIN);
+        ctx.getSource().sendSuccess(() -> Component.translatable("mcacrime.command.release.ok", target.getName()), true);
+        return 1;
+    }
+
+    private static int assignJail(CommandContext<CommandSourceStack> ctx, int radius) throws CommandSyntaxException {
+        BlockPos pos = BlockPosArgument.getBlockPos(ctx, "pos");
+        CommandSourceStack src = ctx.getSource();
+        ResourceLocation dim = src.getLevel().dimension().location();
+        JailRegistry.assign(src.getServer(), new JailAnchor(pos, dim, radius));
+        src.sendSuccess(() -> Component.translatable("mcacrime.command.assignjail.ok", pos.toShortString(), radius), true);
+        return 1;
     }
 
     // --- op debug: exercises the whole McaCompat adapter end-to-end ---

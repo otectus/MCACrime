@@ -1,5 +1,6 @@
 package dev.otectus.mcacrime.state.world;
 
+import dev.otectus.mcacrime.jail.JailAnchor;
 import dev.otectus.mcacrime.ledger.CrimeRecord;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
@@ -32,12 +33,14 @@ public final class CrimeWorldData extends SavedData {
     public static final String DATA_NAME = "mcacrime";
 
     /** NBT keys reserved for later-phase structures; preserved verbatim across save/load. */
-    private static final String[] RESERVED_KEYS = {"bounties", "custody", "jailRoster"};
+    private static final String[] RESERVED_KEYS = {"bounties", "custody"};
 
     /** villageId -> (playerUuid -> reputation delta). LinkedHashMap for stable save ordering. */
     private final Map<Integer, Map<UUID, Integer>> villageReputation = new LinkedHashMap<>();
     /** The crime ledger (§2.2): one entry per serious crime, persistent until resolved. */
     private final List<CrimeRecord> ledger = new ArrayList<>();
+    /** Assigned jail anchors (§7.4 command-based assignment). */
+    private final List<JailAnchor> jailAnchors = new ArrayList<>();
     /** Verbatim copy of any reserved later-phase tags found on disk, re-emitted untouched on save. */
     private final CompoundTag reserved = new CompoundTag();
 
@@ -101,6 +104,17 @@ public final class CrimeWorldData extends SavedData {
         return ledger.size();
     }
 
+    // --- jail anchors (§7.4) ---
+
+    public void addJailAnchor(JailAnchor anchor) {
+        jailAnchors.add(anchor);
+        setDirty();
+    }
+
+    public List<JailAnchor> jailAnchors() {
+        return new ArrayList<>(jailAnchors);
+    }
+
     // --- persistence ---
 
     @Override
@@ -118,6 +132,12 @@ public final class CrimeWorldData extends SavedData {
             ledgerList.add(record.save());
         }
         tag.put("ledger", ledgerList);
+
+        ListTag anchorList = new ListTag();
+        for (JailAnchor anchor : jailAnchors) {
+            anchorList.add(anchor.save());
+        }
+        tag.put("jailRoster", anchorList);
 
         // Re-emit reserved later-phase slots untouched.
         for (String key : RESERVED_KEYS) {
@@ -158,6 +178,14 @@ public final class CrimeWorldData extends SavedData {
                 data.ledger.add(CrimeRecord.load(ledgerList.getCompound(i)));
             } catch (RuntimeException e) {
                 // skip a malformed ledger entry rather than dropping the whole store
+            }
+        }
+
+        ListTag anchorList = tag.getList("jailRoster", Tag.TAG_COMPOUND);
+        for (int i = 0; i < anchorList.size(); i++) {
+            JailAnchor anchor = JailAnchor.load(anchorList.getCompound(i));
+            if (anchor != null) {
+                data.jailAnchors.add(anchor);
             }
         }
 

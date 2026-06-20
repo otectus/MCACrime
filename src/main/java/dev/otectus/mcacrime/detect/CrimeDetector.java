@@ -20,6 +20,7 @@ import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraftforge.common.MinecraftForge;
 
+import javax.annotation.Nullable;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
@@ -79,20 +80,27 @@ public final class CrimeDetector {
     // ------------------------------------------------------------------ commit
 
     private static void commit(ServerPlayer offender, LivingEntity victim, ResourceLocation crimeId, ServerLevel level) {
+        int witnessCount = WitnessChecker.countWitnesses(level, victim);
+        commitDirect(offender, crimeId, victim, level, witnessCount > 0, witnessCount);
+    }
+
+    /**
+     * Shared commit tail (spec §3.5, §2.2): apply Karma/Heat via {@link CrimeState}, write the ledger, fire
+     * {@code CrimeWitnessed}/{@code CrimeCommitted}. {@code victim} may be null for victimless crimes (e.g.
+     * a {@code jailbreak}, which is inherently witnessed by the law). Fail-safe: unknown crime id → no-op.
+     */
+    public static void commitDirect(ServerPlayer offender, ResourceLocation crimeId, @Nullable LivingEntity victim,
+                                    ServerLevel level, boolean witnessed, int witnessCount) {
         Optional<CrimeType> typeOpt = CrimeTypeRegistry.getOrBuiltin(crimeId);
         if (typeOpt.isEmpty()) {
-            McaCrime.LOGGER.debug("No crime type (or builtin) for '{}'; skipping detection", crimeId);
+            McaCrime.LOGGER.debug("No crime type (or builtin) for '{}'; skipping", crimeId);
             return;
         }
         CrimeType type = typeOpt.get();
         McaCrimeConfig.Common c = McaCrimeConfig.COMMON;
 
-        int witnessCount = WitnessChecker.countWitnesses(level, victim);
-        boolean witnessed = witnessCount > 0;
-
         long karmaApplied = karmaFor(type, witnessed, c.unwitnessedKarmaFactor.get());
         long heatApplied = heatFor(type, witnessed, c.requireWitnessForHeat.get());
-
         if (karmaApplied != 0L) {
             CrimeState.addKarma(offender, karmaApplied, KarmaSource.CRIME);
         }
@@ -101,8 +109,8 @@ public final class CrimeDetector {
         }
 
         UUID recordId = UUID.randomUUID();
-        UUID victimId = victim.getUUID();
-        OptionalInt villageId = McaCompat.getHomeVillageId(victim);
+        UUID victimId = victim == null ? null : victim.getUUID();
+        OptionalInt villageId = victim == null ? OptionalInt.empty() : McaCompat.getHomeVillageId(victim);
         MinecraftServer server = offender.getServer();
         if (server != null) {
             CrimeLedger.record(server, new CrimeRecord(recordId, offender.getUUID(), victimId, crimeId,

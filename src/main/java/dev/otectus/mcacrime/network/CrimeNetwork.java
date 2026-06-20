@@ -3,6 +3,8 @@ package dev.otectus.mcacrime.network;
 import dev.otectus.mcacrime.McaCrime;
 import dev.otectus.mcacrime.crime.Band;
 import dev.otectus.mcacrime.engine.CrimeState;
+import dev.otectus.mcacrime.enforcement.LegalTarget;
+import dev.otectus.mcacrime.jail.JailService;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraftforge.network.NetworkRegistry;
@@ -41,13 +43,15 @@ public final class CrimeNetwork {
                 BandBulkSyncS2CPacket::encode, BandBulkSyncS2CPacket::decode, BandBulkSyncS2CPacket::handle);
     }
 
-    /** Pushes the player's own card data (karma/heat/band/wanted) to their client. */
+    /** Pushes the player's own card data (karma/heat/band/wanted/jail/legal-target) to their client. */
     public static void sendSelfStatus(ServerPlayer player) {
         CHANNEL.send(PacketDistributor.PLAYER.with(() -> player), new SelfStatusS2CPacket(
                 CrimeState.getKarma(player),
                 CrimeState.getHeat(player),
                 CrimeState.getBand(player),
-                CrimeState.isWanted(player)));
+                CrimeState.isWanted(player),
+                JailService.remainingTicks(player),
+                LegalTarget.isLegalTarget(player)));
     }
 
     /** Broadcasts one player's band to every client (for nameplate coloring). */

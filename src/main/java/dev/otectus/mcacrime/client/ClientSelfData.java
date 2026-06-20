@@ -12,15 +12,19 @@ public final class ClientSelfData {
     private static volatile long heat;
     private static volatile Band band = Band.GREY;
     private static volatile boolean wanted;
+    private static volatile long jailRemainingTicks;
+    private static volatile boolean legalTarget;
 
     private ClientSelfData() {
     }
 
-    public static void update(long karma, long heat, Band band, boolean wanted) {
+    public static void update(long karma, long heat, Band band, boolean wanted, long jailRemainingTicks, boolean legalTarget) {
         ClientSelfData.karma = karma;
         ClientSelfData.heat = heat;
         ClientSelfData.band = band;
         ClientSelfData.wanted = wanted;
+        ClientSelfData.jailRemainingTicks = jailRemainingTicks;
+        ClientSelfData.legalTarget = legalTarget;
     }
 
     public static void clear() {
@@ -28,6 +32,8 @@ public final class ClientSelfData {
         heat = 0L;
         band = Band.GREY;
         wanted = false;
+        jailRemainingTicks = 0L;
+        legalTarget = false;
     }
 
     public static long karma() {
@@ -44,5 +50,13 @@ public final class ClientSelfData {
 
     public static boolean wanted() {
         return wanted;
+    }
+
+    public static long jailRemainingTicks() {
+        return jailRemainingTicks;
+    }
+
+    public static boolean legalTarget() {
+        return legalTarget;
     }
 }

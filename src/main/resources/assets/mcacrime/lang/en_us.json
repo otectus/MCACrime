@@ -9,6 +9,9 @@
   "mcacrime.card.heat": "Heat: %s",
   "mcacrime.card.wanted": "WANTED",
   "mcacrime.card.not_wanted": "Not Wanted",
+  "mcacrime.card.jail": "Jail: %s",
+  "mcacrime.card.jail.free": "—",
+  "mcacrime.card.legaltarget": "LEGAL TARGET",
   "mcacrime.card.button.tooltip": "Reputation",
 
   "mcacrime.command.karma": "Karma: %s (%s)",
@@ -27,6 +30,28 @@
   "mcacrime.command.ledger.header": "Crime ledger for %s (%s record(s)):",
   "mcacrime.command.reload.start": "Reloading crime definitions...",
   "mcacrime.command.reload.done": "Crime types reloaded: %s loaded, %s error(s).",
+  "mcacrime.command.jail.ok": "Jailed %s for %s ticks.",
+  "mcacrime.command.jail.refused": "Cannot jail %s: no jail assigned. Use /crime assignjail or enable jailFallback in config.",
+  "mcacrime.command.release.ok": "Released %s from jail.",
+  "mcacrime.command.release.notjailed": "%s is not jailed.",
+  "mcacrime.command.assignjail.ok": "Assigned a jail at %s (radius %s).",
   "mcacrime.command.debug.none": "No MCA villager within %s blocks.",
-  "mcacrime.command.not_player": "This command must be run by a player."
+  "mcacrime.command.not_player": "This command must be run by a player.",
+
+  "mcacrime.jail.jailed": "You have been jailed for %s seconds (online time).",
+  "mcacrime.jail.released.served": "You have served your sentence and are free to go.",
+  "mcacrime.jail.released.cap": "You have been released (maximum captivity time reached).",
+  "mcacrime.jail.released.admin": "You have been released by an administrator.",
+  "mcacrime.jail.released.pardon": "You have been pardoned.",
+  "mcacrime.jail.released.invalid": "Your jail no longer exists; you have been released.",
+
+  "mcacrime.fine.disabled": "Fines are disabled on this server.",
+  "mcacrime.fine.notfinable": "Your crimes are too serious to fine away — you must serve jail or surrender.",
+  "mcacrime.fine.barred": "Outlaws cannot pay a fine until they surrender. Use /crime surrender near a guard.",
+  "mcacrime.fine.nothing": "You have no fine to pay.",
+  "mcacrime.fine.need": "You need %s emeralds to pay your fine.",
+  "mcacrime.fine.paid": "Paid a fine of %s emeralds. You are no longer Wanted.",
+
+  "mcacrime.surrender.noauthority": "There is no guard, jail, or lawful authority nearby to surrender to.",
+  "mcacrime.surrender.done": "You surrender. Your Heat is reduced and any sentence is shortened."
 }

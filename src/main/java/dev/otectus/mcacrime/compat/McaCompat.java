@@ -9,6 +9,9 @@ import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.Mob;
+import net.minecraft.world.entity.PathfinderMob;
+import net.minecraft.world.phys.Vec3;
 
 import java.util.Optional;
 import java.util.OptionalInt;
@@ -137,5 +140,60 @@ public final class McaCompat {
             }
         }
         return Optional.empty();
+    }
+
+    /**
+     * Makes an MCA guard pursue a player (spec §4.4). Best-effort: MCA guards use the Brain/behavior system
+     * (a {@code NEAREST_GUARD_ENEMY} memory reclaimed by a sensor each tick) with no public make-hostile API,
+     * so the reliable lever is vanilla {@code Mob.setTarget}, re-applied periodically by the enforcement
+     * scan. Fail-safe: a no-op (returns false) for non-guards or on any error. <b>Server side only.</b>
+     */
+    public static boolean setGuardTarget(Entity guard, ServerPlayer target) {
+        if (!isGuard(guard) || !(guard instanceof Mob mob)) {
+            return false;
+        }
+        try {
+            mob.setTarget(target);
+            return true;
+        } catch (Throwable t) {
+            McaCrime.LOGGER.debug("MCA setGuardTarget failed; ignoring", t);
+            return false;
+        }
+    }
+
+    /** Clears a guard's target if it has one. Best-effort, server side only. */
+    public static void clearGuardTarget(Entity guard) {
+        if (guard instanceof Mob mob) {
+            try {
+                if (mob.getTarget() != null) {
+                    mob.setTarget(null);
+                }
+            } catch (Throwable t) {
+                McaCrime.LOGGER.debug("MCA clearGuardTarget failed; ignoring", t);
+            }
+        }
+    }
+
+    /**
+     * Best-effort "flee" for an MCA villager away from a (Red) player (spec §4.1): paths the villager away
+     * using vanilla navigation, so it works without depending on MCA-internal AI. Fail-safe no-op on any
+     * error. <b>Server side only.</b>
+     */
+    public static boolean makeVillagerFlee(Entity villager, ServerPlayer from) {
+        if (!isMcaVillager(villager) || !(villager instanceof PathfinderMob mob)) {
+            return false;
+        }
+        try {
+            Vec3 away = mob.position().subtract(from.position());
+            if (away.lengthSqr() < 1.0E-4) {
+                away = new Vec3(1, 0, 0);
+            }
+            Vec3 dest = mob.position().add(away.normalize().scale(8.0));
+            mob.getNavigation().moveTo(dest.x, dest.y, dest.z, 1.2);
+            return true;
+        } catch (Throwable t) {
+            McaCrime.LOGGER.debug("MCA makeVillagerFlee failed; ignoring", t);
+            return false;
+        }
     }
 }

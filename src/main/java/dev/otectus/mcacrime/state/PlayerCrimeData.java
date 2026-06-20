@@ -1,6 +1,7 @@
 package dev.otectus.mcacrime.state;
 
 import dev.otectus.mcacrime.crime.Band;
+import dev.otectus.mcacrime.jail.JailState;
 import net.minecraft.nbt.CompoundTag;
 
 import javax.annotation.Nullable;
@@ -42,6 +43,10 @@ public final class PlayerCrimeData {
     /** Reserved (Phase 4): the captor currently holding this player. */
     @Nullable
     private UUID heldByRef;
+
+    /** Active jail sentence (spec §2.1, §7), or null if not jailed. Copied on death so jail survives (§7.1). */
+    @Nullable
+    private JailState jail;
 
     public long getKarma() {
         return karma;
@@ -126,6 +131,19 @@ public final class PlayerCrimeData {
         this.heldByRef = heldByRef;
     }
 
+    @Nullable
+    public JailState getJail() {
+        return jail;
+    }
+
+    public void setJail(@Nullable JailState jail) {
+        this.jail = jail;
+    }
+
+    public boolean isJailed() {
+        return jail != null;
+    }
+
     public void copyFrom(PlayerCrimeData other) {
         this.karma = other.karma;
         this.heat = other.heat;
@@ -137,6 +155,7 @@ public final class PlayerCrimeData {
         this.dailyKarmaCounters.copyFrom(other.dailyKarmaCounters);
         this.heldCaptiveRef = other.heldCaptiveRef;
         this.heldByRef = other.heldByRef;
+        this.jail = other.jail == null ? null : other.jail.copy(); // death does NOT clear jail (§7.1)
     }
 
     public CompoundTag save() {
@@ -154,6 +173,9 @@ public final class PlayerCrimeData {
         }
         if (heldByRef != null) {
             tag.putUUID("heldByRef", heldByRef);
+        }
+        if (jail != null) {
+            tag.put("jail", jail.save());
         }
         return tag;
     }
@@ -174,6 +196,7 @@ public final class PlayerCrimeData {
         }
         heldCaptiveRef = tag.hasUUID("heldCaptiveRef") ? tag.getUUID("heldCaptiveRef") : null;
         heldByRef = tag.hasUUID("heldByRef") ? tag.getUUID("heldByRef") : null;
+        jail = tag.contains("jail") ? JailState.load(tag.getCompound("jail")) : null;
     }
 
     private static Band parseBand(String name) {

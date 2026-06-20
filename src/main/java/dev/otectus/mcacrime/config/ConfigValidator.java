@@ -81,6 +81,20 @@ public final class ConfigValidator {
         registryCheck("protectedEntities", c.protectedEntities.get(), problems);
         registryCheck("responderEntities", c.responderEntities.get(), problems);
 
+        // Jail / fine sanity (spec §6, §7, §12.3).
+        if (c.jailableHeatThreshold.get() < c.wantedHeatThreshold.get()) {
+            problems.add("jailableHeatThreshold (" + c.jailableHeatThreshold.get()
+                    + ") should be at least wantedHeatThreshold (" + c.wantedHeatThreshold.get() + ").");
+        }
+        if (c.jailFallbackEnabled.get()) {
+            if (ResourceLocation.tryParse(c.jailFallbackDim.get()) == null) {
+                problems.add("jailFallbackDim is not a valid dimension id: '" + c.jailFallbackDim.get() + "'.");
+            }
+            if (c.jailFallbackPos.get().size() < 3) {
+                problems.add("jailFallbackPos must list 3 coordinates [x, y, z].");
+            }
+        }
+
         // Surface crime-definition JSON parse errors from the last datapack load (spec §12.3).
         for (String crimeError : CrimeTypeRegistry.lastErrors()) {
             problems.add("Crime JSON: " + crimeError);

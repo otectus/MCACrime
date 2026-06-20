@@ -2,6 +2,7 @@ package dev.otectus.mcacrime.engine;
 
 import dev.otectus.mcacrime.McaCrime;
 import dev.otectus.mcacrime.event.CrimeBandSync;
+import dev.otectus.mcacrime.jail.JailService;
 import dev.otectus.mcacrime.network.CrimeNetwork;
 import dev.otectus.mcacrime.state.world.CrimeWorldData;
 import net.minecraft.server.MinecraftServer;
@@ -38,6 +39,7 @@ public final class CrimeReconciler {
             CrimeWorldData.get(server).setDirty();
         }
         CrimeState.recomputeDerived(player);
+        JailService.reconcileOnLogin(player); // free a player whose jail became unusable (§7.4 no softlock)
         CrimeNetwork.sendSelfStatus(player);
         CrimeBandSync.syncOnLogin(player);
     }

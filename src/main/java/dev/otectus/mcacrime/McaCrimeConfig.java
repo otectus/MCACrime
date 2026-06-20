@@ -1,5 +1,6 @@
 package dev.otectus.mcacrime;
 
+import dev.otectus.mcacrime.jail.JailContainmentMode;
 import net.minecraftforge.common.ForgeConfigSpec;
 import org.apache.commons.lang3.tuple.Pair;
 
@@ -72,12 +73,16 @@ public final class McaCrimeConfig {
         public final ForgeConfigSpec.IntValue perPlayerDailyKarmaCap;
         public final ForgeConfigSpec.DoubleValue diminishingReturnsFactor;
 
-        // enforcement (§4, §5.2) — skeleton
+        // enforcement (§4, §5.2)
         public final ForgeConfigSpec.BooleanValue pvpCountsAsCrime;
         public final ForgeConfigSpec.BooleanValue raidGrace;
         public final ForgeConfigSpec.BooleanValue redIsLegalTarget;
         public final ForgeConfigSpec.BooleanValue allowKillingRed;
         public final ForgeConfigSpec.BooleanValue globalCrimePropagation;
+        public final ForgeConfigSpec.DoubleValue guardAggroRadius;
+        public final ForgeConfigSpec.IntValue guardScanIntervalTicks;
+        public final ForgeConfigSpec.BooleanValue enableVillagerFlee;
+        public final ForgeConfigSpec.DoubleValue villagerFleeRadius;
 
         // kidnapping (§8) — skeleton
         public final ForgeConfigSpec.BooleanValue enableKidnappingNpc;
@@ -89,11 +94,26 @@ public final class McaCrimeConfig {
         public final ForgeConfigSpec.IntValue maxActiveNpcCrimesPerVillage;
         public final ForgeConfigSpec.IntValue minTimeBetweenNpcCrimes;
 
-        // jail (§6, §7) — skeleton
+        // jail (§6, §7)
         public final ForgeConfigSpec.BooleanValue enableFines;
         public final ForgeConfigSpec.BooleanValue enableBail;
         public final ForgeConfigSpec.IntValue maxCaptivityRealMinutes;
         public final ForgeConfigSpec.EnumValue<JailContainmentMode> jailContainmentMode;
+        public final ForgeConfigSpec.IntValue maxJailCommandTicks;
+        public final ForgeConfigSpec.IntValue jailRadiusDefault;
+        public final ForgeConfigSpec.BooleanValue jailFallbackEnabled;
+        public final ForgeConfigSpec.ConfigValue<List<? extends Integer>> jailFallbackPos;
+        public final ForgeConfigSpec.ConfigValue<String> jailFallbackDim;
+
+        // fines + surrender (§6)
+        public final ForgeConfigSpec.IntValue fineBase;
+        public final ForgeConfigSpec.IntValue finePerHeat;
+        public final ForgeConfigSpec.IntValue jailableHeatThreshold;
+        public final ForgeConfigSpec.DoubleValue blueFineMultiplier;
+        public final ForgeConfigSpec.BooleanValue redCanPayFine;
+        public final ForgeConfigSpec.DoubleValue surrenderNearRadius;
+        public final ForgeConfigSpec.IntValue surrenderHeatReduction;
+        public final ForgeConfigSpec.IntValue surrenderSentenceReductionPct;
 
         // protected / responder entities (§9, §15) — validated by /crime validate
         public final ForgeConfigSpec.ConfigValue<List<? extends String>> protectedEntities;
@@ -174,6 +194,14 @@ public final class McaCrimeConfig {
             allowKillingRed = b.define("allowKillingRed", false);
             globalCrimePropagation = b.comment("If true, a crime in one village sours every village.")
                     .define("globalCrimePropagation", false);
+            guardAggroRadius = b.comment("How far (blocks) a guard is made to pursue a Legal-Target player.")
+                    .defineInRange("guardAggroRadius", 16.0, 1.0, 128.0);
+            guardScanIntervalTicks = b.comment("Server ticks between guard-pursuit scans (also the re-apply cadence).")
+                    .defineInRange("guardScanIntervalTicks", 10, 1, 200);
+            enableVillagerFlee = b.comment("Make villagers flee Red players.")
+                    .define("enableVillagerFlee", true);
+            villagerFleeRadius = b.comment("How close (blocks) a Red player must be for villagers to flee.")
+                    .defineInRange("villagerFleeRadius", 10.0, 1.0, 64.0);
             b.pop();
 
             b.push("kidnapping");
@@ -197,6 +225,38 @@ public final class McaCrimeConfig {
                     .defineInRange("maxCaptivityRealMinutes", 360, 1, 100_000);
             jailContainmentMode = b.comment("How jail blocks resist escape: CONTAINMENT, PHYSICAL, or REINFORCED.")
                     .defineEnum("jailContainmentMode", JailContainmentMode.CONTAINMENT);
+            maxJailCommandTicks = b.comment("Upper clamp on a /crime jail sentence (online ticks; 72000 = 1 online hour).")
+                    .defineInRange("maxJailCommandTicks", 72000, 1, 100_000_000);
+            jailRadiusDefault = b.comment("Default jail-region radius for /crime assignjail and the fallback.")
+                    .defineInRange("jailRadiusDefault", 8, 1, 64);
+            jailFallbackEnabled = b.comment("If true, jail at jailFallbackPos when no anchor is assigned (instead of refusing).")
+                    .define("jailFallbackEnabled", false);
+            jailFallbackPos = b.comment("Fallback jail position [x, y, z], used only when jailFallbackEnabled.")
+                    .defineList("jailFallbackPos", List.of(0, 64, 0), o -> o instanceof Integer);
+            jailFallbackDim = b.comment("Dimension id for the fallback jail position.")
+                    .define("jailFallbackDim", "minecraft:overworld");
+            b.pop();
+
+            b.push("fines");
+            fineBase = b.comment("Flat emerald cost of a fine, before the per-Heat term.")
+                    .defineInRange("fineBase", 8, 0, 1_000_000);
+            finePerHeat = b.comment("Extra emeralds charged per point of Heat.")
+                    .defineInRange("finePerHeat", 1, 0, 1_000_000);
+            jailableHeatThreshold = b.comment("At/above this Heat a fine is refused — the offender must serve jail or surrender.")
+                    .defineInRange("jailableHeatThreshold", 80, 1, 1_000_000);
+            blueFineMultiplier = b.comment("Fine multiplier for Blue (lawful) offenders.")
+                    .defineInRange("blueFineMultiplier", 0.5, 0.0, 10.0);
+            redCanPayFine = b.comment("If false, Red (outlaw) players must /crime surrender before they can pay a fine.")
+                    .define("redCanPayFine", false);
+            b.pop();
+
+            b.push("surrender");
+            surrenderNearRadius = b.comment("How close (blocks) a guard / jail / Blue player must be to surrender.")
+                    .defineInRange("surrenderNearRadius", 8.0, 1.0, 64.0);
+            surrenderHeatReduction = b.comment("Heat removed on surrender (also forced below the jailable threshold).")
+                    .defineInRange("surrenderHeatReduction", 30, 0, 1_000_000);
+            surrenderSentenceReductionPct = b.comment("Percent of a remaining jail sentence waived on surrender.")
+                    .defineInRange("surrenderSentenceReductionPct", 25, 0, 100);
             b.pop();
 
             b.push("entities");
@@ -248,13 +308,6 @@ public final class McaCrimeConfig {
                     .define("captiveScreenToggle", true);
             b.pop();
         }
-    }
-
-    /** How jail blocks resist a prisoner mining out (spec §7.3). */
-    public enum JailContainmentMode {
-        CONTAINMENT,
-        PHYSICAL,
-        REINFORCED
     }
 
     /** Profession matching strategy (spec §12). */
