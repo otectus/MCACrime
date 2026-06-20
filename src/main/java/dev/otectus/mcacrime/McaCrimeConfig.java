@@ -84,10 +84,24 @@ public final class McaCrimeConfig {
         public final ForgeConfigSpec.BooleanValue enableVillagerFlee;
         public final ForgeConfigSpec.DoubleValue villagerFleeRadius;
 
-        // kidnapping (§8) — skeleton
+        // kidnapping / capture (§8) — read by the capture + custody services
         public final ForgeConfigSpec.BooleanValue enableKidnappingNpc;
         public final ForgeConfigSpec.BooleanValue enableKidnappingPlayer;
         public final ForgeConfigSpec.IntValue captureChannelTicks;
+        public final ForgeConfigSpec.DoubleValue captureMaxMoveBlocks;
+        public final ForgeConfigSpec.DoubleValue captureMaxRangeBlocks;
+        public final ForgeConfigSpec.BooleanValue captureRequireLineOfSight;
+        public final ForgeConfigSpec.DoubleValue captureLowHealthFraction;
+        public final ForgeConfigSpec.BooleanValue villagerCaptureRelaxedVulnerability;
+        public final ForgeConfigSpec.DoubleValue captureChannelMultiplierRope;
+        public final ForgeConfigSpec.DoubleValue captureChannelMultiplierCuffs;
+        public final ForgeConfigSpec.DoubleValue captureChannelMultiplierLockedCuffs;
+        public final ForgeConfigSpec.DoubleValue restraintEscapeChanceRope;
+        public final ForgeConfigSpec.DoubleValue restraintEscapeChanceCuffs;
+        public final ForgeConfigSpec.DoubleValue restraintEscapeChanceLockedCuffs;
+        public final ForgeConfigSpec.DoubleValue captiveTetherBlocks;
+        public final ForgeConfigSpec.BooleanValue captiveCanEscapeByDistance;
+        public final ForgeConfigSpec.BooleanValue npcCaptiveVirtualizeWhenUnloaded;
 
         // NPC crime (§9) — skeleton
         public final ForgeConfigSpec.BooleanValue enableNpcCrime;
@@ -119,9 +133,42 @@ public final class McaCrimeConfig {
         public final ForgeConfigSpec.ConfigValue<List<? extends String>> protectedEntities;
         public final ForgeConfigSpec.ConfigValue<List<? extends String>> responderEntities;
 
-        // ransom (§8.5) — skeleton
+        // ransom (§8.5) — read by the ransom service
         public final ForgeConfigSpec.IntValue ransomCooldownPerVictimTicks;
         public final ForgeConfigSpec.IntValue ransomCooldownPerVillageTicks;
+        public final ForgeConfigSpec.IntValue ransomCooldownPerFamilyTicks;
+        public final ForgeConfigSpec.IntValue ransomBaseAmount;
+        public final ForgeConfigSpec.DoubleValue ransomSpouseMultiplier;
+        public final ForgeConfigSpec.DoubleValue ransomParentMultiplier;
+        public final ForgeConfigSpec.DoubleValue ransomChildMultiplier;
+        public final ForgeConfigSpec.DoubleValue ransomSiblingMultiplier;
+        public final ForgeConfigSpec.DoubleValue ransomRelativeMultiplier;
+        public final ForgeConfigSpec.DoubleValue ransomVillageMultiplier;
+        public final ForgeConfigSpec.BooleanValue enableVillageRansomFallback;
+        public final ForgeConfigSpec.BooleanValue enableCloseFriendTier;
+        public final ForgeConfigSpec.IntValue ransomDemandTtlTicks;
+
+        // mugging (§8.6) — read by the mugging service
+        public final ForgeConfigSpec.BooleanValue enableMugging;
+        public final ForgeConfigSpec.IntValue muggingBaseLoot;
+        public final ForgeConfigSpec.BooleanValue enableProfessionDeathDrops;
+
+        // relationship consequences (§10.1, §11.3) — read by RelationshipConsequences
+        public final ForgeConfigSpec.IntValue directVictimHeartLoss;
+        public final ForgeConfigSpec.IntValue familyHeartLoss;
+        public final ForgeConfigSpec.IntValue witnessTrustLoss;
+        public final ForgeConfigSpec.IntValue villageRepDrop;
+        public final ForgeConfigSpec.IntValue rescueHeartGain;
+        public final ForgeConfigSpec.IntValue familyHeartGain;
+        public final ForgeConfigSpec.IntValue villageRepRise;
+        public final ForgeConfigSpec.IntValue restitutionHeartGain;
+        public final ForgeConfigSpec.DoubleValue restitutionFractionOfFine;
+
+        // ambient messages + chat coloring (§10.3) — read by AmbientMessages / ChatNameColor
+        public final ForgeConfigSpec.BooleanValue ambientMessagesEnabled;
+        public final ForgeConfigSpec.IntValue ambientMessageThrottleTicks;
+        public final ForgeConfigSpec.BooleanValue chatNameColorEnabled;
+        public final ForgeConfigSpec.EnumValue<NameColorMode> chatNameColorMode;
 
         // matching (§12) — skeleton (used when profession gating lands)
         public final ForgeConfigSpec.EnumValue<ProfessionMatchingMode> professionMatchingMode;
@@ -209,6 +256,31 @@ public final class McaCrimeConfig {
             enableKidnappingPlayer = b.define("enableKidnappingPlayer", true);
             captureChannelTicks = b.comment("Channel/cast duration to capture, broken by hit/move/line-of-sight loss.")
                     .defineInRange("captureChannelTicks", 60, 0, 6000);
+            captureMaxMoveBlocks = b.comment("The capture channel breaks if the captor moves more than this many blocks from where it started.")
+                    .defineInRange("captureMaxMoveBlocks", 1.5, 0.0, 64.0);
+            captureMaxRangeBlocks = b.comment("The capture channel breaks if the target moves beyond this many blocks of the captor.")
+                    .defineInRange("captureMaxRangeBlocks", 4.0, 0.5, 64.0);
+            captureRequireLineOfSight = b.comment("The capture channel requires (and breaks on losing) line of sight to the target.")
+                    .define("captureRequireLineOfSight", true);
+            captureLowHealthFraction = b.comment("A player target counts as 'low health' (a capture vulnerability) at or below this fraction of max health.")
+                    .defineInRange("captureLowHealthFraction", 0.35, 0.0, 1.0);
+            villagerCaptureRelaxedVulnerability = b.comment("If true, ordinary (non-guard) villagers can be captured without meeting a vulnerability condition.")
+                    .define("villagerCaptureRelaxedVulnerability", true);
+            captureChannelMultiplierRope = b.comment("Per-restraint channel-duration multipliers (rope is faster, locked cuffs slower).")
+                    .defineInRange("captureChannelMultiplierRope", 0.6, 0.1, 10.0);
+            captureChannelMultiplierCuffs = b.defineInRange("captureChannelMultiplierCuffs", 1.0, 0.1, 10.0);
+            captureChannelMultiplierLockedCuffs = b.defineInRange("captureChannelMultiplierLockedCuffs", 1.5, 0.1, 10.0);
+            restraintEscapeChanceRope = b.comment("Per-attempt chance a captive breaks free of each restraint.")
+                    .defineInRange("restraintEscapeChanceRope", 0.25, 0.0, 1.0);
+            restraintEscapeChanceCuffs = b.defineInRange("restraintEscapeChanceCuffs", 0.08, 0.0, 1.0);
+            restraintEscapeChanceLockedCuffs = b.comment("Locked cuffs: 0 means escape needs a key/rescue (Phase 7), not a roll.")
+                    .defineInRange("restraintEscapeChanceLockedCuffs", 0.0, 0.0, 1.0);
+            captiveTetherBlocks = b.comment("How far (blocks) a captive may stray from the hold point before being tethered back or (if allowed) escaping.")
+                    .defineInRange("captiveTetherBlocks", 6.0, 1.0, 128.0);
+            captiveCanEscapeByDistance = b.comment("If true, a kidnapping captive who strays past the tether escapes (no crime); if false they are pulled back.")
+                    .define("captiveCanEscapeByDistance", true);
+            npcCaptiveVirtualizeWhenUnloaded = b.comment("If true, an NPC captive in an unloaded chunk is virtually contained instead of force-loading the chunk.")
+                    .define("npcCaptiveVirtualizeWhenUnloaded", true);
             b.pop();
 
             b.push("npccrime");
@@ -269,6 +341,57 @@ public final class McaCrimeConfig {
             b.push("ransom");
             ransomCooldownPerVictimTicks = b.defineInRange("ransomCooldownPerVictimTicks", 24000, 0, 10_000_000);
             ransomCooldownPerVillageTicks = b.defineInRange("ransomCooldownPerVillageTicks", 12000, 0, 10_000_000);
+            ransomCooldownPerFamilyTicks = b.defineInRange("ransomCooldownPerFamilyTicks", 24000, 0, 10_000_000);
+            ransomBaseAmount = b.comment("Base emerald ransom before per-relationship multipliers.")
+                    .defineInRange("ransomBaseAmount", 16, 0, 1_000_000);
+            ransomSpouseMultiplier = b.comment("Per-payer-tier ransom multipliers (spouse pays most; see payer priority in spec §8.5).")
+                    .defineInRange("ransomSpouseMultiplier", 2.0, 0.0, 100.0);
+            ransomParentMultiplier = b.defineInRange("ransomParentMultiplier", 1.5, 0.0, 100.0);
+            ransomChildMultiplier = b.defineInRange("ransomChildMultiplier", 1.5, 0.0, 100.0);
+            ransomSiblingMultiplier = b.defineInRange("ransomSiblingMultiplier", 1.2, 0.0, 100.0);
+            ransomRelativeMultiplier = b.defineInRange("ransomRelativeMultiplier", 1.0, 0.0, 100.0);
+            ransomVillageMultiplier = b.comment("Multiplier for the village-authority fallback ransom (the lower-value downgrade).")
+                    .defineInRange("ransomVillageMultiplier", 0.75, 0.0, 100.0);
+            enableVillageRansomFallback = b.comment("If no family payer can be found, fall back to a lower-value village-authority ransom (spec §8.5).")
+                    .define("enableVillageRansomFallback", true);
+            enableCloseFriendTier = b.comment("MCA has no NPC-to-NPC friendship edge; this tier is off by default and degrades to the village fallback.")
+                    .define("enableCloseFriendTier", false);
+            ransomDemandTtlTicks = b.comment("How long an open ransom demand stands before it expires.")
+                    .defineInRange("ransomDemandTtlTicks", 12000, 0, 10_000_000);
+            b.pop();
+
+            b.push("mugging");
+            enableMugging = b.define("enableMugging", true);
+            muggingBaseLoot = b.comment("Emeralds a villager 'pays' on a successful mugging.")
+                    .defineInRange("muggingBaseLoot", 4, 0, 1_000_000);
+            enableProfessionDeathDrops = b.comment("If true, a villager killed while resisting a mugging drops profession loot; default false favors robbery over murder (§8.6).")
+                    .define("enableProfessionDeathDrops", false);
+            b.pop();
+
+            b.push("relationship");
+            directVictimHeartLoss = b.comment("Hearts the victim loses toward an offender who harms/mugs/kills them (§10.1).")
+                    .defineInRange("directVictimHeartLoss", 2, 0, 1000);
+            familyHeartLoss = b.defineInRange("familyHeartLoss", 1, 0, 1000);
+            witnessTrustLoss = b.defineInRange("witnessTrustLoss", 1, 0, 1000);
+            villageRepDrop = b.defineInRange("villageRepDrop", 2, 0, 1000);
+            rescueHeartGain = b.comment("Hearts the rescued villager (and family) gain toward a rescuer (§10.1).")
+                    .defineInRange("rescueHeartGain", 3, 0, 1000);
+            familyHeartGain = b.defineInRange("familyHeartGain", 2, 0, 1000);
+            villageRepRise = b.defineInRange("villageRepRise", 2, 0, 1000);
+            restitutionHeartGain = b.defineInRange("restitutionHeartGain", 2, 0, 1000);
+            restitutionFractionOfFine = b.comment("Fraction of a paid fine conceptually returned to the victim as relationship recovery (§11.3).")
+                    .defineInRange("restitutionFractionOfFine", 0.5, 0.0, 1.0);
+            b.pop();
+
+            b.push("messages");
+            ambientMessagesEnabled = b.comment("Send the player on-screen messages on band change, witnessed crime, and guard pursuit (spec §10.3).")
+                    .define("ambientMessagesEnabled", true);
+            ambientMessageThrottleTicks = b.comment("Minimum ticks between repeated ambient messages of the same kind to one player.")
+                    .defineInRange("ambientMessageThrottleTicks", 100, 0, 100_000);
+            chatNameColorEnabled = b.comment("Color player names in chat by band, server-side (the authoritative switch; the client chatFormatToggle is a display hint).")
+                    .define("chatNameColorEnabled", false);
+            chatNameColorMode = b.comment("FULL recolors the chat name; PREFIX_ONLY adds a colored marker and leaves the name untouched.")
+                    .defineEnum("chatNameColorMode", NameColorMode.FULL);
             b.pop();
 
             b.push("matching");

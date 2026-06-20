@@ -6,12 +6,14 @@ import dev.otectus.mcacrime.api.event.CrimeCommittedEvent;
 import dev.otectus.mcacrime.api.event.CrimeWitnessedEvent;
 import dev.otectus.mcacrime.compat.McaCompat;
 import dev.otectus.mcacrime.crime.KarmaSource;
+import dev.otectus.mcacrime.crime.type.CrimeIds;
 import dev.otectus.mcacrime.crime.type.CrimeType;
 import dev.otectus.mcacrime.crime.type.CrimeTypeRegistry;
 import dev.otectus.mcacrime.engine.CrimeState;
 import dev.otectus.mcacrime.ledger.CrimeLedger;
 import dev.otectus.mcacrime.ledger.CrimeRecord;
 import dev.otectus.mcacrime.ledger.Resolution;
+import dev.otectus.mcacrime.mug.MuggingService;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
@@ -74,7 +76,12 @@ public final class CrimeDetector {
         if (offenderOpt.isEmpty()) {
             return;
         }
-        commit(offenderOpt.get(), victim, CrimeClassifier.classifyKill(victim), level);
+        ServerPlayer offender = offenderOpt.get();
+        // A villager killed while being mugged is the heavier mugging_murder, not a plain kill (§8.6).
+        ResourceLocation crimeId = MuggingService.wasMugging(offender.getUUID(), victim.getUUID(), level.getGameTime())
+                ? CrimeIds.MUGGING_MURDER
+                : CrimeClassifier.classifyKill(victim);
+        commit(offender, victim, crimeId, level);
     }
 
     // ------------------------------------------------------------------ commit

@@ -44,6 +44,7 @@ public final class SurrenderService {
         CrimeState.setHeat(player, Math.min(reduced, finableCeiling));
 
         CrimeCapabilities.get(player).ifPresent(data -> {
+            data.setLastSurrenderTick(data.getOnlineTicksLived()); // a transient capture vulnerability (§8.2)
             JailState jail = data.getJail();
             if (jail != null) {
                 jail.setEscaped(false); // stop resisting arrest

@@ -47,4 +47,17 @@ public final class EmeraldCurrency implements Currency {
         inv.setChanged();
         return true;
     }
+
+    /** Gives {@code amount} emeralds to a player (ransom payout, mug loot); overflow drops at their feet. */
+    public void grant(ServerPlayer player, long amount) {
+        long remaining = Math.max(0L, amount);
+        while (remaining > 0L) {
+            int stackSize = (int) Math.min(remaining, Items.EMERALD.getMaxStackSize());
+            ItemStack stack = new ItemStack(Items.EMERALD, stackSize);
+            if (!player.getInventory().add(stack)) {
+                player.drop(stack, false);
+            }
+            remaining -= stackSize;
+        }
+    }
 }

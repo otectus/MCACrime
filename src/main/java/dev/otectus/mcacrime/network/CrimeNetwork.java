@@ -1,11 +1,15 @@
 package dev.otectus.mcacrime.network;
 
 import dev.otectus.mcacrime.McaCrime;
+import dev.otectus.mcacrime.McaCrimeConfig;
+import dev.otectus.mcacrime.captivity.CustodyRecord;
 import dev.otectus.mcacrime.crime.Band;
 import dev.otectus.mcacrime.engine.CrimeState;
 import dev.otectus.mcacrime.enforcement.LegalTarget;
 import dev.otectus.mcacrime.jail.JailService;
+import dev.otectus.mcacrime.state.world.CrimeWorldData;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraftforge.network.NetworkRegistry;
 import net.minecraftforge.network.PacketDistributor;
@@ -41,6 +45,8 @@ public final class CrimeNetwork {
                 BandSyncS2CPacket::encode, BandSyncS2CPacket::decode, BandSyncS2CPacket::handle);
         CHANNEL.registerMessage(nextId++, BandBulkSyncS2CPacket.class,
                 BandBulkSyncS2CPacket::encode, BandBulkSyncS2CPacket::decode, BandBulkSyncS2CPacket::handle);
+        CHANNEL.registerMessage(nextId++, CaptiveStatusS2CPacket.class,
+                CaptiveStatusS2CPacket::encode, CaptiveStatusS2CPacket::decode, CaptiveStatusS2CPacket::handle);
     }
 
     /** Pushes the player's own card data (karma/heat/band/wanted/jail/legal-target) to their client. */
@@ -52,6 +58,31 @@ public final class CrimeNetwork {
                 CrimeState.isWanted(player),
                 JailService.remainingTicks(player),
                 LegalTarget.isLegalTarget(player)));
+    }
+
+    /** Pushes the player's own captivity status (held? lawful? captor? cap remaining?) to their client. */
+    public static void sendCaptiveStatus(ServerPlayer player) {
+        MinecraftServer server = player.getServer();
+        boolean captive = false;
+        boolean lawful = false;
+        String captor = "";
+        long capRemaining = 0L;
+        if (server != null) {
+            CustodyRecord record = CrimeWorldData.get(server).getCustody(player.getUUID());
+            if (record != null) {
+                captive = true;
+                lawful = record.isLawful();
+                long capTicks = (long) McaCrimeConfig.COMMON.maxCaptivityRealMinutes.get() * 1200L;
+                capRemaining = Math.max(0L, capTicks - record.getRealTicksHeld());
+                UUID owner = record.getOwner().ownerUuid().orElse(null);
+                ServerPlayer captorPlayer = owner == null ? null : server.getPlayerList().getPlayer(owner);
+                if (captorPlayer != null) {
+                    captor = captorPlayer.getGameProfile().getName();
+                }
+            }
+        }
+        CHANNEL.send(PacketDistributor.PLAYER.with(() -> player),
+                new CaptiveStatusS2CPacket(captive, lawful, captor, capRemaining));
     }
 
     /** Broadcasts one player's band to every client (for nameplate coloring). */

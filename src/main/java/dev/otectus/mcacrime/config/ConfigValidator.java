@@ -95,6 +95,17 @@ public final class ConfigValidator {
             }
         }
 
+        // Ransom table sanity (spec §8.5, §12.3): catch a table that can never produce a real demand.
+        if (c.ransomDemandTtlTicks.get() == 0) {
+            problems.add("ransomDemandTtlTicks is 0 — open ransom demands would expire instantly.");
+        }
+        boolean allTiersZero = c.ransomSpouseMultiplier.get() == 0.0 && c.ransomParentMultiplier.get() == 0.0
+                && c.ransomChildMultiplier.get() == 0.0 && c.ransomSiblingMultiplier.get() == 0.0
+                && c.ransomRelativeMultiplier.get() == 0.0 && c.ransomVillageMultiplier.get() == 0.0;
+        if (c.ransomBaseAmount.get() > 0 && allTiersZero) {
+            problems.add("All ransom tier multipliers are 0 — every ransom would be free despite a non-zero base.");
+        }
+
         // Surface crime-definition JSON parse errors from the last datapack load (spec §12.3).
         for (String crimeError : CrimeTypeRegistry.lastErrors()) {
             problems.add("Crime JSON: " + crimeError);

@@ -34,6 +34,8 @@ public final class PlayerCrimeData {
     private long lastKarmaDecayTick;
     /** Online-tick anchor for the per-online-minute heat bleed-off. */
     private long lastHeatDecayTick;
+    /** Online-tick of the player's last {@code /crime surrender}, a transient capture vulnerability (§8.2). */
+    private long lastSurrenderTick;
 
     private final DailyKarmaCounters dailyKarmaCounters = new DailyKarmaCounters();
 
@@ -109,6 +111,14 @@ public final class PlayerCrimeData {
         this.lastHeatDecayTick = lastHeatDecayTick;
     }
 
+    public long getLastSurrenderTick() {
+        return lastSurrenderTick;
+    }
+
+    public void setLastSurrenderTick(long lastSurrenderTick) {
+        this.lastSurrenderTick = lastSurrenderTick;
+    }
+
     public DailyKarmaCounters dailyKarmaCounters() {
         return dailyKarmaCounters;
     }
@@ -152,6 +162,7 @@ public final class PlayerCrimeData {
         this.onlineTicksLived = other.onlineTicksLived;
         this.lastKarmaDecayTick = other.lastKarmaDecayTick;
         this.lastHeatDecayTick = other.lastHeatDecayTick;
+        this.lastSurrenderTick = other.lastSurrenderTick;
         this.dailyKarmaCounters.copyFrom(other.dailyKarmaCounters);
         this.heldCaptiveRef = other.heldCaptiveRef;
         this.heldByRef = other.heldByRef;
@@ -167,6 +178,7 @@ public final class PlayerCrimeData {
         tag.putLong("onlineTicksLived", onlineTicksLived);
         tag.putLong("lastKarmaDecayTick", lastKarmaDecayTick);
         tag.putLong("lastHeatDecayTick", lastHeatDecayTick);
+        tag.putLong("lastSurrenderTick", lastSurrenderTick);
         tag.put("dailyKarma", dailyKarmaCounters.save());
         if (heldCaptiveRef != null) {
             tag.putUUID("heldCaptiveRef", heldCaptiveRef);
@@ -187,6 +199,7 @@ public final class PlayerCrimeData {
         onlineTicksLived = tag.getLong("onlineTicksLived");
         lastKarmaDecayTick = tag.getLong("lastKarmaDecayTick");
         lastHeatDecayTick = tag.getLong("lastHeatDecayTick");
+        lastSurrenderTick = tag.getLong("lastSurrenderTick");
         dailyKarmaCounters.load(tag.getCompound("dailyKarma"));
         // Band is stored, but derive it from karma when the key is absent (old saves / hand-edits).
         if (tag.contains("band")) {

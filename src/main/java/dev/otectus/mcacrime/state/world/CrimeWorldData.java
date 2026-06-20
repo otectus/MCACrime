@@ -1,7 +1,9 @@
 package dev.otectus.mcacrime.state.world;
 
+import dev.otectus.mcacrime.captivity.CustodyRecord;
 import dev.otectus.mcacrime.jail.JailAnchor;
 import dev.otectus.mcacrime.ledger.CrimeRecord;
+import dev.otectus.mcacrime.ransom.RansomState;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.Tag;
@@ -10,6 +12,7 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.saveddata.SavedData;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -22,18 +25,18 @@ import java.util.UUID;
  * same mechanism MCA's own village/family data uses, so its lifetime matches data the player already
  * trusts. {@link #setDirty()} is called after every mutation.
  *
- * <p>0.1.0 holds one live structure: per-village reputation (§2.5), an <em>optional local modifier</em>
- * on top of the authoritative global Karma. Nothing writes to it yet (crime/rescue hooks are later
- * phases) — it exists, persists, and round-trips so the file is real and the structure is proven. The
- * crime ledger, bounty board, custody table, and jail roster (§2.2–§2.4) are reserved as pass-through
- * NBT slots: this version preserves them verbatim so a newer jar's data is never dropped by an older one.
+ * <p>Live structures: per-village reputation (§2.5), the crime ledger (§2.2), the jail roster (§7.4), and
+ * the custody table (§2.3, Phase 4) keyed by captive UUID. The bounty board (§2.4) remains a reserved
+ * pass-through NBT slot, preserved verbatim so a newer jar's data is never dropped by an older one — and
+ * the {@code custody} slot keeps the same forward-compat guarantee: an unrecognised shape is preserved
+ * untouched rather than parsed (see {@link #load}).
  */
 public final class CrimeWorldData extends SavedData {
 
     public static final String DATA_NAME = "mcacrime";
 
     /** NBT keys reserved for later-phase structures; preserved verbatim across save/load. */
-    private static final String[] RESERVED_KEYS = {"bounties", "custody"};
+    private static final String[] RESERVED_KEYS = {"bounties"};
 
     /** villageId -> (playerUuid -> reputation delta). LinkedHashMap for stable save ordering. */
     private final Map<Integer, Map<UUID, Integer>> villageReputation = new LinkedHashMap<>();
@@ -41,6 +44,12 @@ public final class CrimeWorldData extends SavedData {
     private final List<CrimeRecord> ledger = new ArrayList<>();
     /** Assigned jail anchors (§7.4 command-based assignment). */
     private final List<JailAnchor> jailAnchors = new ArrayList<>();
+    /** The custody table (§2.3): captive UUID -> record. LinkedHashMap for stable save ordering. */
+    private final Map<UUID, CustodyRecord> custody = new LinkedHashMap<>();
+    /** Active ransom demands (§8.5), keyed by victim UUID (one open demand per victim). */
+    private final Map<UUID, RansomState> ransoms = new LinkedHashMap<>();
+    /** Ransom anti-farm stamps: key ("victim:uuid" / "payer:uuid" / "village:id") -> last demand game-time. */
+    private final Map<String, Long> ransomCooldowns = new LinkedHashMap<>();
     /** Verbatim copy of any reserved later-phase tags found on disk, re-emitted untouched on save. */
     private final CompoundTag reserved = new CompoundTag();
 
@@ -115,6 +124,70 @@ public final class CrimeWorldData extends SavedData {
         return new ArrayList<>(jailAnchors);
     }
 
+    // --- custody table (§2.3) ---
+
+    /** Inserts/replaces the record for its captive. Idempotent by captive UUID (replay-safe). */
+    public void putCustody(CustodyRecord record) {
+        if (record == null || record.getCaptive() == null) {
+            return;
+        }
+        custody.put(record.getCaptive(), record);
+        setDirty();
+    }
+
+    /** The active custody for {@code captive}, or null if not held. */
+    public CustodyRecord getCustody(UUID captive) {
+        return custody.get(captive);
+    }
+
+    public boolean isCaptive(UUID captive) {
+        return custody.containsKey(captive);
+    }
+
+    public void removeCustody(UUID captive) {
+        if (custody.remove(captive) != null) {
+            setDirty();
+        }
+    }
+
+    public Collection<CustodyRecord> custodyRecords() {
+        return new ArrayList<>(custody.values());
+    }
+
+    // --- ransom demands + cooldowns (§8.5) ---
+
+    /** Inserts/replaces the demand for its victim. Idempotent by victim UUID (one open demand per victim). */
+    public void putRansom(RansomState state) {
+        if (state == null || state.getVictim() == null) {
+            return;
+        }
+        ransoms.put(state.getVictim(), state);
+        setDirty();
+    }
+
+    public RansomState getRansomForVictim(UUID victim) {
+        return ransoms.get(victim);
+    }
+
+    public void removeRansom(UUID victim) {
+        if (ransoms.remove(victim) != null) {
+            setDirty();
+        }
+    }
+
+    public Collection<RansomState> ransoms() {
+        return new ArrayList<>(ransoms.values());
+    }
+
+    public long ransomCooldown(String key) {
+        return ransomCooldowns.getOrDefault(key, 0L);
+    }
+
+    public void stampRansomCooldown(String key, long gameTime) {
+        ransomCooldowns.put(key, gameTime);
+        setDirty();
+    }
+
     // --- persistence ---
 
     @Override
@@ -139,11 +212,25 @@ public final class CrimeWorldData extends SavedData {
         }
         tag.put("jailRoster", anchorList);
 
-        // Re-emit reserved later-phase slots untouched.
-        for (String key : RESERVED_KEYS) {
-            if (reserved.contains(key)) {
-                tag.put(key, reserved.get(key).copy());
-            }
+        // Custody table (§2.3): a compound of captiveUuid -> record. Skipped if a newer jar's unrecognised
+        // custody shape was stashed into `reserved` (it is re-emitted untouched below instead).
+        if (!reserved.contains("custody")) {
+            CompoundTag custodyTag = new CompoundTag();
+            custody.forEach((uuid, record) -> custodyTag.put(uuid.toString(), record.save()));
+            tag.put("custody", custodyTag);
+        }
+
+        // Ransom demands (§8.5): victimUuid -> demand; plus the anti-farm cooldown stamps.
+        CompoundTag ransomTag = new CompoundTag();
+        ransoms.forEach((victim, state) -> ransomTag.put(victim.toString(), state.save()));
+        tag.put("ransoms", ransomTag);
+        CompoundTag cooldownTag = new CompoundTag();
+        ransomCooldowns.forEach(cooldownTag::putLong);
+        tag.put("ransomCooldowns", cooldownTag);
+
+        // Re-emit reserved later-phase slots untouched (bounties, plus any stashed-for-forward-compat tag).
+        for (String key : reserved.getAllKeys()) {
+            tag.put(key, reserved.get(key).copy());
         }
         return tag;
     }
@@ -187,6 +274,34 @@ public final class CrimeWorldData extends SavedData {
             if (anchor != null) {
                 data.jailAnchors.add(anchor);
             }
+        }
+
+        // Custody table. Forward-compat: parse the expected compound-of-records shape (skipping malformed
+        // entries); an unrecognised shape (a newer jar) is preserved verbatim in `reserved` and re-emitted.
+        if (tag.contains("custody", Tag.TAG_COMPOUND)) {
+            CompoundTag custodyTag = tag.getCompound("custody");
+            for (String key : custodyTag.getAllKeys()) {
+                try {
+                    data.custody.put(UUID.fromString(key), CustodyRecord.load(custodyTag.getCompound(key)));
+                } catch (RuntimeException e) {
+                    // skip a malformed custody entry rather than dropping the whole store
+                }
+            }
+        } else if (tag.contains("custody")) {
+            data.reserved.put("custody", tag.get("custody").copy());
+        }
+
+        CompoundTag ransomTag = tag.getCompound("ransoms");
+        for (String key : ransomTag.getAllKeys()) {
+            try {
+                data.ransoms.put(UUID.fromString(key), RansomState.load(ransomTag.getCompound(key)));
+            } catch (RuntimeException e) {
+                // skip a malformed ransom entry
+            }
+        }
+        CompoundTag cooldownTag = tag.getCompound("ransomCooldowns");
+        for (String key : cooldownTag.getAllKeys()) {
+            data.ransomCooldowns.put(key, cooldownTag.getLong(key));
         }
 
         // Capture reserved later-phase slots verbatim for forward compatibility.

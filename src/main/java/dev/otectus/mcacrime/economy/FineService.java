@@ -3,6 +3,7 @@ package dev.otectus.mcacrime.economy;
 import dev.otectus.mcacrime.McaCrimeConfig;
 import dev.otectus.mcacrime.crime.Band;
 import dev.otectus.mcacrime.engine.CrimeState;
+import dev.otectus.mcacrime.relationship.RelationshipConsequences;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
 
@@ -44,6 +45,7 @@ public final class FineService {
             return 0;
         }
         CrimeState.clearHeat(player); // → no longer Wanted (fires WantedStatusChanged + sync)
+        RelationshipConsequences.applyRestitution(player); // §11.3: a fine repairs some community standing
         player.sendSystemMessage(Component.translatable("mcacrime.fine.paid", fine));
         return 1;
     }

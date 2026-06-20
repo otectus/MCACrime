@@ -3,6 +3,7 @@ package dev.otectus.mcacrime;
 import com.mojang.logging.LogUtils;
 import dev.otectus.mcacrime.config.ConfigValidator;
 import dev.otectus.mcacrime.crime.type.CrimeTypeRegistry;
+import dev.otectus.mcacrime.item.CrimeItems;
 import dev.otectus.mcacrime.network.CrimeNetwork;
 import dev.otectus.mcacrime.state.CrimeCapabilities;
 import net.minecraftforge.eventbus.api.IEventBus;
@@ -34,6 +35,7 @@ public final class McaCrime {
         final IEventBus modBus = FMLJavaModLoadingContext.get().getModEventBus();
         modBus.addListener(this::onCommonSetup);
         modBus.addListener(CrimeCapabilities::onRegisterCapabilities);
+        CrimeItems.register(modBus); // restraints + creative tab (spec §8.3)
 
         LOGGER.info("MCA: Crime initialising (mod id '{}')", MOD_ID);
     }

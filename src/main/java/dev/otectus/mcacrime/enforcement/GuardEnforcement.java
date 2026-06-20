@@ -5,6 +5,7 @@ import dev.otectus.mcacrime.McaCrimeConfig;
 import dev.otectus.mcacrime.compat.McaCompat;
 import dev.otectus.mcacrime.crime.Band;
 import dev.otectus.mcacrime.engine.CrimeState;
+import dev.otectus.mcacrime.event.AmbientMessages;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
@@ -52,8 +53,14 @@ public final class GuardEnforcement {
                 }
                 if (LegalTarget.isLegalTarget(player)) {
                     AABB box = player.getBoundingBox().inflate(radius);
+                    boolean targeted = false;
                     for (LivingEntity guard : level.getEntitiesOfClass(LivingEntity.class, box, McaCompat::isGuard)) {
-                        McaCompat.setGuardTarget(guard, player); // re-applied each scan (MCA's sensor reclaims it)
+                        if (McaCompat.setGuardTarget(guard, player)) { // re-applied each scan (MCA's sensor reclaims it)
+                            targeted = true;
+                        }
+                    }
+                    if (targeted) {
+                        AmbientMessages.noteGuardAggro(player, LegalTarget.primaryReasonKey(player)); // §10.3 why-a-guard-attacks
                     }
                 }
                 if (CrimeState.getBand(player) == Band.RED) {

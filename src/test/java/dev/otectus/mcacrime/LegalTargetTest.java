@@ -32,4 +32,17 @@ class LegalTargetTest {
         assertFalse(LegalTarget.isLegalTarget(false, Band.GREY, false, false));
         assertFalse(LegalTarget.isLegalTarget(false, Band.BLUE, true, false)); // Blue isn't Red
     }
+
+    @Test
+    void activeKidnapperIsLegalTarget() {
+        // Holding an unlawful captive makes even an otherwise-lawful player a Legal Target (spec §1.3, §8).
+        assertTrue(LegalTarget.isLegalTarget(false, Band.GREY, false, false, true));
+        assertTrue(LegalTarget.isLegalTarget(false, Band.BLUE, false, false, true));
+    }
+
+    @Test
+    void fourArgOverloadHasNoCaptiveTerm() {
+        // The back-compat overload delegates with holdingCaptive=false.
+        assertFalse(LegalTarget.isLegalTarget(false, Band.GREY, false, false));
+    }
 }

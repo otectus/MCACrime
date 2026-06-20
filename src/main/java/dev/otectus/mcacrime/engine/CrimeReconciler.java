@@ -1,6 +1,7 @@
 package dev.otectus.mcacrime.engine;
 
 import dev.otectus.mcacrime.McaCrime;
+import dev.otectus.mcacrime.captivity.CustodyService;
 import dev.otectus.mcacrime.event.CrimeBandSync;
 import dev.otectus.mcacrime.jail.JailService;
 import dev.otectus.mcacrime.network.CrimeNetwork;
@@ -40,7 +41,9 @@ public final class CrimeReconciler {
         }
         CrimeState.recomputeDerived(player);
         JailService.reconcileOnLogin(player); // free a player whose jail became unusable (§7.4 no softlock)
+        CustodyService.reconcileOnLogin(player); // free a kidnapping captive whose captor is gone (§8.4)
         CrimeNetwork.sendSelfStatus(player);
+        CrimeNetwork.sendCaptiveStatus(player); // restore the captive screen/indicator on re-login
         CrimeBandSync.syncOnLogin(player);
     }
 }

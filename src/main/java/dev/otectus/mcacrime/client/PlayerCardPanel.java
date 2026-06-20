@@ -14,7 +14,7 @@ import net.minecraft.network.chat.Component;
 public final class PlayerCardPanel {
 
     private static final int CARD_W = 108;
-    private static final int CARD_H = 86;
+    private static final int CARD_H = 100;
 
     private PlayerCardPanel() {
     }
@@ -68,6 +68,14 @@ public final class PlayerCardPanel {
         if (ClientSelfData.legalTarget()) {
             ty += 11;
             g.drawString(font, Component.translatable("mcacrime.card.legaltarget"), tx, ty, NameColors.RED_RGB, false);
+        }
+        if (ClientCaptiveData.captive()) {
+            ty += 11;
+            String captor = ClientCaptiveData.captor();
+            Component held = ClientCaptiveData.lawful()
+                    ? Component.translatable("mcacrime.card.imprisoned")
+                    : Component.translatable("mcacrime.card.captive", captor.isEmpty() ? "?" : captor);
+            g.drawString(font, held, tx, ty, NameColors.RED_RGB, false);
         }
     }
 }
