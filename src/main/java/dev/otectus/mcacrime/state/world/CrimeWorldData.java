@@ -1,11 +1,16 @@
 package dev.otectus.mcacrime.state.world;
 
+import dev.otectus.mcacrime.ledger.CrimeRecord;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.ListTag;
+import net.minecraft.nbt.Tag;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.saveddata.SavedData;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -27,10 +32,12 @@ public final class CrimeWorldData extends SavedData {
     public static final String DATA_NAME = "mcacrime";
 
     /** NBT keys reserved for later-phase structures; preserved verbatim across save/load. */
-    private static final String[] RESERVED_KEYS = {"ledger", "bounties", "custody", "jailRoster"};
+    private static final String[] RESERVED_KEYS = {"bounties", "custody", "jailRoster"};
 
     /** villageId -> (playerUuid -> reputation delta). LinkedHashMap for stable save ordering. */
     private final Map<Integer, Map<UUID, Integer>> villageReputation = new LinkedHashMap<>();
+    /** The crime ledger (§2.2): one entry per serious crime, persistent until resolved. */
+    private final List<CrimeRecord> ledger = new ArrayList<>();
     /** Verbatim copy of any reserved later-phase tags found on disk, re-emitted untouched on save. */
     private final CompoundTag reserved = new CompoundTag();
 
@@ -58,6 +65,42 @@ public final class CrimeWorldData extends SavedData {
         setDirty();
     }
 
+    // --- crime ledger (§2.2) ---
+
+    /** Appends a record. Idempotent: a record whose id is already present is ignored (replay-safe). */
+    public void addRecord(CrimeRecord record) {
+        if (containsRecord(record.id())) {
+            return;
+        }
+        ledger.add(record);
+        setDirty();
+    }
+
+    public boolean containsRecord(UUID id) {
+        for (CrimeRecord r : ledger) {
+            if (r.id().equals(id)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** Records committed by {@code offender}, newest first. */
+    public List<CrimeRecord> recordsForOffender(UUID offender) {
+        List<CrimeRecord> out = new ArrayList<>();
+        for (int i = ledger.size() - 1; i >= 0; i--) {
+            CrimeRecord r = ledger.get(i);
+            if (r.offender().equals(offender)) {
+                out.add(r);
+            }
+        }
+        return out;
+    }
+
+    public int ledgerSize() {
+        return ledger.size();
+    }
+
     // --- persistence ---
 
     @Override
@@ -69,6 +112,12 @@ public final class CrimeWorldData extends SavedData {
             villages.put(Integer.toString(villageId), perPlayer);
         });
         tag.put("villageReputation", villages);
+
+        ListTag ledgerList = new ListTag();
+        for (CrimeRecord record : ledger) {
+            ledgerList.add(record.save());
+        }
+        tag.put("ledger", ledgerList);
 
         // Re-emit reserved later-phase slots untouched.
         for (String key : RESERVED_KEYS) {
@@ -100,6 +149,15 @@ public final class CrimeWorldData extends SavedData {
             }
             if (!players.isEmpty()) {
                 data.villageReputation.put(villageId, players);
+            }
+        }
+
+        ListTag ledgerList = tag.getList("ledger", Tag.TAG_COMPOUND);
+        for (int i = 0; i < ledgerList.size(); i++) {
+            try {
+                data.ledger.add(CrimeRecord.load(ledgerList.getCompound(i)));
+            } catch (RuntimeException e) {
+                // skip a malformed ledger entry rather than dropping the whole store
             }
         }
 

@@ -46,23 +46,25 @@ public final class McaCrimeConfig {
         public final ForgeConfigSpec.IntValue karmaDecayPerDay;
         public final ForgeConfigSpec.DoubleValue unwitnessedKarmaFactor;
 
-        // karma weights (§3.2) — skeleton, consumed by Phase 2 detection
+        // positive-reward karma weights (§3.2) — skeleton for the reward/quest phases. Crime PENALTIES
+        // are now data-driven in data/mcacrime/mcacrime/crimes/*.json (the single source of truth), so the
+        // harm/kill/theft/vandalism/trespass weights moved there.
         public final ForgeConfigSpec.IntValue tradeKarma;
         public final ForgeConfigSpec.IntValue giftKarma;
         public final ForgeConfigSpec.IntValue questCompleteKarma;
         public final ForgeConfigSpec.IntValue defendVillageKarma;
         public final ForgeConfigSpec.IntValue protectVillagerKarma;
-        public final ForgeConfigSpec.IntValue harmVillagerKarma;
-        public final ForgeConfigSpec.IntValue killVillagerKarma;
-        public final ForgeConfigSpec.IntValue theftKarma;
-        public final ForgeConfigSpec.IntValue vandalismKarma;
-        public final ForgeConfigSpec.IntValue trespassKarma;
         public final ForgeConfigSpec.IntValue failQuestKarma;
 
         // heat (§3) — read by the engine
         public final ForgeConfigSpec.IntValue heatMax;
         public final ForgeConfigSpec.IntValue heatDecayPerMinute;
         public final ForgeConfigSpec.BooleanValue requireWitnessForHeat;
+
+        // detection (§5) — read by the crime detector
+        public final ForgeConfigSpec.BooleanValue enableCrimeDetection;
+        public final ForgeConfigSpec.IntValue witnessRadius;
+        public final ForgeConfigSpec.IntValue harmCooldownTicks;
 
         // anti-farm caps (§3.3) — skeleton
         public final ForgeConfigSpec.IntValue perVillagerDailyKarmaCap;
@@ -127,17 +129,12 @@ public final class McaCrimeConfig {
                     .defineInRange("karmaDecayPerDay", 1, 0, 1_000_000);
             unwitnessedKarmaFactor = b.comment("Fraction of Karma penalty applied for unwitnessed crime (1.0 = full).")
                     .defineInRange("unwitnessedKarmaFactor", 1.0, 0.0, 1.0);
-            b.push("weights");
+            b.push("rewardWeights");
             tradeKarma = b.defineInRange("tradeKarma", 1, -1000, 1000);
             giftKarma = b.defineInRange("giftKarma", 1, -1000, 1000);
             questCompleteKarma = b.defineInRange("questCompleteKarma", 5, -1000, 1000);
             defendVillageKarma = b.defineInRange("defendVillageKarma", 5, -1000, 1000);
             protectVillagerKarma = b.defineInRange("protectVillagerKarma", 10, -1000, 1000);
-            harmVillagerKarma = b.defineInRange("harmVillagerKarma", -10, -1000, 1000);
-            killVillagerKarma = b.defineInRange("killVillagerKarma", -50, -1000, 1000);
-            theftKarma = b.defineInRange("theftKarma", -5, -1000, 1000);
-            vandalismKarma = b.defineInRange("vandalismKarma", -5, -1000, 1000);
-            trespassKarma = b.defineInRange("trespassKarma", -2, -1000, 1000);
             failQuestKarma = b.defineInRange("failQuestKarma", -2, -1000, 1000);
             b.pop();
             b.pop();
@@ -149,6 +146,17 @@ public final class McaCrimeConfig {
                     .defineInRange("heatDecayPerMinute", 1, 0, 1_000_000);
             requireWitnessForHeat = b.comment("If true, only witnessed crimes generate Heat (spec §3.5).")
                     .define("requireWitnessForHeat", true);
+            b.pop();
+
+            b.push("detection");
+            enableCrimeDetection = b.comment("Master switch for crime detection (harm/kill of protected NPCs).")
+                    .define("enableCrimeDetection", true);
+            witnessRadius = b.comment("Block radius in which an MCA villager/guard with line of sight witnesses a crime.")
+                    .defineInRange("witnessRadius", 12, 1, 64);
+            harmCooldownTicks = b.comment(
+                    "Minimum ticks between counted harm crimes against the same victim by the same player",
+                    "(anti-spam so a melee flurry is one crime, not many; 0 = every hit counts).")
+                    .defineInRange("harmCooldownTicks", 20, 0, 6000);
             b.pop();
 
             b.push("antifarm");

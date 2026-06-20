@@ -1,0 +1,7 @@
+{
+  "id": "mcacrime:kill_villager",
+  "karmaDelta": -50,
+  "heatDelta": 40,
+  "witnessedMultiplier": 1.0,
+  "victimTag": "villager"
+}

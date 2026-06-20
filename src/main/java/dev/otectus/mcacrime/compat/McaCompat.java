@@ -8,6 +8,7 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.LivingEntity;
 
 import java.util.Optional;
 import java.util.OptionalInt;
@@ -119,5 +120,22 @@ public final class McaCompat {
             }
         }
         return OptionalInt.empty();
+    }
+
+    /**
+     * The villager's current AI attack target, if any. Used to detect self-defense: if a villager is
+     * already targeting the player, the player retaliating is lawful, not a crime (spec §5.2). An MCA
+     * villager is a {@code Mob}, so {@code getTarget()} is valid; kept here so the cast never escapes.
+     * Safe default: {@code empty}.
+     */
+    public static Optional<LivingEntity> getMcaTarget(Entity villager) {
+        if (villager instanceof VillagerEntityMCA mca) {
+            try {
+                return Optional.ofNullable(mca.getTarget());
+            } catch (Throwable t) {
+                McaCrime.LOGGER.debug("MCA getMcaTarget failed; defaulting empty", t);
+            }
+        }
+        return Optional.empty();
     }
 }

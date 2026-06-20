@@ -1,6 +1,7 @@
 package dev.otectus.mcacrime.config;
 
 import dev.otectus.mcacrime.McaCrimeConfig;
+import dev.otectus.mcacrime.crime.type.CrimeTypeRegistry;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraftforge.registries.ForgeRegistries;
 
@@ -79,6 +80,11 @@ public final class ConfigValidator {
 
         registryCheck("protectedEntities", c.protectedEntities.get(), problems);
         registryCheck("responderEntities", c.responderEntities.get(), problems);
+
+        // Surface crime-definition JSON parse errors from the last datapack load (spec §12.3).
+        for (String crimeError : CrimeTypeRegistry.lastErrors()) {
+            problems.add("Crime JSON: " + crimeError);
+        }
         return problems;
     }
 

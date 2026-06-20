@@ -9,13 +9,17 @@ import dev.otectus.mcacrime.compat.McaCompat;
 import dev.otectus.mcacrime.config.ConfigValidator;
 import dev.otectus.mcacrime.crime.Band;
 import dev.otectus.mcacrime.crime.KarmaSource;
+import dev.otectus.mcacrime.crime.type.CrimeTypeRegistry;
 import dev.otectus.mcacrime.engine.CrimeState;
+import dev.otectus.mcacrime.ledger.CrimeLedger;
+import dev.otectus.mcacrime.ledger.CrimeRecord;
 import net.minecraft.ChatFormatting;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.commands.arguments.EntityArgument;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.MutableComponent;
+import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.phys.AABB;
@@ -57,6 +61,13 @@ public final class CrimeCommand {
                 .then(Commands.literal("validate")
                         .requires(src -> src.hasPermission(3))
                         .executes(CrimeCommand::validate))
+                .then(Commands.literal("ledger")
+                        .requires(src -> src.hasPermission(2))
+                        .then(Commands.argument("target", EntityArgument.player())
+                                .executes(CrimeCommand::ledger)))
+                .then(Commands.literal("reload")
+                        .requires(src -> src.hasPermission(3))
+                        .executes(CrimeCommand::reload))
                 .then(Commands.literal("clearheat")
                         .requires(src -> src.hasPermission(3))
                         .then(Commands.argument("target", EntityArgument.player())
@@ -153,6 +164,40 @@ public final class CrimeCommand {
         ctx.getSource().sendFailure(Component.translatable("mcacrime.command.validate.header", problems.size()));
         problems.forEach(p -> ctx.getSource().sendFailure(Component.literal(" - " + p)));
         return 0;
+    }
+
+    private static int ledger(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
+        ServerPlayer target = EntityArgument.getPlayer(ctx, "target");
+        MinecraftServer server = ctx.getSource().getServer();
+        List<CrimeRecord> records = CrimeLedger.forOffender(server, target.getUUID());
+        if (records.isEmpty()) {
+            ctx.getSource().sendSuccess(() -> Component.translatable("mcacrime.command.ledger.none", target.getName()), false);
+            return 0;
+        }
+        ctx.getSource().sendSuccess(() ->
+                Component.translatable("mcacrime.command.ledger.header", target.getName(), records.size()), false);
+        records.forEach(r -> ctx.getSource().sendSuccess(() -> Component.literal(" - " + formatRecord(r)), false));
+        return records.size();
+    }
+
+    private static int reload(CommandContext<CommandSourceStack> ctx) {
+        CommandSourceStack src = ctx.getSource();
+        MinecraftServer server = src.getServer();
+        src.sendSuccess(() -> Component.translatable("mcacrime.command.reload.start"), true);
+        server.reloadResources(server.getPackRepository().getSelectedIds())
+                .thenRunAsync(() -> src.sendSuccess(() -> Component.translatable("mcacrime.command.reload.done",
+                        CrimeTypeRegistry.size(), CrimeTypeRegistry.lastErrors().size()), true), server);
+        return 1;
+    }
+
+    private static String formatRecord(CrimeRecord r) {
+        String village = r.villageId().isPresent() ? Integer.toString(r.villageId().getAsInt()) : "-";
+        return r.type().getPath()
+                + (r.witnessed() ? " [witnessed]" : " [unwitnessed]")
+                + " karma=" + r.karmaDelta() + " heat=" + r.heatGenerated()
+                + " village=" + village
+                + " " + r.resolution().name().toLowerCase(java.util.Locale.ROOT)
+                + " @" + r.timeCommitted();
     }
 
     // --- op debug: exercises the whole McaCompat adapter end-to-end ---

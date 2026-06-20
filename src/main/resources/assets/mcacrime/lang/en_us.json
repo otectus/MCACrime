@@ -23,6 +23,10 @@
   "mcacrime.command.clearheat": "Cleared %s's heat.",
   "mcacrime.command.validate.ok": "Config is valid.",
   "mcacrime.command.validate.header": "Found %s config problem(s):",
+  "mcacrime.command.ledger.none": "%s has no crime records.",
+  "mcacrime.command.ledger.header": "Crime ledger for %s (%s record(s)):",
+  "mcacrime.command.reload.start": "Reloading crime definitions...",
+  "mcacrime.command.reload.done": "Crime types reloaded: %s loaded, %s error(s).",
   "mcacrime.command.debug.none": "No MCA villager within %s blocks.",
   "mcacrime.command.not_player": "This command must be run by a player."
 }
