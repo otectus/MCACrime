@@ -117,16 +117,17 @@ class NbtRoundTripTest {
 
     @Test
     void crimeWorldDataPreservesReservedSlots() {
+        // "ledger" is now a live structure (Phase 2); "bounties" remains a forward-compatible reserved slot.
         CompoundTag input = new CompoundTag();
-        ListTag ledger = new ListTag();
-        CompoundTag record = new CompoundTag();
-        record.putString("crime", "kill_villager");
-        ledger.add(record);
-        input.put("ledger", ledger); // a future-phase structure this version doesn't understand
+        ListTag bounties = new ListTag();
+        CompoundTag entry = new CompoundTag();
+        entry.putString("reward", "100");
+        bounties.add(entry);
+        input.put("bounties", bounties); // a future-phase structure this version doesn't understand
 
         CrimeWorldData data = CrimeWorldData.load(input);
         CompoundTag out = data.save(new CompoundTag());
-        assertTrue(out.contains("ledger"), "reserved 'ledger' slot must survive a load+save round-trip");
-        assertEquals(1, out.getList("ledger", 10).size()); // 10 = TAG_COMPOUND
+        assertTrue(out.contains("bounties"), "reserved 'bounties' slot must survive a load+save round-trip");
+        assertEquals(1, out.getList("bounties", 10).size()); // 10 = TAG_COMPOUND
     }
 }

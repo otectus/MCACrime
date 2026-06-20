@@ -54,5 +54,6 @@ public final class CrimeNameRenderHandlers {
     public static void onLoggingOut(ClientPlayerNetworkEvent.LoggingOut event) {
         ClientBandData.clear();
         ClientSelfData.clear();
+        ClientCaptiveData.clear();
     }
 }

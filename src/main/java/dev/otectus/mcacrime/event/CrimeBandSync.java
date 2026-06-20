@@ -30,6 +30,7 @@ public final class CrimeBandSync {
         if (event.isBandChanged()) {
             ServerPlayer player = event.getPlayer();
             CrimeNetwork.broadcastBand(player.getUUID(), event.getNewBand());
+            AmbientMessages.bandChanged(player, event.getNewBand()); // §10.3 "you are now X"
         }
     }
 

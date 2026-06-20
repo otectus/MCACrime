@@ -2,6 +2,7 @@ package dev.otectus.mcacrime.client;
 
 import dev.otectus.mcacrime.network.BandBulkSyncS2CPacket;
 import dev.otectus.mcacrime.network.BandSyncS2CPacket;
+import dev.otectus.mcacrime.network.CaptiveStatusS2CPacket;
 import dev.otectus.mcacrime.network.SelfStatusS2CPacket;
 
 /**
@@ -15,7 +16,8 @@ public final class CrimeClientHandlers {
     }
 
     public static void onSelfStatus(SelfStatusS2CPacket msg) {
-        ClientSelfData.update(msg.karma(), msg.heat(), msg.band(), msg.wanted());
+        ClientSelfData.update(msg.karma(), msg.heat(), msg.band(), msg.wanted(),
+                msg.jailRemainingTicks(), msg.legalTarget());
     }
 
     public static void onBandSync(BandSyncS2CPacket msg) {
@@ -24,5 +26,9 @@ public final class CrimeClientHandlers {
 
     public static void onBandBulk(BandBulkSyncS2CPacket msg) {
         ClientBandData.putAll(msg.bands());
+    }
+
+    public static void onCaptiveStatus(CaptiveStatusS2CPacket msg) {
+        ClientCaptiveData.update(msg.captive(), msg.lawful(), msg.captor(), msg.capRemainingTicks());
     }
 }

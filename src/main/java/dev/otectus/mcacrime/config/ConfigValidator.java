@@ -1,6 +1,7 @@
 package dev.otectus.mcacrime.config;
 
 import dev.otectus.mcacrime.McaCrimeConfig;
+import dev.otectus.mcacrime.crime.type.CrimeTypeRegistry;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraftforge.registries.ForgeRegistries;
 
@@ -79,6 +80,36 @@ public final class ConfigValidator {
 
         registryCheck("protectedEntities", c.protectedEntities.get(), problems);
         registryCheck("responderEntities", c.responderEntities.get(), problems);
+
+        // Jail / fine sanity (spec §6, §7, §12.3).
+        if (c.jailableHeatThreshold.get() < c.wantedHeatThreshold.get()) {
+            problems.add("jailableHeatThreshold (" + c.jailableHeatThreshold.get()
+                    + ") should be at least wantedHeatThreshold (" + c.wantedHeatThreshold.get() + ").");
+        }
+        if (c.jailFallbackEnabled.get()) {
+            if (ResourceLocation.tryParse(c.jailFallbackDim.get()) == null) {
+                problems.add("jailFallbackDim is not a valid dimension id: '" + c.jailFallbackDim.get() + "'.");
+            }
+            if (c.jailFallbackPos.get().size() < 3) {
+                problems.add("jailFallbackPos must list 3 coordinates [x, y, z].");
+            }
+        }
+
+        // Ransom table sanity (spec §8.5, §12.3): catch a table that can never produce a real demand.
+        if (c.ransomDemandTtlTicks.get() == 0) {
+            problems.add("ransomDemandTtlTicks is 0 — open ransom demands would expire instantly.");
+        }
+        boolean allTiersZero = c.ransomSpouseMultiplier.get() == 0.0 && c.ransomParentMultiplier.get() == 0.0
+                && c.ransomChildMultiplier.get() == 0.0 && c.ransomSiblingMultiplier.get() == 0.0
+                && c.ransomRelativeMultiplier.get() == 0.0 && c.ransomVillageMultiplier.get() == 0.0;
+        if (c.ransomBaseAmount.get() > 0 && allTiersZero) {
+            problems.add("All ransom tier multipliers are 0 — every ransom would be free despite a non-zero base.");
+        }
+
+        // Surface crime-definition JSON parse errors from the last datapack load (spec §12.3).
+        for (String crimeError : CrimeTypeRegistry.lastErrors()) {
+            problems.add("Crime JSON: " + crimeError);
+        }
         return problems;
     }
 

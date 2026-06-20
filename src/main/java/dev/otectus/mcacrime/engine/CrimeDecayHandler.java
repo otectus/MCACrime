@@ -2,8 +2,12 @@ package dev.otectus.mcacrime.engine;
 
 import dev.otectus.mcacrime.McaCrime;
 import dev.otectus.mcacrime.McaCrimeConfig;
+import dev.otectus.mcacrime.captivity.CustodyConfine;
+import dev.otectus.mcacrime.captivity.CustodyService;
 import dev.otectus.mcacrime.crime.CrimeMath;
 import dev.otectus.mcacrime.crime.KarmaSource;
+import dev.otectus.mcacrime.jail.JailConfine;
+import dev.otectus.mcacrime.jail.JailService;
 import dev.otectus.mcacrime.state.CrimeCapabilities;
 import dev.otectus.mcacrime.state.PlayerCrimeData;
 import net.minecraft.server.level.ServerPlayer;
@@ -47,11 +51,25 @@ public final class CrimeDecayHandler {
         }
         PlayerCrimeData data = opt.get();
         long online = data.incrementOnlineTicks(); // the only clock decay reads
+        // Jail sentence + kidnapping cap decrement every online tick (matching the clock) BEFORE the throttle.
+        if (data.isJailed()) {
+            JailService.tick(player, data);
+        }
+        if (data.getHeldByRef() != null) {
+            CustodyService.tick(player); // kidnapping captive: real-time captivity-cap accounting (§7.2)
+        }
         if (player.tickCount % 20 != 0) {
             return; // throttle decay work to ~once per second
         }
         applyHeatDecay(player, data, online);
         applyKarmaDecay(player, data, online);
+        // Throttled (~1/s) soft-confine / breakout / tether checks.
+        if (data.isJailed()) {
+            JailConfine.tick(player, data);
+        }
+        if (data.getHeldByRef() != null) {
+            CustodyConfine.tick(player); // kidnapping captive: soft-tether (escape, never jailbreak)
+        }
     }
 
     private static void applyHeatDecay(ServerPlayer player, PlayerCrimeData data, long online) {
