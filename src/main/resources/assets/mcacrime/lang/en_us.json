@@ -1,0 +1,28 @@
+{
+  "mcacrime.band.blue": "Lawful",
+  "mcacrime.band.grey": "Neutral",
+  "mcacrime.band.red": "Outlaw",
+
+  "mcacrime.card.title": "Reputation",
+  "mcacrime.card.karma": "Karma: %s",
+  "mcacrime.card.band": "Standing: %s",
+  "mcacrime.card.heat": "Heat: %s",
+  "mcacrime.card.wanted": "WANTED",
+  "mcacrime.card.not_wanted": "Not Wanted",
+  "mcacrime.card.button.tooltip": "Reputation",
+
+  "mcacrime.command.karma": "Karma: %s (%s)",
+  "mcacrime.command.status.karma": "Karma: %s (%s)",
+  "mcacrime.command.status.heat": "Heat: %s%s",
+  "mcacrime.command.status.wanted": " — WANTED",
+  "mcacrime.command.status.jail": "Jail: %s",
+  "mcacrime.command.status.jail.none": "not jailed",
+  "mcacrime.command.query.header": "Crime status for %s:",
+  "mcacrime.command.set.karma": "Set %s's karma to %s (%s).",
+  "mcacrime.command.set.heat": "Set %s's heat to %s.",
+  "mcacrime.command.clearheat": "Cleared %s's heat.",
+  "mcacrime.command.validate.ok": "Config is valid.",
+  "mcacrime.command.validate.header": "Found %s config problem(s):",
+  "mcacrime.command.debug.none": "No MCA villager within %s blocks.",
+  "mcacrime.command.not_player": "This command must be run by a player."
+}
