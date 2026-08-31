@@ -1,6 +1,7 @@
 package dev.otectus.mcacrime.config;
 
 import dev.otectus.mcacrime.McaCrimeConfig;
+import dev.otectus.mcacrime.compat.CrimeIncidentMapping;
 import dev.otectus.mcacrime.crime.type.CrimeTypeRegistry;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraftforge.registries.ForgeRegistries;
@@ -65,6 +66,51 @@ public final class ConfigValidator {
     }
 
     /**
+     * Pure validation of the {@code [integrations]} block.
+     *
+     * <p>Separate from {@link #validate} rather than folded into it, because that method's signature
+     * is what the existing tests call and widening it would make an additive change look like a
+     * breaking one. The checks here are the ones that turn a plausible-looking config into a queue
+     * that never drains or a status string nothing recognises.
+     */
+    public static List<String> validateIntegrations(int pumpIntervalTicks, int pumpBudgetPerTick,
+                                                    int maxDeliveryAttempts, int retryBaseDelayTicks,
+                                                    int retryMaxDelayTicks, int dedupeRetentionTicks,
+                                                    String fineResolutionStatus,
+                                                    String servedResolutionStatus) {
+        List<String> problems = new ArrayList<>();
+        if (pumpIntervalTicks <= 0) {
+            problems.add("integrations.pumpIntervalTicks must be positive; queued cross-mod writes "
+                    + "would never be delivered.");
+        }
+        if (pumpBudgetPerTick <= 0) {
+            problems.add("integrations.pumpBudgetPerTick must be positive; queued cross-mod writes "
+                    + "would never be delivered.");
+        }
+        if (maxDeliveryAttempts <= 0) {
+            problems.add("integrations.maxDeliveryAttempts must be at least 1.");
+        }
+        if (retryBaseDelayTicks > retryMaxDelayTicks) {
+            problems.add("integrations.retryBaseDelayTicks (" + retryBaseDelayTicks
+                    + ") is above retryMaxDelayTicks (" + retryMaxDelayTicks
+                    + "); the backoff ceiling would sit below its own starting point.");
+        }
+        if (dedupeRetentionTicks <= 0) {
+            problems.add("integrations.dedupeRetentionTicks must be positive; a replayed transaction "
+                    + "would be applied a second time.");
+        }
+        if (!CrimeIncidentMapping.isValidConfiguredStatus(fineResolutionStatus)) {
+            problems.add("integrations.reputation.fineResolutionStatus must be 'atoned' or 'apologized', "
+                    + "not '" + fineResolutionStatus + "'.");
+        }
+        if (!CrimeIncidentMapping.isValidConfiguredStatus(servedResolutionStatus)) {
+            problems.add("integrations.reputation.servedResolutionStatus must be 'atoned' or 'apologized', "
+                    + "not '" + servedResolutionStatus + "'.");
+        }
+        return problems;
+    }
+
+    /**
      * Runtime validation against the live config, plus a best-effort registry-existence check on the
      * entity-id lists. Used by {@code /crime validate} and load-time validation.
      */
@@ -77,6 +123,16 @@ public final class ConfigValidator {
                 c.maxCaptivityRealMinutes.get(),
                 c.protectedEntities.get(),
                 c.responderEntities.get());
+
+        problems.addAll(validateIntegrations(
+                c.pumpIntervalTicks.get(),
+                c.pumpBudgetPerTick.get(),
+                c.maxDeliveryAttempts.get(),
+                c.retryBaseDelayTicks.get(),
+                c.retryMaxDelayTicks.get(),
+                c.dedupeRetentionTicks.get(),
+                c.fineResolutionStatus.get(),
+                c.servedResolutionStatus.get()));
 
         registryCheck("protectedEntities", c.protectedEntities.get(), problems);
         registryCheck("responderEntities", c.responderEntities.get(), problems);
@@ -104,6 +160,18 @@ public final class ConfigValidator {
                 && c.ransomRelativeMultiplier.get() == 0.0 && c.ransomVillageMultiplier.get() == 0.0;
         if (c.ransomBaseAmount.get() > 0 && allTiersZero) {
             problems.add("All ransom tier multipliers are 0 — every ransom would be free despite a non-zero base.");
+        }
+        if (c.muggingPurseInitialMax.get() > c.muggingPurseCapacity.get()) {
+            problems.add("muggingPurseInitialMax cannot exceed muggingPurseCapacity.");
+        }
+        if (c.muggingBaseLoot.get() > c.muggingPurseCapacity.get()) {
+            problems.add("muggingBaseLoot exceeds purse capacity; the configured excess can never transfer.");
+        }
+        if (c.maxUnlawfulCaptivesPerCaptor.get() < 1) {
+            problems.add("maxUnlawfulCaptivesPerCaptor must be at least 1.");
+        }
+        if (c.restraintEscapeChanceLockedCuffs.get() > 0.0D) {
+            problems.add("Locked cuffs have a non-zero escape chance but no work duration; use keys/rescue or set the chance to 0.");
         }
 
         // Surface crime-definition JSON parse errors from the last datapack load (spec §12.3).

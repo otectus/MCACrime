@@ -4,6 +4,9 @@ import dev.otectus.mcacrime.network.BandBulkSyncS2CPacket;
 import dev.otectus.mcacrime.network.BandSyncS2CPacket;
 import dev.otectus.mcacrime.network.CaptiveStatusS2CPacket;
 import dev.otectus.mcacrime.network.SelfStatusS2CPacket;
+import dev.otectus.mcacrime.network.ActionMenuS2CPacket;
+import dev.otectus.mcacrime.client.screen.CrimeInteractionScreen;
+import net.minecraft.client.Minecraft;
 
 /**
  * The single client-side landing point for the mod's S2C packets, reached only via
@@ -30,5 +33,10 @@ public final class CrimeClientHandlers {
 
     public static void onCaptiveStatus(CaptiveStatusS2CPacket msg) {
         ClientCaptiveData.update(msg.captive(), msg.lawful(), msg.captor(), msg.capRemainingTicks());
+    }
+
+    public static void onActionMenu(ActionMenuS2CPacket msg) {
+        Minecraft minecraft = Minecraft.getInstance();
+        minecraft.setScreen(new CrimeInteractionScreen(msg, minecraft.screen));
     }
 }

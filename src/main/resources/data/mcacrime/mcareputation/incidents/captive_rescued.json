@@ -1,0 +1,31 @@
+{
+  "display": {
+    "translate": "mcacrime.incident.captive_rescued"
+  },
+  "default_delta": 5,
+  "visibility": "witnessed",
+  "severity": "moderate",
+  "tags": [
+    "amends",
+    "service"
+  ],
+  "retention_ticks": 336000,
+  "decay": {
+    "type": "none"
+  },
+  "resolution": {
+    "apologized": 1.0,
+    "atoned": 1.0,
+    "forgiven": 1.0,
+    "disproven": 0.0
+  },
+  "gossip": {
+    "tone": "approval",
+    "phrase": "mcacrime.gossip.captive_rescued",
+    "with": [
+      "player",
+      "subject"
+    ]
+  },
+  "max_override_abs": 15
+}

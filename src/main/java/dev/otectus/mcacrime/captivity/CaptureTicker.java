@@ -2,6 +2,7 @@ package dev.otectus.mcacrime.captivity;
 
 import dev.otectus.mcacrime.McaCrime;
 import dev.otectus.mcacrime.McaCrimeConfig;
+import dev.otectus.mcacrime.item.CrimeItems;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
@@ -63,7 +64,11 @@ public final class CaptureTicker {
             if (channel.isComplete()) {
                 CaptureChannels.cancel(kidnapperId);
                 if (target instanceof LivingEntity living) {
-                    CustodyService.capture(kidnapper, living, channel.restraint);
+                    if (CrimeItems.consumeRestraint(kidnapper, channel.restraint)) {
+                        CustodyService.capture(kidnapper, living, channel.restraint);
+                    } else {
+                        kidnapper.displayClientMessage(Component.translatable("mcacrime.capture.broken.restraint"), true);
+                    }
                 }
             } else {
                 kidnapper.displayClientMessage(Component.translatable("mcacrime.capture.channeling"), true);

@@ -1,6 +1,7 @@
 package dev.otectus.mcacrime;
 
 import dev.otectus.mcacrime.captivity.CaptureChannel;
+import dev.otectus.mcacrime.captivity.CaptureChannels;
 import dev.otectus.mcacrime.captivity.RestraintType;
 import net.minecraft.world.phys.Vec3;
 import org.junit.jupiter.api.Test;
@@ -46,5 +47,26 @@ class CaptureChannelTest {
         assertFalse(c.isBroken());
         c.markBroken();
         assertTrue(c.isBroken());
+    }
+
+    @Test
+    void registryRejectsActorAndTargetCollisionsAtomically() {
+        UUID firstActor = UUID.randomUUID();
+        UUID secondActor = UUID.randomUUID();
+        UUID target = UUID.randomUUID();
+        UUID otherTarget = UUID.randomUUID();
+        CaptureChannel first = new CaptureChannel(firstActor, target, true, RestraintType.CUFFS, Vec3.ZERO, 10);
+        try {
+            assertTrue(CaptureChannels.beginIfFree(first));
+            assertFalse(CaptureChannels.beginIfFree(new CaptureChannel(secondActor, target, true,
+                    RestraintType.ROPE, Vec3.ZERO, 10)));
+            assertFalse(CaptureChannels.beginIfFree(new CaptureChannel(firstActor, otherTarget, true,
+                    RestraintType.ROPE, Vec3.ZERO, 10)));
+        } finally {
+            CaptureChannels.clearFor(firstActor);
+            CaptureChannels.clearFor(secondActor);
+            CaptureChannels.clearFor(target);
+            CaptureChannels.clearFor(otherTarget);
+        }
     }
 }

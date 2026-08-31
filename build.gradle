@@ -75,15 +75,83 @@ repositories {
     }
 }
 
+// Every MCA build McaBindingProbeTest verifies the manifest against, one configuration each. Two
+// versions of the same module cannot share a configuration -- Gradle's conflict resolution would
+// collapse them to the newer and the older package root would go untested, which is how MCA's rename
+// reached players in the first place. Each is probed in its own class loader.
+ext.mcaProbeVersions = (project.findProperty('mcaProbeVersions') ?: mca_probe_versions)
+        .toString().split(',').collect { it.trim() }.findAll { !it.isEmpty() }
+
+configurations {
+    // Keep MCA off the unit-test runtime. Gradle's testRuntimeOnly extends runtimeOnly, so the dev-run
+    // MCA jar would otherwise land on testRuntimeClasspath -- and the unit suite is precisely where
+    // "MCA is absent" has to be the real, exercised state. McaBindingProbeTest still reaches the real
+    // MCA jars, by opening each in a throwaway class loader rather than by having them on the classpath.
+    testRuntimeClasspath {
+        exclude group: 'maven.modrinth', module: 'minecraft-comes-alive-reborn'
+    }
+}
+
+mcaProbeVersions.eachWithIndex { version, i ->
+    configurations.create("mcaProbe${i}") {
+        canBeConsumed = false
+        // Just the MCA jar: the probe opens it against the test classloader, which already carries
+        // Minecraft, and pulling MCA's own dependency graph in would only slow the build.
+        transitive = false
+    }
+}
+
 dependencies {
     minecraft "net.minecraftforge:forge:${minecraft_version}-${forge_version}"
 
-    // MCA Reborn — obfuscated production (Universal) jar, remapped to our dev mappings
-    // by fg.deobf. All MCA access is isolated behind dev.otectus.mcacrime.compat.McaCompat.
-    implementation fg.deobf("maven.modrinth:minecraft-comes-alive-reborn:${mca_version}")
+    // MCA Reborn — obfuscated production (Universal) jar, remapped to our dev mappings by fg.deobf.
+    //
+    // runtimeOnly, NOT implementation: no class in src/main/java names an MCA type any more, because
+    // compat.mca.McaBinding resolves every MCA class and member by name at runtime. That is what lets
+    // one jar serve both MCA's forge.net.mca.* layout and the renamed forge.net.conczin.mca.* one. A
+    // compile dependency would only invite the static linkage back -- NoMcaStaticLinkTest fails the
+    // build if it ever returns. runtimeOnly also keeps MCA off testRuntimeClasspath, so the unit suite
+    // exercises the genuine "MCA absent" degradation path rather than a half-bound one.
+    runtimeOnly fg.deobf("maven.modrinth:minecraft-comes-alive-reborn:${mca_version}")
 
-    // Architectury API (Forge) — required at runtime by MCA. deobf for dev remapping.
-    implementation fg.deobf("dev.architectury:architectury-forge:${architectury_version}")
+    // The probe fleet McaBindingProbeTest replays the manifest against (see ext.mcaProbeVersions).
+    // Deliberately NOT fg.deobf: only Minecraft's methods and fields carry SRG names in a production
+    // jar, never its class names, so MCA's own declarations already read as e.g.
+    // `getMemoriesForPlayer(net.minecraft.world.entity.player.Player)` -- exactly what the manifest
+    // compares against. Skipping the deobf round-trip also keeps these configurations out of
+    // ForgeGradle's remap pipeline, which cannot serve one resolved from a test task's doFirst.
+    mcaProbeVersions.eachWithIndex { version, i ->
+        add("mcaProbe${i}", "maven.modrinth:minecraft-comes-alive-reborn:${version}")
+    }
+
+    // Architectury API (Forge) — MCA 7.6's Forge build needs it on the dev run classpath, and MCA: Crime
+    // names not one Architectury symbol. runtimeOnly rather than implementation so the dev runs keep
+    // working while an accidental `import dev.architectury.*` becomes a compile error instead of a
+    // silent success. (MCA 7.7 drops Architectury entirely, which is why mods.toml no longer requires it.)
+    runtimeOnly fg.deobf("dev.architectury:architectury-forge:${architectury_version}")
+
+    // MCA: Reputation — OPTIONAL integration, compile-only. The sibling mod is not published to a
+    // Maven, so we compile against its dev-mapped class output; both mods use `official` 1.20.1
+    // mappings, so the Minecraft type names line up and reobfJar remaps our own references for
+    // production. Never bundled: the real mod supplies these classes at runtime, and everything that
+    // touches them is gated behind ReputationBridge's ModList check.
+    //
+    // When the sibling is absent the adapter package is excluded from compilation rather than failing
+    // the build. A standalone clone of this repo must be buildable — ReputationBridge reaches the
+    // adapter by name, so a missing class is the ClassNotFoundException its catch block already
+    // handles, and the mod behaves exactly as it does with Reputation uninstalled. CI that must
+    // include the adapter passes -PrequireReputation=true.
+    def mcaReputationClasses = file("${projectDir}/../MCAReputation/build/classes/java/main")
+    if (mcaReputationClasses.exists()) {
+        compileOnly files(mcaReputationClasses)
+    } else if (project.hasProperty('requireReputation')) {
+        throw new GradleException("-PrequireReputation was set but ${mcaReputationClasses} does not exist. " +
+                "Build it first: (cd ../MCAReputation && ./gradlew classes)")
+    } else {
+        sourceSets.main.java { exclude 'dev/otectus/mcacrime/compat/reputation/**' }
+        logger.warn("MCA: Reputation classes not found at ${mcaReputationClasses}; building WITHOUT the " +
+                "optional Reputation adapter. Build ../MCAReputation (./gradlew classes) to include it.")
+    }
 
     // Unit tests for the non-MCA karma/heat engine (spec section 18).
     testImplementation 'org.junit.jupiter:junit-jupiter-api:5.10.2'
@@ -93,6 +161,20 @@ dependencies {
 
 test {
     useJUnitPlatform()
+    // The MCA jars travel as paths, not a classpath: McaBindingProbeTest opens each in its own
+    // URLClassLoader, so the binding manifest is verified against real MCA without a single MCA class
+    // being linked into the test JVM.
+    //
+    // Resolved in doFirst, not at configuration time: resolving a configuration while the build is
+    // still being configured freezes ForgeGradle's deobf repository before every fg.deobf dependency
+    // is registered ("cannot mutate content repository descriptor after repository has been used").
+    doFirst {
+        systemProperty 'mcacrime.probe.jars', mcaProbeVersions.indices
+                .collect { i -> configurations.getByName("mcaProbe${i}").files }
+                .flatten()
+                .findAll { it.name.contains('minecraft-comes-alive') }
+                .join(File.pathSeparator)
+    }
 }
 
 // Expand metadata placeholders into mods.toml / pack.mcmeta at build time.
@@ -127,4 +209,41 @@ tasks.named('jar', Jar).configure {
 
 tasks.withType(JavaCompile).configureEach {
     options.encoding = 'UTF-8'
+}
+
+/**
+ * Static jar check (integration spec §14.4): the shipped artifact must not contain a single class
+ * from an optional companion mod, from Architectury, or from MCA. MCA: Crime compiles against MCA
+ * and (optionally) MCA: Reputation, but ships neither — anything under those package roots means a
+ * `compileOnly` was written as `implementation`, or a shadow/jarjar step crept in.
+ *
+ * <p>Matching is on the entry path prefix, so the deliberately namespaced datapack resources under
+ * `data/mcacrime/mcareputation/incidents/` are unaffected: those are ours, in our namespace, and
+ * match none of the class-package prefixes below.
+ */
+tasks.register('checkJarContents') {
+    dependsOn tasks.named('jar')
+    doLast {
+        def forbidden = ['dev/otectus/mcareputation/', 'dev/otectus/mcaquests/',
+                         'dev/otectus/mcaconversations/', 'dev/architectury/',
+                         'me/shedaniel/', 'forge/net/mca/', 'net/mca/',
+                         'forge/net/conczin/mca/', 'net/conczin/mca/']
+        def jarFile = tasks.named('jar').get().archiveFile.get().asFile
+        def offenders = []
+        new java.util.zip.ZipFile(jarFile).withCloseable { zip ->
+            zip.entries().each { entry ->
+                if (forbidden.any { entry.name.startsWith(it) }) {
+                    offenders << entry.name
+                }
+            }
+        }
+        if (!offenders.isEmpty()) {
+            throw new GradleException("Shaded classes found in ${jarFile.name}: ${offenders.take(20)}")
+        }
+        logger.lifecycle("checkJarContents: ${jarFile.name} is clean (no shaded companion/Architectury/MCA classes).")
+    }
+}
+
+tasks.named('build').configure {
+    dependsOn 'checkJarContents'
 }

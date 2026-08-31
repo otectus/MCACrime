@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /** Pure config-validation checks (spec §12.3) — the part that needs no running game. */
@@ -48,5 +49,44 @@ class ConfigValidatorTest {
         // wildcard pattern, a tag reference, and a well-formed id all parse-pass
         assertEquals(List.of(), ConfigValidator.validate(100, -100, 1.0, 360,
                 List.of("mca:*", "#minecraft:raiders", "minecraft:villager"), List.of()));
+    }
+
+    // ------------------------------------------------------------------ integrations
+
+    private static List<String> integrations(int interval, int budget, int attempts, int base,
+                                             int max, int retention, String fine, String served) {
+        return ConfigValidator.validateIntegrations(interval, budget, attempts, base, max, retention,
+                fine, served);
+    }
+
+    @Test
+    void theDefaultIntegrationConfigIsValid() {
+        assertTrue(integrations(100, 8, 6, 200, 24000, 168000, "atoned", "atoned").isEmpty());
+    }
+
+    /** A queue that is never drained is worse than no queue: work accrues and nothing says why. */
+    @Test
+    void aPumpThatNeverRunsIsRejected() {
+        assertFalse(integrations(0, 8, 6, 200, 24000, 168000, "atoned", "atoned").isEmpty());
+        assertFalse(integrations(100, 0, 6, 200, 24000, 168000, "atoned", "atoned").isEmpty());
+    }
+
+    @Test
+    void aBackoffCeilingBelowItsOwnFloorIsRejected() {
+        assertFalse(integrations(100, 8, 6, 24000, 200, 168000, "atoned", "atoned").isEmpty());
+    }
+
+    /** Without a replay window, a retried transaction is applied a second time. */
+    @Test
+    void aZeroDedupeWindowIsRejected() {
+        assertFalse(integrations(100, 8, 6, 200, 24000, 0, "atoned", "atoned").isEmpty());
+    }
+
+    /** A fine must not be configurable into a pardon, so only the two amends statuses are accepted. */
+    @Test
+    void onlyTheAmendsStatusesAreAcceptedForSettledCases() {
+        assertTrue(integrations(100, 8, 6, 200, 24000, 168000, "apologized", "apologized").isEmpty());
+        assertFalse(integrations(100, 8, 6, 200, 24000, 168000, "forgiven", "atoned").isEmpty());
+        assertFalse(integrations(100, 8, 6, 200, 24000, 168000, "atoned", "disproven").isEmpty());
     }
 }

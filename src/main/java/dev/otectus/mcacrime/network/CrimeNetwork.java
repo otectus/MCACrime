@@ -25,7 +25,7 @@ import java.util.UUID;
  */
 public final class CrimeNetwork {
 
-    private static final String PROTOCOL_VERSION = "1";
+    private static final String PROTOCOL_VERSION = "2";
 
     public static final SimpleChannel CHANNEL = NetworkRegistry.newSimpleChannel(
             new ResourceLocation(McaCrime.MOD_ID, "main"),
@@ -47,6 +47,12 @@ public final class CrimeNetwork {
                 BandBulkSyncS2CPacket::encode, BandBulkSyncS2CPacket::decode, BandBulkSyncS2CPacket::handle);
         CHANNEL.registerMessage(nextId++, CaptiveStatusS2CPacket.class,
                 CaptiveStatusS2CPacket::encode, CaptiveStatusS2CPacket::decode, CaptiveStatusS2CPacket::handle);
+        CHANNEL.registerMessage(nextId++, RequestActionMenuC2SPacket.class,
+                RequestActionMenuC2SPacket::encode, RequestActionMenuC2SPacket::decode, RequestActionMenuC2SPacket::handle);
+        CHANNEL.registerMessage(nextId++, ActionMenuS2CPacket.class,
+                ActionMenuS2CPacket::encode, ActionMenuS2CPacket::decode, ActionMenuS2CPacket::handle);
+        CHANNEL.registerMessage(nextId++, StartActionC2SPacket.class,
+                StartActionC2SPacket::encode, StartActionC2SPacket::decode, StartActionC2SPacket::handle);
     }
 
     /** Pushes the player's own card data (karma/heat/band/wanted/jail/legal-target) to their client. */

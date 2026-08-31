@@ -17,8 +17,13 @@ public final class CaptureChannels {
     private CaptureChannels() {
     }
 
-    public static void begin(CaptureChannel channel) {
+    public static synchronized boolean beginIfFree(CaptureChannel channel) {
+        if (ACTIVE.containsKey(channel.kidnapper)
+                || ACTIVE.values().stream().anyMatch(active -> active.target.equals(channel.target))) {
+            return false;
+        }
         ACTIVE.put(channel.kidnapper, channel);
+        return true;
     }
 
     public static CaptureChannel get(UUID kidnapper) {
@@ -27,6 +32,10 @@ public final class CaptureChannels {
 
     public static boolean has(UUID kidnapper) {
         return ACTIVE.containsKey(kidnapper);
+    }
+
+    public static boolean targets(UUID target) {
+        return ACTIVE.values().stream().anyMatch(channel -> channel.target.equals(target));
     }
 
     public static void cancel(UUID kidnapper) {

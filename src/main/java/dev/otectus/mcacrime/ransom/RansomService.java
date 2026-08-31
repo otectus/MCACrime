@@ -7,12 +7,11 @@ import dev.otectus.mcacrime.captivity.CustodyService;
 import dev.otectus.mcacrime.compat.McaCompat;
 import dev.otectus.mcacrime.crime.type.CrimeIds;
 import dev.otectus.mcacrime.economy.EmeraldCurrency;
+import dev.otectus.mcacrime.economy.account.EconomicTransactionService;
 import dev.otectus.mcacrime.jail.JailService;
 import dev.otectus.mcacrime.ledger.CrimeLedger;
 import dev.otectus.mcacrime.ledger.CrimeRecord;
 import dev.otectus.mcacrime.ledger.Resolution;
-import dev.otectus.mcacrime.state.CrimeCapabilities;
-import dev.otectus.mcacrime.state.PlayerCrimeData;
 import dev.otectus.mcacrime.state.world.CrimeWorldData;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
@@ -49,11 +48,20 @@ public final class RansomService {
         if (server == null) {
             return 0;
         }
-        McaCrimeConfig.Common c = McaCrimeConfig.COMMON;
-        UUID victimId = CrimeCapabilities.get(captor).map(PlayerCrimeData::getHeldCaptiveRef).orElse(null);
-        if (victimId == null) {
-            return refuse(captor, "mcacrime.ransom.notholding");
+        for (CustodyRecord record : dev.otectus.mcacrime.captivity.CustodyRegistry.byOwner(
+                server, captor.getUUID())) {
+            if (!record.isLawful() && record.getOwner().isKidnapper(captor.getUUID())) {
+                return demandFor(captor, record.getCaptive());
+            }
         }
+        return refuse(captor, "mcacrime.ransom.notholding");
+    }
+
+    /** Exact-target form used by the interaction menu; the custody table, not a cached capability, is authoritative. */
+    public static int demandFor(ServerPlayer captor, UUID victimId) {
+        MinecraftServer server = captor.getServer();
+        if (server == null) return 0;
+        McaCrimeConfig.Common c = McaCrimeConfig.COMMON;
         CrimeWorldData world = CrimeWorldData.get(server);
         CustodyRecord record = world.getCustody(victimId);
         if (record == null || record.isLawful() || !record.getOwner().isKidnapper(captor.getUUID())) {
@@ -68,21 +76,24 @@ public final class RansomService {
         }
         long now = victim.level().getGameTime();
         OptionalInt villageId = McaCompat.getHomeVillageId(victim);
-        if (!cooldownsReady(world, victimId, null, villageId, now)) {
-            return refuse(captor, "mcacrime.ransom.cooldown");
-        }
-
         Optional<PayerResolver.Candidate> payerOpt = PayerResolver.resolve(
-                gatherCandidates(server, victim), c.enableVillageRansomFallback.get());
+                gatherCandidates(server, victim, captor), c.enableVillageRansomFallback.get());
         if (payerOpt.isEmpty()) {
             return refuse(captor, "mcacrime.ransom.nopayer");
         }
         PayerResolver.Candidate payer = payerOpt.get();
         long amount = RansomCalculator.amount(c.ransomBaseAmount.get(), tierMultiplier(payer.tier()));
+        if (!cooldownsReady(world, victimId, payer.uuid(), villageId, now)) {
+            return refuse(captor, "mcacrime.ransom.cooldown");
+        }
+        UUID demandId = UUID.randomUUID();
 
         if (payer.tier() == PayerTier.VILLAGE_AUTHORITY) {
-            // No reachable family payer: the village settles instantly for the lower amount (spec §8.5).
-            EmeraldCurrency.INSTANCE.grant(captor, amount);
+            String treasury = treasuryKey(record, villageId);
+            if (!EconomicTransactionService.transferTreasuryToPlayer(world, demandId, treasury,
+                    c.villageTreasuryInitialBalance.get(), captor, amount)) {
+                return refuse(captor, "mcacrime.ransom.treasury_empty");
+            }
             settle(server, record, captor, amount, villageId, now);
             stampCooldowns(world, victimId, null, villageId, now);
             captor.sendSystemMessage(Component.translatable("mcacrime.ransom.village", amount));
@@ -90,7 +101,7 @@ public final class RansomService {
         }
 
         long ttl = c.ransomDemandTtlTicks.get();
-        RansomState state = new RansomState(UUID.randomUUID(), victimId, captor.getUUID(), payer.uuid(),
+        RansomState state = new RansomState(demandId, victimId, captor.getUUID(), payer.uuid(),
                 payer.tier(), amount, now, now + ttl);
         world.putRansom(state);
         stampCooldowns(world, victimId, payer.uuid(), villageId, now);
@@ -131,11 +142,14 @@ public final class RansomService {
         if (captor == null) {
             return refuse(payer, "mcacrime.ransom.captoraway"); // hold the demand until the captor returns
         }
-        if (!EmeraldCurrency.INSTANCE.tryCharge(payer, state.getAmount())) {
+        if (EmeraldCurrency.INSTANCE.balance(payer) < state.getAmount()) {
             return refuse(payer, "mcacrime.ransom.need");
         }
-        state.setStatus(RansomStatus.PAID); // set before side effects (replay-safe)
-        EmeraldCurrency.INSTANCE.grant(captor, state.getAmount());
+        if (!EconomicTransactionService.transferPlayerToPlayer(world, state.getDemandId(), payer, captor,
+                state.getAmount())) {
+            return refuse(payer, "mcacrime.ransom.need");
+        }
+        state.setStatus(RansomStatus.PAID);
         settle(server, record, captor, state.getAmount(), McaCompat.getHomeVillageId(victim),
                 victim.level().getGameTime());
         world.removeRansom(state.getVictim());
@@ -177,7 +191,7 @@ public final class RansomService {
     private static void settle(MinecraftServer server, CustodyRecord record, ServerPlayer captor, long amount,
                                OptionalInt villageId, long gameTime) {
         CrimeLedger.record(server, new CrimeRecord(UUID.randomUUID(), captor.getUUID(), record.getCaptive(),
-                CrimeIds.KIDNAP, villageId, false, gameTime, 0L, 0L, amount, 0L, Resolution.UNRESOLVED));
+                CrimeIds.EXTORTION, villageId, false, gameTime, 0L, 0L, amount, 0L, Resolution.UNRESOLVED));
         CustodyService.release(server, record.getCaptive(), CustodyReleaseReason.RANSOM_PAID);
     }
 
@@ -211,32 +225,37 @@ public final class RansomService {
         };
     }
 
-    private static List<PayerResolver.Candidate> gatherCandidates(MinecraftServer server, LivingEntity victim) {
+    private static List<PayerResolver.Candidate> gatherCandidates(MinecraftServer server, LivingEntity victim,
+                                                                   ServerPlayer captor) {
         List<PayerResolver.Candidate> out = new ArrayList<>();
         if (!McaCompat.isRelationshipApiAvailable()) {
             return out; // degrade to the village fallback (spec §8.5)
         }
-        McaCompat.getSpouseUuid(victim).ifPresent(u -> addCandidate(out, server, u, PayerTier.SPOUSE));
+        McaCompat.getSpouseUuid(victim).ifPresent(u -> addCandidate(out, server, u, PayerTier.SPOUSE, victim, captor));
         for (UUID u : McaCompat.getParentUuids(victim)) {
-            addCandidate(out, server, u, PayerTier.PARENT);
+            addCandidate(out, server, u, PayerTier.PARENT, victim, captor);
         }
         for (UUID u : McaCompat.getChildUuids(victim)) {
-            addCandidate(out, server, u, PayerTier.ADULT_CHILD);
+            addCandidate(out, server, u, PayerTier.ADULT_CHILD, victim, captor);
         }
         for (UUID u : McaCompat.getSiblingUuids(victim)) {
-            addCandidate(out, server, u, PayerTier.SIBLING);
+            addCandidate(out, server, u, PayerTier.SIBLING, victim, captor);
         }
         for (UUID u : McaCompat.getCloseRelativeUuids(victim, 2)) {
-            addCandidate(out, server, u, PayerTier.CLOSE_RELATIVE);
+            addCandidate(out, server, u, PayerTier.CLOSE_RELATIVE, victim, captor);
         }
         // CLOSE_FRIEND has no MCA edge — it is config-gated off and folds into the village fallback.
         return out;
     }
 
     /** A candidate can pay only if it resolves to an online player (villager relations fold into the village fallback). */
-    private static void addCandidate(List<PayerResolver.Candidate> out, MinecraftServer server, UUID uuid, PayerTier tier) {
+    private static void addCandidate(List<PayerResolver.Candidate> out, MinecraftServer server, UUID uuid,
+                                     PayerTier tier, LivingEntity victim, ServerPlayer captor) {
+        if (uuid == null || uuid.equals(victim.getUUID()) || uuid.equals(captor.getUUID())) return;
         ServerPlayer player = server.getPlayerList().getPlayer(uuid);
-        out.add(new PayerResolver.Candidate(uuid, tier, true, player != null));
+        long required = RansomCalculator.amount(McaCrimeConfig.COMMON.ransomBaseAmount.get(), tierMultiplier(tier));
+        out.add(new PayerResolver.Candidate(uuid, tier, true,
+                player != null && EmeraldCurrency.INSTANCE.balance(player) >= required));
     }
 
     private static boolean cooldownsReady(CrimeWorldData world, UUID victim, @Nullable UUID payer,
@@ -270,6 +289,11 @@ public final class RansomService {
 
     private static String villageKey(int villageId) {
         return "village:" + villageId;
+    }
+
+    private static String treasuryKey(CustodyRecord record, OptionalInt villageId) {
+        return (record.getHoldDim() == null ? "minecraft:overworld" : record.getHoldDim().toString())
+                + ":" + (villageId.isPresent() ? villageId.getAsInt() : "unincorporated");
     }
 
     @Nullable

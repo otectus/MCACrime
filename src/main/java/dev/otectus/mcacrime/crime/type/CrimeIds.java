@@ -16,6 +16,8 @@ public final class CrimeIds {
     public static final ResourceLocation THEFT = new ResourceLocation(McaCrime.MOD_ID, "theft");
     /** Phase 4: a mugging that turned lethal — heavier than a plain kill to favor robbery over murder (§8.6). */
     public static final ResourceLocation MUGGING_MURDER = new ResourceLocation(McaCrime.MOD_ID, "mugging_murder");
+    /** A ransom demand/settlement linked to an existing kidnapping, not a duplicate kidnapping. */
+    public static final ResourceLocation EXTORTION = new ResourceLocation(McaCrime.MOD_ID, "extortion");
 
     private CrimeIds() {
     }

@@ -1,0 +1,33 @@
+{
+  "display": {
+    "translate": "mcacrime.incident.jailbreak"
+  },
+  "default_delta": -16,
+  "visibility": "village",
+  "severity": "major",
+  "tags": [
+    "crime",
+    "official"
+  ],
+  "retention_ticks": 336000,
+  "decay": {
+    "type": "linear_to_zero",
+    "delay_ticks": 72000,
+    "amount_per_day": 1
+  },
+  "resolution": {
+    "apologized": 0.75,
+    "atoned": 0.25,
+    "forgiven": 0.0,
+    "disproven": 0.0
+  },
+  "gossip": {
+    "tone": "condemnation",
+    "phrase": "mcacrime.gossip.jailbreak",
+    "with": [
+      "player",
+      "subject"
+    ]
+  },
+  "max_override_abs": 30
+}

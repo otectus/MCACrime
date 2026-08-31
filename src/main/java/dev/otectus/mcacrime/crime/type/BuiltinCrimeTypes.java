@@ -23,6 +23,7 @@ public final class BuiltinCrimeTypes {
         put(new CrimeType(CrimeIds.KIDNAP, -40L, 35L, 1.0, "villager"));
         put(new CrimeType(CrimeIds.THEFT, -8L, 12L, 1.0, "villager"));
         put(new CrimeType(CrimeIds.MUGGING_MURDER, -70L, 55L, 1.0, "villager"));
+        put(new CrimeType(CrimeIds.EXTORTION, -12L, 10L, 1.0, "villager"));
     }
 
     private BuiltinCrimeTypes() {

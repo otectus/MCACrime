@@ -1,6 +1,8 @@
 package dev.otectus.mcacrime.captivity;
 
 import dev.otectus.mcacrime.McaCrimeConfig;
+import dev.otectus.mcacrime.action.ActionAvailability;
+import dev.otectus.mcacrime.action.ActionSessionManager;
 import dev.otectus.mcacrime.compat.McaCompat;
 import dev.otectus.mcacrime.state.CrimeCapabilities;
 import net.minecraft.network.chat.Component;
@@ -23,40 +25,38 @@ public final class CaptureService {
     }
 
     public static boolean tryBeginCapture(ServerPlayer kidnapper, LivingEntity target, RestraintType restraint) {
+        ActionAvailability availability = evaluate(kidnapper, target, restraint);
+        if (!availability.isAvailable()) return fail(kidnapper, availability.reason());
         McaCrimeConfig.Common c = McaCrimeConfig.COMMON;
-        MinecraftServer server = kidnapper.getServer();
-        if (server == null || restraint == RestraintType.NONE) {
-            return false;
-        }
         boolean targetIsPlayer = target instanceof ServerPlayer;
 
-        if (targetIsPlayer ? !c.enableKidnappingPlayer.get() : !c.enableKidnappingNpc.get()) {
-            return fail(kidnapper, "mcacrime.capture.disabled");
-        }
-        if (!targetIsPlayer && !McaCompat.isMcaVillager(target)) {
-            return false; // only players and MCA villagers are valid targets
-        }
-        if (target.getUUID().equals(kidnapper.getUUID())) {
-            return false; // no self-capture
-        }
-        if (CustodyRegistry.isCaptive(server, target.getUUID())) {
-            return fail(kidnapper, "mcacrime.capture.already");
-        }
-        if (CaptureChannels.has(kidnapper.getUUID())) {
-            return false; // one channel per kidnapper
-        }
-
-        boolean combatNpc = !targetIsPlayer && McaCompat.isCombatCapable(target);
-        boolean relaxedVillager = !targetIsPlayer && !combatNpc && c.villagerCaptureRelaxedVulnerability.get();
-        if (!relaxedVillager && !isVulnerable(kidnapper, target, targetIsPlayer, server)) {
-            return fail(kidnapper, combatNpc ? "mcacrime.capture.guard_immune" : "mcacrime.capture.not_vulnerable");
-        }
-
         int required = Math.max(1, (int) Math.round(c.captureChannelTicks.get() * channelMultiplier(restraint)));
-        CaptureChannels.begin(new CaptureChannel(kidnapper.getUUID(), target.getUUID(), targetIsPlayer, restraint,
-                kidnapper.position(), required));
+        if (!CaptureChannels.beginIfFree(new CaptureChannel(kidnapper.getUUID(), target.getUUID(), targetIsPlayer,
+                restraint, kidnapper.position(), required))) return fail(kidnapper, "mcacrime.action.conflict");
         kidnapper.displayClientMessage(Component.translatable("mcacrime.capture.channeling"), true);
         return true;
+    }
+
+    public static ActionAvailability evaluate(ServerPlayer kidnapper, LivingEntity target, RestraintType restraint) {
+        McaCrimeConfig.Common c = McaCrimeConfig.COMMON;
+        MinecraftServer server = kidnapper.getServer();
+        if (server == null || restraint == RestraintType.NONE) return ActionAvailability.blocked("mcacrime.capture.need_restraint");
+        boolean targetIsPlayer = target instanceof ServerPlayer;
+        if (targetIsPlayer ? !c.enableKidnappingPlayer.get() : !c.enableKidnappingNpc.get())
+            return ActionAvailability.hidden("mcacrime.capture.disabled");
+        if (!targetIsPlayer && !McaCompat.isMcaVillager(target)) return ActionAvailability.hidden("mcacrime.capture.invalid");
+        if (target.getUUID().equals(kidnapper.getUUID())) return ActionAvailability.hidden("mcacrime.capture.invalid");
+        if (CustodyRegistry.isCaptive(server, target.getUUID())) return ActionAvailability.blocked("mcacrime.capture.already");
+        if (unlawfulCaptiveCount(server, kidnapper) >= c.maxUnlawfulCaptivesPerCaptor.get())
+            return ActionAvailability.blocked("mcacrime.capture.capacity");
+        if (CaptureChannels.has(kidnapper.getUUID()) || CaptureChannels.targets(target.getUUID())
+                || ActionSessionManager.targetLocked(target.getUUID()))
+            return ActionAvailability.blocked("mcacrime.action.conflict");
+        boolean combatNpc = !targetIsPlayer && McaCompat.isCombatCapable(target);
+        boolean relaxedVillager = !targetIsPlayer && !combatNpc && c.villagerCaptureRelaxedVulnerability.get();
+        if (!relaxedVillager && !isVulnerable(kidnapper, target, targetIsPlayer, server))
+            return ActionAvailability.blocked(combatNpc ? "mcacrime.capture.guard_immune" : "mcacrime.capture.not_vulnerable");
+        return ActionAvailability.available();
     }
 
     private static boolean isVulnerable(ServerPlayer kidnapper, LivingEntity target, boolean targetIsPlayer,
@@ -91,5 +91,13 @@ public final class CaptureService {
     private static boolean fail(ServerPlayer kidnapper, String key) {
         kidnapper.displayClientMessage(Component.translatable(key), true);
         return false;
+    }
+
+    private static int unlawfulCaptiveCount(MinecraftServer server, ServerPlayer captor) {
+        int count = 0;
+        for (CustodyRecord record : CustodyRegistry.byOwner(server, captor.getUUID())) {
+            if (!record.isLawful()) count++;
+        }
+        return count;
     }
 }

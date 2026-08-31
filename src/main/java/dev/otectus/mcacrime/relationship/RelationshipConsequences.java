@@ -3,8 +3,11 @@ package dev.otectus.mcacrime.relationship;
 import dev.otectus.mcacrime.McaCrime;
 import dev.otectus.mcacrime.McaCrimeConfig;
 import dev.otectus.mcacrime.api.event.CrimeCommittedEvent;
+import dev.otectus.mcacrime.api.model.CrimeCommunityKey;
 import dev.otectus.mcacrime.compat.McaCompat;
+import dev.otectus.mcacrime.integration.CrimeIntegrationHooks;
 import dev.otectus.mcacrime.state.world.CrimeWorldData;
+import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
@@ -12,6 +15,8 @@ import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.phys.AABB;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
+
+import javax.annotation.Nullable;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -54,11 +59,56 @@ public final class RelationshipConsequences {
                 }
             }
         }
-        int repDrop = c.villageRepDrop.get();
-        if (repDrop > 0 && level.getServer() != null) {
-            McaCompat.getHomeVillageId(victim).ifPresent(id ->
-                    CrimeWorldData.get(level.getServer()).addReputation(id, offender.getUUID(), -repDrop));
+        // Personal hearts are always ours: MCA: Reputation tracks community standing, not how a
+        // particular villager feels about you, so there is nothing to double up on above this line.
+        // Community standing is the part that can be counted twice, and is handled below.
+        applyVillagePenalty(level, offender, event.getCrimeType(), event.getRecordView()
+                .flatMap(dev.otectus.mcacrime.api.model.CrimeRecordView::community).orElse(null));
+    }
+
+    /**
+     * Drops the offender's standing with the wronged community — unless MCA: Reputation is going to
+     * record the deed canonically, in which case applying our own penalty as well would charge the
+     * player twice for one crime.
+     *
+     * <p>The check is <b>predictive</b>, not observed. This method runs from a {@code
+     * CrimeCommittedEvent} listener, and the outbox entry is queued during the commit that posts that
+     * event, so asking "has anything been queued?" would depend on listener ordering. Asking "will
+     * anything be?" is a pure function of config, the incident mapping, and bridge health, and gives
+     * the same answer wherever it is called from.
+     */
+    private static void applyVillagePenalty(ServerLevel level, ServerPlayer offender,
+                                            net.minecraft.resources.ResourceLocation crimeType,
+                                            @Nullable CrimeCommunityKey community) {
+        int repDrop = McaCrimeConfig.COMMON.villageRepDrop.get();
+        if (repDrop <= 0 || level.getServer() == null || community == null) {
+            return;
         }
+        if (CrimeIntegrationHooks.willRecordCanonically(crimeType)) {
+            return;
+        }
+        CrimeWorldData.get(level.getServer()).addReputation(community, offender.getUUID(), -repDrop);
+    }
+
+    /**
+     * Applies the village penalty that was skipped because a companion mod was expected to record the
+     * deed, after that delivery has definitively failed.
+     *
+     * <p>Without this, a crime whose civic record never arrived would cost the player nothing publicly
+     * at all — the local penalty suppressed in favour of a write that never happened. Late and local
+     * is a better answer than silently free.
+     */
+    public static void applyDeferredVillagePenalty(MinecraftServer server, @Nullable UUID recordId) {
+        int repDrop = McaCrimeConfig.COMMON.villageRepDrop.get();
+        if (server == null || recordId == null || repDrop <= 0) {
+            return;
+        }
+        CrimeWorldData data = CrimeWorldData.get(server);
+        data.recordById(recordId).ifPresent(record -> record.communityKey().ifPresent(community -> {
+            data.addReputation(community, record.offender(), -repDrop);
+            McaCrime.LOGGER.info("MCA: Crime applied its own village standing penalty for crime {} after the "
+                    + "cross-mod record could not be delivered.", recordId);
+        }));
     }
 
     /**

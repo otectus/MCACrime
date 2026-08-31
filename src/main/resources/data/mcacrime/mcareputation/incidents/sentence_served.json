@@ -1,0 +1,33 @@
+{
+  "display": {
+    "translate": "mcacrime.incident.sentence_served"
+  },
+  "default_delta": 3,
+  "visibility": "village",
+  "severity": "minor",
+  "tags": [
+    "amends",
+    "service"
+  ],
+  "retention_ticks": 336000,
+  "decay": {
+    "type": "linear_to_zero",
+    "delay_ticks": 24000,
+    "amount_per_day": 1
+  },
+  "resolution": {
+    "apologized": 1.0,
+    "atoned": 1.0,
+    "forgiven": 1.0,
+    "disproven": 0.0
+  },
+  "gossip": {
+    "tone": "approval",
+    "phrase": "mcacrime.gossip.sentence_served",
+    "with": [
+      "player",
+      "subject"
+    ]
+  },
+  "max_override_abs": 10
+}

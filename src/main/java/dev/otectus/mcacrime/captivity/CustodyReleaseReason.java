@@ -16,6 +16,8 @@ public enum CustodyReleaseReason {
     CAPTIVITY_CAP,
     /** An operator ran {@code /crime release} (the always-works admin backstop). */
     ADMIN,
+    /** The unlawful captor voluntarily released their captive. */
+    RELEASED_BY_CAPTOR,
     /** A ransom was paid (spec §8.5). */
     RANSOM_PAID,
     /** A lawful jail sentence finished (projection cleanup; the jail authority is {@code JailService}). */

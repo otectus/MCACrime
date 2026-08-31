@@ -29,9 +29,17 @@ description='''${mod_description}'''
     versionRange="[7.6,8)"
     ordering="AFTER"
     side="BOTH"
+# Architectury is deliberately NOT declared. MCA: Crime names no Architectury type (its build only
+# puts it on the dev runtime classpath because MCA needs it there), and MCA Reborn declares its own
+# Architectury dependency. A redundant mandatory=true edge here would refuse to load MCA: Crime on
+# any future MCA that stops needing Architectury.
+
+# MCA: Reputation — OPTIONAL. When present it owns public/community standing and MCA: Crime becomes
+# the single producer for villager assault/death; when absent Crime uses its own fallback store.
+# AFTER so the Reputation API is registered before our bridge handshakes with it.
 [[dependencies.${mod_id}]]
-    modId="architectury"
-    mandatory=true
-    versionRange="[9.2,10)"
+    modId="mcareputation"
+    mandatory=false
+    versionRange="[0.2,)"
     ordering="AFTER"
     side="BOTH"

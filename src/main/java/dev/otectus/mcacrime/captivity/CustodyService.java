@@ -1,6 +1,8 @@
 package dev.otectus.mcacrime.captivity;
 
 import dev.otectus.mcacrime.McaCrimeConfig;
+import dev.otectus.mcacrime.action.ActionSessionManager;
+import dev.otectus.mcacrime.action.CancelReason;
 import dev.otectus.mcacrime.api.event.EntityKidnappedEvent;
 import dev.otectus.mcacrime.api.event.EntityReleasedFromCaptivityEvent;
 import dev.otectus.mcacrime.compat.McaCompat;
@@ -20,6 +22,7 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraftforge.common.MinecraftForge;
+import net.minecraft.util.RandomSource;
 
 import javax.annotation.Nullable;
 import java.util.Optional;
@@ -66,6 +69,11 @@ public final class CustodyService {
         if (captiveUuid.equals(captor.getUUID()) || CustodyRegistry.isCaptive(server, captiveUuid)) {
             return false; // no self-capture, no double-capture
         }
+        long alreadyHeld = CustodyRegistry.byOwner(server, captor.getUUID()).stream()
+                .filter(existing -> !existing.isLawful()).count();
+        if (alreadyHeld >= McaCrimeConfig.COMMON.maxUnlawfulCaptivesPerCaptor.get()) {
+            return false; // commit-time invariant: a race cannot bypass the start check
+        }
         boolean captiveIsPlayer = captiveEntity instanceof ServerPlayer;
         long start = CrimeCapabilities.get(captor).map(PlayerCrimeData::getOnlineTicksLived).orElse(0L);
         CustodyRecord record = new CustodyRecord(captiveUuid, captiveIsPlayer, false,
@@ -82,8 +90,8 @@ public final class CustodyService {
         }
 
         // The captor is the criminal: commit the kidnap crime (Karma/Heat + ledger + witnessed events).
-        int witnesses = WitnessChecker.countWitnesses(level, captiveEntity);
-        CrimeDetector.commitDirect(captor, CrimeIds.KIDNAP, captiveEntity, level, witnesses > 0, witnesses);
+        CrimeDetector.commitDirect(captor, CrimeIds.KIDNAP, captiveEntity, level,
+                WitnessChecker.resolve(level, captiveEntity), "custody");
 
         MinecraftForge.EVENT_BUS.post(new EntityKidnappedEvent(captiveUuid, captiveIsPlayer, captor.getUUID(),
                 true, restraint, captivePlayer, captor));
@@ -108,6 +116,8 @@ public final class CustodyService {
             return; // the guard that makes double-release a no-op
         }
         data.removeCustody(captiveUuid);
+        data.removeRansom(captiveUuid);
+        ActionSessionManager.clearFor(captiveUuid, CancelReason.TARGET_GONE);
         UUID formerCaptor = record.getOwner().ownerUuid().orElse(null);
 
         if (formerCaptor != null) {
@@ -146,6 +156,7 @@ public final class CustodyService {
             case CAPTOR_GONE -> "mcacrime.kidnap.released.captorgone";
             case CAPTIVITY_CAP -> "mcacrime.kidnap.released.cap";
             case ADMIN -> "mcacrime.kidnap.released.admin";
+            case RELEASED_BY_CAPTOR -> "mcacrime.kidnap.released.captor";
             case RANSOM_PAID -> "mcacrime.kidnap.released.ransom";
             case SENTENCE_SERVED -> "mcacrime.kidnap.released.served";
             case CAPTIVE_DIED -> "mcacrime.kidnap.released.died";
@@ -168,13 +179,33 @@ public final class CustodyService {
         if (record == null || record.isLawful()) {
             return false;
         }
-        double chance = escapeChance(record.getRestraint());
-        if (chance > 0.0 && captive.getRandom().nextDouble() < chance) {
-            release(server, captive.getUUID(), CustodyReleaseReason.ESCAPED);
+        long now = captive.level().getGameTime();
+        if (record.isEscapeActive()) {
+            captive.sendSystemMessage(Component.translatable("mcacrime.captive.escape.already",
+                    record.getEscapeProgress(), escapeWorkTicks(record.getRestraint())));
             return true;
         }
-        captive.sendSystemMessage(Component.translatable("mcacrime.captive.escape.failed"));
-        return false;
+        if (now < record.getEscapeCooldownUntil()) {
+            captive.sendSystemMessage(Component.translatable("mcacrime.captive.escape.cooldown",
+                    record.getEscapeCooldownUntil() - now));
+            return false;
+        }
+        if (escapeChance(record.getRestraint()) <= 0.0D) {
+            captive.sendSystemMessage(Component.translatable("mcacrime.captive.escape.locked"));
+            return false;
+        }
+        int attempt = record.getEscapeAttempts() + 1;
+        record.setEscapeAttempts(attempt);
+        record.setEscapeProgress(0);
+        record.setEscapeActive(true);
+        record.setEscapeCooldownUntil(now + McaCrimeConfig.COMMON.escapeAttemptCooldownTicks.get());
+        long seed = captive.getUUID().getMostSignificantBits() ^ captive.getUUID().getLeastSignificantBits()
+                ^ record.getStartTickOnline() ^ ((long) attempt * 0x9E3779B97F4A7C15L);
+        record.setEscapeRoll(RandomSource.create(seed).nextDouble());
+        CrimeWorldData.get(server).setDirty();
+        captive.sendSystemMessage(Component.translatable("mcacrime.captive.escape.started",
+                escapeWorkTicks(record.getRestraint())));
+        return true;
     }
 
     private static double escapeChance(RestraintType restraint) {
@@ -199,6 +230,37 @@ public final class CustodyService {
         CustodyRecord record = world.getCustody(captive.getUUID());
         if (record == null || record.isLawful()) {
             return; // lawful jail cap is JailService's job
+        }
+        UUID captorId = record.getOwner().ownerUuid().orElse(null);
+        if (record.isCaptivePlayer() && captorId != null) {
+            ServerPlayer captor = server.getPlayerList().getPlayer(captorId);
+            long now = captive.level().getGameTime();
+            if (captor != null) {
+                if (record.getCaptorDisconnectedAt() != 0L) record.setCaptorDisconnectedAt(0L);
+            } else {
+                if (record.getCaptorDisconnectedAt() == 0L) record.setCaptorDisconnectedAt(now);
+                long grace = McaCrimeConfig.COMMON.captorDisconnectGraceTicks.get();
+                if (grace == 0L || now - record.getCaptorDisconnectedAt() >= grace) {
+                    release(server, captive.getUUID(), CustodyReleaseReason.CAPTOR_GONE);
+                    return;
+                }
+            }
+        }
+        if (record.isEscapeActive()) {
+            int progress = record.getEscapeProgress() + 1;
+            record.setEscapeProgress(progress);
+            if (progress >= escapeWorkTicks(record.getRestraint())) {
+                record.setEscapeActive(false);
+                record.setEscapeProgress(0);
+                if (record.getEscapeRoll() < escapeChance(record.getRestraint())) {
+                    release(server, captive.getUUID(), CustodyReleaseReason.ESCAPED);
+                    return;
+                }
+                captive.sendSystemMessage(Component.translatable("mcacrime.captive.escape.failed"));
+            } else if (progress % 20 == 0) {
+                captive.displayClientMessage(Component.translatable("mcacrime.captive.escape.progress",
+                        progress, escapeWorkTicks(record.getRestraint())), true);
+            }
         }
         long capTicks = (long) McaCrimeConfig.COMMON.maxCaptivityRealMinutes.get() * 1200L;
         CustodyReleaseReason due = advanceTick(record, capTicks);
@@ -249,12 +311,54 @@ public final class CustodyService {
                 }
             });
         }
-        dataOpt.ifPresent(d -> {
-            UUID held = d.getHeldCaptiveRef();
-            if (held != null && !world.isCaptive(held)) {
-                d.setHeldCaptiveRef(null); // captor's pointer to a captive that no longer exists
+        java.util.List<CustodyRecord> owned = CustodyRegistry.byOwner(server, player.getUUID()).stream()
+                .filter(record -> !record.isLawful()).toList();
+        dataOpt.ifPresent(d -> d.setHeldCaptiveRef(owned.isEmpty() ? null : owned.get(0).getCaptive()));
+        // Legacy builds could orphan several records behind one scalar cache. Keep the oldest/first
+        // authoritative record and release the ambiguous extras instead of hiding them forever.
+        for (int i = 1; i < owned.size(); i++) {
+            release(server, owned.get(i).getCaptive(), CustodyReleaseReason.ADMIN);
+        }
+        // If this player is a returning captor, clear their disconnect stamps.
+        for (CustodyRecord held : CustodyRegistry.byOwner(server, player.getUUID())) {
+            if (held.getCaptorDisconnectedAt() != 0L) {
+                held.setCaptorDisconnectedAt(0L);
+                world.setDirty();
             }
-        });
+        }
+    }
+
+    public static void onCaptorLogout(ServerPlayer captor) {
+        MinecraftServer server = captor.getServer();
+        if (server == null) return;
+        CrimeWorldData world = CrimeWorldData.get(server);
+        long now = captor.level().getGameTime();
+        for (CustodyRecord held : CustodyRegistry.byOwner(server, captor.getUUID())) {
+            if (!held.isLawful() && held.isCaptivePlayer() && held.getCaptorDisconnectedAt() == 0L) {
+                held.setCaptorDisconnectedAt(now);
+                world.setDirty();
+            }
+        }
+    }
+
+    public static void interruptEscape(UUID captive, MinecraftServer server) {
+        if (server == null) return;
+        CustodyRecord record = CrimeWorldData.get(server).getCustody(captive);
+        if (record != null && record.isEscapeActive()) {
+            record.setEscapeActive(false);
+            record.setEscapeProgress(0);
+            CrimeWorldData.get(server).setDirty();
+        }
+    }
+
+    private static int escapeWorkTicks(RestraintType restraint) {
+        McaCrimeConfig.Common c = McaCrimeConfig.COMMON;
+        return switch (restraint) {
+            case NONE -> 1;
+            case ROPE -> c.escapeWorkTicksRope.get();
+            case CUFFS -> c.escapeWorkTicksCuffs.get();
+            case LOCKED_CUFFS -> Integer.MAX_VALUE;
+        };
     }
 
     @Nullable

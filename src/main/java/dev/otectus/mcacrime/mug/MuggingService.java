@@ -1,18 +1,7 @@
 package dev.otectus.mcacrime.mug;
 
-import dev.otectus.mcacrime.McaCrimeConfig;
-import dev.otectus.mcacrime.compat.McaCompat;
-import dev.otectus.mcacrime.crime.type.CrimeIds;
-import dev.otectus.mcacrime.detect.CrimeDetector;
-import dev.otectus.mcacrime.detect.WitnessChecker;
-import dev.otectus.mcacrime.economy.EmeraldCurrency;
-import net.minecraft.network.chat.Component;
-import net.minecraft.server.level.ServerLevel;
+import dev.otectus.mcacrime.action.CrimeActionService;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.world.entity.LivingEntity;
-import net.minecraft.world.phys.AABB;
-
-import javax.annotation.Nullable;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -31,7 +20,6 @@ public final class MuggingService {
 
     /** How long after a mug the victim's death still counts as a mugging-murder. */
     private static final long MUG_WINDOW_TICKS = 200L;
-    private static final double MUG_REACH = 4.0;
 
     private static final Map<MugKey, Long> RECENT = new ConcurrentHashMap<>();
 
@@ -40,26 +28,13 @@ public final class MuggingService {
 
     /** Attempts to mug the villager the player is looking at within reach. Returns 1 on success, 0 on a refusal. */
     public static int mug(ServerPlayer player) {
-        McaCrimeConfig.Common c = McaCrimeConfig.COMMON;
-        if (!c.enableMugging.get()) {
-            return refuse(player, "mcacrime.mug.disabled");
-        }
-        if (!(player.level() instanceof ServerLevel level)) {
-            return 0;
-        }
-        LivingEntity target = nearestVillager(player, level);
-        if (target == null) {
-            return refuse(player, "mcacrime.mug.notarget");
-        }
-        long now = level.getGameTime();
-        sweep(now);
-        RECENT.put(new MugKey(player.getUUID(), target.getUUID()), now);
+        return CrimeActionService.startMugFromCommand(player);
+    }
 
-        int witnesses = WitnessChecker.countWitnesses(level, target);
-        CrimeDetector.commitDirect(player, CrimeIds.THEFT, target, level, witnesses > 0, witnesses);
-        EmeraldCurrency.INSTANCE.grant(player, c.muggingBaseLoot.get()); // the NPC "pays"
-        player.sendSystemMessage(Component.translatable("mcacrime.mug.success", c.muggingBaseLoot.get()));
-        return 1;
+    /** Called at the overt threat point so a subsequent killing is still reclassified. */
+    public static void markThreat(UUID mugger, UUID victim, long now) {
+        sweep(now);
+        RECENT.put(new MugKey(mugger, victim), now);
     }
 
     /**
@@ -75,27 +50,8 @@ public final class MuggingService {
         RECENT.keySet().removeIf(k -> k.mugger().equals(player));
     }
 
-    @Nullable
-    private static LivingEntity nearestVillager(ServerPlayer player, ServerLevel level) {
-        AABB box = player.getBoundingBox().inflate(MUG_REACH);
-        LivingEntity best = null;
-        double bestSqr = Double.MAX_VALUE;
-        for (LivingEntity e : level.getEntitiesOfClass(LivingEntity.class, box, McaCompat::isMcaVillager)) {
-            double d = e.distanceToSqr(player);
-            if (d < bestSqr && player.hasLineOfSight(e)) {
-                bestSqr = d;
-                best = e;
-            }
-        }
-        return best;
-    }
-
     private static void sweep(long now) {
         RECENT.entrySet().removeIf(entry -> now - entry.getValue() > MUG_WINDOW_TICKS * 4L);
     }
 
-    private static int refuse(ServerPlayer player, String key) {
-        player.sendSystemMessage(Component.translatable(key));
-        return 0;
-    }
 }

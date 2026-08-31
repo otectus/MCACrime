@@ -2,7 +2,13 @@ package dev.otectus.mcacrime.detect;
 
 import dev.otectus.mcacrime.McaCrime;
 import dev.otectus.mcacrime.McaCrimeConfig;
+import dev.otectus.mcacrime.action.ActionSessionManager;
+import dev.otectus.mcacrime.action.CancelReason;
 import dev.otectus.mcacrime.captivity.CaptureChannels;
+import dev.otectus.mcacrime.captivity.CustodyRecord;
+import dev.otectus.mcacrime.captivity.CustodyRegistry;
+import dev.otectus.mcacrime.captivity.CustodyReleaseReason;
+import dev.otectus.mcacrime.captivity.CustodyService;
 import dev.otectus.mcacrime.mug.MuggingService;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraftforge.event.entity.living.LivingDeathEvent;
@@ -19,28 +25,68 @@ import net.minecraftforge.fml.common.Mod;
 @Mod.EventBusSubscriber(modid = McaCrime.MOD_ID)
 public final class CrimeDetectionHandlers {
 
+    /**
+     * One-shot kill switch for the detection path. {@code McaCompat} can no longer raise a linkage
+     * error, but detection runs on every damage and death tick in the world, so anything that does
+     * escape must cost one log line rather than one per tick — and on a dedicated server must not turn
+     * a bug into a crash loop, which is exactly what MCA's package rename did here. Set once and never
+     * reset: a detection path that has already thrown is not trustworthy for the rest of the session.
+     */
+    private static volatile boolean detectionDisabled;
+
     private CrimeDetectionHandlers() {
+    }
+
+    private static void guarded(String what, Runnable body) {
+        if (detectionDisabled) {
+            return;
+        }
+        try {
+            body.run();
+        } catch (Throwable t) {
+            detectionDisabled = true;
+            McaCrime.LOGGER.error("MCA: Crime {} failed; crime detection is disabled for the rest of this "
+                    + "session. Your server will keep running. Please report this with your MCA version.",
+                    what, t);
+        }
     }
 
     @SubscribeEvent
     public static void onLivingHurt(LivingHurtEvent event) {
         // A channeling kidnapper who is hit breaks their capture (§8.2) — independent of the detection toggle.
         CaptureChannels.onKidnapperHurt(event.getEntity().getUUID());
+        if (event.getEntity().level() instanceof ServerLevel hurtLevel) {
+            ActionSessionManager.clearFor(event.getEntity().getUUID(), CancelReason.DAMAGED);
+            CustodyService.interruptEscape(event.getEntity().getUUID(), hurtLevel.getServer());
+        }
         if (!McaCrimeConfig.COMMON.enableCrimeDetection.get()) {
             return;
         }
         if (event.getEntity().level() instanceof ServerLevel level) {
-            CrimeDetector.onHarm(event.getEntity(), event.getSource(), event.getAmount(), level);
+            guarded("hurt detection", () ->
+                    CrimeDetector.onHarm(event.getEntity(), event.getSource(), event.getAmount(), level));
         }
     }
 
     @SubscribeEvent
     public static void onLivingDeath(LivingDeathEvent event) {
+        if (event.getEntity().level() instanceof ServerLevel deathLevel) {
+            var server = deathLevel.getServer();
+            var dead = event.getEntity().getUUID();
+            CaptureChannels.clearFor(dead);
+            ActionSessionManager.clearFor(dead, CancelReason.DEATH);
+            if (CustodyRegistry.isCaptive(server, dead)) {
+                CustodyService.release(server, dead, CustodyReleaseReason.CAPTIVE_DIED);
+            }
+            for (CustodyRecord held : CustodyRegistry.byOwner(server, dead)) {
+                CustodyService.release(server, held.getCaptive(), CustodyReleaseReason.CAPTOR_GONE);
+            }
+        }
         if (!McaCrimeConfig.COMMON.enableCrimeDetection.get()) {
             return;
         }
         if (event.getEntity().level() instanceof ServerLevel level) {
-            CrimeDetector.onKill(event.getEntity(), event.getSource(), level);
+            guarded("kill detection", () -> CrimeDetector.onKill(event.getEntity(), event.getSource(), level));
         }
     }
 
@@ -49,5 +95,9 @@ public final class CrimeDetectionHandlers {
         CrimeDetector.clearAttacker(event.getEntity().getUUID());
         CaptureChannels.clearFor(event.getEntity().getUUID()); // drop any in-progress channel by/of this player
         MuggingService.onLogout(event.getEntity().getUUID()); // drop any pending mug markers
+        ActionSessionManager.clearFor(event.getEntity().getUUID(), CancelReason.ACTOR_GONE);
+        if (event.getEntity() instanceof net.minecraft.server.level.ServerPlayer player) {
+            CustodyService.onCaptorLogout(player);
+        }
     }
 }

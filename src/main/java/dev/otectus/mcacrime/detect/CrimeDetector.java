@@ -4,12 +4,16 @@ import dev.otectus.mcacrime.McaCrime;
 import dev.otectus.mcacrime.McaCrimeConfig;
 import dev.otectus.mcacrime.api.event.CrimeCommittedEvent;
 import dev.otectus.mcacrime.api.event.CrimeWitnessedEvent;
+import dev.otectus.mcacrime.api.model.CrimeCommunityKey;
+import dev.otectus.mcacrime.api.model.CrimeRecordView;
 import dev.otectus.mcacrime.compat.McaCompat;
 import dev.otectus.mcacrime.crime.KarmaSource;
 import dev.otectus.mcacrime.crime.type.CrimeIds;
 import dev.otectus.mcacrime.crime.type.CrimeType;
 import dev.otectus.mcacrime.crime.type.CrimeTypeRegistry;
 import dev.otectus.mcacrime.engine.CrimeState;
+import dev.otectus.mcacrime.integration.CrimeIntegrationHooks;
+import dev.otectus.mcacrime.ledger.CrimeContext;
 import dev.otectus.mcacrime.ledger.CrimeLedger;
 import dev.otectus.mcacrime.ledger.CrimeRecord;
 import dev.otectus.mcacrime.ledger.Resolution;
@@ -23,6 +27,7 @@ import net.minecraft.world.entity.LivingEntity;
 import net.minecraftforge.common.MinecraftForge;
 
 import javax.annotation.Nullable;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
@@ -87,24 +92,43 @@ public final class CrimeDetector {
     // ------------------------------------------------------------------ commit
 
     private static void commit(ServerPlayer offender, LivingEntity victim, ResourceLocation crimeId, ServerLevel level) {
-        int witnessCount = WitnessChecker.countWitnesses(level, victim);
-        commitDirect(offender, crimeId, victim, level, witnessCount > 0, witnessCount);
+        commitDirect(offender, crimeId, victim, level, WitnessChecker.resolve(level, victim), "direct");
     }
 
     /**
      * Shared commit tail (spec §3.5, §2.2): apply Karma/Heat via {@link CrimeState}, write the ledger, fire
      * {@code CrimeWitnessed}/{@code CrimeCommitted}. {@code victim} may be null for victimless crimes (e.g.
      * a {@code jailbreak}, which is inherently witnessed by the law). Fail-safe: unknown crime id → no-op.
+     *
+     * @deprecated prefer {@link #commitDirect(ServerPlayer, ResourceLocation, LivingEntity, ServerLevel,
+     *         WitnessResult, String)}, which records who saw it rather than only how many.
      */
+    @Deprecated
     public static void commitDirect(ServerPlayer offender, ResourceLocation crimeId, @Nullable LivingEntity victim,
                                     ServerLevel level, boolean witnessed, int witnessCount) {
+        commitDirect(offender, crimeId, victim, level, WitnessResult.legacy(witnessed, witnessCount), "direct");
+    }
+
+    /**
+     * Shared commit tail, carrying the full witness snapshot.
+     *
+     * <p>{@code detection} records how the crime came to light — {@code direct}, {@code custody},
+     * {@code jailbreak}, {@code command} — because the same crime type means something different when a
+     * guard caught it in the act than when it was recorded by an operator.
+     *
+     * @return the committed case, or empty when the crime type is unknown and nothing was written
+     */
+    public static Optional<CrimeRecordView> commitDirect(ServerPlayer offender, ResourceLocation crimeId,
+                                                         @Nullable LivingEntity victim, ServerLevel level,
+                                                         WitnessResult witnesses, String detection) {
         Optional<CrimeType> typeOpt = CrimeTypeRegistry.getOrBuiltin(crimeId);
         if (typeOpt.isEmpty()) {
             McaCrime.LOGGER.debug("No crime type (or builtin) for '{}'; skipping", crimeId);
-            return;
+            return Optional.empty();
         }
         CrimeType type = typeOpt.get();
         McaCrimeConfig.Common c = McaCrimeConfig.COMMON;
+        boolean witnessed = witnesses.witnessed();
 
         long karmaApplied = karmaFor(type, witnessed, c.unwitnessedKarmaFactor.get());
         long heatApplied = heatFor(type, witnessed, c.requireWitnessForHeat.get());
@@ -112,24 +136,65 @@ public final class CrimeDetector {
             CrimeState.addKarma(offender, karmaApplied, KarmaSource.CRIME);
         }
         if (heatApplied != 0L) {
-            CrimeState.addHeat(offender, heatApplied);
+            CrimeState.addHeat(offender, heatApplied, crimeId, "");
         }
 
         UUID recordId = UUID.randomUUID();
         UUID victimId = victim == null ? null : victim.getUUID();
         OptionalInt villageId = victim == null ? OptionalInt.empty() : McaCompat.getHomeVillageId(victim);
+        CrimeCommunityKey community = CrimeCommunityResolver.resolve(victim, level).orElse(null);
+        CrimeRecord record = new CrimeRecord(recordId, offender.getUUID(), victimId, crimeId,
+                villageId, community, witnessed, witnesses.witnessIds(), level.getGameTime(),
+                heatApplied, karmaApplied, 0L, 0L, Resolution.UNRESOLVED, 0L, java.util.List.of(), null,
+                buildContext(victim, witnesses, detection));
+
         MinecraftServer server = offender.getServer();
         if (server != null) {
-            CrimeLedger.record(server, new CrimeRecord(recordId, offender.getUUID(), victimId, crimeId,
-                    villageId, witnessed, level.getGameTime(), heatApplied, karmaApplied,
-                    0L, 0L, Resolution.UNRESOLVED));
+            CrimeLedger.record(server, record);
+            // Queued in the same dirty cycle as the record itself, so a crash cannot leave the case
+            // written but the companion mod never told about it.
+            CrimeIntegrationHooks.onCommitted(server, record.view());
         }
 
+        CrimeRecordView view = record.view();
         if (witnessed) {
-            MinecraftForge.EVENT_BUS.post(new CrimeWitnessedEvent(offender, crimeId, victimId, witnessCount));
+            MinecraftForge.EVENT_BUS.post(new CrimeWitnessedEvent(offender, crimeId, victimId,
+                    witnesses.totalWitnesses(), witnesses.witnessIds()));
         }
         MinecraftForge.EVENT_BUS.post(new CrimeCommittedEvent(offender, crimeId, victimId, witnessed,
-                karmaApplied, heatApplied, recordId));
+                karmaApplied, heatApplied, recordId, view));
+        return Optional.of(view);
+    }
+
+    /**
+     * The allowlisted context snapshot (spec §6.8): a handful of stable facts a later screen or
+     * companion mod would otherwise have to reconstruct from an entity that has long since unloaded.
+     * Deliberately not a dumping ground — no entity NBT, no chat, no player-supplied strings.
+     */
+    private static Map<String, String> buildContext(@Nullable LivingEntity victim, WitnessResult witnesses,
+                                                    String detection) {
+        Map<String, String> context = new LinkedHashMap<>();
+        context.put(CrimeContext.DETECTION, detection);
+        if (witnesses.truncated()) {
+            // The crowd was bigger than we stored. Keeping the real number lets a later line say "and
+            // a dozen others saw it" without pretending to know who they were.
+            context.put(CrimeContext.WITNESS_COUNT_TOTAL, Integer.toString(witnesses.totalWitnesses()));
+        }
+        if (victim != null) {
+            String name = McaCompat.getVillagerDisplayName(victim).getString();
+            if (!name.isEmpty()) {
+                context.put(CrimeContext.VICTIM_NAME, name);
+            }
+            context.put(CrimeContext.VICTIM_ROLE, victimRole(victim));
+        }
+        return context;
+    }
+
+    private static String victimRole(LivingEntity victim) {
+        if (McaCompat.isGuard(victim)) {
+            return "guard";
+        }
+        return McaCompat.isAdult(victim) ? "villager" : "child";
     }
 
     // ------------------------------------------------------------------ pure application math (testable)

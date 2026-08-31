@@ -9,7 +9,10 @@ import dev.otectus.mcacrime.captivity.CustodyRecord;
 import dev.otectus.mcacrime.captivity.CustodyRegistry;
 import dev.otectus.mcacrime.captivity.CustodyReleaseReason;
 import dev.otectus.mcacrime.captivity.CustodyService;
+import dev.otectus.mcacrime.api.McaCrimeApi;
+import dev.otectus.mcacrime.action.CrimeActionService;
 import dev.otectus.mcacrime.compat.McaCompat;
+import dev.otectus.mcacrime.compat.ReputationBridge;
 import dev.otectus.mcacrime.config.ConfigValidator;
 import dev.otectus.mcacrime.crime.Band;
 import dev.otectus.mcacrime.crime.KarmaSource;
@@ -23,6 +26,7 @@ import dev.otectus.mcacrime.jail.JailAnchor;
 import dev.otectus.mcacrime.jail.JailRegistry;
 import dev.otectus.mcacrime.jail.JailService;
 import dev.otectus.mcacrime.jail.ReleaseReason;
+import dev.otectus.mcacrime.integration.CrimeIntegrationOperation;
 import dev.otectus.mcacrime.ledger.CrimeLedger;
 import dev.otectus.mcacrime.ledger.CrimeRecord;
 import dev.otectus.mcacrime.mug.MuggingService;
@@ -45,6 +49,7 @@ import net.minecraft.world.entity.Entity;
 import net.minecraft.world.phys.AABB;
 import net.minecraftforge.event.RegisterCommandsEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
+import net.minecraftforge.fml.ModList;
 import net.minecraftforge.fml.common.Mod;
 
 import java.util.Comparator;
@@ -87,6 +92,8 @@ public final class CrimeCommand {
                         .executes(CrimeCommand::mug))
                 .then(Commands.literal("escape")
                         .executes(CrimeCommand::escape))
+                .then(Commands.literal("releasecaptive")
+                        .executes(CrimeCommand::releaseCaptive))
                 .then(Commands.literal("query")
                         .requires(src -> src.hasPermission(2))
                         .then(Commands.argument("target", EntityArgument.player())
@@ -135,7 +142,71 @@ public final class CrimeCommand {
                         .then(Commands.literal("villager")
                                 .executes(CrimeCommand::debugVillager))
                         .then(Commands.literal("custody")
-                                .executes(CrimeCommand::debugCustody))));
+                                .executes(CrimeCommand::debugCustody))
+                        .then(Commands.literal("actions")
+                                .executes(CrimeCommand::debugActions))
+                        .then(Commands.literal("integrations")
+                                .executes(CrimeCommand::debugIntegrations))
+                        .then(Commands.literal("outbox")
+                                .executes(ctx -> debugOutbox(ctx, false))
+                                .then(Commands.literal("dead")
+                                        .executes(ctx -> debugOutbox(ctx, true))))));
+    }
+
+    /**
+     * Where an operator starts when an attack scores twice, or not at all. Reports presence, the
+     * handshake, who owns detection, and what is stuck — and deliberately no UUIDs beyond operation
+     * ids, so pasting the output into a bug report leaks nothing about players.
+     */
+    private static int debugIntegrations(CommandContext<CommandSourceStack> ctx) {
+        CommandSourceStack source = ctx.getSource();
+        source.sendSuccess(() -> Component.literal("mcacrime api v" + McaCrimeApi.getApiVersion()), false);
+        source.sendSuccess(() -> Component.literal("reputation: installed="
+                + ModList.get().isLoaded("mcareputation")
+                + " enabled=" + McaCrimeConfig.COMMON.enableReputation.get()
+                + " state=" + ReputationBridge.status()), false);
+        source.sendSuccess(() -> Component.literal("  bridge available=" + ReputationBridge.isAvailable()
+                + " holds detection authority=" + ReputationBridge.holdsAuthority()), false);
+        if (ReputationBridge.isAvailable() && !ReputationBridge.holdsAuthority()) {
+            source.sendSuccess(() -> Component.literal(
+                    "  villager assault/killing is still being recorded by MCA: Reputation itself; "
+                            + "MCA: Crime is not producing those incidents.")
+                    .withStyle(ChatFormatting.YELLOW), false);
+        }
+
+        CrimeWorldData data = CrimeWorldData.get(source.getServer());
+        source.sendSuccess(() -> Component.literal("outbox: pending=" + data.pendingOperationCount()
+                + " dead=" + data.deadLetterCount()), false);
+        List<CrimeIntegrationOperation> dead = data.deadLetters();
+        if (!dead.isEmpty()) {
+            CrimeIntegrationOperation newest = dead.get(dead.size() - 1);
+            source.sendSuccess(() -> Component.literal("  last failure: " + newest.target()
+                    + " -> " + newest.lastError()).withStyle(ChatFormatting.RED), false);
+        }
+        return data.pendingOperationCount();
+    }
+
+    private static int debugActions(CommandContext<CommandSourceStack> ctx) {
+        int active = dev.otectus.mcacrime.action.ActionSessionManager.activeCount();
+        ctx.getSource().sendSuccess(() -> Component.literal("active action sessions: " + active), false);
+        return active;
+    }
+
+    /** Lists queued or given-up-on cross-mod writes, bounded so a big backlog cannot flood chat. */
+    private static int debugOutbox(CommandContext<CommandSourceStack> ctx, boolean deadOnly) {
+        CommandSourceStack source = ctx.getSource();
+        CrimeWorldData data = CrimeWorldData.get(source.getServer());
+        List<CrimeIntegrationOperation> entries = deadOnly
+                ? data.deadLetters()
+                : data.dueOperations(source.getServer().overworld().getGameTime(), 20);
+        source.sendSuccess(() -> Component.literal((deadOnly ? "dead letters: " : "due now: ")
+                + entries.size()), false);
+        entries.stream().limit(20).forEach(operation -> source.sendSuccess(() -> Component.literal(
+                        "  " + operation.operationId() + " " + operation.action().getPath()
+                                + " attempts=" + operation.attempts()
+                                + (operation.lastError().isEmpty() ? "" : " last=" + operation.lastError()))
+                .withStyle(ChatFormatting.DARK_GRAY), false));
+        return entries.size();
     }
 
     // --- player reads ---
@@ -260,28 +331,32 @@ public final class CrimeCommand {
     // --- player release valves ---
 
     private static int payFine(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
-        return FineService.payFine(ctx.getSource().getPlayerOrException());
+        return CrimeActionService.settleCase(ctx.getSource().getPlayerOrException());
     }
 
     private static int surrender(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
-        return SurrenderService.surrender(ctx.getSource().getPlayerOrException());
+        return CrimeActionService.surrender(ctx.getSource().getPlayerOrException());
     }
 
     private static int ransom(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
-        return RansomService.demand(ctx.getSource().getPlayerOrException());
+        return CrimeActionService.demandRansom(ctx.getSource().getPlayerOrException());
     }
 
     private static int payRansom(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
-        return RansomService.pay(ctx.getSource().getPlayerOrException());
+        return CrimeActionService.payRansom(ctx.getSource().getPlayerOrException());
     }
 
     private static int mug(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
-        return MuggingService.mug(ctx.getSource().getPlayerOrException());
+        return CrimeActionService.startMugFromCommand(ctx.getSource().getPlayerOrException());
     }
 
     /** A captive's attempt to break free of an unlawful captor (server-validated; escaping kidnapping is no crime, §8.1). */
     private static int escape(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
         return CustodyService.attemptEscape(ctx.getSource().getPlayerOrException()) ? 1 : 0;
+    }
+
+    private static int releaseCaptive(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
+        return CrimeActionService.releaseOwnedCaptives(ctx.getSource().getPlayerOrException());
     }
 
     // --- op jail control (all via JailService — server-authoritative, idempotent) ---
@@ -311,9 +386,8 @@ public final class CrimeCommand {
                 CustodyService.release(server, target.getUUID(), CustodyReleaseReason.ADMIN);
                 did = true;
             }
-            UUID held = CrimeCapabilities.get(target).map(PlayerCrimeData::getHeldCaptiveRef).orElse(null);
-            if (held != null) {
-                CustodyService.release(server, held, CustodyReleaseReason.ADMIN);
+            for (CustodyRecord held : CustodyRegistry.byOwner(server, target.getUUID())) {
+                CustodyService.release(server, held.getCaptive(), CustodyReleaseReason.ADMIN);
                 did = true;
             }
         }

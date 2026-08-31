@@ -2,6 +2,7 @@ package dev.otectus.mcacrime.engine;
 
 import dev.otectus.mcacrime.McaCrime;
 import dev.otectus.mcacrime.McaCrimeConfig;
+import dev.otectus.mcacrime.api.event.HeatChangedEvent;
 import dev.otectus.mcacrime.api.event.KarmaChangedEvent;
 import dev.otectus.mcacrime.api.event.WantedStatusChangedEvent;
 import dev.otectus.mcacrime.crime.Band;
@@ -10,6 +11,7 @@ import dev.otectus.mcacrime.crime.KarmaSource;
 import dev.otectus.mcacrime.network.CrimeNetwork;
 import dev.otectus.mcacrime.state.CrimeCapabilities;
 import dev.otectus.mcacrime.state.PlayerCrimeData;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraftforge.common.MinecraftForge;
 
@@ -24,6 +26,9 @@ import java.util.function.LongUnaryOperator;
  * <p>All methods take a {@link ServerPlayer} — there is no path to mutate state from a client value.
  */
 public final class CrimeState {
+
+    /** Attribution for a change with no more specific origin — decay, reconcile, an admin command. */
+    public static final ResourceLocation INTERNAL = McaCrime.id("internal");
 
     private CrimeState() {
     }
@@ -61,15 +66,31 @@ public final class CrimeState {
     // ------------------------------------------------------------------ heat mutators
 
     public static void addHeat(ServerPlayer player, long delta) {
-        applyHeat(player, current -> current + delta);
+        applyHeat(player, current -> current + delta, INTERNAL, "");
+    }
+
+    /**
+     * Attributed Heat change. {@code source} names what caused it and {@code dedupeKey} identifies the
+     * transaction, so a listener can tell a genuine second change from a redelivered first one.
+     */
+    public static void addHeat(ServerPlayer player, long delta, ResourceLocation source, String dedupeKey) {
+        applyHeat(player, current -> current + delta, source, dedupeKey);
     }
 
     public static void setHeat(ServerPlayer player, long value) {
-        applyHeat(player, current -> value);
+        applyHeat(player, current -> value, INTERNAL, "");
+    }
+
+    public static void setHeat(ServerPlayer player, long value, ResourceLocation source, String dedupeKey) {
+        applyHeat(player, current -> value, source, dedupeKey);
     }
 
     public static void clearHeat(ServerPlayer player) {
         setHeat(player, 0L);
+    }
+
+    public static void clearHeat(ServerPlayer player, ResourceLocation source, String dedupeKey) {
+        setHeat(player, 0L, source, dedupeKey);
     }
 
     /** Recomputes the cached band + wanted flag under current config (login reconcile, config change). */
@@ -100,19 +121,24 @@ public final class CrimeState {
         }, () -> McaCrime.LOGGER.debug("Karma mutation on a player without the crime capability; ignoring"));
     }
 
-    private static void applyHeat(ServerPlayer player, LongUnaryOperator op) {
+    private static void applyHeat(ServerPlayer player, LongUnaryOperator op,
+                                  ResourceLocation source, String dedupeKey) {
         CrimeCapabilities.get(player).ifPresentOrElse(data -> {
             McaCrimeConfig.Common c = McaCrimeConfig.COMMON;
             long oldHeat = data.getHeat();
             long newHeat = CrimeMath.clamp(op.applyAsLong(oldHeat), 0L, c.heatMax.get());
             if (newHeat == oldHeat) {
-                return; // idempotent no-op
+                return; // idempotent no-op: no event, no sync
             }
             long threshold = c.wantedHeatThreshold.get();
             boolean wasWanted = CrimeMath.isWanted(oldHeat, threshold);
             boolean nowWanted = CrimeMath.isWanted(newHeat, threshold);
             data.setHeat(newHeat);
             data.setWantedCached(nowWanted);
+            // Every real change is reported; the wanted event stays reserved for the boundary crossing,
+            // so a listener that only cares about pursuit does not have to filter out ordinary decay.
+            MinecraftForge.EVENT_BUS.post(new HeatChangedEvent(player, oldHeat, newHeat,
+                    source == null ? INTERNAL : source, dedupeKey));
             if (wasWanted != nowWanted) {
                 MinecraftForge.EVENT_BUS.post(new WantedStatusChangedEvent(player, nowWanted, newHeat));
             }

@@ -66,6 +66,7 @@ public final class McaCrimeConfig {
         public final ForgeConfigSpec.BooleanValue enableCrimeDetection;
         public final ForgeConfigSpec.IntValue witnessRadius;
         public final ForgeConfigSpec.IntValue harmCooldownTicks;
+        public final ForgeConfigSpec.IntValue maxStoredWitnesses;
 
         // anti-farm caps (§3.3) — skeleton
         public final ForgeConfigSpec.IntValue perVillagerDailyKarmaCap;
@@ -102,6 +103,11 @@ public final class McaCrimeConfig {
         public final ForgeConfigSpec.DoubleValue captiveTetherBlocks;
         public final ForgeConfigSpec.BooleanValue captiveCanEscapeByDistance;
         public final ForgeConfigSpec.BooleanValue npcCaptiveVirtualizeWhenUnloaded;
+        public final ForgeConfigSpec.IntValue maxUnlawfulCaptivesPerCaptor;
+        public final ForgeConfigSpec.IntValue captorDisconnectGraceTicks;
+        public final ForgeConfigSpec.IntValue escapeWorkTicksRope;
+        public final ForgeConfigSpec.IntValue escapeWorkTicksCuffs;
+        public final ForgeConfigSpec.IntValue escapeAttemptCooldownTicks;
 
         // NPC crime (§9) — skeleton
         public final ForgeConfigSpec.BooleanValue enableNpcCrime;
@@ -125,6 +131,7 @@ public final class McaCrimeConfig {
         public final ForgeConfigSpec.IntValue jailableHeatThreshold;
         public final ForgeConfigSpec.DoubleValue blueFineMultiplier;
         public final ForgeConfigSpec.BooleanValue redCanPayFine;
+        public final ForgeConfigSpec.IntValue maxCasesPerFinePayment;
         public final ForgeConfigSpec.DoubleValue surrenderNearRadius;
         public final ForgeConfigSpec.IntValue surrenderHeatReduction;
         public final ForgeConfigSpec.IntValue surrenderSentenceReductionPct;
@@ -147,11 +154,25 @@ public final class McaCrimeConfig {
         public final ForgeConfigSpec.BooleanValue enableVillageRansomFallback;
         public final ForgeConfigSpec.BooleanValue enableCloseFriendTier;
         public final ForgeConfigSpec.IntValue ransomDemandTtlTicks;
+        public final ForgeConfigSpec.IntValue villageTreasuryInitialBalance;
 
         // mugging (§8.6) — read by the mugging service
         public final ForgeConfigSpec.BooleanValue enableMugging;
         public final ForgeConfigSpec.IntValue muggingBaseLoot;
         public final ForgeConfigSpec.BooleanValue enableProfessionDeathDrops;
+        public final ForgeConfigSpec.IntValue muggingChannelTicks;
+        public final ForgeConfigSpec.IntValue muggingAttemptCooldownTicks;
+        public final ForgeConfigSpec.IntValue muggingVictimRecoveryTicks;
+        public final ForgeConfigSpec.IntValue muggingFearMemoryTicks;
+        public final ForgeConfigSpec.IntValue muggingPanicTicks;
+        public final ForgeConfigSpec.IntValue muggingActorSuccessCapPerDay;
+        public final ForgeConfigSpec.IntValue muggingActorValueCapPerDay;
+        public final ForgeConfigSpec.IntValue muggingVillageValueCapPerDay;
+        public final ForgeConfigSpec.IntValue muggingPurseCapacity;
+        public final ForgeConfigSpec.IntValue muggingPurseInitialMax;
+        public final ForgeConfigSpec.IntValue muggingPurseDailyIncome;
+        public final ForgeConfigSpec.BooleanValue allowHostileActionsAgainstChildren;
+        public final ForgeConfigSpec.BooleanValue allowGameplayCommandFallback;
 
         // relationship consequences (§10.1, §11.3) — read by RelationshipConsequences
         public final ForgeConfigSpec.IntValue directVictimHeartLoss;
@@ -176,6 +197,20 @@ public final class McaCrimeConfig {
         // debug (§12.3)
         public final ForgeConfigSpec.BooleanValue strictJsonValidation;
         public final ForgeConfigSpec.BooleanValue debugLogging;
+
+        // --- integrations (optional companion mods) ---
+        public final ForgeConfigSpec.BooleanValue enableReputation;
+        public final ForgeConfigSpec.BooleanValue mirrorReputationFallback;
+        public final ForgeConfigSpec.BooleanValue suppressLocalVillagePenalty;
+        public final ForgeConfigSpec.BooleanValue replayPendingOperations;
+        public final ForgeConfigSpec.IntValue pumpIntervalTicks;
+        public final ForgeConfigSpec.IntValue pumpBudgetPerTick;
+        public final ForgeConfigSpec.IntValue maxDeliveryAttempts;
+        public final ForgeConfigSpec.IntValue retryBaseDelayTicks;
+        public final ForgeConfigSpec.IntValue retryMaxDelayTicks;
+        public final ForgeConfigSpec.IntValue dedupeRetentionTicks;
+        public final ForgeConfigSpec.ConfigValue<String> fineResolutionStatus;
+        public final ForgeConfigSpec.ConfigValue<String> servedResolutionStatus;
 
         Common(ForgeConfigSpec.Builder b) {
             b.push("bands");
@@ -224,6 +259,11 @@ public final class McaCrimeConfig {
                     "Minimum ticks between counted harm crimes against the same victim by the same player",
                     "(anti-spam so a melee flurry is one crime, not many; 0 = every hit counts).")
                     .defineInRange("harmCooldownTicks", 20, 0, 6000);
+            maxStoredWitnesses = b.comment(
+                    "How many witness identities a single crime record keeps. The nearest ones are kept and",
+                    "the true crowd size is still recorded, so a riot outside a busy village does not write an",
+                    "unbounded list into the save file.")
+                    .defineInRange("maxStoredWitnesses", 8, 1, 64);
             b.pop();
 
             b.push("antifarm");
@@ -265,7 +305,7 @@ public final class McaCrimeConfig {
             captureLowHealthFraction = b.comment("A player target counts as 'low health' (a capture vulnerability) at or below this fraction of max health.")
                     .defineInRange("captureLowHealthFraction", 0.35, 0.0, 1.0);
             villagerCaptureRelaxedVulnerability = b.comment("If true, ordinary (non-guard) villagers can be captured without meeting a vulnerability condition.")
-                    .define("villagerCaptureRelaxedVulnerability", true);
+                    .define("villagerCaptureRelaxedVulnerability", false);
             captureChannelMultiplierRope = b.comment("Per-restraint channel-duration multipliers (rope is faster, locked cuffs slower).")
                     .defineInRange("captureChannelMultiplierRope", 0.6, 0.1, 10.0);
             captureChannelMultiplierCuffs = b.defineInRange("captureChannelMultiplierCuffs", 1.0, 0.1, 10.0);
@@ -281,6 +321,16 @@ public final class McaCrimeConfig {
                     .define("captiveCanEscapeByDistance", true);
             npcCaptiveVirtualizeWhenUnloaded = b.comment("If true, an NPC captive in an unloaded chunk is virtually contained instead of force-loading the chunk.")
                     .define("npcCaptiveVirtualizeWhenUnloaded", true);
+            maxUnlawfulCaptivesPerCaptor = b.comment("Maximum simultaneous unlawful captives owned by one captor.")
+                    .defineInRange("maxUnlawfulCaptivesPerCaptor", 1, 1, 16);
+            captorDisconnectGraceTicks = b.comment("Player captive release grace after their captor disconnects.")
+                    .defineInRange("captorDisconnectGraceTicks", 1200, 0, 72000);
+            escapeWorkTicksRope = b.comment("Continuous escape work required for rope.")
+                    .defineInRange("escapeWorkTicksRope", 200, 1, 72000);
+            escapeWorkTicksCuffs = b.comment("Continuous escape work required for ordinary cuffs.")
+                    .defineInRange("escapeWorkTicksCuffs", 600, 1, 72000);
+            escapeAttemptCooldownTicks = b.comment("Cooldown stamped when escape work starts; repeated input does not reroll.")
+                    .defineInRange("escapeAttemptCooldownTicks", 1200, 0, 72000);
             b.pop();
 
             b.push("npccrime");
@@ -320,6 +370,10 @@ public final class McaCrimeConfig {
                     .defineInRange("blueFineMultiplier", 0.5, 0.0, 10.0);
             redCanPayFine = b.comment("If false, Red (outlaw) players must /crime surrender before they can pay a fine.")
                     .define("redCanPayFine", false);
+            maxCasesPerFinePayment = b.comment(
+                    "How many separate cases one fine payment may settle when it is not paying everything",
+                    "off at once. Kept small so a single payment cannot quietly clear a long history.")
+                    .defineInRange("maxCasesPerFinePayment", 3, 1, 20);
             b.pop();
 
             b.push("surrender");
@@ -358,6 +412,8 @@ public final class McaCrimeConfig {
                     .define("enableCloseFriendTier", false);
             ransomDemandTtlTicks = b.comment("How long an open ransom demand stands before it expires.")
                     .defineInRange("ransomDemandTtlTicks", 12000, 0, 10_000_000);
+            villageTreasuryInitialBalance = b.comment("Finite initial emerald balance for a newly observed village treasury.")
+                    .defineInRange("villageTreasuryInitialBalance", 64, 0, 1_000_000);
             b.pop();
 
             b.push("mugging");
@@ -366,6 +422,24 @@ public final class McaCrimeConfig {
                     .defineInRange("muggingBaseLoot", 4, 0, 1_000_000);
             enableProfessionDeathDrops = b.comment("If true, a villager killed while resisting a mugging drops profession loot; default false favors robbery over murder (§8.6).")
                     .define("enableProfessionDeathDrops", false);
+            muggingChannelTicks = b.comment("Overt threat channel duration before a mugging resolves.")
+                    .defineInRange("muggingChannelTicks", 60, 1, 6000);
+            muggingAttemptCooldownTicks = b.comment("Same actor/victim cooldown, stamped when the threat begins.")
+                    .defineInRange("muggingAttemptCooldownTicks", 24000, 0, 10_000_000);
+            muggingVictimRecoveryTicks = b.defineInRange("muggingVictimRecoveryTicks", 12000, 0, 10_000_000);
+            muggingFearMemoryTicks = b.defineInRange("muggingFearMemoryTicks", 168000, 0, 100_000_000);
+            muggingPanicTicks = b.comment("How long the direct victim actively flees; long-term fear remains memory/dialogue only.")
+                    .defineInRange("muggingPanicTicks", 600, 0, 100_000);
+            muggingActorSuccessCapPerDay = b.defineInRange("muggingActorSuccessCapPerDay", 4, 0, 10000);
+            muggingActorValueCapPerDay = b.defineInRange("muggingActorValueCapPerDay", 12, 0, 1_000_000);
+            muggingVillageValueCapPerDay = b.defineInRange("muggingVillageValueCapPerDay", 24, 0, 1_000_000);
+            muggingPurseCapacity = b.defineInRange("muggingPurseCapacity", 5, 0, 1000);
+            muggingPurseInitialMax = b.defineInRange("muggingPurseInitialMax", 3, 0, 1000);
+            muggingPurseDailyIncome = b.defineInRange("muggingPurseDailyIncome", 1, 0, 1000);
+            allowHostileActionsAgainstChildren = b.comment("Hostile person-to-person actions against children are hidden by default.")
+                    .define("allowHostileActionsAgainstChildren", false);
+            allowGameplayCommandFallback = b.comment("Keep /crime gameplay actions as accessibility fallbacks; they use the same action service.")
+                    .define("allowGameplayCommandFallback", true);
             b.pop();
 
             b.push("relationship");
@@ -403,6 +477,54 @@ public final class McaCrimeConfig {
             strictJsonValidation = b.comment("Treat any malformed/unknown crime JSON as a hard error (later phases).")
                     .define("strictJsonValidation", false);
             debugLogging = b.define("debugLogging", false);
+            b.pop();
+
+            b.comment("Optional companion mods. Every setting here is a no-op when that mod is absent.")
+                    .push("integrations");
+            enableReputation = b.comment(
+                    "Record community standing through MCA: Reputation when it is installed, instead of the",
+                    "built-in per-village store. With this off, MCA: Crime keeps its own standing and MCA:",
+                    "Reputation keeps detecting villager assault and killing itself -- there is never a state",
+                    "where both record the same deed, or neither does.")
+                    .define("enableReputation", true);
+            mirrorReputationFallback = b.comment(
+                    "After MCA: Reputation commits a standing change, copy the resulting score into the",
+                    "built-in store. Costs nothing and means uninstalling Reputation later does not reset",
+                    "every player to a stranger.")
+                    .define("mirrorReputationFallback", true);
+            suppressLocalVillagePenalty = b.comment(
+                    "Skip the built-in village standing penalty for crimes MCA: Reputation is recording",
+                    "canonically. Turning this off applies both, which double-counts every witnessed crime.")
+                    .define("suppressLocalVillagePenalty", true);
+            replayPendingOperations = b.comment(
+                    "Retry cross-mod writes that were queued but not delivered -- after a crash, or while a",
+                    "companion mod was uninstalled. Turning this off strands pending work indefinitely.")
+                    .define("replayPendingOperations", true);
+            pumpIntervalTicks = b.comment("How often the delivery queue is checked, in ticks.")
+                    .defineInRange("pumpIntervalTicks", 100, 20, 12000);
+            pumpBudgetPerTick = b.comment("How many queued writes may be delivered in one pass.")
+                    .defineInRange("pumpBudgetPerTick", 8, 1, 128);
+            maxDeliveryAttempts = b.comment(
+                    "How many times a write is retried before it is set aside as a dead letter for an",
+                    "operator to inspect with /crime debug outbox.")
+                    .defineInRange("maxDeliveryAttempts", 6, 1, 20);
+            retryBaseDelayTicks = b.comment("First retry delay; doubles on each failure up to the maximum.")
+                    .defineInRange("retryBaseDelayTicks", 200, 20, 24000);
+            retryMaxDelayTicks = b.comment("Ceiling on the retry delay. Must be >= retryBaseDelayTicks.")
+                    .defineInRange("retryMaxDelayTicks", 24000, 20, 1_728_000);
+            dedupeRetentionTicks = b.comment(
+                    "How long a completed transaction is remembered so a replay of it changes nothing.",
+                    "Long-lived links live on the crime record itself and never expire; this only covers",
+                    "the replay window for one-off mutations.")
+                    .defineInRange("dedupeRetentionTicks", 168_000, 1200, 1_728_000);
+            b.push("reputation");
+            fineResolutionStatus = b.comment(
+                    "How a paid fine reads to the village: 'atoned' (made good) or 'apologized' (said sorry).")
+                    .define("fineResolutionStatus", "atoned");
+            servedResolutionStatus = b.comment(
+                    "How a served sentence reads to the village: 'atoned' or 'apologized'.")
+                    .define("servedResolutionStatus", "atoned");
+            b.pop();
             b.pop();
         }
     }

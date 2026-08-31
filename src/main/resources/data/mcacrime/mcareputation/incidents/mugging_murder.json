@@ -1,0 +1,33 @@
+{
+  "display": {
+    "translate": "mcacrime.incident.mugging_murder"
+  },
+  "default_delta": -45,
+  "visibility": "witnessed",
+  "severity": "severe",
+  "tags": [
+    "crime",
+    "violence",
+    "killing",
+    "theft"
+  ],
+  "decay": {
+    "type": "none"
+  },
+  "resolution": {
+    "apologized": 1.0,
+    "atoned": 0.5,
+    "forgiven": 0.0,
+    "disproven": 0.0
+  },
+  "gossip": {
+    "tone": "condemnation",
+    "phrase": "mcacrime.gossip.mugging_murder",
+    "with": [
+      "player",
+      "subject"
+    ]
+  },
+  "retain_unwitnessed": true,
+  "max_override_abs": 70
+}

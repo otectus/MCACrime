@@ -7,6 +7,7 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.world.item.CreativeModeTab;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraftforge.eventbus.api.IEventBus;
 import net.minecraftforge.registries.DeferredRegister;
 import net.minecraftforge.registries.ForgeRegistries;
@@ -63,5 +64,27 @@ public final class CrimeItems {
             return RestraintType.ROPE;
         }
         return RestraintType.NONE;
+    }
+
+    /** Consumes exactly one matching restraint when a capture commits. */
+    public static boolean consumeRestraint(ServerPlayer player, RestraintType type) {
+        for (int i = 0; i < player.getInventory().items.size(); i++) {
+            ItemStack stack = player.getInventory().items.get(i);
+            if (restraintFor(stack) == type && !stack.isEmpty()) {
+                if (!player.getAbilities().instabuild) stack.shrink(1);
+                player.getInventory().setChanged();
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public static RestraintType bestRestraint(ServerPlayer player) {
+        RestraintType best = RestraintType.NONE;
+        for (ItemStack stack : player.getInventory().items) {
+            RestraintType type = restraintFor(stack);
+            if (type.ordinal() > best.ordinal()) best = type;
+        }
+        return best;
     }
 }

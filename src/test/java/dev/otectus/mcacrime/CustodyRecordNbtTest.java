@@ -30,6 +30,12 @@ class CustodyRecordNbtTest {
                 RestraintType.CUFFS, 1234L, new BlockPos(1, 2, 3), OVERWORLD);
         r.setRealTicksHeld(99L);
         r.setVirtual(true);
+        r.setEscapeActive(true);
+        r.setEscapeProgress(41);
+        r.setEscapeCooldownUntil(5000L);
+        r.setEscapeRoll(0.125D);
+        r.setEscapeAttempts(2);
+        r.setCaptorDisconnectedAt(4000L);
 
         CustodyRecord loaded = CustodyRecord.load(r.save());
         assertEquals(captive, loaded.getCaptive());
@@ -44,6 +50,12 @@ class CustodyRecordNbtTest {
         assertEquals(OVERWORLD, loaded.getHoldDim());
         assertTrue(loaded.isVirtual());
         assertTrue(loaded.hasValidHold());
+        assertTrue(loaded.isEscapeActive());
+        assertEquals(41, loaded.getEscapeProgress());
+        assertEquals(5000L, loaded.getEscapeCooldownUntil());
+        assertEquals(0.125D, loaded.getEscapeRoll());
+        assertEquals(2, loaded.getEscapeAttempts());
+        assertEquals(4000L, loaded.getCaptorDisconnectedAt());
     }
 
     @Test

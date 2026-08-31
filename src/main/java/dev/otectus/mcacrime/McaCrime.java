@@ -1,11 +1,15 @@
 package dev.otectus.mcacrime;
 
 import com.mojang.logging.LogUtils;
+import dev.otectus.mcacrime.compat.ReputationBridge;
+import dev.otectus.mcacrime.action.CrimeActionService;
+import dev.otectus.mcacrime.compat.mca.McaBinding;
 import dev.otectus.mcacrime.config.ConfigValidator;
 import dev.otectus.mcacrime.crime.type.CrimeTypeRegistry;
 import dev.otectus.mcacrime.item.CrimeItems;
 import dev.otectus.mcacrime.network.CrimeNetwork;
 import dev.otectus.mcacrime.state.CrimeCapabilities;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraftforge.eventbus.api.IEventBus;
 import net.minecraftforge.fml.ModLoadingContext;
 import net.minecraftforge.fml.common.Mod;
@@ -28,6 +32,11 @@ public final class McaCrime {
     public static final String MOD_ID = "mcacrime";
     public static final Logger LOGGER = LogUtils.getLogger();
 
+    /** A {@link ResourceLocation} in this mod's namespace. */
+    public static ResourceLocation id(String path) {
+        return new ResourceLocation(MOD_ID, path);
+    }
+
     public McaCrime() {
         ModLoadingContext.get().registerConfig(ModConfig.Type.COMMON, McaCrimeConfig.COMMON_SPEC);
         ModLoadingContext.get().registerConfig(ModConfig.Type.CLIENT, McaCrimeConfig.CLIENT_SPEC);
@@ -42,8 +51,13 @@ public final class McaCrime {
 
     private void onCommonSetup(FMLCommonSetupEvent event) {
         event.enqueueWork(() -> {
+            // First: report which MCA package root we bound to, before anything reads MCA. One line,
+            // once, naming the root -- an unknown layout has to be visible in the log rather than
+            // inferred from features quietly doing nothing.
+            McaBinding.init();
             // Force the crime-type registry (and its built-in ids) to class-load before any datapack parse.
             CrimeTypeRegistry.bootstrap();
+            CrimeActionService.bootstrap();
             // Load-time config validation: surface a broken config in the log (and /crime validate).
             try {
                 List<String> problems = ConfigValidator.validateCurrentConfig();
@@ -55,6 +69,9 @@ public final class McaCrime {
                 LOGGER.debug("Config validation skipped at setup (config not ready)", t);
             }
             CrimeNetwork.register();
+            // Last, and inside enqueueWork: every mod has finished loading by now, so ModList is
+            // authoritative, and the bridge must not race our own registration.
+            ReputationBridge.init();
         });
     }
 }

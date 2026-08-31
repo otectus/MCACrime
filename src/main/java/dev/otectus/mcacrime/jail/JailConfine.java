@@ -2,6 +2,7 @@ package dev.otectus.mcacrime.jail;
 
 import dev.otectus.mcacrime.crime.type.CrimeIds;
 import dev.otectus.mcacrime.detect.CrimeDetector;
+import dev.otectus.mcacrime.detect.WitnessResult;
 import dev.otectus.mcacrime.network.CrimeNetwork;
 import dev.otectus.mcacrime.state.PlayerCrimeData;
 import net.minecraft.resources.ResourceLocation;
@@ -47,7 +48,10 @@ public final class JailConfine {
             if (!jail.isEscaped()) {
                 jail.setEscaped(true); // becomes a Legal Target (escaped prisoner)
                 if (player.level() instanceof ServerLevel here) {
-                    CrimeDetector.commitDirect(player, CrimeIds.JAILBREAK, null, here, true, 1);
+                    // Witnessed by the authority itself, with no villager named: nobody has to have
+                    // seen a prisoner leave for the jail to know they are gone.
+                    CrimeDetector.commitDirect(player, CrimeIds.JAILBREAK, null, here,
+                            WitnessResult.official(), "jailbreak");
                 }
                 CrimeNetwork.sendSelfStatus(player);
             }

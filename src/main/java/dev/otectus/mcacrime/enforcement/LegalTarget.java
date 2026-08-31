@@ -60,14 +60,8 @@ public final class LegalTarget {
 
     /** True when the player is an active kidnapper — holding an entity in unlawful custody (spec §1.3, §8). */
     public static boolean isHoldingCaptive(ServerPlayer player) {
-        UUID held = CrimeCapabilities.get(player).map(PlayerCrimeData::getHeldCaptiveRef).orElse(null);
         MinecraftServer server = player.getServer();
-        if (held == null || server == null) {
-            return false;
-        }
-        return CustodyRegistry.get(server, held)
-                .filter(r -> !r.isLawful() && r.getOwner().isKidnapper(player.getUUID()))
-                .isPresent();
+        return server != null && CustodyRegistry.isActiveKidnapper(server, player.getUUID());
     }
 
     /** The lang key explaining the primary reason a player is a Legal Target — for the §10.3 "why a guard attacks" message. */

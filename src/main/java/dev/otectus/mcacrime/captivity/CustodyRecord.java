@@ -40,6 +40,12 @@ public final class CustodyRecord {
     private ResourceLocation holdDim;
     /** True when the captive's chunk is unloaded and they are virtually contained (spec §7.5). */
     private boolean virtual;
+    private boolean escapeActive;
+    private int escapeProgress;
+    private long escapeCooldownUntil;
+    private double escapeRoll = 1.0D;
+    private int escapeAttempts;
+    private long captorDisconnectedAt;
 
     public CustodyRecord() {
     }
@@ -127,6 +133,19 @@ public final class CustodyRecord {
         this.virtual = virtual;
     }
 
+    public boolean isEscapeActive() { return escapeActive; }
+    public void setEscapeActive(boolean value) { escapeActive = value; }
+    public int getEscapeProgress() { return escapeProgress; }
+    public void setEscapeProgress(int value) { escapeProgress = Math.max(0, value); }
+    public long getEscapeCooldownUntil() { return escapeCooldownUntil; }
+    public void setEscapeCooldownUntil(long value) { escapeCooldownUntil = Math.max(0L, value); }
+    public double getEscapeRoll() { return escapeRoll; }
+    public void setEscapeRoll(double value) { escapeRoll = Math.max(0.0D, Math.min(1.0D, value)); }
+    public int getEscapeAttempts() { return escapeAttempts; }
+    public void setEscapeAttempts(int value) { escapeAttempts = Math.max(0, value); }
+    public long getCaptorDisconnectedAt() { return captorDisconnectedAt; }
+    public void setCaptorDisconnectedAt(long value) { captorDisconnectedAt = Math.max(0L, value); }
+
     /** True when this custody has a resolvable hold location (otherwise soft-tether is impossible). */
     public boolean hasValidHold() {
         return holdPos != null && holdDim != null;
@@ -145,6 +164,12 @@ public final class CustodyRecord {
         c.holdPos = holdPos; // BlockPos is immutable
         c.holdDim = holdDim; // ResourceLocation is immutable
         c.virtual = virtual;
+        c.escapeActive = escapeActive;
+        c.escapeProgress = escapeProgress;
+        c.escapeCooldownUntil = escapeCooldownUntil;
+        c.escapeRoll = escapeRoll;
+        c.escapeAttempts = escapeAttempts;
+        c.captorDisconnectedAt = captorDisconnectedAt;
         return c;
     }
 
@@ -169,6 +194,12 @@ public final class CustodyRecord {
             tag.putString("hdim", holdDim.toString());
         }
         tag.putBoolean("virtual", virtual);
+        tag.putBoolean("escapeActive", escapeActive);
+        tag.putInt("escapeProgress", escapeProgress);
+        tag.putLong("escapeCooldownUntil", escapeCooldownUntil);
+        tag.putDouble("escapeRoll", escapeRoll);
+        tag.putInt("escapeAttempts", escapeAttempts);
+        tag.putLong("captorDisconnectedAt", captorDisconnectedAt);
         return tag;
     }
 
@@ -187,6 +218,12 @@ public final class CustodyRecord {
         }
         r.holdDim = tag.contains("hdim") ? ResourceLocation.tryParse(tag.getString("hdim")) : null;
         r.virtual = tag.getBoolean("virtual");
+        r.escapeActive = tag.getBoolean("escapeActive");
+        r.escapeProgress = Math.max(0, tag.getInt("escapeProgress"));
+        r.escapeCooldownUntil = Math.max(0L, tag.getLong("escapeCooldownUntil"));
+        r.escapeRoll = tag.contains("escapeRoll") ? Math.max(0.0D, Math.min(1.0D, tag.getDouble("escapeRoll"))) : 1.0D;
+        r.escapeAttempts = Math.max(0, tag.getInt("escapeAttempts"));
+        r.captorDisconnectedAt = Math.max(0L, tag.getLong("captorDisconnectedAt"));
         return r;
     }
 }
