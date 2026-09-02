@@ -12,6 +12,7 @@ import dev.otectus.mcacrime.detect.CrimeDetector;
 import dev.otectus.mcacrime.detect.WitnessChecker;
 import dev.otectus.mcacrime.economy.account.EconomicTransactionService;
 import dev.otectus.mcacrime.enforcement.GuardEnforcement;
+import dev.otectus.mcacrime.item.weapon.WeaponDetector;
 import dev.otectus.mcacrime.memory.CrimeMemoryService;
 import dev.otectus.mcacrime.memory.OffenderMemory;
 import dev.otectus.mcacrime.memory.VillagerCrimeProfile;
@@ -52,6 +53,10 @@ public final class MugActionHandler implements CrimeActionHandler {
             return ActionAvailability.hidden("mcacrime.mug.child");
         if (!actor.canReach(target, REACH_SQR))
             return ActionAvailability.blocked("mcacrime.mug.notarget");
+        // A mugging is a threat, and an unarmed threat is a request. Blocked rather than hidden: the
+        // row has to stay visible and say why, or drawing a weapon never looks like the answer.
+        if (c.mugRequiresWeapon.get() && !WeaponDetector.isArmed(player))
+            return ActionAvailability.blocked("mcacrime.action.requires_weapon");
         if (CustodyRegistry.isCaptive(level.getServer(), actor.id())
                 || CustodyRegistry.isCaptive(level.getServer(), target.getUUID()))
             return ActionAvailability.blocked("mcacrime.mug.custody");

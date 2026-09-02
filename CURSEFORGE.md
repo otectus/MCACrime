@@ -10,26 +10,24 @@ MCA: Crime is server-authoritative. It does not use generative AI, send gameplay
 
 ---
 
-## What is new in 0.3.0
+## What is new in this release
 
-Version 0.3.0 introduces the first complete action-and-balancing pass.
+The latest release is an armed-interactions pass: the Crime menu now opens by drawing a weapon.
 
-- **Expanded Crime interaction menu:** Mug, Restrain, and Apologize are now presented together. Demand Ransom and Release Captive appear when the selected villager is your active captive. Unavailable actions remain visible where useful and explain what requirement is missing.
-- **Finite mugging economy:** every villager has a persisted purse with a capacity and bounded daily refill. Payouts are also limited per offender and per village, preventing emerald farming.
-- **Reliable first payout:** fresh villagers—and old 0.3.0 purse records affected by the original zero-value seed—begin with at least one emerald when purse capacity permits it.
-- **Victim memory and reactions:** the direct victim remembers the offender, panics for a short configurable period, and can report the mugging. Negative standing no longer makes every nearby villager run forever.
-- **Guard reports and surrender window:** a reported mugging can alert nearby guards before the offender reaches the normal Wanted threshold. Guards issue a warning and allow a short chance to surrender before using force.
-- **Safer custody state:** capture, ransom, guard targeting, login reconciliation, and release all use the authoritative world custody table. Legacy or invisible captive records no longer depend on a stale one-captive cache.
-- **Player recovery command:** **/crime releasecaptive** releases unlawful captive records owned by the player. Duplicate legacy records are also reconciled during login.
-- **Action replay protection:** exact targets, request nonces, actor locks, and target locks prevent duplicate payouts, repeated requests, and simultaneous capture conflicts.
-- **Craftable restraints:** rope, cuffs, and locked cuffs now have recipes and are consumed only when a capture successfully commits.
-- **Persisted escape work:** escaping is a timed, interruptible attempt with one deterministic roll, not a command that can be repeated to reroll success.
+- **Weapon-in-hand trigger:** right-click an MCA villager while holding a weapon to open the Crime menu. Sneaking is not required by default, the off hand counts, and the whole trigger can be switched off. The previous **Shift+interact with an empty hand** gesture has been removed.
+- **Automatic weapon detection:** swords, axes, tridents, bows, crossbows, and modded firearms are recognised without configuration. Firearms are matched by name and by mod namespace, and stackable items and blocks from those mods are excluded, so ammo and workbenches are not weapons.
+- **Server-owner control:** a whitelist and a blacklist accept item ids or `#tags`, the blacklist always wins, and the `mcacrime:weapons` / `mcacrime:weapons_blacklist` item tags let a datapack contribute without editing config. Digging tools are excluded before the bonus-attack-damage fallback, so a pickaxe stays a pickaxe.
+- **Mugging requires a weapon** by default. Unarmed, the action stays visible on the menu and explains what is missing.
+- **An unbound keybind** opens the Crime menu for whoever is under your crosshair, for players who would rather not draw a weapon to do it.
+- **/crime debug weapon** reports how the held item classifies and which rule decided it.
+
+Note: while the weapon trigger is on, right-click gifting a weapon to a villager is pre-empted by the Crime menu. Blacklist that item, or turn the trigger off, to gift it.
 
 ---
 
 ## Crime actions
 
-Open MCA's normal villager interaction screen and select **Crime…**. If the installed MCA layout cannot expose that button, **Shift+interact with an empty hand** opens the same server-issued menu. Gameplay commands are accessibility fallbacks and use the same validation, cooldowns, locks, and finite accounts as the menu.
+Open MCA's normal villager interaction screen and select **Crime…**, or simply **right-click the villager while holding a weapon**. An unbound keybind opens the same server-issued menu for whoever is under your crosshair, and the Crime button on MCA's screen can be turned off in the client config. Gameplay commands are accessibility fallbacks and use the same validation, cooldowns, locks, and finite accounts as the menu.
 
 ### Mug
 

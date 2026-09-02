@@ -10,6 +10,58 @@ Compatibility: Minecraft 1.20.1 · Forge 47.x · requires MCA Reborn `[7.6,8)`, 
 dropped it. Optional: MCA: Reputation `[0.2,)`; the integration itself needs `0.3.0`, and an older
 companion degrades to the built-in store rather than failing the load.
 
+## [0.5.0] — unreleased
+
+Armed interactions. The crime menu now opens the way the fiction already implied it should: by
+drawing a weapon on somebody.
+
+### Added
+
+- **A weapon classifier.** Swords, axes, tridents, bows, crossbows and modded firearms are recognised
+  automatically; a `[weapons]` config block adds a whitelist and a blacklist (item ids or `#tags`),
+  and the `mcacrime:weapons` / `mcacrime:weapons_blacklist` item tags let a datapack contribute
+  without editing anybody's config. Guns are found by name (`gunKeywords`) and by namespace
+  (`weaponMods`, a list of editable guesses), and the namespace rule ignores stackable and block items
+  so a gun mod's ammo and workbenches are not weapons. The last-resort rule is a bonus-attack-damage
+  threshold, with digging tools excluded above it so a diamond pickaxe stays a pickaxe.
+- **An unbound "open the crime menu" keybind**, aimed at whoever is under the crosshair. It replaces
+  the removed unarmed gesture for players who would rather not draw on a villager to open a menu; the
+  server validates range and line of sight exactly as it does for every other way in.
+- **`/crime debug weapon`** prints the held item's id, its class, the rule layer that decided it, and
+  the threshold in force — so "why is my sword not a weapon" has a one-line answer.
+- **`client.showButtonOnMcaScreen`** turns off the Crime button this mod adds to MCA's own
+  interaction screen.
+
+### Changed
+
+- **The crime menu opens on right-clicking an MCA villager while holding a weapon.** The old
+  sneak + empty-hand fallback is gone: it was a gesture nobody discovers and it competed with every
+  ordinary interaction a villager has. Sneaking is not required by default
+  (`weaponTrigger.requireSneak`), the off hand counts (`weaponTrigger.allowOffHand`), and the whole
+  trigger can be switched off (`weaponTrigger.enabled`).
+- **Mugging requires a weapon** (`weapons.mugRequiresWeapon`, on by default). Unarmed, the row stays
+  visible on the menu and says what is missing, rather than vanishing.
+- Restraints keep their claim on the interaction: the weapon trigger runs after capture, and a
+  restraint is never classified as a weapon.
+- **The Heat and sentence boxes now default to the bottom-left corner.** The top-left is where
+  MCA: Quests draws its quest log, and the quest log won. Bottom anchors are also lifted clear of the
+  hotbar and the health and armor rows automatically, and `BOTTOM_CENTER` clear of this mod's own
+  channel bar, so picking a bottom corner no longer hides a box behind vanilla's HUD.
+- **`hudOffsetX` / `hudOffsetY` now measure inward from the anchored edge** at every anchor rather
+  than always counting down and right from the origin, so one pair of values means the same visual
+  gap in any corner. A saved offset on a top-left anchor behaves exactly as before.
+
+### Notes
+
+- **Gifting caveat.** While the trigger is on, right-click gifting a weapon to an MCA villager is
+  pre-empted by the crime menu. Blacklist that item under `[weapons]`, or turn the trigger off.
+- **Config sync caveat.** The weapon lists are COMMON config, which Forge does not sync. A client
+  whose lists differ from the server's will mispredict the swing — the server's answer still decides
+  what happens.
+- **The new HUD corner reaches new installs only.** Forge writes a default only for a key that is
+  missing, so an existing `mcacrime-client.toml` keeps whatever `hudAnchor` it already holds. To move
+  an existing setup, pick Bottom Left in the mod's settings screen or delete the `hudAnchor` line.
+
 ## [0.4.0] — unreleased
 
 The village answers back. This release closes the spec's Phase 1 gate, gives the mod a real

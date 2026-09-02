@@ -173,10 +173,11 @@ public final class CrimeHudOverlays {
 
         int boxW = mc.font.width(line) + PAD * 2;
         int boxH = 10 + PAD * 2;
-        // Stacked under the status box when both are on the same anchor, so they never overlap.
+        // Stacked one box further inward from the status box, so they never overlap. The anchor
+        // already counts a bottom offset upward, so this needs no sign of its own.
         int stack = McaCrimeConfig.CLIENT.hudStatusIndicator.get() ? 30 : 0;
         int x = anchor().x(width, boxW, offsetX());
-        int y = anchor().y(height, boxH, offsetY() + (anchor().isBottom() ? -stack : stack));
+        int y = anchor().y(height, boxH, offsetY() + stack);
 
         CrimeSprites.hudPlate(graphics, x, y, boxW, boxH);
         graphics.drawString(mc.font, line, x + PAD, y + PAD, 0xFFFFB060, false);

@@ -153,6 +153,8 @@ public final class CrimeCommand {
                                 .executes(CrimeCommand::debugGuards))
                         .then(Commands.literal("arrest")
                                 .executes(CrimeCommand::debugArrest))
+                        .then(Commands.literal("weapon")
+                                .executes(CrimeCommand::debugWeapon))
                         .then(Commands.literal("outbox")
                                 .executes(ctx -> debugOutbox(ctx, false))
                                 .then(Commands.literal("dead")
@@ -468,6 +470,25 @@ public final class CrimeCommand {
         String out = sb.toString();
         ctx.getSource().sendSuccess(() -> Component.literal(out), false);
         return 1;
+    }
+
+    /**
+     * How the held item classifies, and which rule layer said so.
+     *
+     * <p>"My sword does not open the menu" is otherwise unanswerable without reading the config, the
+     * tags and the auto-detection order at once. This prints the one line that names the deciding layer.
+     */
+    private static int debugWeapon(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
+        ServerPlayer player = ctx.getSource().getPlayerOrException();
+        net.minecraft.world.item.ItemStack stack = player.getMainHandItem();
+        dev.otectus.mcacrime.item.weapon.WeaponMatch match =
+                dev.otectus.mcacrime.item.weapon.WeaponDetector.classify(stack);
+        String id = stack.isEmpty() ? "-" : String.valueOf(
+                net.minecraftforge.registries.ForgeRegistries.ITEMS.getKey(stack.getItem()));
+        ctx.getSource().sendSuccess(() -> Component.translatable("mcacrime.command.debug.weapon",
+                id, match.weaponClass().name(), match.layer(),
+                dev.otectus.mcacrime.item.weapon.WeaponDetector.minAttackDamage()), false);
+        return match.isWeapon() ? 1 : 0;
     }
 
     /** The arrest lifecycle for the calling player: one authoritative phase, and what it is gating. */

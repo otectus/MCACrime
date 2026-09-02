@@ -5,6 +5,7 @@ import dev.otectus.mcacrime.compat.CrimeIncidentMapping;
 import dev.otectus.mcacrime.crime.type.CrimeTypeRegistry;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraftforge.registries.ForgeRegistries;
+import net.minecraftforge.registries.IForgeRegistry;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -49,20 +50,73 @@ public final class ConfigValidator {
     }
 
     private static void checkEntityIds(String listName, List<? extends String> ids, List<String> problems) {
+        checkIds(listName, ids, "entity", true, problems);
+    }
+
+    /**
+     * Parse-checks one id list. {@code noun} names what a plain entry is ("entity", "item"), so the same
+     * check can report an item list without calling a mistyped item id an entity. Entity lists accept a
+     * wildcard pattern and resolve it at use time; item lists do not, because nothing resolves one.
+     */
+    private static void checkIds(String listName, List<? extends String> ids, String noun,
+                                 boolean allowWildcards, List<String> problems) {
         for (String id : ids) {
             if (id == null || id.isBlank()) {
                 problems.add(listName + " contains a blank entry.");
                 continue;
             }
             if (id.indexOf('*') >= 0) {
-                continue; // wildcard pattern — accepted, resolved at use time
+                if (allowWildcards) {
+                    continue; // wildcard pattern — accepted, resolved at use time
+                }
+                problems.add(listName + " uses a wildcard ('" + id + "'), which is not supported here; "
+                        + "list each " + noun + " id or use a #tag.");
+                continue;
             }
             String toParse = id.startsWith("#") ? id.substring(1) : id;
             if (ResourceLocation.tryParse(toParse) == null) {
-                problems.add(listName + " has an invalid " + (id.startsWith("#") ? "tag" : "entity")
+                problems.add(listName + " has an invalid " + (id.startsWith("#") ? "tag" : noun)
                         + " id: '" + id + "'.");
             }
         }
+    }
+
+    /**
+     * The weapon-classification lists, as a pure function of the values.
+     *
+     * <p>A separate method for the reason {@link #validateJail} is: the existing signatures have tests
+     * written against them. Nothing here is fatal — a malformed entry is dropped by the classifier and
+     * reported, because one bad line must not take a server owner's whole weapon list down with it.
+     */
+    public static List<String> validateWeapons(List<? extends String> whitelist, List<? extends String> blacklist,
+                                               List<? extends String> gunKeywords, List<? extends String> weaponMods,
+                                               double minAttackDamage) {
+        List<String> problems = new ArrayList<>();
+        checkIds("weapons.whitelist", whitelist, "item", false, problems);
+        checkIds("weapons.blacklist", blacklist, "item", false, problems);
+
+        for (String entry : whitelist) {
+            if (entry != null && !entry.isBlank() && blacklist.contains(entry)) {
+                problems.add("weapons.whitelist and weapons.blacklist both list '" + entry
+                        + "'. The blacklist wins, so the whitelist entry does nothing.");
+            }
+        }
+        for (String keyword : gunKeywords) {
+            if (keyword == null || keyword.isBlank()) {
+                problems.add("weapons.gunKeywords contains a blank entry, which would match every item.");
+            }
+        }
+        for (String namespace : weaponMods) {
+            if (namespace == null || namespace.isBlank()) {
+                problems.add("weapons.weaponMods contains a blank entry, which names no mod.");
+            } else if (ResourceLocation.tryParse(namespace + ":x") == null) {
+                problems.add("weapons.weaponMods has an invalid namespace: '" + namespace + "'.");
+            }
+        }
+        if (minAttackDamage < 0.0) {
+            problems.add("weapons.autoDetectMinAttackDamage (" + minAttackDamage + ") cannot be negative.");
+        }
+        return problems;
     }
 
     /**
@@ -264,8 +318,19 @@ public final class ConfigValidator {
                 c.enableRescue.get(),
                 c.enableKidnappingNpc.get()));
 
-        registryCheck("protectedEntities", c.protectedEntities.get(), problems);
-        registryCheck("responderEntities", c.responderEntities.get(), problems);
+        problems.addAll(validateWeapons(
+                c.weaponWhitelist.get(),
+                c.weaponBlacklist.get(),
+                c.weaponGunKeywords.get(),
+                c.weaponMods.get(),
+                c.weaponAutoDetectMinAttackDamage.get()));
+
+        registryCheck("protectedEntities", c.protectedEntities.get(), ForgeRegistries.ENTITY_TYPES,
+                "an entity type", problems);
+        registryCheck("responderEntities", c.responderEntities.get(), ForgeRegistries.ENTITY_TYPES,
+                "an entity type", problems);
+        registryCheck("weapons.whitelist", c.weaponWhitelist.get(), ForgeRegistries.ITEMS, "an item", problems);
+        registryCheck("weapons.blacklist", c.weaponBlacklist.get(), ForgeRegistries.ITEMS, "an item", problems);
 
         // Jail / fine sanity (spec §6, §7, §12.3).
         if (c.jailableHeatThreshold.get() < c.wantedHeatThreshold.get()) {
@@ -311,15 +376,16 @@ public final class ConfigValidator {
         return problems;
     }
 
-    private static void registryCheck(String listName, List<? extends String> ids, List<String> problems) {
+    private static void registryCheck(String listName, List<? extends String> ids,
+                                      IForgeRegistry<?> registry, String noun, List<String> problems) {
         for (String id : ids) {
             if (id == null || id.isBlank() || id.startsWith("#") || id.indexOf('*') >= 0) {
                 continue; // blanks/tags/wildcards handled (or skipped) by the parse pass
             }
             try {
                 ResourceLocation rl = ResourceLocation.tryParse(id);
-                if (rl != null && !ForgeRegistries.ENTITY_TYPES.containsKey(rl)) {
-                    problems.add(listName + " references an entity type that is not registered: '" + id + "'.");
+                if (rl != null && !registry.containsKey(rl)) {
+                    problems.add(listName + " references " + noun + " that is not registered: '" + id + "'.");
                 }
             } catch (Throwable ignored) {
                 // Registries unavailable (e.g. very early load) — skip the existence check silently.

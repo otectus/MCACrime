@@ -27,11 +27,43 @@ class HudAnchorTest {
         assertEquals(W - 100, HudAnchor.TOP_RIGHT.x(W, 100, 0));
         assertEquals(0, HudAnchor.TOP_RIGHT.y(H, 20, 0));
 
+        // Bottom anchors stop short of the edge by the hotbar clearance rather than sitting flush
+        // against it, which would draw the element behind vanilla's own HUD.
         assertEquals(0, HudAnchor.BOTTOM_LEFT.x(W, 100, 0));
-        assertEquals(H - 20, HudAnchor.BOTTOM_LEFT.y(H, 20, 0));
+        assertEquals(H - 20 - 52, HudAnchor.BOTTOM_LEFT.y(H, 20, 0));
 
         assertEquals(W - 100, HudAnchor.BOTTOM_RIGHT.x(W, 100, 0));
-        assertEquals(H - 20, HudAnchor.BOTTOM_RIGHT.y(H, 20, 0));
+        assertEquals(H - 20 - 52, HudAnchor.BOTTOM_RIGHT.y(H, 20, 0));
+    }
+
+    @Test
+    void bottomAnchorsClearTheVanillaHudBand() {
+        // The armor row is the topmost thing in vanilla's bottom band, at height - 49. A player who
+        // picks a bottom corner must not have to discover their Heat plate is hidden behind it.
+        for (HudAnchor anchor : HudAnchor.values()) {
+            if (!anchor.isBottom()) continue;
+            int y = anchor.y(H, 24, 4);
+            assertTrue(y + 24 <= H - 49, anchor + " overlapped the armor row");
+        }
+        // Bottom centre must additionally clear this mod's own channel bar label at height - 72.
+        assertTrue(HudAnchor.BOTTOM_CENTER.y(H, 24, 4) + 24 <= H - 72,
+                "BOTTOM_CENTER overlapped the channel bar");
+    }
+
+    @Test
+    void aPositiveOffsetMovesEveryAnchorInward() {
+        // One pair of offset defaults has to read sensibly at all eight anchors, so "4" must mean a
+        // four-pixel gap from the anchored edge rather than four pixels down-and-right of wherever.
+        for (HudAnchor anchor : HudAnchor.values()) {
+            int x0 = anchor.x(W, 100, 0);
+            int x8 = anchor.x(W, 100, 8);
+            int y0 = anchor.y(H, 20, 0);
+            int y8 = anchor.y(H, 20, 8);
+            assertEquals(x0 + (anchor.name().endsWith("RIGHT") ? -8 : 8), x8,
+                    anchor + " did not move inward horizontally");
+            assertEquals(y0 + (anchor.isBottom() ? -8 : 8), y8,
+                    anchor + " did not move inward vertically");
+        }
     }
 
     @Test
@@ -47,9 +79,15 @@ class HudAnchorTest {
         // A player who set a big offset on a wide monitor and then opened the game on a laptop should
         // find the element moved, not gone.
         assertEquals(W - 100, HudAnchor.TOP_LEFT.x(W, 100, 100_000));
-        assertEquals(0, HudAnchor.TOP_RIGHT.x(W, 100, -100_000));
         assertEquals(H - 20, HudAnchor.TOP_LEFT.y(H, 20, 100_000));
-        assertEquals(0, HudAnchor.BOTTOM_LEFT.y(H, 20, -100_000));
+
+        // On a right or bottom anchor the offset counts the other way, so the clamps mirror: a huge
+        // positive offset drives the element inward until it hits the far edge, a huge negative one
+        // pushes it back out to the edge it is anchored to.
+        assertEquals(0, HudAnchor.TOP_RIGHT.x(W, 100, 100_000));
+        assertEquals(W - 100, HudAnchor.TOP_RIGHT.x(W, 100, -100_000));
+        assertEquals(0, HudAnchor.BOTTOM_LEFT.y(H, 20, 100_000));
+        assertEquals(H - 20, HudAnchor.BOTTOM_LEFT.y(H, 20, -100_000));
     }
 
     @Test
@@ -82,8 +120,8 @@ class HudAnchorTest {
 
     @Test
     void bottomAnchorsKnowTheyAreAtTheBottom() {
-        // The custody box stacks upward from a bottom anchor and downward from a top one; getting
-        // this backwards puts it on top of the status box.
+        // Bottom anchors count both their offset and their hotbar clearance upward from the edge;
+        // getting this backwards puts the element behind the hotbar.
         assertTrue(HudAnchor.BOTTOM_LEFT.isBottom());
         assertTrue(HudAnchor.BOTTOM_CENTER.isBottom());
         assertTrue(HudAnchor.BOTTOM_RIGHT.isBottom());

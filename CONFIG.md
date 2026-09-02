@@ -329,6 +329,59 @@ cannot switch off the mod's core subject. `protectedEntities` is consulted by th
 `responderEntities` by the observation service, the report flow, and guard enforcement — so an entity
 added here genuinely witnesses crimes and receives reports.
 
+## `[weaponTrigger]`
+
+| Option | Default | What it does |
+|---|---|---|
+| `enabled` | `true` | Right-clicking an MCA villager while holding a weapon opens the Crime menu. |
+| `requireSneak` | `false` | Also require sneaking before the menu opens. |
+| `allowOffHand` | `true` | Let an off-hand weapon open the menu too. |
+
+The interacting hand's item is the one classified, and the main hand is dispatched first, so a
+main-hand weapon opens the menu once rather than twice.
+
+Restraints keep their claim on the interaction: capture runs first and a restraint is never
+classified as a weapon, so cuffing somebody still cuffs them.
+
+**Gifting caveat.** While this is on, right-click gifting a *weapon* to an MCA villager is
+pre-empted by the Crime menu. Blacklist that item under `[weapons]`, or turn the trigger off.
+
+## `[weapons]`
+
+| Option | Default | Range | What it does |
+|---|---|---|---|
+| `whitelist` | `[]` | — | Items always treated as weapons. |
+| `blacklist` | `[]` | — | Items never treated as weapons. Always wins. |
+| `autoDetect` | `true` | — | Classify unlisted items automatically. Off leaves only the two lists and the `mcacrime:weapons` tag. |
+| `autoDetectMinAttackDamage` | `3.0` | `0.0 … 100.0` | Last-resort melee threshold, in bonus attack damage. A wooden sword grants 3. |
+| `gunKeywords` | `gun, rifle, pistol, revolver, shotgun, musket, blunderbuss, smg, carbine, sniper, launcher, minigun` | — | Substrings in an item's registry path that mark it as a firearm. |
+| `weaponMods` | `tacz, cgm, pointblank, scguns, mwc` | — | Namespaces whose non-stackable, non-block items are assumed to be firearms. Editable guesses, not a verified list. |
+| `mugRequiresWeapon` | `true` | — | Mugging requires a weapon in one hand. Unarmed, the row stays visible and says so. |
+
+Both lists take plain item ids (`minecraft:iron_sword`) or `#tags` (`#forge:tools/spears`). Wildcards
+are **not** accepted here, because nothing expands one. The validator parses every entry, checks
+plain ids against the item registry, and warns when the same entry appears on both lists.
+
+Classification is first-match-wins, in this order:
+
+1. a restraint — never a weapon;
+2. `blacklist`;
+3. `whitelist`;
+4. the `mcacrime:weapons_blacklist` item tag;
+5. the `mcacrime:weapons` item tag (ships covering swords, axes, and the Forge bow/crossbow/trident
+   tags, so a datapack can add to it rather than to anybody's config file);
+6. then, only if `autoDetect` is on: swords, axes and tridents; bows, crossbows and anything with a
+   drawing use animation; a gun keyword in the item's path; a `weaponMods` namespace on a
+   non-stackable, non-block item; digging tools other than axes, which are excluded; and finally the
+   `autoDetectMinAttackDamage` threshold.
+
+`/crime debug weapon` prints the held item's id, its class, the layer that decided it, and the
+threshold in force.
+
+**Config sync caveat.** This block is COMMON config, which Forge does not sync to clients. The client
+runs the same rule to decide whether to swallow the right-click locally, so a client whose lists
+differ from the server's will mispredict the swing. The server's answer still decides what happens.
+
 ## `[ransom]`
 
 | Option | Default | Range | What it does |
@@ -464,6 +517,7 @@ atonement, and a case ageing out is not the village forgiving a murder.
 | `nameColorMode` | `FULL` | `FULL`, `PREFIX_ONLY` | `FULL` recolours the name, but only where it is unstyled, so a nickname or formatting mod keeps its own styling. `PREFIX_ONLY` adds a marker and leaves the name alone. Neutral is never touched either way. |
 | `showPlayerCardButton` | `true` | — | Show the reputation card button in the inventory screen. |
 | `playerCardOpenByDefault` | `false` | — | Open the card automatically whenever the inventory opens. |
+| `showButtonOnMcaScreen` | `true` | — | Add the Crime button to MCA's own villager interaction screen. Off leaves the weapon trigger and the keybind as the ways in. |
 | `captiveScreenToggle` | `true` | — | Show the captive panel while you are being held. |
 | `confirmHostileActions` | `true` | — | Ask before a hostile action. Presentation only — the server validates every action whether or not you were asked. |
 | `hudEnabled` | `true` | — | Master switch for the on-screen HUD. Off returns everything to chat. |
@@ -473,9 +527,13 @@ atonement, and a case ageing out is not the village forgiving a murder.
 | `renderRestraintPose` | `true` | — | Pose a restrained player's arms behind their back. The only thing in this mod that needs a mixin, and it is client-side only — a dedicated server never loads it. Presentation only: turning it off changes nothing the server knows or allows. |
 | `renderCuffs` | `true` | — | Draw cuffs on a restrained player's wrists. Parented to the arms, so they sit correctly with or without the pose above. |
 | `renderEscortRope` | `true` | — | Draw the lead between an escorting guard and their prisoner. Cosmetic: it is drawn from mod state rather than a real leash, because a vanilla lead cannot be attached to a player. |
-| `hudAnchor` | `TOP_LEFT` | `TOP_LEFT`, `TOP_CENTER`, `TOP_RIGHT`, `CENTER_LEFT`, `CENTER_RIGHT`, `BOTTOM_LEFT`, `BOTTOM_CENTER`, `BOTTOM_RIGHT` | Which edge the status and custody boxes sit against. The channel bar always sits above the hotbar. |
-| `hudOffsetX` | `4` | `-4096 … 4096` | Horizontal nudge from the anchor. Clamped so an element never leaves the screen. |
-| `hudOffsetY` | `4` | `-4096 … 4096` | Vertical nudge from the anchor. Clamped the same way. |
+| `hudAnchor` | `BOTTOM_LEFT` | `TOP_LEFT`, `TOP_CENTER`, `TOP_RIGHT`, `CENTER_LEFT`, `CENTER_RIGHT`, `BOTTOM_LEFT`, `BOTTOM_CENTER`, `BOTTOM_RIGHT` | Which edge the status and custody boxes sit against. Bottom anchors are lifted clear of the hotbar and the health and armor rows, and `BOTTOM_CENTER` clear of the channel bar, so picking one never hides a box behind vanilla's HUD. The channel bar itself always sits above the hotbar. |
+| `hudOffsetX` | `4` | `-4096 … 4096` | Horizontal nudge inward from the anchored edge — right from a left anchor, left from a right one. Clamped so an element never leaves the screen. |
+| `hudOffsetY` | `4` | `-4096 … 4096` | Vertical nudge inward from the anchored edge — down from a top anchor, up from a bottom one. Clamped the same way. |
+
+The default corner is the bottom-left because the top-left is where MCA: Quests draws its quest log.
+Vanilla chat also lives in the bottom-left, so the boxes and recent chat lines share that space until
+chat fades; a player who would rather not have that can pick another corner or raise `hudOffsetY`.
 
 ## Playing with it turned down
 

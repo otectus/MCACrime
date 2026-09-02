@@ -199,6 +199,18 @@ public final class McaCrimeConfig {
         public final ForgeConfigSpec.ConfigValue<List<? extends String>> protectedEntities;
         public final ForgeConfigSpec.ConfigValue<List<? extends String>> responderEntities;
 
+        // weapon-in-hand trigger + weapon classification (0.5.0) — read by item.weapon and the interact handler
+        public final ForgeConfigSpec.BooleanValue weaponTriggerEnabled;
+        public final ForgeConfigSpec.BooleanValue weaponTriggerRequireSneak;
+        public final ForgeConfigSpec.BooleanValue weaponTriggerAllowOffHand;
+        public final ForgeConfigSpec.ConfigValue<List<? extends String>> weaponWhitelist;
+        public final ForgeConfigSpec.ConfigValue<List<? extends String>> weaponBlacklist;
+        public final ForgeConfigSpec.BooleanValue weaponAutoDetect;
+        public final ForgeConfigSpec.DoubleValue weaponAutoDetectMinAttackDamage;
+        public final ForgeConfigSpec.ConfigValue<List<? extends String>> weaponGunKeywords;
+        public final ForgeConfigSpec.ConfigValue<List<? extends String>> weaponMods;
+        public final ForgeConfigSpec.BooleanValue mugRequiresWeapon;
+
         // ransom (§8.5) — read by the ransom service
         public final ForgeConfigSpec.IntValue ransomCooldownPerVictimTicks;
         public final ForgeConfigSpec.IntValue ransomCooldownPerVillageTicks;
@@ -658,6 +670,52 @@ public final class McaCrimeConfig {
                     .defineList("responderEntities", List.of(), o -> o instanceof String);
             b.pop();
 
+            b.push("weaponTrigger");
+            weaponTriggerEnabled = b.comment(
+                    "Right-clicking an MCA villager while holding a weapon opens the Crime menu.",
+                    "While this is on, right-click gifting of a weapon to a villager is pre-empted: blacklist",
+                    "the item under [weapons] or turn this off to gift it.")
+                    .define("enabled", true);
+            weaponTriggerRequireSneak = b.comment("Require sneaking as well as a weapon before the menu opens.")
+                    .define("requireSneak", false);
+            weaponTriggerAllowOffHand = b.comment("Also open the menu for an off-hand weapon interaction.")
+                    .define("allowOffHand", true);
+            b.pop();
+
+            b.push("weapons");
+            weaponWhitelist = b.comment(
+                    "Items always treated as weapons. Entries are 'namespace:path' for an item or",
+                    "'#namespace:path' for an item tag. No wildcards.",
+                    "This list is COMMON config and is not synced: a client whose list differs from the",
+                    "server's will mispredict the swing (the server still decides).")
+                    .defineList("whitelist", List.of(), o -> o instanceof String);
+            weaponBlacklist = b.comment(
+                    "Items never treated as weapons, even if auto-detection or the whitelist would match.",
+                    "Same 'namespace:path' / '#namespace:path' form; the blacklist always wins.")
+                    .defineList("blacklist", List.of(), o -> o instanceof String);
+            weaponAutoDetect = b.comment(
+                    "Classify unlisted items automatically (swords, axes, tridents, bows, crossbows, guns).",
+                    "Off means only the whitelist and the mcacrime:weapons tag count as weapons.")
+                    .define("autoDetect", true);
+            weaponAutoDetectMinAttackDamage = b.comment(
+                    "Last-resort melee threshold: an unlisted item granting at least this much bonus attack",
+                    "damage counts as a weapon. Vanilla's wooden sword grants 3.")
+                    .defineInRange("autoDetectMinAttackDamage", 3.0, 0.0, 100.0);
+            weaponGunKeywords = b.comment(
+                    "Substrings in an item's registry path that mark it as a gun, for mods this list has",
+                    "never heard of.")
+                    .defineList("gunKeywords", List.of("gun", "rifle", "pistol", "revolver", "shotgun", "musket",
+                            "blunderbuss", "smg", "carbine", "sniper", "launcher", "minigun"),
+                            o -> o instanceof String);
+            weaponMods = b.comment(
+                    "Namespaces whose non-stackable, non-block items are assumed to be guns. These defaults",
+                    "are editable guesses at the common gun mods, not a verified list.")
+                    .defineList("weaponMods", List.of("tacz", "cgm", "pointblank", "scguns", "mwc"),
+                            o -> o instanceof String);
+            mugRequiresWeapon = b.comment("Mugging requires a weapon in one of your hands.")
+                    .define("mugRequiresWeapon", true);
+            b.pop();
+
             b.push("ransom");
             ransomCooldownPerVictimTicks = b.defineInRange("ransomCooldownPerVictimTicks", 24000, 0, 10_000_000);
             ransomCooldownPerVillageTicks = b.defineInRange("ransomCooldownPerVillageTicks", 12000, 0, 10_000_000);
@@ -799,6 +857,7 @@ public final class McaCrimeConfig {
         public final ForgeConfigSpec.BooleanValue nameColorEnabled;
         public final ForgeConfigSpec.EnumValue<NameColorMode> nameColorMode;
         public final ForgeConfigSpec.BooleanValue showPlayerCardButton;
+        public final ForgeConfigSpec.BooleanValue showButtonOnMcaScreen;
         public final ForgeConfigSpec.BooleanValue playerCardOpenByDefault;
         public final ForgeConfigSpec.BooleanValue captiveScreenToggle;
         public final ForgeConfigSpec.BooleanValue confirmHostileActions;
@@ -823,6 +882,8 @@ public final class McaCrimeConfig {
                     .define("showPlayerCardButton", true);
             playerCardOpenByDefault = b.comment("Open the player card automatically whenever the inventory opens.")
                     .define("playerCardOpenByDefault", false);
+            showButtonOnMcaScreen = b.comment("Add the Crime button to MCA's own villager interaction screen.")
+                    .define("showButtonOnMcaScreen", true);
             captiveScreenToggle = b.comment("Show the captive panel when you are being held.")
                     .define("captiveScreenToggle", true);
             confirmHostileActions = b.comment("Ask for confirmation before a hostile action. "
@@ -844,12 +905,15 @@ public final class McaCrimeConfig {
                     .define("renderCuffs", true);
             renderEscortRope = b.comment("Draw the lead between an escorting guard and their prisoner.")
                     .define("renderEscortRope", true);
-            hudAnchor = b.comment("Which screen corner or edge the status and custody boxes sit against. "
-                            + "The channel bar always sits above the hotbar, where the eye already is.")
-                    .defineEnum("hudAnchor", dev.otectus.mcacrime.client.hud.HudAnchor.TOP_LEFT);
-            hudOffsetX = b.comment("Horizontal nudge from the anchor, in pixels. Clamped on screen.")
+            hudAnchor = b.comment("Which screen corner or edge the status and custody boxes sit against.",
+                            "Bottom anchors are lifted clear of the hotbar and health rows automatically.",
+                            "The channel bar always sits above the hotbar, where the eye already is.")
+                    .defineEnum("hudAnchor", dev.otectus.mcacrime.client.hud.HudAnchor.BOTTOM_LEFT);
+            hudOffsetX = b.comment("Horizontal nudge inward from the anchored edge, in pixels -- right from a",
+                            "left anchor, left from a right one. Clamped on screen.")
                     .defineInRange("hudOffsetX", 4, -4096, 4096);
-            hudOffsetY = b.comment("Vertical nudge from the anchor, in pixels. Clamped on screen.")
+            hudOffsetY = b.comment("Vertical nudge inward from the anchored edge, in pixels -- down from a top",
+                            "anchor, up from a bottom one. Clamped on screen.")
                     .defineInRange("hudOffsetY", 4, -4096, 4096);
             b.pop();
         }

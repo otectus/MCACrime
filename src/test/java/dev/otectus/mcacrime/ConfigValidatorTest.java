@@ -89,4 +89,59 @@ class ConfigValidatorTest {
         assertFalse(integrations(100, 8, 6, 200, 24000, 168000, "forgiven", "atoned").isEmpty());
         assertFalse(integrations(100, 8, 6, 200, 24000, 168000, "atoned", "disproven").isEmpty());
     }
+
+    // --- weapon classification lists (0.5.0) ---
+
+    private static List<String> weapons(List<String> whitelist, List<String> blacklist) {
+        return ConfigValidator.validateWeapons(whitelist, blacklist,
+                List.of("gun", "rifle"), List.of("tacz"), 3.0);
+    }
+
+    @Test
+    void theDefaultWeaponListsAreValid() {
+        assertTrue(weapons(List.of(), List.of()).isEmpty());
+        assertTrue(weapons(List.of("minecraft:stick", "#forge:tools/spears"), List.of("minecraft:trident")).isEmpty());
+    }
+
+    @Test
+    void aMalformedWeaponIdIsReportedAsAnItem() {
+        List<String> problems = weapons(List.of("NOT AN ID"), List.of());
+        assertTrue(problems.stream().anyMatch(p -> p.contains("invalid item id")), problems.toString());
+    }
+
+    /** Nothing expands a wildcard for item lists, so accepting one would promise a match that never comes. */
+    @Test
+    void wildcardsAreRejectedInWeaponLists() {
+        List<String> problems = weapons(List.of("minecraft:*"), List.of());
+        assertTrue(problems.stream().anyMatch(p -> p.contains("wildcard")), problems.toString());
+    }
+
+    @Test
+    void anItemOnBothWeaponListsIsReportedAsRedundant() {
+        List<String> problems = weapons(List.of("minecraft:stick"), List.of("minecraft:stick"));
+        assertTrue(problems.stream().anyMatch(p -> p.contains("blacklist wins")), problems.toString());
+    }
+
+    /** A blank keyword is a substring of every path, so it would arm the entire item registry. */
+    @Test
+    void aBlankGunKeywordIsRejected() {
+        List<String> problems = ConfigValidator.validateWeapons(List.of(), List.of(),
+                List.of("gun", "  "), List.of("tacz"), 3.0);
+        assertTrue(problems.stream().anyMatch(p -> p.contains("gunKeywords")), problems.toString());
+    }
+
+    @Test
+    void aBlankOrUnparseableWeaponModNamespaceIsRejected() {
+        assertFalse(ConfigValidator.validateWeapons(List.of(), List.of(),
+                List.of("gun"), List.of(""), 3.0).isEmpty());
+        assertFalse(ConfigValidator.validateWeapons(List.of(), List.of(),
+                List.of("gun"), List.of("Not A Namespace"), 3.0).isEmpty());
+    }
+
+    @Test
+    void aNegativeAttackDamageThresholdIsRejected() {
+        List<String> problems = ConfigValidator.validateWeapons(List.of(), List.of(),
+                List.of("gun"), List.of("tacz"), -1.0);
+        assertTrue(problems.stream().anyMatch(p -> p.contains("autoDetectMinAttackDamage")), problems.toString());
+    }
 }

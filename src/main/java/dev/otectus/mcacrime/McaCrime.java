@@ -56,6 +56,7 @@ public final class McaCrime {
     private void onConfigReload(net.minecraftforge.fml.event.config.ModConfigEvent.Reloading event) {
         if (event.getConfig().getType() == ModConfig.Type.COMMON) {
             dev.otectus.mcacrime.detect.EntitySelectors.invalidate();
+            dev.otectus.mcacrime.item.weapon.WeaponDetector.invalidate();
         }
     }
 

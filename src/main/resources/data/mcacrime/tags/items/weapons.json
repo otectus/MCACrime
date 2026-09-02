@@ -1,0 +1,19 @@
+{
+  "replace": false,
+  "values": [
+    "#minecraft:swords",
+    "#minecraft:axes",
+    {
+      "id": "#forge:tools/bows",
+      "required": false
+    },
+    {
+      "id": "#forge:tools/crossbows",
+      "required": false
+    },
+    {
+      "id": "#forge:tools/tridents",
+      "required": false
+    }
+  ]
+}

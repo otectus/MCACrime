@@ -1,6 +1,7 @@
 package dev.otectus.mcacrime.compat.mca.client;
 
 import dev.otectus.mcacrime.McaCrime;
+import dev.otectus.mcacrime.McaCrimeConfig;
 import dev.otectus.mcacrime.compat.McaCompat;
 import dev.otectus.mcacrime.network.CrimeNetwork;
 import dev.otectus.mcacrime.network.RequestActionMenuC2SPacket;
@@ -34,6 +35,7 @@ public final class McaInteractionScreenBridge {
 
     @SubscribeEvent
     public static void onScreenInit(ScreenEvent.Init.Post event) {
+        if (!McaCrimeConfig.CLIENT.showButtonOnMcaScreen.get()) return;
         Screen screen = event.getScreen();
         String name = screen.getClass().getName();
         if (!name.endsWith(".client.gui.InteractScreen")) return;

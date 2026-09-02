@@ -6,10 +6,13 @@ import dev.otectus.mcacrime.McaCrimeConfig;
 import dev.otectus.mcacrime.action.ActionMenuKind;
 import dev.otectus.mcacrime.client.screen.CaseDossierScreen;
 import dev.otectus.mcacrime.client.screen.GuardChallengeScreen;
+import dev.otectus.mcacrime.compat.McaCompat;
 import dev.otectus.mcacrime.network.CrimeNetwork;
+import dev.otectus.mcacrime.network.RequestActionMenuC2SPacket;
 import dev.otectus.mcacrime.network.RequestSelfMenuC2SPacket;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
+import net.minecraft.world.entity.Entity;
 import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.client.event.RegisterKeyMappingsEvent;
 import net.minecraftforge.client.settings.KeyConflictContext;
@@ -28,8 +31,8 @@ import org.lwjgl.glfw.GLFW;
  * captive should not have to remember a command while a countdown runs.
  *
  * <p>Defaults are chosen from keys vanilla leaves free ({@code J} and {@code K}), so a fresh install
- * conflicts with nothing. The third binding ships unbound on purpose — it is a preference, not a need,
- * and claiming a third key for it would be presumptuous.
+ * conflicts with nothing. The last two ship unbound on purpose — each is a preference rather than a
+ * need, and claiming further keys for them would be presumptuous.
  */
 @Mod.EventBusSubscriber(modid = McaCrime.MOD_ID, value = Dist.CLIENT)
 public final class CrimeKeybinds {
@@ -51,6 +54,16 @@ public final class CrimeKeybinds {
     public static final KeyMapping REOPEN_CHALLENGE = new KeyMapping("key.mcacrime.challenge",
             KeyConflictContext.IN_GAME, InputConstants.Type.KEYSYM, InputConstants.UNKNOWN.getValue(), CATEGORY);
 
+    /**
+     * Asks for the crime menu about whoever is under the crosshair.
+     *
+     * <p>0.5.0 moved the menu behind a weapon in hand, which is a better gesture and a narrower one.
+     * This binding is the way back in for a player who does not want to draw on somebody to open a
+     * menu; it ships unbound because it is a preference, not a need.
+     */
+    public static final KeyMapping OPEN_CRIME_MENU = new KeyMapping("key.mcacrime.crime_menu",
+            KeyConflictContext.IN_GAME, InputConstants.Type.KEYSYM, InputConstants.UNKNOWN.getValue(), CATEGORY);
+
     private CrimeKeybinds() {
     }
 
@@ -64,6 +77,7 @@ public final class CrimeKeybinds {
             event.register(OPEN_DOSSIER);
             event.register(OPEN_SELF_PANEL);
             event.register(REOPEN_CHALLENGE);
+            event.register(OPEN_CRIME_MENU);
         }
     }
 
@@ -92,6 +106,7 @@ public final class CrimeKeybinds {
         boolean dossier = drain(OPEN_DOSSIER);
         boolean selfPanel = drain(OPEN_SELF_PANEL);
         boolean challenge = drain(REOPEN_CHALLENGE);
+        boolean crimeMenu = drain(OPEN_CRIME_MENU);
         if (busy) {
             return;
         }
@@ -108,6 +123,13 @@ public final class CrimeKeybinds {
                     captive ? ActionMenuKind.CAPTIVE : ActionMenuKind.SELF));
         } else if (challenge && ClientChallengeData.active()) {
             minecraft.setScreen(new GuardChallengeScreen());
+        } else if (crimeMenu) {
+            // Only the target is named here. Range and line of sight are the server's to check, and it
+            // checks them for this request exactly as it does for the button on MCA's own screen.
+            Entity looked = minecraft.crosshairPickEntity;
+            if (McaCompat.isMcaVillager(looked)) {
+                CrimeNetwork.CHANNEL.sendToServer(new RequestActionMenuC2SPacket(looked.getUUID()));
+            }
         }
     }
 
