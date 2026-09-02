@@ -3,6 +3,7 @@ package dev.otectus.mcacrime.jail;
 import dev.otectus.mcacrime.crime.type.CrimeIds;
 import dev.otectus.mcacrime.detect.CrimeDetector;
 import dev.otectus.mcacrime.detect.WitnessResult;
+import dev.otectus.mcacrime.ledger.SentenceResolutionService;
 import dev.otectus.mcacrime.network.CrimeNetwork;
 import dev.otectus.mcacrime.state.PlayerCrimeData;
 import net.minecraft.resources.ResourceLocation;
@@ -48,6 +49,17 @@ public final class JailConfine {
             if (!jail.isEscaped()) {
                 jail.setEscaped(true); // becomes a Legal Target (escaped prisoner)
                 if (player.level() instanceof ServerLevel here) {
+                    // Mark the cases this sentence was being served for as ESCAPED. That is a status,
+                    // not a resolution: an escaped case stays fully actionable and can still be fined
+                    // or served later. What it buys is that the ledger can now say why it is open.
+                    //
+                    // This runs BEFORE the jailbreak charge is filed, and the order is load-bearing:
+                    // the sweep takes every actionable case, so filing first would immediately mark
+                    // the brand-new jailbreak charge as escaped by its own escape.
+                    if (here.getServer() != null) {
+                        SentenceResolutionService.markEscaped(here.getServer(), player.getUUID(),
+                                jail.getSentenceId());
+                    }
                     // Witnessed by the authority itself, with no villager named: nobody has to have
                     // seen a prisoner leave for the jail to know they are gone.
                     CrimeDetector.commitDirect(player, CrimeIds.JAILBREAK, null, here,

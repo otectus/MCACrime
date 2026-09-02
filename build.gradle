@@ -2,6 +2,7 @@ plugins {
     id 'eclipse'
     id 'idea'
     id 'net.minecraftforge.gradle' version '[6.0,6.2)'
+    id 'org.spongepowered.mixin' version '0.7.+'
 }
 
 version = mod_version
@@ -154,6 +155,10 @@ dependencies {
     }
 
     // Unit tests for the non-MCA karma/heat engine (spec section 18).
+    // The mixin annotation processor generates the refmap that remaps `official` member names to SRG
+    // for a production jar. Without it the mixin applies in dev and silently fails in the wild.
+    annotationProcessor 'org.spongepowered:mixin:0.8.5:processor'
+
     testImplementation 'org.junit.jupiter:junit-jupiter-api:5.10.2'
     testRuntimeOnly 'org.junit.jupiter:junit-jupiter-engine:5.10.2'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
@@ -193,6 +198,15 @@ tasks.named('processResources', ProcessResources).configure {
     }
 }
 
+// The mod ships exactly one mixin, it is client-only, and it does nothing but pose a restrained
+// player's arms. Everything else in this mod reaches Minecraft through Forge events on purpose; the
+// pose is the one thing no event can express, because PlayerRenderer.setModelProperties and
+// HumanoidModel.setupAnim both run after RenderPlayerEvent.Pre and overwrite whatever it set.
+mixin {
+    add sourceSets.main, "${mod_id}.refmap.json"
+    config "${mod_id}.mixins.json"
+}
+
 tasks.named('jar', Jar).configure {
     manifest {
         attributes([
@@ -201,7 +215,9 @@ tasks.named('jar', Jar).configure {
                 'Specification-Version'   : '1',
                 'Implementation-Title'    : project.name,
                 'Implementation-Version'  : project.jar.archiveVersion,
-                'Implementation-Vendor'   : mod_authors
+                'Implementation-Vendor'   : mod_authors,
+                // Forge reads mixin configs from this manifest attribute on 1.20.1.
+                'MixinConfigs'            : "${mod_id}.mixins.json"
         ])
     }
     finalizedBy 'reobfJar'

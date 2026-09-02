@@ -74,6 +74,19 @@ public final class McaHandles {
     private static final MethodHandle H_HEARTS = R.handle(McaBinding.GET_HEARTS);
     private static final MethodHandle H_HOME_VILLAGE = R.handle(McaBinding.GET_HOME_VILLAGE);
     private static final MethodHandle H_VILLAGE_ID = R.handle(McaBinding.VILLAGE_GET_ID);
+    private static final MethodHandle H_VILLAGE_NAME = R.handle(McaBinding.VILLAGE_GET_NAME);
+    private static final MethodHandle H_VILLAGE_MANAGER = R.handle(McaBinding.VILLAGE_MANAGER_GET);
+    private static final MethodHandle H_VILLAGE_BY_ID = R.handle(McaBinding.VILLAGE_MANAGER_GET_OR_EMPTY);
+    private static final MethodHandle H_VILLAGE_RESIDENTS = R.handle(McaBinding.VILLAGE_GET_RESIDENTS);
+    private static final MethodHandle H_VILLAGE_POPULATION = R.handle(McaBinding.VILLAGE_GET_POPULATION);
+    private static final MethodHandle H_VILLAGE_IS_VILLAGE = R.handle(McaBinding.VILLAGE_IS_VILLAGE);
+    private static final MethodHandle H_IS_GUARD = R.handle(McaBinding.VILLAGER_IS_GUARD);
+    private static final MethodHandle H_PROFESSION_IMPORTANT = R.handle(McaBinding.VILLAGER_IS_PROFESSION_IMPORTANT);
+    private static final MethodHandle H_SET_PROFESSION = R.handle(McaBinding.VILLAGER_SET_PROFESSION);
+    private static final boolean POPULATION_BOUND =
+            R.has(McaBinding.VILLAGE_GET_RESIDENTS)
+                    && R.has(McaBinding.VILLAGE_GET_POPULATION)
+                    && R.has(McaBinding.VILLAGER_SET_PROFESSION);
     private static final MethodHandle H_RELATIONSHIP_OF = R.handle(McaBinding.RELATIONSHIP_OF);
     private static final MethodHandle H_PARTNER_UUID = R.handle(McaBinding.GET_PARTNER_UUID);
     private static final MethodHandle H_FAMILY_ENTRY = R.handle(McaBinding.GET_FAMILY_ENTRY);
@@ -159,6 +172,203 @@ public final class McaHandles {
         } catch (Throwable t) {
             // Distinguished from a real id of 0: an unreadable village is "no village", not village 0.
             return OptionalInt.empty();
+        }
+    }
+
+    /**
+     * The display name of a village in {@code level}, by MCA's own village id, or empty.
+     *
+     * <p>Empty covers every way this can fail to mean anything: MCA absent, the id belonging to a
+     * village that has since been dissolved, or a village whose name is blank. A caller that gets
+     * empty must fall back to something a player can read — never to the {@code dimension/id} key,
+     * which is a storage detail.
+     *
+     * <p>Looked up per call rather than cached. Villages are renameable in MCA's own UI, and a name
+     * cached at world load would go stale the first time somebody used it; this runs when a screen
+     * opens, not in any tick loop.
+     */
+    public static Optional<String> villageName(Object serverLevel, int villageId) {
+        if (serverLevel == null || villageId < 0) {
+            return Optional.empty();
+        }
+        Object manager;
+        try {
+            manager = H_VILLAGE_MANAGER.invoke(serverLevel);
+        } catch (Throwable t) {
+            return Optional.empty();
+        }
+        Object village = unwrap(ref(H_VILLAGE_BY_ID, manager, villageId));
+        if (village == null) {
+            return Optional.empty();
+        }
+        Object name = ref(H_VILLAGE_NAME, village);
+        return name instanceof String text && !text.isBlank() ? Optional.of(text) : Optional.empty();
+    }
+
+    // --- village population (guard top-up) ------------------------------------------------------
+
+    /**
+     * True when everything the guard-population pass needs actually bound.
+     *
+     * <p>Checked as a set rather than per call: converting villagers with only half the picture --
+     * residents but no population, say -- would produce a target computed from nothing and a village
+     * full of guards. Absent means the feature silently does not run, which is the correct behaviour
+     * for an opt-in convenience on a soft dependency.
+     */
+    public static boolean populationAvailable() {
+        return available() && POPULATION_BOUND;
+    }
+
+    /**
+     * Every village in {@code serverLevel}.
+     *
+     * <p>No binding is needed to enumerate them: MCA's {@code VillageManager} implements
+     * {@code java.lang.Iterable<Village>}, so a plain JDK type check on the already-bound manager is
+     * enough and there is no extra member to drift.
+     */
+    public static List<Object> villagesIn(Object serverLevel) {
+        if (serverLevel == null || !R.has(McaBinding.VILLAGE_MANAGER_GET)) {
+            return List.of();
+        }
+        Object manager;
+        try {
+            manager = H_VILLAGE_MANAGER.invoke(serverLevel);
+        } catch (Throwable t) {
+            return List.of();
+        }
+        if (!(manager instanceof Iterable<?> villages)) {
+            return List.of();
+        }
+        List<Object> out = new ArrayList<>();
+        try {
+            for (Object village : villages) {
+                if (village != null) {
+                    out.add(village);
+                }
+            }
+        } catch (Throwable t) {
+            return List.copyOf(out);
+        }
+        return out;
+    }
+
+    /**
+     * Whether MCA considers this a real village rather than a couple of huts.
+     *
+     * <p>Defaults to <b>true</b> when unbound. An unreadable check should not stop the feature working;
+     * the population figure below is what actually bounds it.
+     */
+    public static boolean isRealVillage(Object village) {
+        if (village == null) {
+            return false;
+        }
+        if (!R.has(McaBinding.VILLAGE_IS_VILLAGE)) {
+            return true;
+        }
+        try {
+            return (boolean) H_VILLAGE_IS_VILLAGE.invoke(village);
+        } catch (Throwable t) {
+            return true;
+        }
+    }
+
+    /** The village population MCA itself uses for its guard target. Zero when unreadable. */
+    public static int villagePopulation(Object village) {
+        if (village == null || !R.has(McaBinding.VILLAGE_GET_POPULATION)) {
+            return 0;
+        }
+        try {
+            return Math.max(0, (int) H_VILLAGE_POPULATION.invoke(village));
+        } catch (Throwable t) {
+            return 0;
+        }
+    }
+
+    /** MCA's own id for a village object, or -1 when unreadable. Used only for logging and keys. */
+    public static int villageIdOf(Object village) {
+        if (village == null) {
+            return -1;
+        }
+        try {
+            return (int) H_VILLAGE_ID.invoke(village);
+        } catch (Throwable t) {
+            return -1;
+        }
+    }
+
+    /** The loaded residents of a village, or empty when unreadable. */
+    public static List<Object> villageResidents(Object village, Object serverLevel) {
+        if (village == null || serverLevel == null || !R.has(McaBinding.VILLAGE_GET_RESIDENTS)) {
+            return List.of();
+        }
+        Object result;
+        try {
+            result = H_VILLAGE_RESIDENTS.invoke(village, serverLevel);
+        } catch (Throwable t) {
+            return List.of();
+        }
+        if (!(result instanceof List<?> list)) {
+            return List.of();
+        }
+        List<Object> out = new ArrayList<>(list.size());
+        for (Object entry : list) {
+            if (entry != null) {
+                out.add(entry);
+            }
+        }
+        return out;
+    }
+
+    /**
+     * MCA's own guard test, which covers its archers as well as its guards.
+     *
+     * <p>Broader than {@code McaCompat.isGuard}, which matches the {@code guard} profession path only.
+     * The population count deliberately uses the broader one: an archer MCA spawned is a guard as far
+     * as MCA's own target is concerned, and counting it as an ordinary villager would have this mod
+     * convert past the target it shares with MCA.
+     */
+    public static boolean isMcaGuard(Object villager) {
+        if (!isVillager(villager) || !R.has(McaBinding.VILLAGER_IS_GUARD)) {
+            return false;
+        }
+        try {
+            return (boolean) H_IS_GUARD.invoke(villager);
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    /**
+     * Whether MCA considers this villager's profession too important to overwrite.
+     *
+     * <p>Defaults to <b>true</b> when unbound, the opposite way round from {@link #isRealVillage} and
+     * deliberately so: an unreadable permissive check costs nothing, while an unreadable protective one
+     * would let this mod convert a village's only cleric into a guard.
+     */
+    public static boolean isProfessionImportant(Object villager) {
+        if (!isVillager(villager)) {
+            return true;
+        }
+        if (!R.has(McaBinding.VILLAGER_IS_PROFESSION_IMPORTANT)) {
+            return true;
+        }
+        try {
+            return (boolean) H_PROFESSION_IMPORTANT.invoke(villager);
+        } catch (Throwable t) {
+            return true;
+        }
+    }
+
+    /** Sets a villager's profession through MCA's own setter. False on any failure. */
+    public static boolean setProfession(Object villager, Object profession) {
+        if (!isVillager(villager) || profession == null || !R.has(McaBinding.VILLAGER_SET_PROFESSION)) {
+            return false;
+        }
+        try {
+            H_SET_PROFESSION.invoke(villager, profession);
+            return true;
+        } catch (Throwable t) {
+            return false;
         }
     }
 

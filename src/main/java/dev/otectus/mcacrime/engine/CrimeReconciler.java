@@ -42,6 +42,19 @@ public final class CrimeReconciler {
         CrimeState.recomputeDerived(player);
         JailService.reconcileOnLogin(player); // free a player whose jail became unusable (§7.4 no softlock)
         CustodyService.reconcileOnLogin(player); // free a kidnapping captive whose captor is gone (§8.4)
+        // Finish an arrest whose escort was interrupted by the logout, a restart, or a death. The walk
+        // is not replayed -- the sentence is what matters, and nobody was there to watch the walk.
+        dev.otectus.mcacrime.enforcement.ArrestService.reconcileOnLogin(player);
+        // Third removal path for the movement penalty, after the transition chokepoint and the respawn
+        // handler: a crash between applying it and saving would otherwise leave a permanently slow
+        // player with no arrest to explain it.
+        if (!dev.otectus.mcacrime.enforcement.ArrestStates.isRestrained(player)) {
+            dev.otectus.mcacrime.enforcement.RestraintHandlers.onReleased(player);
+        } else {
+            dev.otectus.mcacrime.enforcement.RestraintHandlers.onRestrained(player);
+        }
+        dev.otectus.mcacrime.enforcement.RestraintSync.syncOnLogin(player);
+        dev.otectus.mcacrime.enforcement.RestraintSync.broadcast(player);
         CrimeNetwork.sendSelfStatus(player);
         CrimeNetwork.sendCaptiveStatus(player); // restore the captive screen/indicator on re-login
         CrimeBandSync.syncOnLogin(player);

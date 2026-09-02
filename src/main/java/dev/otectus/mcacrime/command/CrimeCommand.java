@@ -10,6 +10,7 @@ import dev.otectus.mcacrime.captivity.CustodyRegistry;
 import dev.otectus.mcacrime.captivity.CustodyReleaseReason;
 import dev.otectus.mcacrime.captivity.CustodyService;
 import dev.otectus.mcacrime.api.McaCrimeApi;
+import dev.otectus.mcacrime.action.CrimeActionIds;
 import dev.otectus.mcacrime.action.CrimeActionService;
 import dev.otectus.mcacrime.compat.McaCompat;
 import dev.otectus.mcacrime.compat.ReputationBridge;
@@ -44,6 +45,7 @@ import net.minecraft.resources.ResourceLocation;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.server.MinecraftServer;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.phys.AABB;
@@ -147,6 +149,10 @@ public final class CrimeCommand {
                                 .executes(CrimeCommand::debugActions))
                         .then(Commands.literal("integrations")
                                 .executes(CrimeCommand::debugIntegrations))
+                        .then(Commands.literal("guards")
+                                .executes(CrimeCommand::debugGuards))
+                        .then(Commands.literal("arrest")
+                                .executes(CrimeCommand::debugArrest))
                         .then(Commands.literal("outbox")
                                 .executes(ctx -> debugOutbox(ctx, false))
                                 .then(Commands.literal("dead")
@@ -328,31 +334,39 @@ public final class CrimeCommand {
                 + " @" + r.timeCommitted();
     }
 
-    // --- player release valves ---
+    // --- player action fallbacks ---
+    //
+    // Every one of these is an accessibility path into the same server action contract the UI uses
+    // (spec §8.5). None of them touches a service directly any more: a command must not be able to
+    // skip a target lock, a nonce, a cooldown, or a replay check that a menu click applies.
 
     private static int payFine(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
-        return CrimeActionService.settleCase(ctx.getSource().getPlayerOrException());
+        return CrimeActionService.startSelfFromCommand(
+                ctx.getSource().getPlayerOrException(), CrimeActionIds.SETTLE_CASE);
     }
 
     private static int surrender(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
-        return CrimeActionService.surrender(ctx.getSource().getPlayerOrException());
+        return CrimeActionService.startSelfFromCommand(
+                ctx.getSource().getPlayerOrException(), CrimeActionIds.SURRENDER);
     }
 
     private static int ransom(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
-        return CrimeActionService.demandRansom(ctx.getSource().getPlayerOrException());
+        return CrimeActionService.demandRansomFromCommand(ctx.getSource().getPlayerOrException());
     }
 
     private static int payRansom(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
-        return CrimeActionService.payRansom(ctx.getSource().getPlayerOrException());
+        return CrimeActionService.startSelfFromCommand(
+                ctx.getSource().getPlayerOrException(), CrimeActionIds.PAY_RANSOM);
     }
 
     private static int mug(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
         return CrimeActionService.startMugFromCommand(ctx.getSource().getPlayerOrException());
     }
 
-    /** A captive's attempt to break free of an unlawful captor (server-validated; escaping kidnapping is no crime, §8.1). */
+    /** A captive's attempt to break free of an unlawful captor (escaping kidnapping is no crime, §8.1). */
     private static int escape(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
-        return CustodyService.attemptEscape(ctx.getSource().getPlayerOrException()) ? 1 : 0;
+        return CrimeActionService.startSelfFromCommand(
+                ctx.getSource().getPlayerOrException(), CrimeActionIds.ESCAPE);
     }
 
     private static int releaseCaptive(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
@@ -431,6 +445,59 @@ public final class CrimeCommand {
     }
 
     /** Dumps custody + the ⚠ relationship-adapter results for the nearest villager — the in-world verification harness. */
+    /**
+     * What the guard-population pass sees in this dimension, per village.
+     *
+     * <p>Without this the only signal that the feature works is villagers slowly changing clothes, and
+     * the first question anybody enabling it will ask -- "is this even doing anything?" -- has no other
+     * answer. It also makes the overlap with MCA's own pass legible: a village already at target
+     * because MCA got there first reports needed=0 rather than looking broken.
+     */
+    private static int debugGuards(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
+        ServerPlayer player = ctx.getSource().getPlayerOrException();
+        if (!(player.level() instanceof ServerLevel level)) {
+            return 0;
+        }
+        StringBuilder sb = new StringBuilder("Guard population debug (ratio ")
+                .append(McaCrimeConfig.COMMON.guardPopulationRatio.get())
+                .append(", minimum ").append(McaCrimeConfig.COMMON.guardPopulationMinimum.get())
+                .append("):");
+        for (String line : dev.otectus.mcacrime.enforcement.GuardPopulationService.report(level)) {
+            sb.append("\n  ").append(line);
+        }
+        String out = sb.toString();
+        ctx.getSource().sendSuccess(() -> Component.literal(out), false);
+        return 1;
+    }
+
+    /** The arrest lifecycle for the calling player: one authoritative phase, and what it is gating. */
+    private static int debugArrest(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
+        ServerPlayer player = ctx.getSource().getPlayerOrException();
+        dev.otectus.mcacrime.enforcement.ArrestPhase phase =
+                dev.otectus.mcacrime.enforcement.ArrestStates.phaseOf(player);
+        dev.otectus.mcacrime.enforcement.ArrestState state =
+                dev.otectus.mcacrime.enforcement.ArrestStates.of(player);
+        StringBuilder sb = new StringBuilder("Arrest debug:");
+        sb.append("\n  phase=").append(phase);
+        sb.append("\n  restrained=").append(
+                dev.otectus.mcacrime.enforcement.ArrestPhases.isRestrained(phase));
+        sb.append("\n  challengeable=").append(
+                dev.otectus.mcacrime.enforcement.ArrestPhases.canOpenChallenge(phase));
+        sb.append("\n  guard=").append(state == null ? "-" : state.getGuard());
+        sb.append("\n  destination=").append(state == null || state.anchor() == null
+                ? "-" : state.anchor().pos() + " in " + state.anchor().dim());
+        sb.append("\n  sentenceTicks=").append(state == null ? 0L : state.getSentenceTicks());
+        sb.append("\n  jailRemaining=").append(
+                dev.otectus.mcacrime.util.TickFormat.compact(JailService.remainingTicks(player)));
+        sb.append("\n  openChallenges=")
+                .append(dev.otectus.mcacrime.enforcement.GuardChallengeService.openCount())
+                .append(", escorts=")
+                .append(dev.otectus.mcacrime.enforcement.EscortService.activeCount());
+        String out = sb.toString();
+        ctx.getSource().sendSuccess(() -> Component.literal(out), false);
+        return 1;
+    }
+
     private static int debugCustody(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
         ServerPlayer player = ctx.getSource().getPlayerOrException();
         MinecraftServer server = ctx.getSource().getServer();

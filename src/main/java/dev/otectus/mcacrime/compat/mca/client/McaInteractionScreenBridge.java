@@ -19,6 +19,12 @@ import java.lang.reflect.Field;
  * Client-only, package-root-neutral bridge that contributes a real narrated widget to MCA's interaction
  * screen without replacing MCA JSON or sending MCA packets. Forge's screen-init hook keeps the shipped
  * jar independent of MCA's relocated client package names; the server still validates the exact UUID.
+ *
+ * <p>This button stays a stock {@link Button}, drawn from vanilla's own widget texture, and is the one
+ * place in the mod that deliberately does <em>not</em> use {@code CrimeSprites}. It is the only button
+ * we draw inside somebody else's screen: matching this mod's chrome would make it the one foreign
+ * element in MCA's panel, which is the opposite of what a bridge is for. It also cannot be checked —
+ * MCA's mixins resolve only against SRG names, so it never appears under a development client.
  */
 @Mod.EventBusSubscriber(modid = McaCrime.MOD_ID, value = Dist.CLIENT)
 public final class McaInteractionScreenBridge {

@@ -1,0 +1,7 @@
+{
+  "id": "mcacrime:murder_player",
+  "karmaDelta": -50,
+  "heatDelta": 40,
+  "witnessedMultiplier": 1.0,
+  "victimTag": "player"
+}

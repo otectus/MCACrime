@@ -98,7 +98,7 @@ public final class FineService {
 
         long newHeat = Math.max(0L, heat - allocation.heatCleared());
         CrimeState.setHeat(player, newHeat, McaCrime.id("fine"), "fine:" + transactionId);
-        RelationshipConsequences.applyRestitution(player); // §11.3: a fine repairs some community standing
+        RelationshipConsequences.applyRestitution(player, cost); // §11.3: a fine repairs some community standing
 
         MinecraftForge.EVENT_BUS.post(new FinePaidEvent(player, transactionId, settled, cost, heat, newHeat));
         // One merged message, not one per case: the player performed one act.

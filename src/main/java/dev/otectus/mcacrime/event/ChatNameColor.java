@@ -17,7 +17,7 @@ import javax.annotation.Nullable;
 import java.util.Locale;
 
 /**
- * Server-side band coloring in chat (spec §10.3/§12), wiring the previously-reserved {@code chatFormatToggle}.
+ * Server-side band coloring in chat (spec §10.3/§12), the single authoritative switch, {@code chatNameColorEnabled}.
  * The authoritative switch is the COMMON {@code chatNameColorEnabled}; the client toggle is a display hint.
  *
  * <p>Non-destructive by construction: GREY is left untouched, and the band is shown as a colored <em>prefix

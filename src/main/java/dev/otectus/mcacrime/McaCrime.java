@@ -43,10 +43,20 @@ public final class McaCrime {
 
         final IEventBus modBus = FMLJavaModLoadingContext.get().getModEventBus();
         modBus.addListener(this::onCommonSetup);
+        // Entity selectors cache the compiled protected/responder lists. The cache notices a new list
+        // instance on its own, but a reload that mutates the list in place would not change identity,
+        // so the reload event drops it explicitly rather than relying on that.
+        modBus.addListener(this::onConfigReload);
         modBus.addListener(CrimeCapabilities::onRegisterCapabilities);
         CrimeItems.register(modBus); // restraints + creative tab (spec §8.3)
 
         LOGGER.info("MCA: Crime initialising (mod id '{}')", MOD_ID);
+    }
+
+    private void onConfigReload(net.minecraftforge.fml.event.config.ModConfigEvent.Reloading event) {
+        if (event.getConfig().getType() == ModConfig.Type.COMMON) {
+            dev.otectus.mcacrime.detect.EntitySelectors.invalidate();
+        }
     }
 
     private void onCommonSetup(FMLCommonSetupEvent event) {

@@ -28,9 +28,11 @@ class ActionEconomyWorldDataTest {
 
     @Test
     void schemaFourInitializesActionEconomySections() {
+        // Asserted on the single step rather than on a full migrate(), so adding a later schema does
+        // not make this test about the newest one.
         CompoundTag schemaThree = new CompoundTag();
         schemaThree.putInt("schema", 3);
-        CompoundTag migrated = dev.otectus.mcacrime.state.world.CrimeDataMigrations.migrate(schemaThree);
+        CompoundTag migrated = dev.otectus.mcacrime.state.world.CrimeDataMigrations.v3to4(schemaThree);
         assertEquals(4, migrated.getInt("schema"));
         assertTrue(migrated.contains("villagerProfiles"));
         assertTrue(migrated.contains("transactionReceipts"));

@@ -5,9 +5,13 @@ import dev.otectus.mcacrime.api.model.CrimeCommunityKey;
 import dev.otectus.mcacrime.captivity.CustodyRecord;
 import dev.otectus.mcacrime.integration.CrimeIntegrationOperation;
 import dev.otectus.mcacrime.integration.DedupeEntry;
+import dev.otectus.mcacrime.jail.HoldingCell;
 import dev.otectus.mcacrime.jail.JailAnchor;
 import dev.otectus.mcacrime.ledger.CrimeContext;
 import dev.otectus.mcacrime.ledger.CrimeRecord;
+import dev.otectus.mcacrime.memory.CrimeObservation;
+import dev.otectus.mcacrime.memory.CrimeReport;
+import dev.otectus.mcacrime.memory.ReportState;
 import dev.otectus.mcacrime.memory.VillagerCrimeProfile;
 import dev.otectus.mcacrime.ransom.RansomState;
 import net.minecraft.nbt.CompoundTag;
@@ -17,6 +21,8 @@ import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.saveddata.SavedData;
+
+import javax.annotation.Nullable;
 
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -60,7 +66,7 @@ public final class CrimeWorldData extends SavedData {
     public static final String DATA_NAME = "mcacrime";
 
     /** NBT keys reserved for later-phase structures; preserved verbatim across save/load. */
-    private static final String[] RESERVED_KEYS = {"bounties"};
+    private static final String[] RESERVED_KEYS = {"bounties", "archives"};
 
     /** Where a whole from-the-future store is parked rather than parsed. */
     private static final String FUTURE_KEY = "__future";
@@ -71,6 +77,17 @@ public final class CrimeWorldData extends SavedData {
     private static final int MAX_DEAD_LETTERS = 200;
     /** Ceiling on remembered dedupe keys per player. */
     private static final int MAX_DEDUPE_PER_PLAYER = 64;
+    /**
+     * Pending observations one NPC may be carrying at once (spec §11.1). Eight is not an arbitrary
+     * round number: it is the point past which a villager is no longer a witness to anything in
+     * particular, and letting the list grow would turn one busy village into an unbounded per-entity
+     * store that has to be walked every time anybody looks at them.
+     */
+    private static final int MAX_PENDING_OBSERVATIONS_PER_OBSERVER = 8;
+    /** Global ceiling on stored observations, oldest-resolved-first evicted. */
+    private static final int MAX_OBSERVATIONS = 4096;
+    /** Global ceiling on stored reports. */
+    private static final int MAX_REPORTS = 2048;
 
     /** community -> (playerUuid -> standing delta). LinkedHashMap for stable save ordering. */
     private final Map<CrimeCommunityKey, Map<UUID, Integer>> villageReputation = new LinkedHashMap<>();
@@ -80,6 +97,8 @@ public final class CrimeWorldData extends SavedData {
     private final Map<UUID, List<UUID>> byOffender = new LinkedHashMap<>();
     /** Assigned jail anchors (§7.4 command-based assignment). */
     private final List<JailAnchor> jailAnchors = new ArrayList<>();
+    /** Cells this mod built, by prisoner. A player can only be held in one place at a time. */
+    private final Map<UUID, HoldingCell> holdingCells = new LinkedHashMap<>();
     /** The custody table (§2.3): captive UUID -> record. LinkedHashMap for stable save ordering. */
     private final Map<UUID, CustodyRecord> custody = new LinkedHashMap<>();
     /** Active ransom demands (§8.5), keyed by victim UUID (one open demand per victim). */
@@ -88,6 +107,14 @@ public final class CrimeWorldData extends SavedData {
     private final Map<String, Long> ransomCooldowns = new LinkedHashMap<>();
     /** Villager purse, recovery, and offender memory, independent of chunk loading. */
     private final Map<UUID, VillagerCrimeProfile> villagerProfiles = new LinkedHashMap<>();
+    /** Who saw what (§12.1), keyed by observation id; insertion order is observation order. */
+    private final Map<UUID, CrimeObservation> observations = new LinkedHashMap<>();
+    /** observer -> observation ids. Rebuilt on load; derivable, so never serialised. */
+    private final Map<UUID, List<UUID>> observationsByObserver = new LinkedHashMap<>();
+    /** Filed reports (§12.3), keyed by report id. */
+    private final Map<UUID, CrimeReport> reports = new LinkedHashMap<>();
+    /** suspect -> report ids. Rebuilt on load. */
+    private final Map<UUID, List<UUID>> reportsBySuspect = new LinkedHashMap<>();
     /** Day-window counters used by profitable hostile actions. */
     private final Map<String, Long> actionCounters = new LinkedHashMap<>();
     /** Finite village authority balances, keyed by dimension-aware community. */
@@ -137,6 +164,15 @@ public final class CrimeWorldData extends SavedData {
         villageReputation.computeIfAbsent(community, k -> new LinkedHashMap<>())
                 .merge(player, delta, Integer::sum);
         setDirty();
+    }
+
+    /**
+     * Every community this world has ever recorded standing for. Used by global crime propagation,
+     * which by definition needs the set of villages that already know the player — propagating to a
+     * village nobody has ever met would create standing out of nothing.
+     */
+    public Collection<CrimeCommunityKey> communities() {
+        return List.copyOf(villageReputation.keySet());
     }
 
     /** Overwrites rather than accumulates — used to mirror a companion mod's canonical score. */
@@ -249,6 +285,42 @@ public final class CrimeWorldData extends SavedData {
 
     public List<JailAnchor> jailAnchors() {
         return new ArrayList<>(jailAnchors);
+    }
+
+    // --- holding cells (§7.4, built rather than assigned) ---
+
+    /**
+     * Records a cell this mod built. Keyed by prisoner, so re-arresting somebody who already has a
+     * cell standing replaces the record rather than accumulating cages.
+     */
+    public void putHoldingCell(HoldingCell cell) {
+        if (cell == null || cell.prisoner() == null || fromTheFuture) {
+            return;
+        }
+        holdingCells.put(cell.prisoner(), cell);
+        setDirty();
+    }
+
+    @Nullable
+    public HoldingCell holdingCellFor(UUID prisoner) {
+        return prisoner == null ? null : holdingCells.get(prisoner);
+    }
+
+    @Nullable
+    public HoldingCell removeHoldingCell(UUID prisoner) {
+        if (prisoner == null || fromTheFuture) {
+            return null;
+        }
+        HoldingCell removed = holdingCells.remove(prisoner);
+        if (removed != null) {
+            setDirty();
+        }
+        return removed;
+    }
+
+    /** Every standing cell, for the expiry sweep and for {@code /crime debug}. */
+    public List<HoldingCell> holdingCells() {
+        return new ArrayList<>(holdingCells.values());
     }
 
     // --- custody table (§2.3) ---
@@ -379,6 +451,184 @@ public final class CrimeWorldData extends SavedData {
             catch (NumberFormatException ignored) { return false; }
         });
         if (actionCounters.size() != before) setDirty();
+    }
+
+    // --- observations and reports (§12) ---
+
+    /**
+     * Stores one observation. Idempotent by observation id, so a replayed detection cannot make a
+     * villager remember the same crime twice.
+     *
+     * @return false when the observer is already carrying the maximum number of pending observations,
+     *         in which case nothing is stored. Refusing the ninth is deliberate: the alternative is
+     *         either an unbounded per-entity list or silently discarding an older observation the
+     *         villager may still be walking to a guard about.
+     */
+    public boolean addObservation(CrimeObservation observation) {
+        if (observation == null || fromTheFuture || observations.containsKey(observation.observationId())) {
+            return false;
+        }
+        if (observation.pending() && pendingObservationCount(observation.observerId())
+                >= MAX_PENDING_OBSERVATIONS_PER_OBSERVER) {
+            return false;
+        }
+        observations.put(observation.observationId(), observation);
+        observationsByObserver.computeIfAbsent(observation.observerId(), k -> new ArrayList<>())
+                .add(observation.observationId());
+        evictOldestSettledObservations();
+        setDirty();
+        return true;
+    }
+
+    /** Replaces an observation in place. Does nothing for an unknown id. */
+    public boolean replaceObservation(CrimeObservation observation) {
+        if (observation == null || fromTheFuture || !observations.containsKey(observation.observationId())) {
+            return false;
+        }
+        observations.put(observation.observationId(), observation);
+        setDirty();
+        return true;
+    }
+
+    public Optional<CrimeObservation> observation(UUID observationId) {
+        return Optional.ofNullable(observations.get(observationId));
+    }
+
+    /** Everything this observer knows, oldest first — the order they would report it in. */
+    public List<CrimeObservation> observationsBy(UUID observer) {
+        List<UUID> ids = observationsByObserver.get(observer);
+        if (ids == null || ids.isEmpty()) {
+            return List.of();
+        }
+        List<CrimeObservation> out = new ArrayList<>(ids.size());
+        for (UUID id : ids) {
+            CrimeObservation observation = observations.get(id);
+            if (observation != null) {
+                out.add(observation);
+            }
+        }
+        return out;
+    }
+
+    /** This observer's undelivered observations, oldest first. */
+    public List<CrimeObservation> pendingObservationsBy(UUID observer) {
+        List<CrimeObservation> out = new ArrayList<>();
+        for (CrimeObservation observation : observationsBy(observer)) {
+            if (observation.pending()) {
+                out.add(observation);
+            }
+        }
+        return out;
+    }
+
+    public int pendingObservationCount(UUID observer) {
+        return pendingObservationsBy(observer).size();
+    }
+
+    public int observationCount() {
+        return observations.size();
+    }
+
+    /** Files a report. Idempotent by report id. */
+    public boolean addReport(CrimeReport report) {
+        if (report == null || fromTheFuture || reports.containsKey(report.reportId())) {
+            return false;
+        }
+        reports.put(report.reportId(), report);
+        reportsBySuspect.computeIfAbsent(report.suspectId(), k -> new ArrayList<>()).add(report.reportId());
+        while (reports.size() > MAX_REPORTS) {
+            UUID oldest = reports.keySet().iterator().next();
+            CrimeReport dropped = reports.remove(oldest);
+            if (dropped != null) {
+                List<UUID> bySuspect = reportsBySuspect.get(dropped.suspectId());
+                if (bySuspect != null) {
+                    bySuspect.remove(oldest);
+                    if (bySuspect.isEmpty()) {
+                        reportsBySuspect.remove(dropped.suspectId());
+                    }
+                }
+            }
+        }
+        setDirty();
+        return true;
+    }
+
+    /** Reports naming this suspect, oldest first. */
+    public List<CrimeReport> reportsAgainst(UUID suspect) {
+        List<UUID> ids = reportsBySuspect.get(suspect);
+        if (ids == null || ids.isEmpty()) {
+            return List.of();
+        }
+        List<CrimeReport> out = new ArrayList<>(ids.size());
+        for (UUID id : ids) {
+            CrimeReport report = reports.get(id);
+            if (report != null) {
+                out.add(report);
+            }
+        }
+        return out;
+    }
+
+    public int reportCount() {
+        return reports.size();
+    }
+
+    /**
+     * Ages out observations and reports whose statute has run. Called on a bounded interval, never per
+     * tick. Expiry marks rather than deletes: "this villager saw it and never told anybody in time" is
+     * a different fact from "nobody saw it", and dialogue and the case file both need the difference.
+     */
+    public int pruneObservations(long gameTime) {
+        int changed = 0;
+        for (Map.Entry<UUID, CrimeObservation> entry : observations.entrySet()) {
+            CrimeObservation observation = entry.getValue();
+            if (observation.pending() && observation.expired(gameTime)) {
+                entry.setValue(observation.withReportState(ReportState.EXPIRED));
+                changed++;
+            }
+        }
+        int before = reports.size();
+        reports.values().removeIf(report -> report.expired(gameTime));
+        if (reports.size() != before) {
+            rebuildReportIndex();
+            changed += before - reports.size();
+        }
+        if (changed > 0) {
+            setDirty();
+        }
+        return changed;
+    }
+
+    /**
+     * Drops the oldest observations that are no longer pending once the global ceiling is passed. Only
+     * settled rows are evicted: a pending observation is somebody currently walking to a guard, and
+     * deleting it would make the crime quietly unreportable.
+     */
+    private void evictOldestSettledObservations() {
+        if (observations.size() <= MAX_OBSERVATIONS) {
+            return;
+        }
+        var iterator = observations.entrySet().iterator();
+        while (iterator.hasNext() && observations.size() > MAX_OBSERVATIONS) {
+            Map.Entry<UUID, CrimeObservation> entry = iterator.next();
+            if (entry.getValue().pending()) {
+                continue;
+            }
+            List<UUID> byObserver = observationsByObserver.get(entry.getValue().observerId());
+            if (byObserver != null) {
+                byObserver.remove(entry.getKey());
+                if (byObserver.isEmpty()) {
+                    observationsByObserver.remove(entry.getValue().observerId());
+                }
+            }
+            iterator.remove();
+        }
+    }
+
+    private void rebuildReportIndex() {
+        reportsBySuspect.clear();
+        reports.forEach((id, report) ->
+                reportsBySuspect.computeIfAbsent(report.suspectId(), k -> new ArrayList<>()).add(id));
     }
 
     // --- integration outbox ---
@@ -544,6 +794,12 @@ public final class CrimeWorldData extends SavedData {
         }
         tag.put("jailRoster", anchorList);
 
+        ListTag cellList = new ListTag();
+        for (HoldingCell cell : holdingCells.values()) {
+            cellList.add(cell.save());
+        }
+        tag.put("holdingCells", cellList);
+
         // Custody table (§2.3): a compound of captiveUuid -> record. Skipped if a newer jar's unrecognised
         // custody shape was stashed into `reserved` (it is re-emitted untouched below instead).
         if (!reserved.contains("custody")) {
@@ -576,6 +832,13 @@ public final class CrimeWorldData extends SavedData {
             receiptTag.add(receipt);
         });
         tag.put("transactionReceipts", receiptTag);
+
+        ListTag observationList = new ListTag();
+        observations.values().forEach(observation -> observationList.add(observation.save()));
+        tag.put("observations", observationList);
+        ListTag reportList = new ListTag();
+        reports.values().forEach(report -> reportList.add(report.save()));
+        tag.put("reports", reportList);
 
         ListTag outboxList = new ListTag();
         outbox.values().forEach(operation -> outboxList.add(operation.save()));
@@ -671,6 +934,14 @@ public final class CrimeWorldData extends SavedData {
             }
         }
 
+        ListTag cellList = tag.getList("holdingCells", Tag.TAG_COMPOUND);
+        for (int i = 0; i < cellList.size(); i++) {
+            HoldingCell cell = HoldingCell.load(cellList.getCompound(i));
+            if (cell != null) {
+                data.holdingCells.put(cell.prisoner(), cell);
+            }
+        }
+
         // Custody table. Forward-compat: parse the expected compound-of-records shape (skipping malformed
         // entries); an unrecognised shape (a newer jar) is preserved verbatim in `reserved` and re-emitted.
         if (tag.contains("custody", Tag.TAG_COMPOUND)) {
@@ -716,6 +987,34 @@ public final class CrimeWorldData extends SavedData {
         for (int i = 0; i < receiptTag.size(); i++) {
             CompoundTag receipt = receiptTag.getCompound(i);
             if (receipt.hasUUID("id")) data.transactionReceipts.add(receipt.getUUID("id"));
+        }
+
+        ListTag observationList = tag.getList("observations", Tag.TAG_COMPOUND);
+        for (int i = 0; i < observationList.size(); i++) {
+            try {
+                CrimeObservation observation = CrimeObservation.load(observationList.getCompound(i));
+                if (!data.observations.containsKey(observation.observationId())) {
+                    data.observations.put(observation.observationId(), observation);
+                    data.observationsByObserver
+                            .computeIfAbsent(observation.observerId(), k -> new ArrayList<>())
+                            .add(observation.observationId());
+                }
+            } catch (RuntimeException e) {
+                // Skip one malformed observation; the rest of the village's memory is still valid.
+            }
+        }
+        ListTag reportList = tag.getList("reports", Tag.TAG_COMPOUND);
+        for (int i = 0; i < reportList.size(); i++) {
+            try {
+                CrimeReport report = CrimeReport.load(reportList.getCompound(i));
+                if (!data.reports.containsKey(report.reportId())) {
+                    data.reports.put(report.reportId(), report);
+                    data.reportsBySuspect.computeIfAbsent(report.suspectId(), k -> new ArrayList<>())
+                            .add(report.reportId());
+                }
+            } catch (RuntimeException e) {
+                // Skip one malformed report rather than dropping every warrant in the world.
+            }
         }
 
         ListTag outboxList = tag.getList("outbox", Tag.TAG_COMPOUND);

@@ -159,8 +159,27 @@ public final class McaBinding {
         return new Member(Kind.VIRTUAL, ownerRelative, name, ret, arity, null, false);
     }
 
+    /**
+     * As {@link #optionalVirtual}, with a first-parameter hint to separate same-arity overloads.
+     *
+     * <p>The first genuine use of the hint machinery, which was written for exactly one case and then
+     * declared nowhere: {@code Village#getResidents} has two one-argument overloads --
+     * {@code getResidents(int)} returning names and {@code getResidents(ServerLevel)} returning live
+     * entities -- and without the hint whichever one {@code getMethods()} happened to report first
+     * would win a coin flip.
+     */
+    private static Member optionalVirtual(String ownerRelative, String name, Class<?> ret, int arity,
+                                          Class<?> hint) {
+        return new Member(Kind.VIRTUAL, ownerRelative, name, ret, arity, hint, false);
+    }
+
     private static Member statik(String ownerRelative, String name, Class<?> ret, int arity) {
         return new Member(Kind.STATIC, ownerRelative, name, ret, arity, null, true);
+    }
+
+    /** As {@link #statik}, but a miss is recorded and tolerated instead of failing the probe test. */
+    private static Member optionalStatik(String ownerRelative, String name, Class<?> ret, int arity) {
+        return new Member(Kind.STATIC, ownerRelative, name, ret, arity, null, false);
     }
 
     private static Member getter(String ownerRelative, String field) {
@@ -189,6 +208,7 @@ public final class McaBinding {
     private static final String C_RELATIONSHIP = "entity.ai.relationship.EntityRelationship";
     private static final String C_FAMILY_NODE = "server.world.data.FamilyTreeNode";
     private static final String C_VILLAGE = "server.world.data.Village";
+    private static final String C_VILLAGE_MANAGER = "server.world.data.VillageManager";
 
     // Classes --------------------------------------------------------------------------------------
     public static final Member VILLAGER_CLASS = cls(C_VILLAGER);
@@ -211,6 +231,52 @@ public final class McaBinding {
     public static final Member GET_HOME_VILLAGE = virtual(C_RESIDENCY, "getHomeVillage", Object.class, 0);
     public static final Member VILLAGE_GET_ID = virtual(C_VILLAGE, "getId", int.class, 0);
 
+    // Village names — what a jurisdiction is called, as opposed to how it is keyed -------------------
+    // A CrimeCommunityKey is "minecraft:overworld/0", which is the right thing to write into NBT and
+    // the wrong thing to show a player. MCA names its villages and lets a player rename them, so the
+    // name is the only jurisdiction label that means anything at the table. VillageManager is reached
+    // statically off a ServerLevel because a case in the ledger has a village id and no entity to ask.
+    //
+    // Optional, and deliberately so. All three are present and signature-identical in every MCA build
+    // the probe checks, so they would bind as required — but what they carry is a label on a screen.
+    // A required member that vanishes in a future MCA turns the resolution PARTIAL and takes the mod
+    // with it; the worst an absent name can do here is put "an unnamed village" on a panel. Nothing
+    // cosmetic belongs on the critical path.
+    //
+    // The return type is erased to Object rather than String so that an MCA that starts returning a
+    // Component still binds; McaHandles type-checks what actually comes back.
+    public static final Member VILLAGE_GET_NAME = optionalVirtual(C_VILLAGE, "getName", Object.class, 0);
+    public static final Member VILLAGE_MANAGER_GET =
+            optionalStatik(C_VILLAGE_MANAGER, "get", Object.class, 1);
+    public static final Member VILLAGE_MANAGER_GET_OR_EMPTY =
+            optionalVirtual(C_VILLAGE_MANAGER, "getOrEmpty", Object.class, 1);
+
+    // Guard population — converting villagers to guards -------------------------------------------
+    //
+    // All optional, and that is load-bearing rather than cautious. A *required* member that fails to
+    // resolve turns the whole resolution PARTIAL, and McaHandles then disables every MCA feature this
+    // mod has. Guard population is an opt-in convenience; it must never be able to take crime
+    // detection down with it if a future MCA renames one of these.
+    //
+    // getResidents is the one member in this manifest that genuinely needs a parameter hint: MCA
+    // declares getResidents(int) -> List<String> and getResidents(ServerLevel) -> List<VillagerEntityMCA>,
+    // both one-argument, and only the second is any use here.
+    //
+    // setProfession takes a *vanilla* VillagerProfession, so the value is fetched from
+    // BuiltInRegistries and no MCA symbol is named on either side of the call.
+    public static final Member VILLAGE_GET_RESIDENTS =
+            optionalVirtual(C_VILLAGE, "getResidents", Object.class, 1, ServerLevel.class);
+    public static final Member VILLAGE_GET_POPULATION =
+            optionalVirtual(C_VILLAGE, "getPopulation", int.class, 0);
+    public static final Member VILLAGE_IS_VILLAGE =
+            optionalVirtual(C_VILLAGE, "isVillage", boolean.class, 0);
+    public static final Member VILLAGER_IS_GUARD =
+            optionalVirtual(C_VILLAGER, "isGuard", boolean.class, 0);
+    public static final Member VILLAGER_IS_PROFESSION_IMPORTANT =
+            optionalVirtual(C_VILLAGER, "isProfessionImportant", boolean.class, 0);
+    public static final Member VILLAGER_SET_PROFESSION =
+            optionalVirtual(C_VILLAGER, "setProfession", void.class, 1);
+
     // EntityRelationship / FamilyTreeNode — the ransom payer graph -----------------------------------
     // Every EntityRelationship member below is an abstract or default interface method; getMethods() on
     // an interface reports both, so they bind on the interface rather than on each implementation.
@@ -228,6 +294,9 @@ public final class McaBinding {
             GET_VILLAGER_BRAIN, GET_RESIDENCY, GET_PROFESSION_ID, GET_AGE_STATE,
             GET_MEMORIES_FOR_PLAYER, REWARD_HEARTS, GET_HEARTS,
             GET_HOME_VILLAGE, VILLAGE_GET_ID,
+            VILLAGE_GET_NAME, VILLAGE_MANAGER_GET, VILLAGE_MANAGER_GET_OR_EMPTY,
+            VILLAGE_GET_RESIDENTS, VILLAGE_GET_POPULATION, VILLAGE_IS_VILLAGE,
+            VILLAGER_IS_GUARD, VILLAGER_IS_PROFESSION_IMPORTANT, VILLAGER_SET_PROFESSION,
             RELATIONSHIP_OF, GET_PARTNER_UUID, GET_FAMILY_ENTRY,
             NODE_STREAM_PARENTS, NODE_CHILDREN, NODE_SIBLINGS, NODE_ALL_RELATIVES);
 

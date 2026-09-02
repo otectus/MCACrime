@@ -1,0 +1,21 @@
+{
+  "event": "mcacrime:captive_rescued",
+  "fallback": "dialogue.mcacrime.captive.rescued.generic",
+  "variants": [
+    {
+      "priority": 90,
+      "lines": [
+        "dialogue.mcacrime.captive.rescued.family.1"
+      ],
+      "when": {
+        "relationship": "family"
+      }
+    },
+    {
+      "priority": 0,
+      "lines": [
+        "dialogue.mcacrime.captive.rescued.generic"
+      ]
+    }
+  ]
+}

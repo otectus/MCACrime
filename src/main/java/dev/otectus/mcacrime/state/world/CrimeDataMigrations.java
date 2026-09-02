@@ -38,7 +38,7 @@ import net.minecraft.resources.ResourceLocation;
 public final class CrimeDataMigrations {
 
     /** The schema this build writes. */
-    public static final int CURRENT_SCHEMA = 4;
+    public static final int CURRENT_SCHEMA = 6;
 
     /** Root NBT key holding the schema integer. Absent means 0. */
     public static final String TAG_SCHEMA = "schema";
@@ -79,6 +79,12 @@ public final class CrimeDataMigrations {
         }
         if (schema < 4) {
             working = v3to4(working);
+        }
+        if (schema < 5) {
+            working = v4to5(working);
+        }
+        if (schema < 6) {
+            working = v5to6(working);
         }
         working.putInt(TAG_SCHEMA, CURRENT_SCHEMA);
         return working;
@@ -209,6 +215,51 @@ public final class CrimeDataMigrations {
         if (!out.contains("villageTreasuries", Tag.TAG_COMPOUND)) out.put("villageTreasuries", new CompoundTag());
         if (!out.contains("transactionReceipts", Tag.TAG_LIST)) out.put("transactionReceipts", new ListTag());
         out.putInt(TAG_SCHEMA, 4);
+        return out;
+    }
+
+    /**
+     * Adds the observation and report sections (§12). Both start empty, and that is the honest answer
+     * rather than a shortcut.
+     *
+     * <p>It is tempting to synthesise observations from the witness identities already stored on old
+     * crime records — the identities are right there, and the offender, the crime type and the time
+     * are all known. The reason not to is that an observation asserts more than a witness id does. It
+     * claims a role, a confidence, whether the observer saw the actor or only heard the act, and a
+     * place. None of that was ever recorded, so every one of those fields would have to be invented,
+     * and the invented values would then drive AI behaviour and dialogue as if they were observed
+     * fact. The witness sets stay exactly where they are and stay readable; what they do not do is
+     * grow into evidence nobody ever gathered.
+     */
+    public static CompoundTag v4to5(CompoundTag tag) {
+        CompoundTag out = tag.copy();
+        if (!out.contains("observations", Tag.TAG_LIST)) {
+            out.put("observations", new ListTag());
+        }
+        if (!out.contains("reports", Tag.TAG_LIST)) {
+            out.put("reports", new ListTag());
+        }
+        out.putInt(TAG_SCHEMA, 5);
+        return out;
+    }
+
+    /**
+     * Adds the holding-cell roster. It starts empty, and that is the only correct answer.
+     *
+     * <p>It is tempting to seed it from the existing {@code jailRoster}: those are jails, they have
+     * positions, and a release could then tidy them up. The reason not to is that a cell record asserts
+     * something a jail anchor never did — that <em>this mod</em> placed every block inside that box and
+     * therefore owns the right to delete them. Every anchor in an existing world was pointed at a
+     * structure a player built by hand and registered with {@code /crime assignjail}. Synthesising
+     * records for them would mean the first release after this update demolished somebody's jail and
+     * "restored" whatever the mod guessed had been there before it.
+     */
+    public static CompoundTag v5to6(CompoundTag tag) {
+        CompoundTag out = tag.copy();
+        if (!out.contains("holdingCells", Tag.TAG_LIST)) {
+            out.put("holdingCells", new ListTag());
+        }
+        out.putInt(TAG_SCHEMA, 6);
         return out;
     }
 

@@ -66,6 +66,50 @@ public final class ConfigValidator {
     }
 
     /**
+     * Pure validation of the observation, reaction and enforcement blocks added in 0.4.0.
+     *
+     * <p>Separate again for the same reason {@link #validateIntegrations} is: the existing signature
+     * is what the existing tests call. These are the combinations that produce a configuration which
+     * parses cleanly and then quietly does nothing — the state the whole §22.3 audit exists to end.
+     */
+    public static List<String> validateBehaviour(boolean observations, boolean reactions, boolean dialogue,
+                                                 int sightRadius, int hearingRadius, int reportRadius,
+                                                 boolean bail, int bailCostPerMinute,
+                                                 boolean npcCrime, boolean rescue, boolean kidnappingNpc) {
+        List<String> problems = new ArrayList<>();
+
+        if (reactions && !observations) {
+            problems.add("enableVillagerReactions is on but enableObservations is off. Reactions are started "
+                    + "by observations, so no villager will ever react to anything.");
+        }
+        if (hearingRadius > 0 && hearingRadius < sightRadius) {
+            problems.add("hearingWitnessRadius (" + hearingRadius + ") is smaller than witnessRadius ("
+                    + sightRadius + "). Anyone close enough to hear it can already see it, so the hearing "
+                    + "witness role can never be produced.");
+        }
+        if (reportRadius < sightRadius) {
+            problems.add("reportRadius (" + reportRadius + ") is smaller than witnessRadius (" + sightRadius
+                    + "). A witness will often be unable to reach any guard, so reports will rarely be filed.");
+        }
+        if (bail && bailCostPerMinute <= 0) {
+            problems.add("enableBail is on with bailCostPerMinute 0, so every sentence can be ended for free.");
+        }
+        if (npcCrime) {
+            problems.add("enableNpcCrime is on, but NPC-committed crime is not implemented in this release. "
+                    + "The setting is a declared seam and turning it on changes nothing.");
+        }
+        if (rescue && !kidnappingNpc) {
+            problems.add("enableRescue is on but enableKidnappingNpc is off, so there will rarely be an "
+                    + "NPC captive to rescue. This is legal, only likely unintended.");
+        }
+        if (!dialogue) {
+            problems.add("enableDialogue is off: villagers will act but never say anything, which reads as "
+                    + "missing content rather than as a setting.");
+        }
+        return problems;
+    }
+
+    /**
      * Pure validation of the {@code [integrations]} block.
      *
      * <p>Separate from {@link #validate} rather than folded into it, because that method's signature
@@ -73,6 +117,65 @@ public final class ConfigValidator {
      * breaking one. The checks here are the ones that turn a plausible-looking config into a queue
      * that never drains or a status string nothing recognises.
      */
+    /**
+     * The jail and escort settings, as a pure function of the values.
+     *
+     * <p>A separate method rather than more parameters on {@link #validateBehaviour}, matching the
+     * precedent {@code validateIntegrations} set: the existing signatures have tests written against
+     * them, and widening one to add a check is how those tests start being rewritten for reasons that
+     * have nothing to do with what they assert.
+     */
+    public static List<String> validateJail(boolean buildHoldingCell, boolean fallbackEnabled,
+                                            double assignedMaxDistance, int escortTimeoutTicks,
+                                            double leashBlocks, double tetherBlocks) {
+        List<String> problems = new ArrayList<>();
+        if (!buildHoldingCell && !fallbackEnabled) {
+            problems.add("buildHoldingCell is off and jailFallbackEnabled is off: every arrest will be "
+                    + "refused unless an operator has run /crime assignjail nearby. Surrendering will "
+                    + "reduce Heat, the guards will stand down, and nobody will ever be jailed.");
+        }
+        if (leashBlocks >= tetherBlocks) {
+            problems.add("escortLeashBlocks (" + leashBlocks + ") is not smaller than escortTetherBlocks ("
+                    + tetherBlocks + "): the escort would be abandoned before the lead ever pulled, so an "
+                    + "arrested player could simply walk away.");
+        }
+        if (escortTimeoutTicks <= 0 && assignedMaxDistance > 0.0) {
+            problems.add("arrestEscortTimeoutTicks is 0, so every arrest completes instantly by teleport "
+                    + "and no guard ever walks a prisoner anywhere. That is a supported setting, but it "
+                    + "makes jailAssignedMaxDistance the only thing deciding where they land.");
+        }
+        return problems;
+    }
+
+    /**
+     * The guard-population settings.
+     *
+     * <p>The overlap with MCA is documented rather than flagged: running both is legitimate, and the
+     * only genuinely broken configurations are a target that can never act and a cooldown that is not
+     * one.
+     */
+    public static List<String> validateGuardPopulation(boolean enabled, double ratio, int minimum,
+                                                       int maxPerPass, int scanInterval, int cooldown) {
+        List<String> problems = new ArrayList<>();
+        if (!enabled) {
+            return problems;
+        }
+        if (ratio <= 0.0 && minimum <= 0) {
+            problems.add("manageGuardPopulation is on but guardPopulationRatio is 0 and "
+                    + "guardPopulationMinimum is 0, so the target is always zero and no village will "
+                    + "ever gain a guard.");
+        }
+        if (maxPerPass <= 0) {
+            problems.add("guardPopulationMaxPerPass must be at least 1, or no pass can convert anybody.");
+        }
+        if (cooldown < scanInterval) {
+            problems.add("guardPopulationCooldownTicks (" + cooldown + ") is shorter than "
+                    + "guardPopulationScanIntervalTicks (" + scanInterval + "), so the per-village "
+                    + "cooldown never actually holds a village back and every pass re-examines it.");
+        }
+        return problems;
+    }
+
     public static List<String> validateIntegrations(int pumpIntervalTicks, int pumpBudgetPerTick,
                                                     int maxDeliveryAttempts, int retryBaseDelayTicks,
                                                     int retryMaxDelayTicks, int dedupeRetentionTicks,
@@ -124,6 +227,20 @@ public final class ConfigValidator {
                 c.protectedEntities.get(),
                 c.responderEntities.get());
 
+        problems.addAll(validateJail(
+                c.buildHoldingCell.get(),
+                c.jailFallbackEnabled.get(),
+                c.jailAssignedMaxDistance.get(),
+                c.arrestEscortTimeoutTicks.get(),
+                c.escortLeashBlocks.get(),
+                c.escortTetherBlocks.get()));
+        problems.addAll(validateGuardPopulation(
+                c.manageGuardPopulation.get(),
+                c.guardPopulationRatio.get(),
+                c.guardPopulationMinimum.get(),
+                c.guardPopulationMaxPerPass.get(),
+                c.guardPopulationScanIntervalTicks.get(),
+                c.guardPopulationCooldownTicks.get()));
         problems.addAll(validateIntegrations(
                 c.pumpIntervalTicks.get(),
                 c.pumpBudgetPerTick.get(),
@@ -133,6 +250,19 @@ public final class ConfigValidator {
                 c.dedupeRetentionTicks.get(),
                 c.fineResolutionStatus.get(),
                 c.servedResolutionStatus.get()));
+
+        problems.addAll(validateBehaviour(
+                c.enableObservations.get(),
+                c.enableVillagerReactions.get(),
+                c.enableDialogue.get(),
+                c.witnessRadius.get(),
+                c.hearingWitnessRadius.get(),
+                c.reportRadius.get(),
+                c.enableBail.get(),
+                c.bailCostPerMinute.get(),
+                c.enableNpcCrime.get(),
+                c.enableRescue.get(),
+                c.enableKidnappingNpc.get()));
 
         registryCheck("protectedEntities", c.protectedEntities.get(), problems);
         registryCheck("responderEntities", c.responderEntities.get(), problems);

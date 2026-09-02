@@ -2,15 +2,21 @@ package dev.otectus.mcacrime.compat;
 
 import dev.otectus.mcacrime.McaCrime;
 import dev.otectus.mcacrime.compat.mca.McaHandles;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.PathfinderMob;
+import net.minecraft.world.entity.ai.memory.MemoryModuleType;
+import net.minecraft.world.entity.ai.memory.MemoryStatus;
+import net.minecraft.world.entity.npc.VillagerProfession;
 import net.minecraft.world.phys.Vec3;
 
+import javax.annotation.Nullable;
 import java.util.List;
 import java.util.Optional;
 import java.util.OptionalInt;
@@ -67,11 +73,75 @@ public final class McaCompat {
     }
 
     /**
-     * True when the villager's profession is MCA's guard. Matches on the profession path so it is
-     * namespace-agnostic (e.g. {@code mca:guard}). Safe default: {@code false}.
+     * True when the villager's profession is a guard, under the server's {@code professionMatchingMode}.
+     * Safe default: {@code false}.
+     *
+     * <p>The comparison used to be a hard-coded path equality, which is what {@code NORMALIZED} still
+     * does and remains the default. What changed is that a server running a build or a companion mod
+     * whose guards are named differently can now widen or narrow the match without a code change.
      */
+    /**
+     * Strictly an adult MCA villager: an unreadable age excludes rather than admits.
+     *
+     * <p>Not a reuse of {@link #isAdult}, and the difference is the point. {@code isAdult} treats an
+     * unknown age state as adult by design, so a missing age never wrongly excludes somebody from
+     * paying a ransom. That default is exactly wrong for deciding who may be turned into a guard,
+     * where an unreadable age must mean "leave them alone" rather than "go ahead".
+     */
+    public static boolean isAdultVillager(Entity entity) {
+        if (!isMcaVillager(entity)) {
+            return false;
+        }
+        String age = McaHandles.ageStateName(entity);
+        return "adult".equals(age); // ageStateName is already lowercased
+    }
+
+    /**
+     * MCA's guard profession, resolved from the <em>vanilla</em> registry.
+     *
+     * <p>{@code VillagerProfession} is a Minecraft type and MCA registers its professions into the
+     * vanilla registry, so the value can be fetched without naming a single MCA symbol -- which is what
+     * keeps {@code NoMcaStaticLinkTest} green while still writing MCA state.
+     *
+     * <p>The id is tried first and a scan is the fallback, so the configured
+     * {@code professionMatchingMode} governs writes as well as reads and an MCA that renames its own
+     * profession still resolves. Only {@code guard} is ever produced, never {@code archer}: this mod
+     * recognises archers as law through {@code McaHandles.isMcaGuard} for counting purposes, but
+     * {@code EntitySelectors.isResponder} matches the {@code guard} path alone, so converting somebody
+     * to an archer would produce a villager the mod itself does not treat as law.
+     */
+    public static Optional<VillagerProfession> guardProfession() {
+        Optional<VillagerProfession> direct = BuiltInRegistries.VILLAGER_PROFESSION
+                .getOptional(new ResourceLocation("mca", "guard"));
+        if (direct.isPresent()) {
+            return direct;
+        }
+        for (ResourceLocation id : BuiltInRegistries.VILLAGER_PROFESSION.keySet()) {
+            if (ProfessionMatcher.matches(id, "guard")) {
+                return BuiltInRegistries.VILLAGER_PROFESSION.getOptional(id);
+            }
+        }
+        return Optional.empty();
+    }
+
+    /** Turns an MCA villager into a guard through MCA's own setter. Best-effort; false on any failure. */
+    public static boolean makeGuard(Entity villager) {
+        VillagerProfession profession = guardProfession().orElse(null);
+        if (profession == null || !isMcaVillager(villager)) {
+            return false;
+        }
+        try {
+            return McaHandles.setProfession(villager, profession);
+        } catch (Throwable t) {
+            McaCrime.LOGGER.debug("MCA makeGuard failed; ignoring", t);
+            return false;
+        }
+    }
+
     public static boolean isGuard(Entity entity) {
-        return getProfessionId(entity).map(id -> "guard".equals(id.getPath())).orElse(false);
+        return getProfessionId(entity)
+                .map(id -> dev.otectus.mcacrime.compat.ProfessionMatcher.matches(id, "guard"))
+                .orElse(false);
     }
 
     /**
@@ -104,6 +174,19 @@ public final class McaCompat {
     }
 
     /**
+     * The name MCA gives a village, by its own village id, or empty.
+     *
+     * <p>This exists because a {@code CrimeCommunityKey} is {@code minecraft:overworld/0} — the right
+     * thing to write into NBT and the wrong thing to put on a screen. MCA names its villages and lets
+     * players rename them, so the name is the only jurisdiction label that means anything to somebody
+     * being told which one is charging them. Empty when MCA is absent, the village has been dissolved,
+     * or it has no name set; the caller must then say something readable rather than fall back to the key.
+     */
+    public static Optional<String> getVillageName(ServerLevel level, int villageId) {
+        return McaHandles.villageName(level, villageId);
+    }
+
+    /**
      * The villager's current AI attack target, if any. Used to detect self-defense: if a villager is
      * already targeting the player, the player retaliating is lawful, not a crime (spec §5.2). An MCA
      * villager is a {@code Mob}, so {@code getTarget()} is valid; kept here so the cast never escapes.
@@ -121,45 +204,90 @@ public final class McaCompat {
     }
 
     /**
-     * Makes an MCA guard pursue a player (spec §4.4). Best-effort: MCA guards use the Brain/behavior system
-     * (a {@code NEAREST_GUARD_ENEMY} memory reclaimed by a sensor each tick) with no public make-hostile API,
-     * so the reliable lever is vanilla {@code Mob.setTarget}, re-applied periodically by the enforcement
-     * scan. Fail-safe: a no-op (returns false) for non-guards or on any error. <b>Server side only.</b>
+     * Makes a responder pursue a player (spec §4.4). <b>Server side only.</b>
+     *
+     * <h2>Why this writes a brain memory and not just {@code setTarget}</h2>
+     *
+     * <p>This method used to call {@code Mob.setTarget} alone and return {@code true} unconditionally,
+     * which meant every caller announced an aggro that never happened — the visible symptom being a
+     * guard who says a refusal puts them within their rights and then stands there. An MCA villager is
+     * a {@code Villager}, and the whole {@code Villager} family is driven by a {@code Brain} rather
+     * than by goal selectors, so nothing in its AI ever reads the field {@code setTarget} writes.
+     *
+     * <p>MCA's guard combat behaviours ({@code ExtendedMeleeAttackTask},
+     * {@code SetWalkTargetFromAttackTargetIfTargetOutOfReach}, {@code StopAttackingIfTargetInvalid})
+     * are registered under {@link net.minecraft.world.entity.schedule.Activity#CORE}, so they are
+     * always running — there is no combat activity to switch into. MCA picks their victim from its own
+     * {@code NEAREST_GUARD_ENEMY} memory <em>and falls back to vanilla
+     * {@link MemoryModuleType#ATTACK_TARGET} when that memory is empty</em>, which is exactly the seam
+     * this needs: {@code ATTACK_TARGET} is a vanilla module, it is present in MCA's registered memory
+     * set (so {@code setMemory} is not silently dropped), and MCA's own "is this still a valid target"
+     * predicate is satisfied by the same fallback that produced it. No MCA symbol is involved, which is
+     * why this can live outside {@link McaHandles} without breaking the no-static-linkage rule.
+     *
+     * <p>{@code setTarget} is still written, because a responder added through the {@code responderEntities}
+     * config may well be an ordinary goal-driven mob for which it is the only lever that works.
+     *
+     * <p>Deliberately <b>not</b> gated on {@link #isGuard}. Callers select responders through
+     * {@code EntitySelectors.isResponder}, which is broader; re-narrowing here is what made a configured
+     * non-MCA responder able to challenge but never to act. Who counts as law is that selector's
+     * decision, not this shim's.
+     *
+     * @return true when a lever actually took effect, so a caller can tell aggro from silence
      */
     public static boolean setGuardTarget(Entity guard, ServerPlayer target) {
-        if (!isGuard(guard) || !(guard instanceof Mob mob)) {
+        if (!(guard instanceof Mob mob) || target == null) {
             return false;
+        }
+        boolean applied = false;
+        try {
+            if (mob.getBrain().checkMemory(MemoryModuleType.ATTACK_TARGET, MemoryStatus.REGISTERED)) {
+                mob.getBrain().setMemory(MemoryModuleType.ATTACK_TARGET, target);
+                applied = true;
+            }
+        } catch (Throwable t) {
+            McaCrime.LOGGER.debug("MCA setGuardTarget brain write failed; falling back", t);
         }
         try {
             mob.setTarget(target);
-            return true;
+            applied = true;
         } catch (Throwable t) {
             McaCrime.LOGGER.debug("MCA setGuardTarget failed; ignoring", t);
-            return false;
         }
+        return applied;
     }
 
-    /** Clears a guard's target if it has one. Best-effort, server side only. */
+    /** Clears a responder's target if it has one. Best-effort, server side only. */
     public static void clearGuardTarget(Entity guard) {
-        if (guard instanceof Mob mob) {
-            try {
-                if (mob.getTarget() != null) {
-                    mob.setTarget(null);
-                }
-            } catch (Throwable t) {
-                McaCrime.LOGGER.debug("MCA clearGuardTarget failed; ignoring", t);
-            }
-        }
+        clearGuardTarget(guard, null);
     }
 
-    /** Clears only a stale target aimed at the specified player, preserving unrelated combat. */
-    public static void clearGuardTarget(Entity guard, ServerPlayer formerTarget) {
-        if (guard instanceof Mob mob) {
-            try {
-                if (mob.getTarget() == formerTarget) mob.setTarget(null);
-            } catch (Throwable t) {
-                McaCrime.LOGGER.debug("MCA conditional clearGuardTarget failed; ignoring", t);
+    /**
+     * Clears a responder's target, preserving unrelated combat.
+     *
+     * <p>With {@code formerTarget} non-null only a target aimed at that player is dropped, so a guard
+     * fighting a zombie is not disarmed by a pardon issued to somebody else. Both levers are cleared
+     * together: leaving the brain memory set while nulling the field would leave the guard swinging.
+     */
+    public static void clearGuardTarget(Entity guard, @Nullable ServerPlayer formerTarget) {
+        if (!(guard instanceof Mob mob)) {
+            return;
+        }
+        try {
+            if (mob.getBrain().checkMemory(MemoryModuleType.ATTACK_TARGET, MemoryStatus.REGISTERED)
+                    && mob.getBrain().getMemory(MemoryModuleType.ATTACK_TARGET)
+                            .filter(held -> formerTarget == null || held == formerTarget).isPresent()) {
+                mob.getBrain().eraseMemory(MemoryModuleType.ATTACK_TARGET);
             }
+        } catch (Throwable t) {
+            McaCrime.LOGGER.debug("MCA clearGuardTarget brain erase failed; ignoring", t);
+        }
+        try {
+            if (mob.getTarget() != null && (formerTarget == null || mob.getTarget() == formerTarget)) {
+                mob.setTarget(null);
+            }
+        } catch (Throwable t) {
+            McaCrime.LOGGER.debug("MCA clearGuardTarget failed; ignoring", t);
         }
     }
 
@@ -184,6 +312,119 @@ public final class McaCompat {
             McaCrime.LOGGER.debug("MCA makeVillagerFlee failed; ignoring", t);
             return false;
         }
+    }
+
+    // ------------------------------------------------------------------ reaction navigation (§11.3)
+    // These are the "least invasive verified hook" the plan asks for: vanilla PathfinderMob navigation,
+    // driven only while a reaction controller is active and cleared the moment it ends. MCA's villagers
+    // run their own brain, so anything issued here has to be issued sparingly (the controller reissues
+    // on a bounded interval, never per tick) and withdrawn cleanly, or the two systems fight and the
+    // villager visibly stutters between them.
+
+    /**
+     * Paths an MCA villager toward a point. Returns false when the entity cannot navigate or no path
+     * exists, which the controller treats as a path failure rather than as arrival.
+     */
+    public static boolean moveVillagerTo(Entity villager, double x, double y, double z, double speed) {
+        if (!isMcaVillager(villager) || !(villager instanceof PathfinderMob mob)) {
+            return false;
+        }
+        try {
+            return mob.getNavigation().moveTo(x, y, z, speed);
+        } catch (Throwable t) {
+            McaCrime.LOGGER.debug("MCA moveVillagerTo failed; ignoring", t);
+            return false;
+        }
+    }
+
+    /**
+     * Stops navigation this mod issued and clears any attack target, handing the villager back to MCA.
+     * Called on every controller exit — a reaction that ends without this leaves the villager frozen
+     * on a stale path with nothing left to update it.
+     */
+    public static void releaseVillagerControl(Entity villager) {
+        stopModNavigation(villager);
+        clearGuardTarget(villager, null);
+    }
+
+    /**
+     * Stops only the navigation this mod issued, leaving any attack target alone.
+     *
+     * <p>This half exists because the two used to be inseparable, and that was a race the law lost.
+     * A guard is an MCA villager, so a guard who witnesses a crime gets a reaction controller; that
+     * controller ticks on {@code reactionTickIntervalTicks} (5) against the enforcement scan's
+     * {@code guardScanIntervalTicks} (10), and every controller exit called
+     * {@link #releaseVillagerControl}. The enforcement layer would set a guard on a criminal and the
+     * reaction layer would clear it within five ticks — twice as often as it could be re-applied.
+     * A reaction ending is a reason to stop walking somewhere, not a reason to stop an arrest.
+     */
+    public static void stopModNavigation(Entity villager) {
+        if (villager instanceof PathfinderMob mob) {
+            try {
+                mob.getNavigation().stop();
+            } catch (Throwable t) {
+                McaCrime.LOGGER.debug("MCA stopModNavigation failed; ignoring", t);
+            }
+        }
+    }
+
+    /**
+     * Makes a villager fight back. Unlike {@link #setGuardTarget}, this works for any MCA villager,
+     * because §11.2's {@code RESISTING} state is explicitly not guards-only — a bold farmer shoving
+     * back at a mugger is the behaviour, and refusing it for non-guards would mean every civilian
+     * always runs.
+     */
+    public static boolean makeVillagerResist(Entity villager, LivingEntity offender) {
+        if (!isMcaVillager(villager) || !(villager instanceof Mob mob)) {
+            return false;
+        }
+        try {
+            mob.setTarget(offender);
+            return true;
+        } catch (Throwable t) {
+            McaCrime.LOGGER.debug("MCA makeVillagerResist failed; ignoring", t);
+            return false;
+        }
+    }
+
+    /**
+     * The villager's remembered home, when the brain exposes one. Used as a flee destination, which is
+     * why an absent answer is fine: the destination selector simply scores one fewer candidate.
+     */
+    public static Optional<net.minecraft.core.BlockPos> homePosition(Entity villager) {
+        if (villager instanceof net.minecraft.world.entity.LivingEntity living) {
+            try {
+                return living.getBrain()
+                        .getMemory(net.minecraft.world.entity.ai.memory.MemoryModuleType.HOME)
+                        .map(net.minecraft.core.GlobalPos::pos);
+            } catch (Throwable t) {
+                McaCrime.LOGGER.debug("MCA homePosition failed; defaulting empty", t);
+            }
+        }
+        return Optional.empty();
+    }
+
+    /** Turns a villager to face an entity. Cosmetic, and safe to fail. */
+    public static void faceEntity(Entity villager, Entity target) {
+        if (villager instanceof Mob mob && target != null) {
+            try {
+                mob.getLookControl().setLookAt(target, 30.0F, 30.0F);
+            } catch (Throwable t) {
+                McaCrime.LOGGER.debug("MCA faceEntity failed; ignoring", t);
+            }
+        }
+    }
+
+    /** Whether the villager's current path has finished or was never started. */
+    public static boolean navigationDone(Entity villager) {
+        if (villager instanceof PathfinderMob mob) {
+            try {
+                return mob.getNavigation().isDone();
+            } catch (Throwable t) {
+                McaCrime.LOGGER.debug("MCA navigationDone failed; defaulting true", t);
+            }
+        }
+        return true;
     }
 
     /**

@@ -1,0 +1,12 @@
+{
+  "event": "mcacrime:ransom_demand",
+  "fallback": "dialogue.mcacrime.ransom.demand.generic",
+  "variants": [
+    {
+      "priority": 0,
+      "lines": [
+        "dialogue.mcacrime.ransom.demand.generic"
+      ]
+    }
+  ]
+}

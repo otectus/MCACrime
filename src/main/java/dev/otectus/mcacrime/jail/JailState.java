@@ -5,6 +5,7 @@ import net.minecraft.nbt.CompoundTag;
 import net.minecraft.resources.ResourceLocation;
 
 import javax.annotation.Nullable;
+import java.util.UUID;
 
 /**
  * A player's active jail sentence (spec §2.1, §7). Held inside {@link dev.otectus.mcacrime.state.PlayerCrimeData}
@@ -31,6 +32,12 @@ public final class JailState {
     private JailContainmentMode modeSnapshot = JailContainmentMode.CONTAINMENT;
     /** PHYSICAL breakout flag: drives Legal Target. The sentence still continues while escaped. */
     private boolean escaped;
+    /**
+     * Identity of this sentence, so the cases it settles can name it and a replayed release settles
+     * nothing twice. Minted once when the sentence starts and never reused; a sentence that is
+     * extended keeps its original id, because it is still the same stretch of time being served.
+     */
+    private UUID sentenceId = UUID.randomUUID();
 
     public JailState() {
     }
@@ -78,6 +85,25 @@ public final class JailState {
         return modeSnapshot;
     }
 
+    public UUID getSentenceId() {
+        return sentenceId;
+    }
+
+    /**
+     * Adopts an id minted earlier in the arrest.
+     *
+     * <p>The holding cell is built at the start of an arrest and the sentence only begins when the
+     * escort arrives, so the two were minted independently and never matched -- which made
+     * {@code HoldingCell.sentenceId} a field whose documented purpose (telling a live cell from an
+     * orphan across a restart) nothing could ever use. Threading one id through both makes the
+     * invariant real.
+     */
+    public void setSentenceId(UUID sentenceId) {
+        if (sentenceId != null) {
+            this.sentenceId = sentenceId;
+        }
+    }
+
     public boolean isEscaped() {
         return escaped;
     }
@@ -100,6 +126,7 @@ public final class JailState {
         c.jailRadius = jailRadius;
         c.modeSnapshot = modeSnapshot;
         c.escaped = escaped;
+        c.sentenceId = sentenceId;
         return c;
     }
 
@@ -118,6 +145,7 @@ public final class JailState {
         tag.putInt("radius", jailRadius);
         tag.putString("mode", modeSnapshot.name());
         tag.putBoolean("escaped", escaped);
+        tag.putUUID("sentenceId", sentenceId);
         return tag;
     }
 
@@ -132,6 +160,11 @@ public final class JailState {
         s.jailRadius = tag.getInt("radius");
         s.modeSnapshot = JailContainmentMode.parse(tag.getString("mode"));
         s.escaped = tag.getBoolean("escaped");
+        // A sentence saved before this field existed keeps the fresh id minted in the field
+        // initialiser. That is correct: the id only has to be unique, never to match a past value.
+        if (tag.hasUUID("sentenceId")) {
+            s.sentenceId = tag.getUUID("sentenceId");
+        }
         return s;
     }
 }

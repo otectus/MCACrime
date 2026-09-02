@@ -33,7 +33,8 @@ public final class CaptureService {
         int required = Math.max(1, (int) Math.round(c.captureChannelTicks.get() * channelMultiplier(restraint)));
         if (!CaptureChannels.beginIfFree(new CaptureChannel(kidnapper.getUUID(), target.getUUID(), targetIsPlayer,
                 restraint, kidnapper.position(), required))) return fail(kidnapper, "mcacrime.action.conflict");
-        kidnapper.displayClientMessage(Component.translatable("mcacrime.capture.channeling"), true);
+        // No start message: CaptureTicker opens the HUD channel bar on its first tick, and the bar's
+        // own label already reads "Restraining...". Two of them said the same thing twice.
         return true;
     }
 

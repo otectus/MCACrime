@@ -1,0 +1,30 @@
+{
+  "event": "mcacrime:guard_challenge",
+  "fallback": "dialogue.mcacrime.guard.challenge.generic",
+  "variants": [
+    {
+      "priority": 90,
+      "lines": [
+        "dialogue.mcacrime.guard.challenge.wanted.1"
+      ],
+      "when": {
+        "wanted": "true"
+      }
+    },
+    {
+      "priority": 80,
+      "lines": [
+        "dialogue.mcacrime.guard.challenge.blue.1"
+      ],
+      "when": {
+        "band": "blue"
+      }
+    },
+    {
+      "priority": 0,
+      "lines": [
+        "dialogue.mcacrime.guard.challenge.generic"
+      ]
+    }
+  ]
+}

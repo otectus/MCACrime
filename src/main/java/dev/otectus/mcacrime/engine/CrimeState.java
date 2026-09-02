@@ -53,6 +53,47 @@ public final class CrimeState {
         return CrimeMath.isWanted(getHeat(player), McaCrimeConfig.COMMON.wantedHeatThreshold.get());
     }
 
+    /** Whether the player is currently resisting arrest, having refused a guard's challenge (§13.2). */
+    public static boolean isResistingArrest(ServerPlayer player) {
+        return CrimeCapabilities.get(player).map(PlayerCrimeData::isResistingArrest).orElse(false);
+    }
+
+    /**
+     * Starts or ends resisting arrest, routing through the same chokepoint every other status change
+     * uses so the client is told and nothing has to poll.
+     *
+     * <p>The clock is {@code onlineTicksLived}, not game time. Every consequence in this mod that
+     * decays does so on the player's own online clock precisely so that logging out is not a way to
+     * wait one out, and a refusal is the last thing that should be escapable by quitting for a minute.
+     */
+    public static void setResistingArrest(ServerPlayer player, boolean resisting) {
+        CrimeCapabilities.get(player).ifPresent(data -> {
+            boolean was = data.isResistingArrest();
+            data.setResistingArrestUntilTick(resisting
+                    ? data.getOnlineTicksLived() + McaCrimeConfig.COMMON.resistingArrestTicks.get()
+                    : 0L);
+            // Refusing ends the confrontation and hands the player to the resisting projection. The
+            // phase and the flag must not both claim to describe the same moment.
+            if (resisting && data.arrestPhase() == dev.otectus.mcacrime.enforcement.ArrestPhase.CONFRONTED) {
+                data.setArrest(null);
+            }
+            if (was != data.isResistingArrest()) {
+                CrimeNetwork.sendSelfStatus(player);
+            }
+        });
+    }
+
+    /**
+     * Expires a lapsed refusal, edge-triggered so the sync happens once rather than every tick.
+     * Called from the existing decay handler; needs no ticker of its own.
+     */
+    public static void tickResistingArrest(ServerPlayer player, PlayerCrimeData data) {
+        if (data.getResistingArrestUntilTick() > 0L && !data.isResistingArrest()) {
+            data.setResistingArrestUntilTick(0L);
+            CrimeNetwork.sendSelfStatus(player);
+        }
+    }
+
     // ------------------------------------------------------------------ karma mutators
 
     public static void addKarma(ServerPlayer player, long delta, KarmaSource source) {

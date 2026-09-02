@@ -1,0 +1,30 @@
+{
+  "event": "mcacrime:mug_recovery",
+  "fallback": "dialogue.mcacrime.mug.recovery.generic",
+  "variants": [
+    {
+      "priority": 90,
+      "lines": [
+        "dialogue.mcacrime.mug.recovery.family.1"
+      ],
+      "when": {
+        "relationship": "family"
+      }
+    },
+    {
+      "priority": 80,
+      "lines": [
+        "dialogue.mcacrime.mug.recovery.many.1"
+      ],
+      "when": {
+        "encounters": "many"
+      }
+    },
+    {
+      "priority": 0,
+      "lines": [
+        "dialogue.mcacrime.mug.recovery.generic"
+      ]
+    }
+  ]
+}

@@ -6,6 +6,9 @@ import dev.otectus.mcacrime.captivity.CustodyConfine;
 import dev.otectus.mcacrime.captivity.CustodyService;
 import dev.otectus.mcacrime.crime.CrimeMath;
 import dev.otectus.mcacrime.crime.KarmaSource;
+import dev.otectus.mcacrime.enforcement.ArrestPhases;
+import dev.otectus.mcacrime.enforcement.ArrestStates;
+import dev.otectus.mcacrime.enforcement.EscortRestraint;
 import dev.otectus.mcacrime.jail.JailConfine;
 import dev.otectus.mcacrime.jail.JailService;
 import dev.otectus.mcacrime.state.CrimeCapabilities;
@@ -58,11 +61,20 @@ public final class CrimeDecayHandler {
         if (data.getHeldByRef() != null) {
             CustodyService.tick(player); // kidnapping captive: real-time captivity-cap accounting (§7.2)
         }
+        // The lead is per-tick because it competes with the player's own movement input, which is also
+        // per-tick. Pulling once a second would read as stutter rather than as being held.
+        if (ArrestPhases.isRestrained(data.arrestPhase())) {
+            EscortRestraint.tick(player, data);
+        }
         if (player.tickCount % 20 != 0) {
             return; // throttle decay work to ~once per second
         }
         applyHeatDecay(player, data, online);
         applyKarmaDecay(player, data, online);
+        // A refusal lapses on the player's own online clock, like every other decaying consequence.
+        CrimeState.tickResistingArrest(player, data);
+        // So does a stand-down after an arrest that could not be completed.
+        ArrestStates.tickRecovery(player, data);
         // Throttled (~1/s) soft-confine / breakout / tether checks.
         if (data.isJailed()) {
             JailConfine.tick(player, data);

@@ -10,6 +10,8 @@ public enum ReleaseReason {
     ADMIN,
     /** A pardon resolved the record (Phase 5 hook). */
     PARDON,
+    /** The remainder of the sentence was bought out under {@code enableBail}. */
+    BAILED,
     /** The jail anchor/dimension became unusable and no fallback existed — released to avoid a softlock. */
     INVALID_JAIL
 }

@@ -96,6 +96,23 @@ public final class CrimeDetectionHandlers {
         CaptureChannels.clearFor(event.getEntity().getUUID()); // drop any in-progress channel by/of this player
         MuggingService.onLogout(event.getEntity().getUUID()); // drop any pending mug markers
         ActionSessionManager.clearFor(event.getEntity().getUUID(), CancelReason.ACTOR_GONE);
+        // clearFor only ends sessions this player is party to; forgetActor also releases their nonce
+        // replay cache and any open menu, neither of which any other path ever removes.
+        ActionSessionManager.forgetActor(event.getEntity().getUUID());
+        dev.otectus.mcacrime.action.CrimeActionService.forgetMenu(event.getEntity().getUUID());
+        // Same class of leak, three more maps: a guard encounter, an enforcement alert, and a dossier
+        // cooldown stamp all keyed by player and all previously removed by nothing.
+        dev.otectus.mcacrime.enforcement.GuardChallengeService.forget(event.getEntity().getUUID());
+        dev.otectus.mcacrime.enforcement.GuardEnforcement.forget(event.getEntity().getUUID());
+        // An escort is a walk in progress, and there is nobody to walk any more. The lawful custody
+        // record behind it persists, and ArrestService finishes the arrest on the next login.
+        dev.otectus.mcacrime.enforcement.EscortService.forget(event.getEntity().getUUID());
+        dev.otectus.mcacrime.enforcement.RestraintHandlers.forget(event.getEntity().getUUID());
+        dev.otectus.mcacrime.network.RequestCaseLedgerC2SPacket.forget(event.getEntity().getUUID());
+        dev.otectus.mcacrime.dialogue.CrimeDialogueService.forget(event.getEntity().getUUID());
+        if (event.getEntity().level() instanceof ServerLevel level) {
+            dev.otectus.mcacrime.ai.CrimeReactionService.clear(level, event.getEntity().getUUID());
+        }
         if (event.getEntity() instanceof net.minecraft.server.level.ServerPlayer player) {
             CustodyService.onCaptorLogout(player);
         }

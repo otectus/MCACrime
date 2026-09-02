@@ -56,6 +56,21 @@ public final class ClientSelfData {
         return jailRemainingTicks;
     }
 
+    /**
+     * Runs the local sentence countdown one client tick. Stops at zero and never goes negative.
+     *
+     * <p>The same shape as {@code ClientChallengeData.tick}, and for the same reason: the server sends
+     * a tick count, not a deadline, so a client with a skewed clock or one that joined mid-sentence
+     * still sees a counter that runs down at one tick per tick. The server resyncs on its own cadence
+     * and is the only authority on when the sentence actually ends — a client whose counter reaches
+     * zero early is not released early, and one whose counter lags is not held longer.
+     */
+    public static void tick() {
+        if (jailRemainingTicks > 0L) {
+            jailRemainingTicks--;
+        }
+    }
+
     public static boolean legalTarget() {
         return legalTarget;
     }

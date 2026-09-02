@@ -55,5 +55,18 @@ public final class CrimeNameRenderHandlers {
         ClientBandData.clear();
         ClientSelfData.clear();
         ClientCaptiveData.clear();
+        ClientActionData.clear();
+    }
+
+    /**
+     * Ages the action-outcome fade. This is the only client-side clock the mod owns: everything else
+     * it draws is a value the server pushed, but "how long has this message been on screen" is
+     * inherently local and would cost a packet per tick to ask about.
+     */
+    @SubscribeEvent
+    public static void onClientTick(net.minecraftforge.event.TickEvent.ClientTickEvent event) {
+        if (event.phase == net.minecraftforge.event.TickEvent.Phase.END) {
+            ClientActionData.tick();
+        }
     }
 }

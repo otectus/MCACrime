@@ -69,6 +69,39 @@ class CrimeDataMigrationTest {
 
     // ------------------------------------------------------------------ schema plumbing
 
+    /**
+     * Schema 6 adds the holding-cell roster, empty.
+     *
+     * <p>Empty is the point, and it is worth an assertion rather than a comment. The roster records
+     * boxes this mod placed and therefore owns the right to delete; the jail anchors already in an old
+     * world point at structures players built by hand. Seeding one from the other would mean the first
+     * release after this update demolished somebody's jail.
+     */
+    @Test
+    void schemaSixAddsAnEmptyHoldingCellRoster() {
+        CompoundTag five = new CompoundTag();
+        five.putInt(CrimeDataMigrations.TAG_SCHEMA, 5);
+        ListTag anchors = new ListTag();
+        CompoundTag anchor = new CompoundTag();
+        anchor.putInt("x", 10);
+        anchor.putInt("y", 64);
+        anchor.putInt("z", 10);
+        anchor.putString("dim", "minecraft:overworld");
+        anchor.putInt("radius", 8);
+        anchors.add(anchor);
+        five.put("jailRoster", anchors);
+
+        CompoundTag migrated = CrimeDataMigrations.migrate(five);
+
+        assertEquals(6, CrimeDataMigrations.schemaOf(migrated));
+        assertTrue(migrated.contains("holdingCells", Tag.TAG_LIST));
+        assertEquals(0, migrated.getList("holdingCells", Tag.TAG_COMPOUND).size(),
+                "an assigned jail must never be mistaken for a cell this mod built");
+        assertEquals(1, migrated.getList("jailRoster", Tag.TAG_COMPOUND).size(),
+                "the existing jail roster is left exactly as it was");
+    }
+
+
     @Test
     void anUnversionedStoreReadsAsSchemaZero() {
         assertEquals(0, CrimeDataMigrations.schemaOf(new CompoundTag()));

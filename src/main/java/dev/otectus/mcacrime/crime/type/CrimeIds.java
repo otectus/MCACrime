@@ -18,6 +18,10 @@ public final class CrimeIds {
     public static final ResourceLocation MUGGING_MURDER = new ResourceLocation(McaCrime.MOD_ID, "mugging_murder");
     /** A ransom demand/settlement linked to an existing kidnapping, not a duplicate kidnapping. */
     public static final ResourceLocation EXTORTION = new ResourceLocation(McaCrime.MOD_ID, "extortion");
+    /** Harming another player, recorded only when {@code pvpCountsAsCrime} is enabled. */
+    public static final ResourceLocation ASSAULT_PLAYER = new ResourceLocation(McaCrime.MOD_ID, "assault_player");
+    /** Killing another player, recorded only when {@code pvpCountsAsCrime} is enabled. */
+    public static final ResourceLocation MURDER_PLAYER = new ResourceLocation(McaCrime.MOD_ID, "murder_player");
 
     private CrimeIds() {
     }

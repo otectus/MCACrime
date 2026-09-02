@@ -5,6 +5,12 @@ pluginManagement {
             name = 'MinecraftForge'
             url = 'https://maven.minecraftforge.net/'
         }
+        // Sponge hosts the Mixin gradle plugin and its annotation processor. Added in 0.5.0 for the
+        // one client-side mixin the restrained-player pose needs.
+        maven {
+            name = 'Sponge'
+            url = 'https://repo.spongepowered.org/repository/maven-public/'
+        }
     }
 }
 

@@ -1,0 +1,21 @@
+{
+  "event": "mcacrime:mug_actor_interrupted",
+  "fallback": "dialogue.mcacrime.mug.actor_interrupted.generic",
+  "variants": [
+    {
+      "priority": 80,
+      "lines": [
+        "dialogue.mcacrime.mug.actor_interrupted.guard.1"
+      ],
+      "when": {
+        "role": "guard"
+      }
+    },
+    {
+      "priority": 0,
+      "lines": [
+        "dialogue.mcacrime.mug.actor_interrupted.generic"
+      ]
+    }
+  ]
+}

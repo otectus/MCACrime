@@ -7,7 +7,9 @@ import dev.otectus.mcacrime.jail.ReleaseReason;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /** Online-tick jail accounting (spec §7.1, §7.2): countdown, the captivity-cap backstop, and one-tick semantics. */
 class JailTickTest {
@@ -41,10 +43,52 @@ class JailTickTest {
     }
 
     @Test
+    void resyncFiresOnTheIntervalAndNeverDividesByZero() {
+        assertTrue(JailService.shouldResync(40L, 40));
+        assertTrue(JailService.shouldResync(0L, 40));
+        assertFalse(JailService.shouldResync(41L, 40));
+        assertFalse(JailService.shouldResync(39L, 40));
+        // A disabled interval must not throw; it simply never resyncs.
+        assertFalse(JailService.shouldResync(0L, 0));
+        assertFalse(JailService.shouldResync(40L, -1));
+    }
+
+    @Test
+    void aThousandTickSentenceCostsTwentyFiveResyncs() {
+        int resyncs = 0;
+        for (long remaining = 999L; remaining >= 0L; remaining--) {
+            if (JailService.shouldResync(remaining, 40)) {
+                resyncs++;
+            }
+        }
+        assertEquals(25, resyncs);
+    }
+
+    @Test
     void notTickingDoesNotDecrement() {
         // The decay handler only calls advanceTick while the player is online -> a logged-out player's
         // remaining ticks are frozen. Modelled here by simply not advancing.
         JailState j = jail(100);
         assertEquals(100L, j.getRemainingOnlineTicks());
+    }
+
+    // ---------------------------------------------------------------- sentence merging
+
+    /**
+     * The asymmetry is the design. A surrender may shorten but never lengthen; everything else may
+     * lengthen but never shorten. Either rule applied in both directions is a way to game a sentence.
+     */
+    @Test
+    void aSurrenderMayShortenASentenceButNeverLengthenIt() {
+        assertEquals(750L, JailService.mergeSentence(1000L, 750L, true));
+        assertEquals(500L, JailService.mergeSentence(500L, 750L, true),
+                "surrendering again must not add time");
+        assertEquals(1L, JailService.mergeSentence(1L, 0L, true), "never below a single tick");
+    }
+
+    @Test
+    void everyOtherCallerMayLengthenButNeverShorten() {
+        assertEquals(1000L, JailService.mergeSentence(1000L, 750L, false));
+        assertEquals(750L, JailService.mergeSentence(500L, 750L, false));
     }
 }

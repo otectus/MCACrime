@@ -6,7 +6,9 @@ import dev.otectus.mcacrime.api.event.PlayerJailedEvent;
 import dev.otectus.mcacrime.api.event.PlayerReleasedFromJailEvent;
 import dev.otectus.mcacrime.network.CrimeNetwork;
 import dev.otectus.mcacrime.state.CrimeCapabilities;
+import dev.otectus.mcacrime.ledger.SentenceResolutionService;
 import dev.otectus.mcacrime.state.PlayerCrimeData;
+import dev.otectus.mcacrime.util.TickFormat;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.network.chat.Component;
@@ -21,6 +23,7 @@ import net.minecraftforge.common.MinecraftForge;
 import javax.annotation.Nullable;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 
 /**
  * The server-authoritative, idempotent jail state machine (spec §7). The only writer of {@code JailState}.
@@ -30,6 +33,17 @@ import java.util.Optional;
  * online player is always freed within {@code maxCaptivityRealMinutes}, and admin {@link #release} always works.
  */
 public final class JailService {
+
+    /**
+     * How often, in online ticks, a serving prisoner's remaining sentence is pushed to their client.
+     *
+     * <p>Deliberately a constant rather than a config key. The client runs its own local countdown
+     * between resyncs (see {@code ClientSelfData.tick}), so this value decides only how quickly drift
+     * is corrected — it is invisible in play, and a knob nobody can perceive the effect of is a knob
+     * that only exists to be set wrong. Two seconds is short enough that a lagged or late-joining
+     * client is never visibly out, and long enough that a full jail costs nothing measurable.
+     */
+    private static final int RESYNC_TICKS = 40;
 
     private JailService() {
     }
@@ -54,6 +68,22 @@ public final class JailService {
      * already-jailed player only extends the sentence (max) and fires no duplicate event.
      */
     public static boolean jail(ServerPlayer player, long ticks, @Nullable JailAnchor explicit) {
+        return jail(player, ticks, explicit, null, false);
+    }
+
+    /**
+     * Jails the player, optionally allowing an existing sentence to be <em>shortened</em>.
+     *
+     * <p>{@code allowReduce} exists for the one caller that legitimately produces a shorter number than
+     * the sentence already running: a voluntary surrender, whose waiver is baked into the sentence by
+     * {@code SentenceCalculator.afterSurrender}. Every other caller keeps the max-only behaviour, so
+     * {@code /crime jail} and a completed escort cannot accidentally cut a term short.
+     *
+     * @param sentenceId the id minted at the start of the arrest, so the holding cell and the sentence
+     *                   can be matched; null mints a fresh one
+     */
+    public static boolean jail(ServerPlayer player, long ticks, @Nullable JailAnchor explicit,
+                               @Nullable UUID sentenceId, boolean allowReduce) {
         Optional<PlayerCrimeData> opt = CrimeCapabilities.get(player);
         if (opt.isEmpty()) {
             return false;
@@ -63,7 +93,8 @@ public final class JailService {
 
         if (data.isJailed()) {
             JailState existing = data.getJail();
-            existing.setRemainingOnlineTicks(Math.max(existing.getRemainingOnlineTicks(), clamped));
+            existing.setRemainingOnlineTicks(
+                    mergeSentence(existing.getRemainingOnlineTicks(), clamped, allowReduce));
             CrimeNetwork.sendSelfStatus(player);
             return true; // sentence update; no duplicate PlayerJailedEvent
         }
@@ -74,11 +105,17 @@ public final class JailService {
         }
         JailContainmentMode mode = McaCrimeConfig.COMMON.jailContainmentMode.get();
         JailState jail = new JailState(clamped, anchor.pos(), anchor.dim(), anchor.radius(), mode);
+        jail.setSentenceId(sentenceId); // no-op when null; the field initialiser already minted one
         data.setJail(jail);
+        // Also true for a sentence handed down by /crime jail with no arrest behind it: a prisoner is a
+        // prisoner, and a guard has no business opening a confrontation screen through the bars.
+        dev.otectus.mcacrime.enforcement.ArrestStates.transition(
+                player, dev.otectus.mcacrime.enforcement.ArrestPhase.JAILED);
         teleportToAnchor(player, jail); // best-effort; soft-confine fixes an unsafe/unloaded landing later
+        dev.otectus.mcacrime.audio.CrimeSounds.jailed(player);
         MinecraftForge.EVENT_BUS.post(new PlayerJailedEvent(player, clamped, anchor.pos()));
         CrimeNetwork.sendSelfStatus(player);
-        player.sendSystemMessage(Component.translatable("mcacrime.jail.jailed", clamped / 20L));
+        player.sendSystemMessage(Component.translatable("mcacrime.jail.jailed", TickFormat.compact(clamped)));
         return true;
     }
 
@@ -93,7 +130,28 @@ public final class JailService {
         return configFallbackAnchor();
     }
 
-    private static Optional<JailAnchor> configFallbackAnchor() {
+    /**
+     * How a proposed sentence combines with one already running.
+     *
+     * <p>Pure, because the asymmetry is the interesting part: a surrender may shorten but never
+     * lengthen, and everything else may lengthen but never shorten. Either rule applied in both
+     * directions produces a way to game a sentence.
+     */
+    public static long mergeSentence(long existing, long proposed, boolean allowReduce) {
+        return allowReduce
+                ? Math.max(1L, Math.min(existing, proposed))
+                : Math.max(existing, proposed);
+    }
+
+    /**
+     * The configured fallback destination, or empty when disabled or malformed.
+     *
+     * <p>Public because the arrest path needs it too. It used to be private, so
+     * {@code ArrestService.resolveDestination} could not consult it: with {@code buildHoldingCell} off
+     * and {@code jailFallbackEnabled} on, an arrest was refused for want of a cell while
+     * {@code /crime jail} on the same player succeeded against the very anchor the arrest could not see.
+     */
+    public static Optional<JailAnchor> configFallbackAnchor() {
         McaCrimeConfig.Common c = McaCrimeConfig.COMMON;
         if (!c.jailFallbackEnabled.get()) {
             return Optional.empty();
@@ -117,7 +175,16 @@ public final class JailService {
         if (!data.isJailed()) {
             return; // the single guard that makes double-release a no-op
         }
+        JailState finished = data.getJail();
         data.setJail(null);
+        // Serving the sentence is what closes the cases. Without this a player could be jailed, serve
+        // the whole term, walk out, and still have every charge open and actionable against them --
+        // which made a sentence cost time and change nothing. Only an actually-served sentence counts:
+        // an administrative release, a pardon, or a broken jail anchor settle nothing.
+        if (reason == ReleaseReason.SENTENCE_SERVED && player.getServer() != null && finished != null) {
+            SentenceResolutionService.markServed(player.getServer(), player.getUUID(), finished.getSentenceId());
+        }
+        dev.otectus.mcacrime.audio.CrimeSounds.released(player);
         MinecraftForge.EVENT_BUS.post(new PlayerReleasedFromJailEvent(player, reason));
         CrimeNetwork.sendSelfStatus(player);
         player.sendSystemMessage(Component.translatable(releaseKey(reason)));
@@ -129,6 +196,7 @@ public final class JailService {
             case CAPTIVITY_CAP -> "mcacrime.jail.released.cap";
             case ADMIN -> "mcacrime.jail.released.admin";
             case PARDON -> "mcacrime.jail.released.pardon";
+            case BAILED -> "mcacrime.jail.released.bailed";
             case INVALID_JAIL -> "mcacrime.jail.released.invalid";
         };
     }
@@ -160,7 +228,25 @@ public final class JailService {
         ReleaseReason due = advanceTick(jail, capTicks);
         if (due != null) {
             release(player, due);
+            return;
         }
+        // The client's sentence clock had exactly one writer -- the status packet -- and that packet is
+        // only sent on discrete events, none of which happen while a sentence is simply running. The
+        // HUD therefore froze on the value captured at jailing and stayed there for the whole term.
+        // Pushing on a slow cadence and letting the client tick between pushes keeps the server the
+        // authority without spending a packet per tick per prisoner.
+        if (shouldResync(jail.getRemainingOnlineTicks(), RESYNC_TICKS)) {
+            CrimeNetwork.sendSelfStatus(player);
+        }
+    }
+
+    /**
+     * Whether this tick is a resync tick. Pure, so the cadence is testable without a network stack.
+     *
+     * <p>An interval of zero or less disables resyncing rather than dividing by zero.
+     */
+    public static boolean shouldResync(long remainingTicks, int intervalTicks) {
+        return intervalTicks > 0 && remainingTicks >= 0L && remainingTicks % intervalTicks == 0L;
     }
 
     /**
@@ -218,9 +304,16 @@ public final class JailService {
         return true;
     }
 
-    /** Finds a 2-high air gap with footing within {@code range} vertical blocks of the anchor; null if none. */
+    /**
+     * Finds a 2-high air gap with footing within {@code range} vertical blocks of the anchor; null if none.
+     *
+     * <p>Public because release has to use it too. A mod-built holding cell is demolished when the
+     * sentence ends, and demolition restores the floor and roof courses to whatever was there before —
+     * which, for a prisoner still standing inside, means solid blocks appearing where their head is.
+     * The release path finds a stand outside the cell with this and moves them there first.
+     */
     @Nullable
-    private static BlockPos findSafeStand(ServerLevel level, BlockPos anchor, int range) {
+    public static BlockPos findSafeStand(ServerLevel level, BlockPos anchor, int range) {
         if (isSafeStand(level, anchor)) {
             return anchor;
         }

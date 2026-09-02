@@ -79,6 +79,23 @@ public final class CrimeItems {
         return false;
     }
 
+    /** Whether the player is carrying anything that can cut a rope. */
+    public static boolean hasCuttingTool(ServerPlayer player) {
+        return carries(player, RestraintTags.CUTTING_TOOLS);
+    }
+
+    /** Whether the player is carrying anything that can open a lock. */
+    public static boolean hasKey(ServerPlayer player) {
+        return carries(player, RestraintTags.KEYS);
+    }
+
+    private static boolean carries(ServerPlayer player, net.minecraft.tags.TagKey<Item> tag) {
+        for (ItemStack stack : player.getInventory().items) {
+            if (!stack.isEmpty() && stack.is(tag)) return true;
+        }
+        return !player.getOffhandItem().isEmpty() && player.getOffhandItem().is(tag);
+    }
+
     public static RestraintType bestRestraint(ServerPlayer player) {
         RestraintType best = RestraintType.NONE;
         for (ItemStack stack : player.getInventory().items) {

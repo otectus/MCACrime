@@ -34,6 +34,18 @@ public final class ReputationBridge {
     /** The Reputation API generation this build was written against. */
     public static final int REQUIRED_API_VERSION = 1;
 
+    /**
+     * The oldest MCA: Reputation that carries the detection-authority API this adapter needs.
+     *
+     * <p>Not expressed as a {@code versionRange} in {@code mods.toml}, and that is a deliberate
+     * choice rather than an oversight. Forge enforces the range of an optional dependency when the
+     * mod is present, so declaring {@code [0.3,)} would stop the game launching for anybody running
+     * the older companion — a hard failure over an integration that is, by definition, optional. The
+     * range stays permissive and the shortfall is handled here instead: the integration switches off,
+     * the built-in store takes over, and the log says which version would turn it back on.
+     */
+    private static final String MINIMUM_COMPANION_VERSION = "0.3.0";
+
     private static volatile ReputationOps ops;
     private static volatile boolean initialised;
     private static volatile String status = "not initialised";
@@ -97,6 +109,20 @@ public final class ReputationBridge {
             status = "ready";
             McaCrime.LOGGER.info("MCA: Crime — MCA: Reputation detected (API v{}); community standing will be "
                     + "recorded there once authority is claimed.", version);
+        } catch (NoClassDefFoundError | NoSuchMethodError e) {
+            // An installed companion too old to carry the API this adapter is written against. The
+            // declared dependency range stays permissive on purpose -- refusing to launch over an
+            // optional integration is a worse outcome than running without it -- which makes this the
+            // path an operator in that situation actually lands on, so it has to say what to do rather
+            // than report an exception class and leave them to guess.
+            ops = null;
+            status = "needs MCA: Reputation " + MINIMUM_COMPANION_VERSION;
+            McaCrime.LOGGER.error("MCA: Crime — the installed MCA: Reputation is older than {}, which is the "
+                            + "first version with the detection-authority API this integration is built on. "
+                            + "The integration is off and MCA: Crime is using its own village standing store; "
+                            + "everything else works normally. Update MCA: Reputation to {} or newer to turn "
+                            + "it on. ({})",
+                    MINIMUM_COMPANION_VERSION, MINIMUM_COMPANION_VERSION, e.toString());
         } catch (Throwable t) {
             ops = null;
             status = "failed: " + t.getClass().getSimpleName();

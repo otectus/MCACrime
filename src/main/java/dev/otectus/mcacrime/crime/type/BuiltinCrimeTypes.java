@@ -24,6 +24,10 @@ public final class BuiltinCrimeTypes {
         put(new CrimeType(CrimeIds.THEFT, -8L, 12L, 1.0, "villager"));
         put(new CrimeType(CrimeIds.MUGGING_MURDER, -70L, 55L, 1.0, "villager"));
         put(new CrimeType(CrimeIds.EXTORTION, -12L, 10L, 1.0, "villager"));
+        // Player-on-player, and only ever reached with pvpCountsAsCrime on. Weighted close to the
+        // villager equivalents so a server that enables it does not get a second, harsher legal system.
+        put(new CrimeType(CrimeIds.ASSAULT_PLAYER, -10L, 15L, 1.0, "player"));
+        put(new CrimeType(CrimeIds.MURDER_PLAYER, -50L, 40L, 1.0, "player"));
     }
 
     private BuiltinCrimeTypes() {

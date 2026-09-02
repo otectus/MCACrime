@@ -117,15 +117,40 @@ public final class RelationshipConsequences {
      * successful payment. Best-effort and fail-safe.
      */
     public static void applyRestitution(ServerPlayer player) {
+        applyRestitution(player, 0L);
+    }
+
+    /**
+     * Restitution scaled by what was actually paid.
+     *
+     * <p>{@code restitutionFractionOfFine} shipped describing "the fraction of a paid fine conceptually
+     * returned to the victim", and nothing read it, so a one-emerald fine and a hundred-emerald fine
+     * repaired exactly the same amount of goodwill. It now scales the grant: the fraction is the share
+     * of the full heart gain that the payment earns, ramping up to the whole thing as the fine
+     * approaches what a serious case costs. A zero fine still grants the base, because settling a case
+     * that carried no charge is still settling it.
+     *
+     * @param finePaid emeralds actually taken, or 0 when the caller has no amount to attribute
+     */
+    public static void applyRestitution(ServerPlayer player, long finePaid) {
         McaCrimeConfig.Common c = McaCrimeConfig.COMMON;
         int gain = c.restitutionHeartGain.get();
+        if (gain > 0 && finePaid > 0L) {
+            double fraction = c.restitutionFractionOfFine.get();
+            // The reference point is one full fine at the configured base: paying that much earns the
+            // whole grant, paying less earns proportionally less, and paying more does not earn more.
+            double reference = Math.max(1.0, c.fineBase.get());
+            double share = Math.min(1.0, finePaid / reference);
+            gain = (int) Math.max(1L, Math.round(gain * (1.0 - fraction + fraction * share)));
+        }
         if (gain <= 0 || !(player.level() instanceof ServerLevel level)) {
             return;
         }
+        final int granted = gain;
         AABB box = player.getBoundingBox().inflate(c.witnessRadius.get());
         try {
             for (LivingEntity villager : level.getEntitiesOfClass(LivingEntity.class, box, McaCompat::isMcaVillager)) {
-                McaCompat.addHearts(player, villager, gain);
+                McaCompat.addHearts(player, villager, granted);
             }
         } catch (Throwable t) {
             McaCrime.LOGGER.debug("restitution heart grant failed; ignoring", t);

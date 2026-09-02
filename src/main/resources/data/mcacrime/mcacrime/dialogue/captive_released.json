@@ -1,0 +1,12 @@
+{
+  "event": "mcacrime:captive_released",
+  "fallback": "dialogue.mcacrime.captive.released.generic",
+  "variants": [
+    {
+      "priority": 0,
+      "lines": [
+        "dialogue.mcacrime.captive.released.generic"
+      ]
+    }
+  ]
+}

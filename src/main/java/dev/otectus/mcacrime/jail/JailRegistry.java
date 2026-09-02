@@ -24,9 +24,26 @@ public final class JailRegistry {
         return CrimeWorldData.get(server).jailAnchors();
     }
 
-    /** The nearest assigned anchor in the player's current dimension, if any. */
+    /**
+     * The nearest assigned anchor in the player's current dimension, if any, at any distance.
+     *
+     * <p>Unlimited on purpose. An operator running {@code /crime jail} means the jail they assigned,
+     * wherever it is; only the automatic arrest path applies a ceiling.
+     */
     public static Optional<JailAnchor> nearestTo(ServerPlayer player) {
-        MinecraftServer server = player.getServer();
+        return nearestTo(player, 0.0);
+    }
+
+    /**
+     * The nearest assigned anchor within {@code maxDistance} blocks, or empty.
+     *
+     * <p>A ceiling of zero or less means unlimited, which is the historical behaviour: one
+     * {@code /crime assignjail} anywhere in a dimension became the destination for every arrest in it,
+     * teleporting prisoners across the map and permanently suppressing holding-cell construction,
+     * because the assigned anchor always won the priority ladder.
+     */
+    public static Optional<JailAnchor> nearestTo(ServerPlayer player, double maxDistance) {
+        MinecraftServer server = player == null ? null : player.getServer();
         if (server == null) {
             return Optional.empty();
         }
@@ -34,6 +51,12 @@ public final class JailRegistry {
         BlockPos pos = player.blockPosition();
         return all(server).stream()
                 .filter(a -> a.dim().equals(dim))
+                .filter(a -> withinCeiling(a.pos().distSqr(pos), maxDistance))
                 .min(Comparator.comparingDouble(a -> a.pos().distSqr(pos)));
+    }
+
+    /** Pure: whether a squared distance is inside a ceiling. Zero or less means no ceiling at all. */
+    public static boolean withinCeiling(double distSqr, double maxDistance) {
+        return maxDistance <= 0.0 || distSqr <= maxDistance * maxDistance;
     }
 }

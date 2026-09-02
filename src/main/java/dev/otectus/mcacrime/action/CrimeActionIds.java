@@ -13,6 +13,8 @@ public final class CrimeActionIds {
     public static final ResourceLocation SURRENDER = McaCrime.id("surrender");
     public static final ResourceLocation APOLOGIZE = McaCrime.id("apologize");
     public static final ResourceLocation RELEASE_CAPTIVE = McaCrime.id("release_captive");
+    public static final ResourceLocation RESCUE = McaCrime.id("rescue");
+    public static final ResourceLocation BAIL = McaCrime.id("bail");
 
     private CrimeActionIds() {}
 }

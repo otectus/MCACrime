@@ -17,6 +17,14 @@ import net.minecraftforge.server.ServerLifecycleHooks;
 /** Ticks only active action sessions; no world-wide scan. */
 @Mod.EventBusSubscriber(modid = McaCrime.MOD_ID)
 public final class CrimeActionTicker {
+
+    /**
+     * How often a channel sends a progress update, in ticks of channel progress. Five is smooth
+     * enough for a bar and is a twentieth of the packet volume of updating every tick, which matters
+     * because this is per active session on a server that may have many.
+     */
+    private static final int PROGRESS_INTERVAL_TICKS = 5;
+
     private CrimeActionTicker() {}
 
     @SubscribeEvent
@@ -36,8 +44,20 @@ public final class CrimeActionTicker {
                 ActionSessionManager.cancel(session, CancelReason.TARGET_GONE);
             } else {
                 CrimeActionHandler handler = ActionHandlerRegistry.get(session.actionId());
-                if (handler == null) ActionSessionManager.cancel(session, CancelReason.CONFLICT);
-                else handler.tick(session, actor, target, level);
+                if (handler == null) {
+                    ActionSessionManager.cancel(session, CancelReason.CONFLICT);
+                } else {
+                    int before = session.progress();
+                    handler.tick(session, new PlayerActor(actor), target, level);
+                    // Only while the session is still live: a handler that finished or cancelled has
+                    // already sent its own terminal packet, and a progress update after it would
+                    // resurrect the bar it just dismissed.
+                    if (session.progress() != before
+                            && ActionSessionManager.forActor(session.actorId()).isPresent()
+                            && session.progress() % PROGRESS_INTERVAL_TICKS == 0) {
+                        ActionFeedback.progress(session);
+                    }
+                }
             }
         }
     }

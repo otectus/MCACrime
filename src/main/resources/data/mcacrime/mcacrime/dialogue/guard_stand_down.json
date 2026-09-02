@@ -1,0 +1,21 @@
+{
+  "event": "mcacrime:guard_stand_down",
+  "fallback": "dialogue.mcacrime.guard.stand_down.generic",
+  "variants": [
+    {
+      "priority": 80,
+      "lines": [
+        "dialogue.mcacrime.guard.stand_down.blue.1"
+      ],
+      "when": {
+        "band": "blue"
+      }
+    },
+    {
+      "priority": 0,
+      "lines": [
+        "dialogue.mcacrime.guard.stand_down.generic"
+      ]
+    }
+  ]
+}

@@ -23,6 +23,7 @@ public final class ActionSessionManager {
         }
         BY_ACTOR.put(session.actorId(), session);
         TARGET_LOCKS.put(session.targetId(), session.actorId());
+        ActionFeedback.started(session);
         return true;
     }
 
@@ -34,6 +35,10 @@ public final class ActionSessionManager {
         BY_ACTOR.remove(session.actorId(), session);
         TARGET_LOCKS.remove(session.targetId(), session.actorId());
         remember(session.actorId(), session.requestNonce(), result);
+        ActionFeedback.ended(session,
+                result.accepted() ? dev.otectus.mcacrime.network.ActionProgressS2CPacket.Phase.FINISHED
+                        : dev.otectus.mcacrime.network.ActionProgressS2CPacket.Phase.CANCELLED,
+                result.code());
     }
 
     public static synchronized void remember(UUID actor, UUID nonce, ActionResult result) {
@@ -59,6 +64,19 @@ public final class ActionSessionManager {
         for (ActionSession session : active()) {
             if (session.actorId().equals(entity) || session.targetId().equals(entity)) cancel(session, reason);
         }
+    }
+
+    /**
+     * Drops every trace of an actor: their live session, their target lock, and their cached nonce
+     * results. Called on logout, because without it {@code RESULTS} keeps up to 256 replay entries per
+     * actor for the life of the server and never releases them for a player who has left.
+     */
+    public static synchronized void forgetActor(UUID actor) {
+        ActionSession session = BY_ACTOR.get(actor);
+        if (session != null) cancel(session, CancelReason.ACTOR_GONE);
+        BY_ACTOR.remove(actor);
+        TARGET_LOCKS.values().removeIf(actor::equals);
+        RESULTS.remove(actor);
     }
 
     public static int activeCount() { return BY_ACTOR.size(); }

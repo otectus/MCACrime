@@ -77,7 +77,7 @@ public final class CrimeDetector {
 
     public static void onKill(LivingEntity victim, DamageSource source, ServerLevel level) {
         clearVictim(victim.getUUID()); // the victim is gone; drop its cooldown entries
-        Optional<ServerPlayer> offenderOpt = CrimeGate.resolveOffender(victim, source, level);
+        Optional<ServerPlayer> offenderOpt = CrimeGate.resolveOffender(victim, source, level, true);
         if (offenderOpt.isEmpty()) {
             return;
         }
@@ -154,6 +154,14 @@ public final class CrimeDetector {
             // Queued in the same dirty cycle as the record itself, so a crash cannot leave the case
             // written but the companion mod never told about it.
             CrimeIntegrationHooks.onCommitted(server, record.view());
+        }
+
+        // Identity-carrying observations (§12), recorded once the incident has an id to hang them on.
+        // This is additive to the witness set above and never contradicts it: the eyewitness identities
+        // are the same ones, reused rather than rescanned.
+        if (server != null) {
+            dev.otectus.mcacrime.memory.ObservationService.record(level, offender, victim, crimeId,
+                    recordId, witnesses);
         }
 
         CrimeRecordView view = record.view();

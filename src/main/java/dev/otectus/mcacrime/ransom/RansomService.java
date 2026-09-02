@@ -225,6 +225,12 @@ public final class RansomService {
         };
     }
 
+    /**
+     * Hearts at which a villager counts a player as a friend. Shared with the dialogue system's
+     * {@code relationship=friend} fact on purpose — one number, one meaning.
+     */
+    private static final int FRIEND_HEART_THRESHOLD = 50;
+
     private static List<PayerResolver.Candidate> gatherCandidates(MinecraftServer server, LivingEntity victim,
                                                                    ServerPlayer captor) {
         List<PayerResolver.Candidate> out = new ArrayList<>();
@@ -244,8 +250,43 @@ public final class RansomService {
         for (UUID u : McaCompat.getCloseRelativeUuids(victim, 2)) {
             addCandidate(out, server, u, PayerTier.CLOSE_RELATIVE, victim, captor);
         }
-        // CLOSE_FRIEND has no MCA edge — it is config-gated off and folds into the village fallback.
+        addCloseFriends(out, server, victim, captor);
         return out;
+    }
+
+    /**
+     * Adds the close-friend tier, when it is enabled.
+     *
+     * <p>{@code enableCloseFriendTier} shipped saying it had "no MCA edge" and folded into the village
+     * fallback, which meant turning it on changed nothing at all. It does have a verified source: MCA
+     * hearts between a player and a villager are exactly a measure of who cares about that villager,
+     * and they are already read everywhere else in this mod.
+     *
+     * <p>So a close friend is an online player, not related to the captive and not the captor, whose
+     * hearts with them are at or above the same threshold the dialogue system calls a friend. Sharing
+     * that number matters: a villager who calls you a friend when they speak should be a villager
+     * whose ransom you are asked to pay.
+     */
+    private static void addCloseFriends(List<PayerResolver.Candidate> out, MinecraftServer server,
+                                        LivingEntity victim, ServerPlayer captor) {
+        if (!McaCrimeConfig.COMMON.enableCloseFriendTier.get()) {
+            return;
+        }
+        java.util.Set<UUID> alreadyListed = new java.util.HashSet<>();
+        for (PayerResolver.Candidate candidate : out) {
+            if (candidate.uuid() != null) {
+                alreadyListed.add(candidate.uuid());
+            }
+        }
+        for (ServerPlayer player : server.getPlayerList().getPlayers()) {
+            UUID id = player.getUUID();
+            if (id.equals(captor.getUUID()) || alreadyListed.contains(id)) {
+                continue;
+            }
+            if (McaCompat.getHearts(player, victim) >= FRIEND_HEART_THRESHOLD) {
+                addCandidate(out, server, id, PayerTier.CLOSE_FRIEND, victim, captor);
+            }
+        }
     }
 
     /** A candidate can pay only if it resolves to an online player (villager relations fold into the village fallback). */

@@ -1,0 +1,21 @@
+{
+  "event": "mcacrime:ransom_counter",
+  "fallback": "dialogue.mcacrime.ransom.counter.generic",
+  "variants": [
+    {
+      "priority": 90,
+      "lines": [
+        "dialogue.mcacrime.ransom.counter.family.1"
+      ],
+      "when": {
+        "relationship": "family"
+      }
+    },
+    {
+      "priority": 0,
+      "lines": [
+        "dialogue.mcacrime.ransom.counter.generic"
+      ]
+    }
+  ]
+}

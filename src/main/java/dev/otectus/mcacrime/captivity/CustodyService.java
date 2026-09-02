@@ -4,16 +4,19 @@ import dev.otectus.mcacrime.McaCrimeConfig;
 import dev.otectus.mcacrime.action.ActionSessionManager;
 import dev.otectus.mcacrime.action.CancelReason;
 import dev.otectus.mcacrime.api.event.EntityKidnappedEvent;
+import dev.otectus.mcacrime.audio.CrimeSounds;
 import dev.otectus.mcacrime.api.event.EntityReleasedFromCaptivityEvent;
 import dev.otectus.mcacrime.compat.McaCompat;
 import dev.otectus.mcacrime.crime.type.CrimeIds;
 import dev.otectus.mcacrime.detect.CrimeDetector;
 import dev.otectus.mcacrime.detect.WitnessChecker;
 import dev.otectus.mcacrime.jail.JailService;
+import dev.otectus.mcacrime.network.ActionProgressS2CPacket;
 import dev.otectus.mcacrime.network.CrimeNetwork;
 import dev.otectus.mcacrime.state.CrimeCapabilities;
 import dev.otectus.mcacrime.state.PlayerCrimeData;
 import dev.otectus.mcacrime.state.world.CrimeWorldData;
+import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.MinecraftServer;
@@ -41,6 +44,26 @@ import java.util.UUID;
  * JailConfine}, which commits {@code jailbreak} on a physical jail escape — spec §8.1).
  */
 public final class CustodyService {
+
+    /** How often the escape channel refreshes its bar, matching the action engine's cadence. */
+    private static final int ESCAPE_PROGRESS_INTERVAL_TICKS = 5;
+
+    /**
+     * A stable bar id for one captive's escape work, derived from the custody record rather than
+     * minted per tick, so a second attempt never inherits the first attempt's bar.
+     */
+    private static UUID escapeBarId(CustodyRecord record) {
+        UUID captive = record.getCaptive();
+        return new UUID(captive.getMostSignificantBits() ^ 0x65_73_63_61_70_65_00_01L,
+                captive.getLeastSignificantBits());
+    }
+
+    private static void escapeBarEnded(ServerPlayer captive, CustodyRecord record, boolean succeeded, String key) {
+        CrimeNetwork.sendActionProgress(captive, ActionProgressS2CPacket.ended(escapeBarId(record),
+                "gui.mcacrime.action.escape",
+                succeeded ? ActionProgressS2CPacket.Phase.FINISHED : ActionProgressS2CPacket.Phase.CANCELLED,
+                key));
+    }
 
     private CustodyService() {
     }
@@ -93,6 +116,7 @@ public final class CustodyService {
         CrimeDetector.commitDirect(captor, CrimeIds.KIDNAP, captiveEntity, level,
                 WitnessChecker.resolve(level, captiveEntity), "custody");
 
+        CrimeSounds.restrainApplied(captiveEntity);
         MinecraftForge.EVENT_BUS.post(new EntityKidnappedEvent(captiveUuid, captiveIsPlayer, captor.getUUID(),
                 true, restraint, captivePlayer, captor));
 
@@ -104,6 +128,68 @@ public final class CustodyService {
             CrimeNetwork.sendCaptiveStatus(captivePlayer);
             captivePlayer.sendSystemMessage(Component.translatable("mcacrime.kidnap.taken", captor.getDisplayName()));
         }
+        return true;
+    }
+
+    /**
+     * Takes a player into <b>lawful</b> custody on behalf of an authority (spec §2.3).
+     *
+     * <p>Separate from {@link #capture} rather than a flag on it, because almost everything that method
+     * does is wrong for an arrest. {@code capture} commits the {@code kidnap} crime <em>against the
+     * captor</em>, counts against {@code maxUnlawfulCaptivesPerCaptor}, and leashes the captive — a
+     * guard performing a lawful arrest must do none of those things, and a boolean parameter guarding
+     * four unrelated behaviours would be a worse contract than two methods.
+     *
+     * <p>What the two share is the record: {@link CustodyOwner#guard} and {@link CustodyOwner#jail}
+     * have existed since the custody table was written and until now were constructed only by tests,
+     * because nothing in the mod ever took somebody into custody lawfully. This is what makes them
+     * real.
+     *
+     * <p>The per-tick cost of a lawful record is a map lookup: {@code CrimeDecayHandler} enters
+     * {@code CustodyService.tick} and {@code CustodyConfine.tick} because {@code heldByRef} is set, and
+     * both return immediately on {@code record.isLawful()}. A lawful captive is not a kidnapping victim
+     * and must not be subject to the escape work, the tether, or the real-time captivity cap; their
+     * clock is the sentence.
+     *
+     * @return false when the player is already held by anybody, lawfully or not
+     */
+    public static boolean captureLawful(MinecraftServer server, ServerPlayer captive, CustodyOwner owner,
+                                        BlockPos holdPos, ResourceLocation holdDim) {
+        if (server == null || captive == null || owner == null) {
+            return false;
+        }
+        UUID captiveUuid = captive.getUUID();
+        if (CustodyRegistry.isCaptive(server, captiveUuid)) {
+            return false;
+        }
+        long start = CrimeCapabilities.get(captive).map(PlayerCrimeData::getOnlineTicksLived).orElse(0L);
+        CustodyRecord record = new CustodyRecord(captiveUuid, true, true, owner, RestraintType.NONE,
+                start, holdPos, holdDim);
+        CrimeWorldData.get(server).putCustody(record);
+        CrimeCapabilities.get(captive).ifPresent(d -> d.setHeldByRef(
+                owner.ownerUuid().orElse(captiveUuid)));
+        CrimeNetwork.sendSelfStatus(captive);
+        CrimeNetwork.sendCaptiveStatus(captive);
+        return true;
+    }
+
+    /**
+     * Rewrites who holds a lawful captive, without releasing and re-taking them.
+     *
+     * <p>Used at the end of an escort: custody passes from the arresting guard to the jail itself, and
+     * a release-then-capture would fire the public events twice and momentarily leave the player free.
+     */
+    public static boolean transferLawfulCustody(MinecraftServer server, UUID captiveUuid, CustodyOwner owner) {
+        if (server == null || owner == null) {
+            return false;
+        }
+        CrimeWorldData data = CrimeWorldData.get(server);
+        CustodyRecord record = data.getCustody(captiveUuid);
+        if (record == null || !record.isLawful()) {
+            return false;
+        }
+        record.setOwner(owner);
+        data.putCustody(record);
         return true;
     }
 
@@ -145,6 +231,9 @@ public final class CustodyService {
             }
         }
 
+        if (captivePlayer != null) {
+            CrimeSounds.restraintRemoved(captivePlayer);
+        }
         MinecraftForge.EVENT_BUS.post(new EntityReleasedFromCaptivityEvent(captiveUuid, record.isCaptivePlayer(),
                 captivePlayer, formerCaptor, reason));
     }
@@ -249,17 +338,23 @@ public final class CustodyService {
         if (record.isEscapeActive()) {
             int progress = record.getEscapeProgress() + 1;
             record.setEscapeProgress(progress);
-            if (progress >= escapeWorkTicks(record.getRestraint())) {
+            int required = escapeWorkTicks(record.getRestraint());
+            if (progress >= required) {
                 record.setEscapeActive(false);
                 record.setEscapeProgress(0);
                 if (record.getEscapeRoll() < escapeChance(record.getRestraint())) {
+                    CrimeSounds.restraintBroken(captive);
+                    escapeBarEnded(captive, record, true, "mcacrime.kidnap.released.escaped");
                     release(server, captive.getUUID(), CustodyReleaseReason.ESCAPED);
                     return;
                 }
+                escapeBarEnded(captive, record, false, "mcacrime.captive.escape.failed");
                 captive.sendSystemMessage(Component.translatable("mcacrime.captive.escape.failed"));
-            } else if (progress % 20 == 0) {
-                captive.displayClientMessage(Component.translatable("mcacrime.captive.escape.progress",
-                        progress, escapeWorkTicks(record.getRestraint())), true);
+            } else if (progress % ESCAPE_PROGRESS_INTERVAL_TICKS == 0) {
+                // The HUD channel bar, not an action-bar line that overwrites itself every second.
+                CrimeNetwork.sendActionProgress(captive, new ActionProgressS2CPacket(escapeBarId(record),
+                        "gui.mcacrime.action.escape", progress, required,
+                        ActionProgressS2CPacket.Phase.PROGRESS, ""));
             }
         }
         long capTicks = (long) McaCrimeConfig.COMMON.maxCaptivityRealMinutes.get() * 1200L;
@@ -362,6 +457,70 @@ public final class CustodyService {
     }
 
     @Nullable
+    // ------------------------------------------------------------------ NPC captives (§14.5 virtualization)
+
+    /**
+     * Advances every NPC captivity, and implements {@code npcCaptiveVirtualizeWhenUnloaded}.
+     *
+     * <p>This closes a real hole rather than adding a feature. Only <em>player</em> captives were ever
+     * ticked, through {@code CrimeDecayHandler}, so a kidnapped villager's real-time cap never advanced
+     * at all: the captivity that was supposed to end within {@code maxCaptivityRealMinutes} instead
+     * lasted until somebody released it, and if the captor walked away and the chunk unloaded, it
+     * lasted forever as an invisible row in world data.
+     *
+     * <p>The setting decides what happens when the captive's chunk is not loaded. On, the record is
+     * marked virtual and keeps counting — captivity continues while nobody is looking, which is what
+     * the key describes. Off, the captivity ends, because §13.3 is explicit that the alternative must
+     * never be an invisible permanent custody record.
+     *
+     * @param elapsedTicks how many ticks to credit; the caller batches these rather than running every tick
+     */
+    public static void tickNpcCaptives(MinecraftServer server, long elapsedTicks) {
+        if (server == null || elapsedTicks <= 0L) {
+            return;
+        }
+        CrimeWorldData world = CrimeWorldData.get(server);
+        boolean virtualize = McaCrimeConfig.COMMON.npcCaptiveVirtualizeWhenUnloaded.get();
+        long capTicks = (long) McaCrimeConfig.COMMON.maxCaptivityRealMinutes.get() * 1200L;
+        boolean dirty = false;
+
+        for (CustodyRecord record : world.custodyRecords()) {
+            if (record.isCaptivePlayer() || record.isLawful()) {
+                continue; // player captives tick with their own player; lawful custody is JailService's
+            }
+            Entity npc = resolveEntity(server, record.getHoldDim(), record.getCaptive());
+            if (npc == null) {
+                if (!virtualize) {
+                    release(server, record.getCaptive(), CustodyReleaseReason.CAPTOR_GONE);
+                    continue;
+                }
+                if (!record.isVirtual()) {
+                    record.setVirtual(true);
+                    dirty = true;
+                }
+            } else if (record.isVirtual()) {
+                // Back in a loaded chunk. Re-secure it: a leash does not survive being reloaded from a
+                // record the entity itself knows nothing about.
+                record.setVirtual(false);
+                dirty = true;
+                UUID captor = record.getOwner().ownerUuid().orElse(null);
+                ServerPlayer holder = captor == null ? null : server.getPlayerList().getPlayer(captor);
+                if (holder != null) {
+                    McaCompat.leashTo(npc, holder);
+                }
+            }
+
+            record.setRealTicksHeld(record.getRealTicksHeld() + elapsedTicks);
+            dirty = true;
+            if (capTicks > 0L && record.getRealTicksHeld() >= capTicks) {
+                release(server, record.getCaptive(), CustodyReleaseReason.CAPTIVITY_CAP);
+            }
+        }
+        if (dirty) {
+            world.setDirty();
+        }
+    }
+
     private static Entity resolveEntity(MinecraftServer server, @Nullable ResourceLocation dim, UUID uuid) {
         ServerLevel level = JailService.resolveLevel(server, dim);
         return level == null ? null : level.getEntity(uuid);
