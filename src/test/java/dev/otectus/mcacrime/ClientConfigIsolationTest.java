@@ -30,8 +30,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class ClientConfigIsolationTest {
 
     private static final List<Path> CLIENT_ROOTS = List.of(
-            Path.of("src", "main", "java", "dev", "otectus", "mcacrime", "client"),
-            Path.of("src", "main", "java", "dev", "otectus", "mcacrime", "mixin"));
+            TestPaths.sources("dev", "otectus", "mcacrime", "client"),
+            TestPaths.sources("dev", "otectus", "mcacrime", "mixin"));
 
     private static final String FORBIDDEN = "McaCrimeConfig.COMMON";
 

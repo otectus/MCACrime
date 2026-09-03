@@ -1,10 +1,10 @@
 package dev.otectus.mcacrime.client.render;
 
 import dev.otectus.mcacrime.McaCrime;
-import net.minecraft.client.model.PlayerModel;
-import net.minecraft.client.player.AbstractClientPlayer;
-import net.minecraft.client.renderer.entity.LivingEntityRenderer;
+import net.minecraft.client.renderer.entity.EntityRenderer;
 import net.minecraft.client.renderer.entity.player.PlayerRenderer;
+import net.minecraft.client.resources.PlayerSkin;
+import net.minecraft.world.entity.player.Player;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.neoforge.client.event.EntityRenderersEvent;
 import net.neoforged.bus.api.SubscribeEvent;
@@ -29,9 +29,8 @@ public final class CrimeRenderLayers {
 
     @SubscribeEvent
     public static void onAddLayers(EntityRenderersEvent.AddLayers event) {
-        for (String skin : event.getSkins()) {
-            LivingEntityRenderer<AbstractClientPlayer, PlayerModel<AbstractClientPlayer>> renderer =
-                    event.getSkin(skin);
+        for (PlayerSkin.Model skin : event.getSkins()) {
+            EntityRenderer<? extends Player> renderer = event.getSkin(skin);
             if (renderer instanceof PlayerRenderer player) {
                 player.addLayer(new CuffsLayer(player,
                         event.getEntityModels().bakeLayer(CuffsLayer.LAYER)));

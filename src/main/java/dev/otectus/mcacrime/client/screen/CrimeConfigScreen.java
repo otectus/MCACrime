@@ -121,13 +121,19 @@ public final class CrimeConfigScreen extends Screen {
         }
     }
 
+    /**
+     * The panel and its headings.
+     *
+     * <p>Drawn from {@code renderBackground} rather than from {@code render}: 1.21.1's
+     * {@code Screen.render} calls {@code renderBackground} itself, so chrome drawn in {@code render}
+     * before {@code super.render} would be painted over by the blur and the menu background.
+     */
     @Override
-    public void render(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
-        renderBackground(graphics);
+    public void renderBackground(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
+        super.renderBackground(graphics, mouseX, mouseY, partialTick);
         CrimeSprites.panel(graphics, panelLeft, panelTop, PANEL_W, panelHeight);
         graphics.drawString(font, title, panelLeft + 8, panelTop + 8, PanelColours.TEXT, false);
         graphics.drawString(font, Component.translatable("gui.mcacrime.config.client_only"),
                 panelLeft + 8, panelTop + 19, PanelColours.TEXT_DISABLED, false);
-        super.render(graphics, mouseX, mouseY, partialTick);
     }
 }

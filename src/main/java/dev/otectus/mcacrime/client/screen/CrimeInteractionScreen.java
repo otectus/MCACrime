@@ -220,7 +220,21 @@ public class CrimeInteractionScreen extends Screen {
             scrollAmount = list.getScrollAmount();
         }
 
-        renderBackground(graphics);
+        // The list draws its own well, rows, scissor and scrollbar, and the rows raise their own
+        // tooltips, so there is nothing left for the screen to do by hand.
+        super.render(graphics, mouseX, mouseY, partialTick);
+    }
+
+    /**
+     * The panel and its header.
+     *
+     * <p>Drawn from {@code renderBackground} rather than from {@code render}: 1.21.1's
+     * {@code Screen.render} calls {@code renderBackground} itself, so chrome drawn in {@code render}
+     * before {@code super.render} would be painted over by the blur and the menu background.
+     */
+    @Override
+    public void renderBackground(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
+        super.renderBackground(graphics, mouseX, mouseY, partialTick);
         CrimeSprites.panel(graphics, panelLeft, panelTop, PANEL_W, panelHeight);
 
         graphics.drawString(font, title, panelLeft + 8, panelTop + 8, PanelColours.TEXT, false);
@@ -231,9 +245,5 @@ public class CrimeInteractionScreen extends Screen {
         if (extraHeader > 0) {
             renderExtraHeader(graphics, panelLeft + 8, panelTop + HEADER_H - 2, PANEL_W - 16);
         }
-
-        // The list draws its own well, rows, scissor and scrollbar, and the rows raise their own
-        // tooltips, so there is nothing left for the screen to do by hand.
-        super.render(graphics, mouseX, mouseY, partialTick);
     }
 }

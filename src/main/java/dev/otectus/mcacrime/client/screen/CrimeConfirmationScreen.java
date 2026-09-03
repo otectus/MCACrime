@@ -63,9 +63,16 @@ public final class CrimeConfirmationScreen extends Screen {
         if (minecraft != null) minecraft.setScreen(parent);
     }
 
+    /**
+     * The panel, its two lines of text and the legality chip.
+     *
+     * <p>Drawn from {@code renderBackground} rather than from {@code render}: 1.21.1's
+     * {@code Screen.render} calls {@code renderBackground} itself, so chrome drawn in {@code render}
+     * before {@code super.render} would be painted over by the blur and the menu background.
+     */
     @Override
-    public void render(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
-        renderBackground(graphics);
+    public void renderBackground(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
+        super.renderBackground(graphics, mouseX, mouseY, partialTick);
         int left = (width - PANEL_W) / 2;
         int top = (height - PANEL_H) / 2;
         CrimeSprites.panel(graphics, left, top, PANEL_W, PANEL_H);
@@ -85,8 +92,6 @@ public final class CrimeConfirmationScreen extends Screen {
         CrimeSprites.chip(graphics, labelLeft, top + 60, legality.rgb(), true);
         graphics.drawString(font, label, labelLeft + CrimeSprites.CHIP + 4, top + 60,
                 PanelColours.onPanel(legality.rgb()), false);
-
-        super.render(graphics, mouseX, mouseY, partialTick);
     }
 
     private void centred(GuiGraphics graphics, Component text, int y, int colour) {

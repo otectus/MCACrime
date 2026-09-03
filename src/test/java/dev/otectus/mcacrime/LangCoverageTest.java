@@ -51,8 +51,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 class LangCoverageTest {
 
-    private static final Path SOURCE_ROOT = Path.of("src", "main", "java");
-    private static final Path LANG = Path.of("src", "main", "resources", "assets", "mcacrime", "lang", "en_us.json");
+    private static final Path SOURCE_ROOT = TestPaths.sources();
+    private static final Path LANG = TestPaths.resources("assets", "mcacrime", "lang", "en_us.json");
 
     /**
      * {@code Component.translatable("...")} where the key is a <em>complete</em> literal.

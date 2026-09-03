@@ -64,7 +64,7 @@ public final class EscortRopeRenderer {
         }
 
         Vec3 camera = event.getCamera().getPosition();
-        float partialTick = event.getPartialTick();
+        float partialTick = event.getPartialTick().getGameTimeDeltaPartialTick(false);
         PoseStack pose = event.getPoseStack();
 
         for (Map.Entry<UUID, Integer> entry : restrained.entrySet()) {
@@ -139,10 +139,10 @@ public final class EscortRopeRenderer {
         float x = dx * progress;
         float y = dy * progress + sag;
         float z = dz * progress;
-        buffer.vertex(matrix, x + offsetX, y + yOffset, z + offsetZ)
-                .color(0.35F * shade, 0.28F * shade, 0.22F * shade, 1.0F).uv2(light).endVertex();
-        buffer.vertex(matrix, x - offsetX, y + width - yOffset, z - offsetZ)
-                .color(0.35F * shade, 0.28F * shade, 0.22F * shade, 1.0F).uv2(light).endVertex();
+        buffer.addVertex(matrix, x + offsetX, y + yOffset, z + offsetZ)
+                .setColor(0.35F * shade, 0.28F * shade, 0.22F * shade, 1.0F).setLight(light);
+        buffer.addVertex(matrix, x - offsetX, y + width - yOffset, z - offsetZ)
+                .setColor(0.35F * shade, 0.28F * shade, 0.22F * shade, 1.0F).setLight(light);
     }
 
     /** Blends the packed block/sky light of the two ends, each channel separately. */

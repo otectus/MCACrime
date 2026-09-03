@@ -74,13 +74,13 @@ public final class CrimeSprites {
     /** The raised body of a screen. */
     public static void panel(GuiGraphics graphics, int x, int y, int width, int height) {
         RenderSystem.enableBlend();
-        graphics.blitNineSliced(SHEET, x, y, width, height, 4, 32, 32, 0, 0);
+        nineSlice(graphics, x, y, width, height, 4, 32, 32, 0, 0);
     }
 
     /** The sunken area a list of rows sits in, so the list reads as inset into the panel. */
     public static void well(GuiGraphics graphics, int x, int y, int width, int height) {
         RenderSystem.enableBlend();
-        graphics.blitNineSliced(SHEET, x, y, width, height, 3, 32, 32, 32, 0);
+        nineSlice(graphics, x, y, width, height, 3, 32, 32, 32, 0);
     }
 
     /**
@@ -92,25 +92,25 @@ public final class CrimeSprites {
      */
     public static void hudPlate(GuiGraphics graphics, int x, int y, int width, int height) {
         RenderSystem.enableBlend();
-        graphics.blitNineSliced(SHEET, x, y, width, height, 3, 32, 32, 64, 0);
+        nineSlice(graphics, x, y, width, height, 3, 32, 32, 64, 0);
     }
 
     /** A list row in one of its four states. */
     public static void row(GuiGraphics graphics, int x, int y, int width, int height, RowState state) {
         RenderSystem.enableBlend();
-        graphics.blitNineSliced(SHEET, x, y, width, height, 3, 2, 32, 20, 0, 32 + state.index * 20);
+        nineSlice(graphics, x, y, width, height, 3, 2, 32, 20, 0, 32 + state.index * 20);
     }
 
     /** The scrollbar groove. Tiled vertically, so any list height works. */
     public static void scrollTrack(GuiGraphics graphics, int x, int y, int height) {
         RenderSystem.enableBlend();
-        graphics.blitRepeating(SHEET, x, y, SCROLLBAR_W, height, 0, 112, SCROLLBAR_W, 32);
+        repeating(graphics, x, y, SCROLLBAR_W, height, 0, 112, SCROLLBAR_W, 32);
     }
 
     /** The scrollbar handle. */
     public static void scrollThumb(GuiGraphics graphics, int x, int y, int height) {
         RenderSystem.enableBlend();
-        graphics.blitNineSliced(SHEET, x, y, SCROLLBAR_W, height, 1, SCROLLBAR_W, 32, 8, 112);
+        nineSlice(graphics, x, y, SCROLLBAR_W, height, 1, SCROLLBAR_W, 32, 8, 112);
     }
 
     /**
@@ -135,15 +135,15 @@ public final class CrimeSprites {
      * A progress bar filled to {@code fraction} of its width.
      *
      * <p>The fill is drawn at exactly six pixels tall on purpose: at its own height,
-     * {@code blitNineSliced} slices horizontally only, so the bar's vertical shading is never tiled
+     * {@link #nineSlice} slices horizontally only, so the bar's vertical shading is never tiled
      * and never bands.
      */
     public static void bar(GuiGraphics graphics, int x, int y, int width, float fraction) {
         RenderSystem.enableBlend();
-        graphics.blitNineSliced(SHEET, x, y, width, BAR_H, 1, 32, 8, 0, 144);
+        nineSlice(graphics, x, y, width, BAR_H, 1, 32, 8, 0, 144);
         int filled = Math.round((width - 2) * Math.max(0.0F, Math.min(1.0F, fraction)));
         if (filled > 0) {
-            graphics.blitNineSliced(SHEET, x + 1, y + 1, filled, 6, 1, 0, 32, 6, 0, 152);
+            nineSlice(graphics, x + 1, y + 1, filled, 6, 1, 0, 32, 6, 0, 152);
         }
     }
 
@@ -152,6 +152,75 @@ public final class CrimeSprites {
         RenderSystem.enableBlend();
         int v = open ? 168 : hovered ? 156 : 144;
         graphics.blit(SHEET, x, y, 32, v, 12, 12);
+    }
+
+    // ------------------------------------------------------------------ slicing
+
+    // 1.21.1 removed GuiGraphics.blitNineSliced and blitRepeating for plain textures: what is left
+    // slices only sprites out of the GUI atlas, and this mod's chrome is one sheet, not an atlas.
+    // The two helpers below are the removed methods' own arithmetic, kept so every UV constant on the
+    // sheet — and tools/gui/generate_gui_sheet.py, which produces them — stays valid unchanged.
+
+    /** Nine-slices a region of the sheet with square corners. */
+    private static void nineSlice(GuiGraphics graphics, int x, int y, int width, int height,
+                                  int slice, int uWidth, int vHeight, int uOffset, int vOffset) {
+        nineSlice(graphics, x, y, width, height, slice, slice, uWidth, vHeight, uOffset, vOffset);
+    }
+
+    /** Nine-slices a region of the sheet with corners of independent width and height. */
+    private static void nineSlice(GuiGraphics graphics, int x, int y, int width, int height,
+                                  int cornerWidth, int cornerHeight, int uWidth, int vHeight,
+                                  int uOffset, int vOffset) {
+        int cw = Math.min(cornerWidth, width / 2);
+        int ch = Math.min(cornerHeight, height / 2);
+        if (width == uWidth && height == vHeight) {
+            graphics.blit(SHEET, x, y, uOffset, vOffset, width, height);
+        } else if (height == vHeight) {
+            graphics.blit(SHEET, x, y, uOffset, vOffset, cw, height);
+            repeating(graphics, x + cw, y, width - 2 * cw, height,
+                    uOffset + cw, vOffset, uWidth - 2 * cw, vHeight);
+            graphics.blit(SHEET, x + width - cw, y, uOffset + uWidth - cw, vOffset, cw, height);
+        } else if (width == uWidth) {
+            graphics.blit(SHEET, x, y, uOffset, vOffset, width, ch);
+            repeating(graphics, x, y + ch, width, height - 2 * ch,
+                    uOffset, vOffset + ch, uWidth, vHeight - 2 * ch);
+            graphics.blit(SHEET, x, y + height - ch, uOffset, vOffset + vHeight - ch, width, ch);
+        } else {
+            graphics.blit(SHEET, x, y, uOffset, vOffset, cw, ch);
+            repeating(graphics, x + cw, y, width - 2 * cw, ch,
+                    uOffset + cw, vOffset, uWidth - 2 * cw, ch);
+            graphics.blit(SHEET, x + width - cw, y, uOffset + uWidth - cw, vOffset, cw, ch);
+            graphics.blit(SHEET, x, y + height - ch, uOffset, vOffset + vHeight - ch, cw, ch);
+            repeating(graphics, x + cw, y + height - ch, width - 2 * cw, ch,
+                    uOffset + cw, vOffset + vHeight - ch, uWidth - 2 * cw, ch);
+            graphics.blit(SHEET, x + width - cw, y + height - ch,
+                    uOffset + uWidth - cw, vOffset + vHeight - ch, cw, ch);
+            repeating(graphics, x, y + ch, cw, height - 2 * ch,
+                    uOffset, vOffset + ch, cw, vHeight - 2 * ch);
+            repeating(graphics, x + cw, y + ch, width - 2 * cw, height - 2 * ch,
+                    uOffset + cw, vOffset + ch, uWidth - 2 * cw, vHeight - 2 * ch);
+            repeating(graphics, x + width - cw, y + ch, cw, height - 2 * ch,
+                    uOffset + uWidth - cw, vOffset + ch, cw, vHeight - 2 * ch);
+        }
+    }
+
+    /** Tiles a region of the sheet from its top-left corner, cropping the last row and column. */
+    private static void repeating(GuiGraphics graphics, int x, int y, int width, int height,
+                                  int uOffset, int vOffset, int sourceWidth, int sourceHeight) {
+        if (sourceWidth <= 0 || sourceHeight <= 0) {
+            return;
+        }
+        int drawX = x;
+        for (int remainingWidth = width; remainingWidth > 0; remainingWidth -= sourceWidth) {
+            int stepWidth = Math.min(remainingWidth, sourceWidth);
+            int drawY = y;
+            for (int remainingHeight = height; remainingHeight > 0; remainingHeight -= sourceHeight) {
+                int stepHeight = Math.min(remainingHeight, sourceHeight);
+                graphics.blit(SHEET, drawX, drawY, uOffset, vOffset, stepWidth, stepHeight);
+                drawY += stepHeight;
+            }
+            drawX += stepWidth;
+        }
     }
 
     /**

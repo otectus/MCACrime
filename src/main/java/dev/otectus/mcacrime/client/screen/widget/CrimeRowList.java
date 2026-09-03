@@ -28,8 +28,10 @@ import java.util.List;
  * decorations, and each is suppressed differently:
  *
  * <ul>
- *   <li>the full-width dirt body — {@code setRenderBackground(false)};
- *   <li>the dirt strips and gradient shadows above and below — {@code setRenderTopAndBottom(false)};
+ *   <li>the full-width menu-list body — {@link #renderListBackground} is overridden to draw the
+ *       mod's well instead;
+ *   <li>the header and footer separator strips above and below — {@link #renderListSeparators} is
+ *       overridden to a no-op;
  *   <li>the white-on-black selection rectangle — already gone, because
  *       {@code ContainerObjectSelectionList} hardcodes {@code isSelectedItem} to false;
  *   <li>the scrollbar — <em>not</em> suppressible. It is drawn inline in {@code render()}, so it is
@@ -85,10 +87,8 @@ public class CrimeRowList extends ContainerObjectSelectionList<CrimeRowList.Row>
      * @param width the full width of the list area, scrollbar included
      */
     public CrimeRowList(Minecraft minecraft, int left, int top, int bottom, int width, int itemHeight) {
-        super(minecraft, width, bottom - top, top, bottom, itemHeight);
-        setLeftPos(left);
-        setRenderBackground(false);
-        setRenderTopAndBottom(false);
+        super(minecraft, width, bottom - top, top, itemHeight);
+        setX(left);
         this.scrollbarX = scrollbarX(left, width);
         this.rowWidth = rowWidth(width);
     }
@@ -132,7 +132,7 @@ public class CrimeRowList extends ContainerObjectSelectionList<CrimeRowList.Row>
      */
     @Override
     public int getRowLeft() {
-        return getLeft() + getWidth() / 2 - getRowWidth() / 2;
+        return getX() + getWidth() / 2 - getRowWidth() / 2;
     }
 
     @Override
@@ -140,10 +140,20 @@ public class CrimeRowList extends ContainerObjectSelectionList<CrimeRowList.Row>
         return scrollbarX;
     }
 
-    /** The sunken area the rows sit in — drawn where vanilla would have blitted its dirt. */
+    /** The sunken area the rows sit in — drawn where vanilla would have blitted its menu background. */
     @Override
-    protected void renderBackground(GuiGraphics graphics) {
-        CrimeSprites.well(graphics, getLeft(), getTop(), getWidth(), getBottom() - getTop());
+    protected void renderListBackground(GuiGraphics graphics) {
+        CrimeSprites.well(graphics, getX(), getY(), getWidth(), getHeight());
+    }
+
+    /**
+     * Suppresses vanilla's header and footer separator strips.
+     *
+     * <p>They are the 1.21.1 replacement for the dirt strips {@code setRenderTopAndBottom(false)}
+     * used to turn off, and they read as the world-selection screen rather than as this mod's panel.
+     */
+    @Override
+    protected void renderListSeparators(GuiGraphics graphics) {
     }
 
     /**
@@ -160,11 +170,11 @@ public class CrimeRowList extends ContainerObjectSelectionList<CrimeRowList.Row>
         if (maxScroll <= 0) {
             return;
         }
-        int span = getBottom() - getTop();
+        int span = getHeight();
         int thumbHeight = Mth.clamp(span * span / getMaxPosition(), 32, span - 8);
-        int thumbY = Math.max(getTop(), (int) getScrollAmount() * (span - thumbHeight) / maxScroll + getTop());
+        int thumbY = Math.max(getY(), (int) getScrollAmount() * (span - thumbHeight) / maxScroll + getY());
 
-        CrimeSprites.scrollTrack(graphics, scrollbarX, getTop(), span);
+        CrimeSprites.scrollTrack(graphics, scrollbarX, getY(), span);
         CrimeSprites.scrollThumb(graphics, scrollbarX, thumbY, thumbHeight);
     }
 

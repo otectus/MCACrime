@@ -13,8 +13,8 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.network.chat.Component;
 import net.neoforged.api.distmarker.Dist;
-import net.neoforged.neoforge.client.event.RegisterGuiOverlaysEvent;
-import net.minecraftforge.client.gui.overlay.VanillaGuiOverlay;
+import net.neoforged.neoforge.client.event.RegisterGuiLayersEvent;
+import net.neoforged.neoforge.client.gui.VanillaGuiLayers;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
 
@@ -24,7 +24,7 @@ import net.neoforged.fml.common.EventBusSubscriber;
  *
  * <p>Before this, every piece of information the mod produced arrived as chat text, and the two most
  * time-critical pieces — how far an action had progressed and why it stopped — arrived as action-bar
- * spam that overwrote itself and then simply ceased. Registered through Forge's overlay event, so
+ * spam that overwrote itself and then simply ceased. Registered as GUI layers above the hotbar, so
  * there is no mixin here and none is needed.
  *
  * <p>Everything drawn is read from a client cache the server populated. Nothing here computes state.
@@ -43,14 +43,15 @@ public final class CrimeHudOverlays {
     }
 
     @SubscribeEvent
-    public static void register(RegisterGuiOverlaysEvent event) {
-        // Above the hotbar layer so the channel bar is never hidden behind it.
-        event.registerAbove(VanillaGuiOverlay.HOTBAR.id(), "crime_channel",
-                (gui, graphics, partialTick, width, height) -> renderChannel(graphics, width, height));
-        event.registerAbove(VanillaGuiOverlay.HOTBAR.id(), "crime_status",
-                (gui, graphics, partialTick, width, height) -> renderStatus(graphics, width, height));
-        event.registerAbove(VanillaGuiOverlay.HOTBAR.id(), "crime_custody",
-                (gui, graphics, partialTick, width, height) -> renderCustody(graphics, width, height));
+    public static void register(RegisterGuiLayersEvent event) {
+        // Above the hotbar layer so the channel bar is never hidden behind it. Layer IDs are full
+        // ResourceLocations now; the paths are the names the Forge overlays carried.
+        event.registerAbove(VanillaGuiLayers.HOTBAR, McaCrime.id("crime_channel"),
+                (graphics, deltaTracker) -> renderChannel(graphics, graphics.guiWidth(), graphics.guiHeight()));
+        event.registerAbove(VanillaGuiLayers.HOTBAR, McaCrime.id("crime_status"),
+                (graphics, deltaTracker) -> renderStatus(graphics, graphics.guiWidth(), graphics.guiHeight()));
+        event.registerAbove(VanillaGuiLayers.HOTBAR, McaCrime.id("crime_custody"),
+                (graphics, deltaTracker) -> renderCustody(graphics, graphics.guiWidth(), graphics.guiHeight()));
     }
 
     /** True when the HUD should stay out of the way entirely. */

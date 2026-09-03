@@ -166,28 +166,6 @@ dependencies {
                 "optional Reputation adapter. Build ../MCAReputation_1.21.1 (./gradlew classes) to include it.")
     }
 
-    // The client, mixin and MCA-client-bridge packages are still on the Forge APIs and are ported in
-    // Phase 7. Excluding them keeps compileJava a real gate on everything that is already ported.
-    sourceSets.main.java {
-        exclude 'dev/otectus/mcacrime/mixin/**', 'dev/otectus/mcacrime/compat/mca/client/**'
-        // Everything under client/ except HudAnchor, which is a bare enum the common config declares a
-        // config value of; excluding it would break McaCrimeConfig, which is already ported.
-        exclude {
-            it.file.isFile() && it.path.startsWith('dev/otectus/mcacrime/client/') &&
-                    it.path != 'dev/otectus/mcacrime/client/hud/HudAnchor.java'
-        }
-    } // TEMP Phase 5 -- remove in Phase 7
-
-    // Five tests assert on client geometry, colours and HUD anchoring, so they cannot compile while
-    // the client package is excluded above.
-    sourceSets.test.java {
-        exclude 'dev/otectus/mcacrime/ChallengePanelLayoutTest.java',
-                'dev/otectus/mcacrime/CrimeRowListGeometryTest.java',
-                'dev/otectus/mcacrime/HudAnchorTest.java',
-                'dev/otectus/mcacrime/LangCoverageTest.java',
-                'dev/otectus/mcacrime/PanelColoursTest.java'
-    } // TEMP Phase 5 -- remove in Phase 7
-
     // Unit tests for the non-MCA karma/heat engine (spec section 18).
     //
     // NOTE: no mixin annotation processor and no refmap, deliberately. NeoForge 1.21.1 production
@@ -368,13 +346,19 @@ tasks.register('checkJarContents') {
                 problems << "${shaded.size()} shaded class(es) under ${prefix}, e.g. ${shaded.first()}"
             }
         }
-        // The reflective MCA binding legitimately names every MCA package root in its constant pool -
-        // that is the whole point of compat/mca. Nothing outside that package may.
-        def mcaRoots = ['net/conczin/mca/', 'forge/net/conczin/mca/', 'forge/net/mca/', 'net/mca/'] as Set
+        // Two package roots are legitimately named, each by exactly one compat package: the reflective
+        // MCA binding names every MCA root (that is the whole point of compat/mca), and the optional
+        // Reputation adapter names the companion mod it is compiled against and only ever class-loaded
+        // beside. Nothing outside those packages may name either.
+        def allowedIn = [
+                'net/conczin/mca/'          : 'dev/otectus/mcacrime/compat/mca/',
+                'forge/net/conczin/mca/'    : 'dev/otectus/mcacrime/compat/mca/',
+                'forge/net/mca/'            : 'dev/otectus/mcacrime/compat/mca/',
+                'net/mca/'                  : 'dev/otectus/mcacrime/compat/mca/',
+                'dev/otectus/mcareputation/': 'dev/otectus/mcacrime/compat/reputation/']
         bytecodeHits.each { prefix, hits ->
-            def offenders = mcaRoots.contains(prefix)
-                    ? hits.findAll { !it.startsWith('dev/otectus/mcacrime/compat/mca/') }
-                    : hits
+            def owner = allowedIn[prefix]
+            def offenders = owner == null ? hits : hits.findAll { !it.startsWith(owner) }
             if (!offenders.isEmpty()) {
                 problems << "bytecode reference to ${prefix} in ${offenders.take(5)}"
             }

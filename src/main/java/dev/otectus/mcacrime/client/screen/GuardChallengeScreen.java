@@ -108,7 +108,25 @@ public final class GuardChallengeScreen extends Screen {
             minecraft.setScreen(null);
             return;
         }
-        renderBackground(graphics);
+        super.render(graphics, mouseX, mouseY, partialTick);
+
+        // Drawn after the widgets, not before. The countdown used to sit under the Refuse button in
+        // both senses — the wrong y, and the wrong draw order — so the one number the player needs in
+        // order to decide was the one thing they could not see.
+        drawStatusLine(graphics, ClientChallengeData.current());
+    }
+
+    /**
+     * The panel, the urgency chip and the challenge's own text.
+     *
+     * <p>Drawn from {@code renderBackground} rather than from {@code render}: 1.21.1's
+     * {@code Screen.render} calls {@code renderBackground} itself, so chrome drawn in {@code render}
+     * before {@code super.render} would be painted over by the blur and the menu background. The
+     * status line still runs after the widgets, for the reason above.
+     */
+    @Override
+    public void renderBackground(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
+        super.renderBackground(graphics, mouseX, mouseY, partialTick);
         var challenge = ClientChallengeData.current();
         CrimeSprites.panel(graphics, panelLeft, panelTop, layout.panelWidth(), layout.panelHeight());
 
@@ -125,13 +143,6 @@ public final class GuardChallengeScreen extends Screen {
                     Component.translatable("gui.mcacrime.challenge.charges", challenge.chargeCount()),
                     panelLeft + 10, panelTop + layout.chargesY(), PanelColours.TEXT, false);
         }
-
-        super.render(graphics, mouseX, mouseY, partialTick);
-
-        // Drawn after the widgets, not before. The countdown used to sit under the Refuse button in
-        // both senses — the wrong y, and the wrong draw order — so the one number the player needs in
-        // order to decide was the one thing they could not see.
-        drawStatusLine(graphics, challenge);
     }
 
     /** The jurisdiction on the left and the countdown on the right, sharing one line above the buttons. */

@@ -23,15 +23,12 @@ public final class CrimeClientSetup {
      * <p>Without this, joining a second world shows the first world's Heat, band colours, captivity
      * countdown and case file until the server happens to overwrite each one — and anything the new
      * server never sends (because the player is clean there) is never overwritten at all.
+     *
+     * <p>Which caches those are lives in {@link ClientCaches#ALL}, not here, so a cache added later
+     * cannot be left out of the sweep.
      */
     @SubscribeEvent
     public static void onLoggedOut(ClientPlayerNetworkEvent.LoggingOut event) {
-        ClientSelfData.clear();
-        ClientBandData.clear();
-        ClientCaptiveData.clear();
-        ClientActionData.clear();
-        ClientChallengeData.clear();
-        ClientCaseData.clear();
-        ClientRestraintData.clear();
+        ClientCaches.clearAll();
     }
 }

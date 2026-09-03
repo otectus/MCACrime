@@ -1,5 +1,6 @@
 package dev.otectus.mcacrime.mixin.client;
 
+import dev.otectus.mcacrime.McaCrime;
 import dev.otectus.mcacrime.McaCrimeConfig;
 import dev.otectus.mcacrime.client.ClientRestraintData;
 import net.minecraft.client.model.PlayerModel;
@@ -34,6 +35,16 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 @Mixin(PlayerModel.class)
 public abstract class PlayerModelRestraintMixin {
 
+    /**
+     * Whether the injection has already announced itself.
+     *
+     * <p>A mixin that fails to apply is silent: the arms simply swing and nothing in the log says the
+     * feature is off. One debug line the first time the injector runs is the difference between
+     * "restraint poses are broken" and "the mixin never applied", and it is written once rather than
+     * sixty times a second because this method is on the render path.
+     */
+    private static boolean mcacrime$logged;
+
     @Shadow
     public ModelPart leftSleeve;
 
@@ -44,6 +55,10 @@ public abstract class PlayerModelRestraintMixin {
     private void mcacrime$poseRestrained(LivingEntity entity, float limbSwing, float limbSwingAmount,
                                          float ageInTicks, float netHeadYaw, float headPitch,
                                          CallbackInfo ci) {
+        if (!mcacrime$logged) {
+            mcacrime$logged = true;
+            McaCrime.LOGGER.debug("PlayerModelRestraintMixin applied");
+        }
         if (!(entity instanceof AbstractClientPlayer player)) {
             return;
         }
