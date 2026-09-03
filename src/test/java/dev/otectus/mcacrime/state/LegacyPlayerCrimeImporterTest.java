@@ -130,7 +130,9 @@ class LegacyPlayerCrimeImporterTest {
         assertEquals(GUARD, arrest.getGuard());
         assertEquals(4_800L, arrest.getSentenceTicks());
         assertEquals(130_000L, arrest.getDeadlineOnlineTick());
-        assertEquals(2, arrest.getStuckStrikes());
+        // Stuck strikes describe one guard's progress on one walk; ArrestState.save() deliberately
+        // drops them, so the fixture's 2 must come back as 0 rather than survive the lift.
+        assertEquals(0, arrest.getStuckStrikes());
         assertEquals(new BlockPos(1, 2, 3), arrest.getLastSeenPos());
     }
 
@@ -227,7 +229,11 @@ class LegacyPlayerCrimeImporterTest {
 
     @Test
     void importingTwiceProducesTheSameStateAsImportingOnce() {
-        CompoundTag root = legacyRoot(populated().save());
+        // One source instance, not two calls to populated(): ArrestState mints a random sentenceId
+        // per instance, so a second fixture would differ from the blob for reasons the import never
+        // touches.
+        PlayerCrimeData source = populated();
+        CompoundTag root = legacyRoot(source.save());
 
         PlayerCrimeData once = new PlayerCrimeData();
         LegacyPlayerCrimeImporter.importFromForgeCaps(root, once);
@@ -236,7 +242,7 @@ class LegacyPlayerCrimeImporterTest {
         LegacyPlayerCrimeImporter.importFromForgeCaps(root, twice);
 
         assertEquals(once.save(), twice.save());
-        assertEquals(populated().save(), twice.save());
+        assertEquals(source.save(), twice.save());
     }
 
     @Test
