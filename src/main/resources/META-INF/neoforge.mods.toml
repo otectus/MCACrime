@@ -1,0 +1,59 @@
+modLoader="javafml"
+loaderVersion="${loader_version_range}"
+license="${mod_license}"
+
+[[mods]]
+modId="${mod_id}"
+version="${mod_version}"
+displayName="${mod_name}"
+authors="${mod_authors}"
+description='''${mod_description}'''
+
+# The mod ships exactly one mixin, it is client-only, and it does nothing but pose a restrained
+# player's arms. Everything else reaches Minecraft through NeoForge events on purpose; the pose is
+# the one thing no event can express, because PlayerRenderer.setModelProperties and
+# HumanoidModel.setupAnim both run after RenderPlayerEvent.Pre and overwrite whatever it set.
+#
+# On NeoForge the config is declared here, not through the Forge-era MixinConfigs JAR manifest
+# attribute.
+[[mixins]]
+    config="mcacrime.mixins.json"
+
+[[dependencies.${mod_id}]]
+    modId="neoforge"
+    type="required"
+    versionRange="${neoforge_version_range}"
+    ordering="NONE"
+    side="BOTH"
+[[dependencies.${mod_id}]]
+    modId="minecraft"
+    type="required"
+    versionRange="${minecraft_version_range}"
+    ordering="NONE"
+    side="BOTH"
+# MCA: Crime is meaningless without MCA Reborn, so MCA is a mandatory dependency. We load AFTER MCA
+# so its entities, professions, and registries are present.
+#
+# The range is EXACT (see mca_version_range in gradle.properties): it names the one published 1.21.1
+# NeoForge tag the binding manifest is verified against.
+[[dependencies.${mod_id}]]
+    modId="mca"
+    type="required"
+    versionRange="${mca_version_range}"
+    ordering="AFTER"
+    side="BOTH"
+# NOTE: Architectury is deliberately NOT declared. MCA's 1.21.1 NeoForge artifact does not use it at
+# all and MCA: Crime names no Architectury type, so declaring it would only block users who do not
+# have it installed.
+
+# MCA: Reputation - OPTIONAL. When present it owns public/community standing and MCA: Crime becomes
+# the single producer for villager assault/death; when absent Crime uses its own fallback store.
+# AFTER so the Reputation API is registered before our bridge handshakes with it. The range stays
+# permissive because ReputationBridge already performs an API-version handshake and intentionally
+# degrades instead of stopping the game.
+[[dependencies.${mod_id}]]
+    modId="mcareputation"
+    type="optional"
+    versionRange="[0.2,)"
+    ordering="AFTER"
+    side="BOTH"
