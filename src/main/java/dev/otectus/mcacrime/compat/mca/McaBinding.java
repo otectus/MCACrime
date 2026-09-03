@@ -21,18 +21,20 @@ import java.util.Map;
  *
  * <h2>Why this exists</h2>
  *
- * <p>MCA repackaged mid-line. Through 7.6.20 it shipped a Forgix-merged jar whose Forge classes live
- * at {@code forge.net.mca.*}; a later 7.7 build dropped the merge and renamed the base package to
- * {@code net.conczin.mca.*}. Because {@code McaCompat} used to {@code import forge.net.mca.*}, the
- * very first MCA reference on a renamed build threw
+ * <p>MCA repackaged mid-line. Its old Forge-era jars were Forgix-merged, so the loader-specific
+ * classes sat under a {@code forge.} prefix, and the base package moved from {@code net.mca} to
+ * {@code net.conczin.mca} partway through 7.7. Because {@code McaCompat} used to
+ * {@code import forge.net.mca.*}, the very first MCA reference on a renamed build threw
  * {@code NoClassDefFoundError: forge/net/mca/entity/VillagerEntityMCA} — from an
  * {@code EntityInteract} handler, so a dedicated server died the instant any player right-clicked any
  * entity.
  *
- * <p><b>The root cannot be inferred from the version number</b>: 7.7.0-beta.2 still ships
- * {@code forge.net.mca} while later 7.7 builds do not. So this is a class probe, never a version
- * comparison. Class-relative names are identical across every layout seen, so the whole difference is
- * the one prefix in {@link #CANDIDATE_ROOTS}.
+ * <p>The NeoForge 1.21.1 artifact ({@code net.conczin.mca:mca-neoforge}) is un-merged and ships a
+ * single root, {@code net.conczin.mca}, which is why that root is probed first. The layout still
+ * <b>cannot be inferred from the version number</b> — MCA has changed both axes independently
+ * before — so this stays a class probe, never a version comparison. Class-relative names are
+ * identical across every layout seen, so the whole difference is the one prefix in
+ * {@link #CANDIDATE_ROOTS}.
  *
  * <h2>The contract</h2>
  *
@@ -57,16 +59,17 @@ public final class McaBinding {
      * internal slash form — that is what lets {@code NoMcaStaticLinkTest} byte-scan compiled classes
      * for slash-form MCA references and treat any hit as a regression.
      *
-     * <p>Both axes vary independently, so all four combinations are listed. MCA 7.7.1-alpha.1 renamed
-     * the base package {@code net.mca} to {@code net.conczin.mca} but <em>kept</em> the Forgix merge,
-     * so the live root is {@code forge.net.conczin.mca} — the combination this list originally missed,
-     * which left every 7.7.1 user with "none of the known package roots matched".
+     * <p>The root the 1.21.1 NeoForge artifact actually uses comes first, so the common case matches
+     * on the first probe. The rest are kept because both axes have varied independently before and a
+     * probe log that can name what it tried is worth more than three dead strings cost.
      */
     private static final String[] CANDIDATE_ROOTS = {
-            "forge.net.conczin.mca.", // MCA 7.7.1-alpha.1 and later: Forgix merge, renamed base package
-            "forge.net.mca.",         // MCA 7.6.x through 7.7.0-beta.2: Forgix merge, legacy base package
-            "net.conczin.mca.",       // un-merged layout, renamed base package
-            "net.mca.",               // un-merged layout, legacy base package
+            "net.conczin.mca.",       // MCA 1.21.1 NeoForge: un-merged jar, current base package
+            // Forgix-merged roots from the 1.20.1 Forge era; the NeoForge 1.21.1 artifact ships
+            // un-merged at net.conczin.mca — kept so a probe log can name what was tried.
+            "forge.net.conczin.mca.",
+            "forge.net.mca.",
+            "net.mca.",
     };
 
     /** The class whose presence identifies a root. Every layout has it at this relative name. */
@@ -116,6 +119,17 @@ public final class McaBinding {
         /** {@code true} when a miss should fail the build rather than merely degrade a feature. */
         public boolean required() {
             return required;
+        }
+
+        /**
+         * A copy of this member under a different name, for {@code McaBindingProbeTest}. Renaming one
+         * entry to something no MCA declares is exactly the shape a removed member has, which is how
+         * the test proves a miss disables only its own bridge — without reflecting into private
+         * state or hand-editing the real {@link #MANIFEST}.
+         */
+        public Member renamed(String replacement) {
+            return new Member(kind, ownerRelative, replacement, returnType, arity, firstParamHint,
+                    required);
         }
 
         @Override
@@ -189,8 +203,8 @@ public final class McaBinding {
     // ---------------------------------------------------------------------------------------------
     // The manifest — every MCA class and member MCA: Crime depends on.
     //
-    // Verified present, unambiguous by name, and signature-identical in 7.6.20+1.20.1 and
-    // 7.7.0-beta.2+1.20.1 (both forge.net.mca) and 7.7.1-alpha.2+1.20.1 (forge.net.conczin.mca).
+    // Verified present, unambiguous by name, and signature-identical with erased descriptors in both
+    // probed 1.21.1 NeoForge builds, 7.7.33+1.21.1 and 7.7.36-beta.3+1.21.1 (both net.conczin.mca).
     // Nothing here is overloaded, so name plus arity separates every entry without a param hint.
     //
     // Deliberately absent: everything Crime reaches through vanilla rather than MCA — Mob#getTarget,
@@ -401,6 +415,16 @@ public final class McaBinding {
      * exactly the {@code NoClassDefFoundError} cascade this class exists to remove.
      */
     public static Resolution resolveAgainst(ClassLoader loader) {
+        return resolveAgainst(loader, MANIFEST);
+    }
+
+    /**
+     * As {@link #resolveAgainst(ClassLoader)}, but over an arbitrary member list. Production always
+     * passes {@link #MANIFEST}; the overload exists so {@code McaBindingProbeTest} can resolve a
+     * manifest with one member deliberately renamed away and check that only that member's bridge
+     * goes dark.
+     */
+    public static Resolution resolveAgainst(ClassLoader loader, List<Member> manifest) {
         Map<Member, Object> resolved = new IdentityHashMap<>();
         List<String> missingRequired = new ArrayList<>();
         List<String> missingOptional = new ArrayList<>();
@@ -413,7 +437,7 @@ public final class McaBinding {
 
         MethodHandles.Lookup lookup = MethodHandles.lookup();
         Map<String, Class<?>> classes = new java.util.HashMap<>();
-        for (Member member : MANIFEST) {
+        for (Member member : manifest) {
             try {
                 Class<?> owner = classes.computeIfAbsent(member.ownerRelative,
                         relative -> loadOrNull(loader, root + relative));
@@ -546,8 +570,8 @@ public final class McaBinding {
     }
 
     /**
-     * Logs the binding outcome exactly once, from common setup — after Forge has constructed every
-     * mod, so the classloader is authoritative. Deliberately one line per state rather than a warning
+     * Logs the binding outcome exactly once, from common setup — after the loader has constructed
+     * every mod, so the classloader is authoritative. Deliberately one line per state rather than a warning
      * per failed call: a partially-bound MCA would otherwise flood the log during an eligibility pass.
      */
     public static synchronized void init() {

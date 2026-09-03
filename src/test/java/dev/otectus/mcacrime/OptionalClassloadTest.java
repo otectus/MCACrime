@@ -31,6 +31,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class OptionalClassloadTest {
 
     private static final List<String> FORBIDDEN_PACKAGES = List.of(
+            // Not an optional mod at all: the old loader. A surviving net.minecraftforge reference in a
+            // NeoForge 1.21.1 build is a port miss that no classloader will ever satisfy, and it fails
+            // in exactly the same way an absent companion would, so it is checked in the same sweep.
+            "net/minecraftforge/",
             "dev/otectus/mcareputation/",
             "dev/otectus/mcaquests/",
             "dev/otectus/mcaconversations/",

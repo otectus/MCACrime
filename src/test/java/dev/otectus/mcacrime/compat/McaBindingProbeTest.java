@@ -14,6 +14,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -33,7 +34,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * <p>Each MCA build is opened in its own {@link ProbeClassLoader} rather than being read off the test
  * classpath, so the manifest is verified against real MCA without a single MCA class being linked into
  * the test JVM. The loader's parent is the test classloader, which is what makes the check meaningful:
- * Minecraft and Architectury types named in MCA's method signatures resolve to the very same classes
+ * the Minecraft types named in MCA's method signatures resolve to the very same classes
  * the manifest's parameter hints use, so a hint like {@code Village#getResidents(ServerLevel)}
  * genuinely discriminates between MCA's two same-arity overloads.
  *
@@ -52,10 +53,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *
  * <h2>Which MCA versions</h2>
  *
- * <p>Every build listed in {@code mca_probe_versions}, each opened in its own loader — one entry per
- * known package root. That fleet is the point: the root cannot be inferred from the version number
- * (7.7.0-beta.2 is {@code forge.net.mca}, 7.7.1-alpha.2 is {@code forge.net.conczin.mca}), so probing
- * only the dev-runtime build is how a root the binding does not recognise reaches players.
+ * <p>Every build listed in {@code mca_probe_versions}, each opened in its own loader. Both 1.21.1
+ * NeoForge builds ship the un-merged {@code net.conczin.mca} root, and the test pins that
+ * expectation rather than accepting any root that happens to match: MCA has moved its packages on
+ * both axes before, and probing only the dev-runtime build is how a root the binding does not
+ * recognise reaches players.
  *
  * <p>Skipped rather than failed when no MCA jar has been resolved, so the suite still runs in a
  * checkout that has not fetched them.
@@ -63,6 +65,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class McaBindingProbeTest {
 
     private static final String JARS_PROPERTY = "mcacrime.probe.jars";
+
+    /** The root every probed 1.21.1 NeoForge MCA build ships, dotted and trailing-dotted as stored. */
+    private static final String EXPECTED_ROOT = "net.conczin.mca.";
 
     @Test
     void manifestResolvesAgainstEveryProbedMcaJar() throws Exception {
@@ -81,6 +86,10 @@ class McaBindingProbeTest {
                 assertNotNull(resolution.root(),
                         "No candidate package root matched " + jar.getFileName() + ". If MCA has moved "
                                 + "again, add the new root to McaBinding's CANDIDATE_ROOTS.");
+                assertEquals(EXPECTED_ROOT, resolution.root(),
+                        jar.getFileName() + " bound at an unexpected package root. Every 1.21.1 NeoForge "
+                                + "MCA build is un-merged; a different root here means MCA repackaged and "
+                                + "CANDIDATE_ROOTS needs revisiting.");
                 assertEquals(List.of(), resolution.unresolvedRequired(),
                         jar.getFileName() + " is missing member(s) the mod requires. Either MCA renamed "
                                 + "them (update the manifest in McaBinding) or removed them (declare the "
@@ -90,6 +99,50 @@ class McaBindingProbeTest {
                 System.out.println("[probe] " + jar.getFileName() + " -> " + resolution.root()
                         + (resolution.unresolvedOptional().isEmpty() ? ""
                                 : " (optional absent, fallbacks apply: " + resolution.unresolvedOptional() + ")"));
+            }
+        }
+    }
+
+    /**
+     * §12.1's degradation case: <b>a member MCA no longer has must disable its own bridge and nothing
+     * else</b>. A renamed manifest entry is the same shape as a removed member — the lookup finds no
+     * method of that name — so the manifest is rebuilt with one optional entry pointed at a name no
+     * MCA declares and resolved against a real jar.
+     *
+     * <p>The assertion that matters is the narrowness: the resolution is still {@code BOUND}, every
+     * required member still resolves, every <em>other</em> optional member still resolves, and only
+     * the sabotaged one reads as absent. That is what stops a future MCA removal from taking crime
+     * detection down with a village label.
+     */
+    @Test
+    void aMissingOptionalMemberDisablesOnlyItsOwnBridge() throws Exception {
+        List<Path> jars = probeJars();
+        Assumptions.assumeFalse(jars.isEmpty(),
+                "No MCA jar to probe (" + JARS_PROPERTY + "); run via Gradle to exercise this.");
+
+        McaBinding.Member sabotaged = McaBinding.VILLAGE_GET_NAME.renamed("getNameThatMcaDoesNotHave");
+        List<McaBinding.Member> manifest = new ArrayList<>(McaBinding.MANIFEST);
+        manifest.set(manifest.indexOf(McaBinding.VILLAGE_GET_NAME), sabotaged);
+
+        try (ProbeClassLoader loader = new ProbeClassLoader(jars.get(0))) {
+            McaBinding.Resolution resolution = McaBinding.resolveAgainst(loader, manifest);
+
+            assertEquals(McaBinding.Status.BOUND, resolution.status(),
+                    "an optional member going missing must not turn the whole binding PARTIAL");
+            assertEquals(List.of(), resolution.unresolvedRequired(),
+                    "sabotaging one optional member must not disturb any required one");
+            assertEquals(List.of(sabotaged.toString()), resolution.unresolvedOptional(),
+                    "exactly one bridge should report absent");
+            assertFalse(resolution.has(sabotaged),
+                    "the village-name bridge should read as absent, so McaHandles falls back to its label");
+
+            // The neighbouring optional bridges -- guard population and the relationship graph -- are
+            // the ones a naive "any miss disables MCA" implementation would take down with it.
+            for (McaBinding.Member other : List.of(McaBinding.VILLAGE_GET_RESIDENTS,
+                    McaBinding.VILLAGE_GET_POPULATION, McaBinding.VILLAGE_IS_VILLAGE,
+                    McaBinding.VILLAGER_IS_GUARD, McaBinding.VILLAGER_SET_PROFESSION,
+                    McaBinding.VILLAGE_MANAGER_GET, McaBinding.GET_FAMILY_ENTRY)) {
+                assertTrue(resolution.has(other), other + " should be unaffected by an unrelated miss");
             }
         }
     }
@@ -121,8 +174,8 @@ class McaBindingProbeTest {
      *
      * <p>The split is the whole point. MCA is on the test runtime — the NeoForge unit-test loader
      * enforces the {@code mca} dependency in {@code neoforge.mods.toml} — so plain parent-first
-     * delegation would serve every probed version out of that single jar. Minecraft, Architectury and
-     * JDK types must still come from the parent, though, or MCA's method descriptors would name
+     * delegation would serve every probed version out of that single jar. Minecraft and JDK types
+     * must still come from the parent, though, or MCA's method descriptors would name
      * different {@code Class} objects than the manifest's parameter hints and every overload
      * discrimination would miss.
      */
@@ -130,7 +183,7 @@ class McaBindingProbeTest {
 
         /** Mirrors {@code McaBinding.CANDIDATE_ROOTS}, which is private; keep the two in step. */
         private static final String[] MCA_ROOTS = {
-                "forge.net.conczin.mca.", "forge.net.mca.", "net.conczin.mca.", "net.mca.",
+                "net.conczin.mca.", "forge.net.conczin.mca.", "forge.net.mca.", "net.mca.",
         };
 
         ProbeClassLoader(Path jar) throws Exception {

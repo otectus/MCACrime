@@ -41,6 +41,14 @@ class CrimeIncidentDataTest {
     private static final Path LANG =
             TestPaths.resources("assets", "mcacrime", "lang", "en_us.json");
 
+    /** Every {@code fieldOf} in {@code IncidentDefinition.CODEC}; a miss fails the decode outright. */
+    private static final List<String> REQUIRED_FIELDS =
+            List.of("display", "default_delta", "visibility", "severity");
+    /** Every {@code strictOptional} in the same codec. Present-but-malformed is an error, absent is not. */
+    private static final Set<String> OPTIONAL_FIELDS = Set.of("tags", "retention_ticks", "decay",
+            "resolution", "gossip", "pinned", "max_override_abs", "retain_unwitnessed",
+            "allow_private_score");
+
     private static final Set<String> VISIBILITIES = Set.of("private", "witnessed", "village", "global");
     private static final Set<String> SEVERITIES =
             Set.of("trivial", "minor", "moderate", "major", "severe");
@@ -139,7 +147,7 @@ class CrimeIncidentDataTest {
         for (Path file : incidentFiles()) {
             JsonObject json = read(file);
             String name = file.getFileName().toString();
-            for (String required : List.of("display", "default_delta", "visibility", "severity")) {
+            for (String required : REQUIRED_FIELDS) {
                 assertTrue(json.has(required), name + " is missing the required field " + required);
             }
             assertTrue(VISIBILITIES.contains(json.get("visibility").getAsString()),
@@ -147,6 +155,31 @@ class CrimeIncidentDataTest {
             assertTrue(SEVERITIES.contains(json.get("severity").getAsString()),
                     name + " has an unknown severity");
         }
+    }
+
+    /**
+     * The other half of the same contract: no field the companion's codec does not know.
+     *
+     * <p>{@code IncidentDefinition.CODEC} is built from strict optionals, so a misspelt or invented
+     * key is not ignored — it makes the whole definition fail to decode on the Reputation side, at
+     * datapack load, in somebody else's log. The codec itself cannot be called from here (the
+     * companion is a {@code compileOnly} seam and is never on the test classpath), so the key set is
+     * mirrored from {@code IncidentDefinition.CODEC} and has to be updated alongside it.
+     */
+    @Test
+    void noShippedIncidentCarriesAKeyTheCompanionCodecDoesNotKnow() throws IOException {
+        List<String> unknown = new ArrayList<>();
+        for (Path file : incidentFiles()) {
+            JsonObject json = read(file);
+            for (String key : json.keySet()) {
+                if (!REQUIRED_FIELDS.contains(key) && !OPTIONAL_FIELDS.contains(key)) {
+                    unknown.add(file.getFileName() + " -> " + key);
+                }
+            }
+        }
+        assertTrue(unknown.isEmpty(),
+                "these keys are not in IncidentDefinition.CODEC and would fail the whole definition to "
+                        + "decode: " + unknown);
     }
 
     /**

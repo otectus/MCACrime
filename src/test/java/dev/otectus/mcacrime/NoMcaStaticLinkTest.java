@@ -42,14 +42,19 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class NoMcaStaticLinkTest {
 
     /**
-     * Every MCA package root this mod has ever seen, in internal form. {@code net/mca/} keeps its
+     * Every MCA package root this mod has ever seen, plus the old loader's, in internal form.
+     * {@code net/mca/} keeps its
      * trailing slash so it cannot collide with an unrelated {@code net/mcaSomething} package.
      *
      * <p>The Townstead compatibility spec also names a {@code forge.net.conczin.mca} root. It needs no
      * entry of its own: {@code net/conczin/mca} is a substring of it, so any class referencing that
      * root already trips the second needle. Adding it would be dead weight that reads like coverage.
      */
-    private static final String[] MCA_ROOTS = {"forge/net/mca", "net/conczin/mca", "net/mca/"};
+    private static final String[] FORBIDDEN_ROOTS = {
+            "forge/net/mca", "net/conczin/mca", "net/mca/",
+            // The old loader, forbidden on the same terms and for the same reason: a surviving
+            // net.minecraftforge reference in a NeoForge 1.21.1 build resolves to nothing at runtime.
+            "net/minecraftforge/"};
 
     @Test
     void noCompiledClassReferencesAnMcaType() throws IOException {
@@ -69,7 +74,7 @@ class NoMcaStaticLinkTest {
                 String relative = classesDir.relativize(p).toString().replace('\\', '/');
                 try {
                     byte[] bytes = Files.readAllBytes(p);
-                    for (String root : MCA_ROOTS) {
+                    for (String root : FORBIDDEN_ROOTS) {
                         if (containsNeedle(bytes, root.getBytes(StandardCharsets.UTF_8))) {
                             violations.add(relative + " -> " + root);
                         }
@@ -81,7 +86,7 @@ class NoMcaStaticLinkTest {
         }
 
         assertTrue(violations.isEmpty(),
-                "Class(es) statically reference an MCA package. Every MCA access must go through "
+                "Class(es) statically reference an MCA or Forge package. Every MCA access must go through "
                         + "dev.otectus.mcacrime.compat.mca.McaBinding/McaHandles so the mod keeps working "
                         + "across MCA's package renames. Offenders: " + violations);
     }

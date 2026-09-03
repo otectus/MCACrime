@@ -37,14 +37,21 @@ public final class ReputationBridge {
     /**
      * The oldest MCA: Reputation that carries the detection-authority API this adapter needs.
      *
-     * <p>Not expressed as a {@code versionRange} in {@code mods.toml}, and that is a deliberate
-     * choice rather than an oversight. Forge enforces the range of an optional dependency when the
-     * mod is present, so declaring {@code [0.3,)} would stop the game launching for anybody running
-     * the older companion — a hard failure over an integration that is, by definition, optional. The
-     * range stays permissive and the shortfall is handled here instead: the integration switches off,
-     * the built-in store takes over, and the log says which version would turn it back on.
+     * <p>Lower than the Forge line's {@code 0.3.0} on purpose. The NeoForge 1.21.1 companion restarted
+     * its version numbering at 0.2.0 while exposing API v1 with the full authority and mirror surface
+     * this adapter is written against, so a 0.3.0 floor here would reject the only companion that
+     * exists for this Minecraft version. <b>{@link #REQUIRED_API_VERSION} is the real contract</b>;
+     * this string is a human-facing hint in one log line and nothing is compared against it.
+     *
+     * <p>Not expressed as a {@code versionRange} in {@code neoforge.mods.toml} either, and that is a
+     * deliberate choice rather than an oversight. The loader enforces the range of an optional
+     * dependency when the mod is present, so a tight range would stop the game launching for anybody
+     * running an older companion — a hard failure over an integration that is, by definition,
+     * optional. The declared range stays permissive at {@code [0.2,)} and the shortfall is handled
+     * here instead: the integration switches off, the built-in store takes over, and the log says
+     * which version would turn it back on.
      */
-    private static final String MINIMUM_COMPANION_VERSION = "0.3.0";
+    private static final String MINIMUM_COMPANION_VERSION = "0.2.0";
 
     private static volatile ReputationOps ops;
     private static volatile boolean initialised;
@@ -63,8 +70,8 @@ public final class ReputationBridge {
     }
 
     /**
-     * Chooses whether the integration runs. Called once from common setup, after Forge has loaded
-     * every mod, so {@link ModList} is authoritative by this point.
+     * Chooses whether the integration runs. Called once from common setup, after the loader has
+     * constructed every mod, so {@link ModList} is authoritative by this point.
      */
     public static synchronized void init() {
         if (initialised) {
