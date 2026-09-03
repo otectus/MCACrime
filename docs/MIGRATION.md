@@ -1,6 +1,6 @@
 # MCA: Crime — migration, removal, and rollback
 
-MCA: Crime keeps two stores: per-player data on a Forge capability serialised into player NBT, and
+MCA: Crime keeps two stores: per-player data on a NeoForge attachment (`mcacrime:player_crime`) serialised into player NBT, and
 world data in `<world>/data/mcacrime.dat`, pinned to the Overworld's storage. This document is about
 the second one, because that is what changes shape between versions.
 
@@ -18,6 +18,66 @@ cp -r world world-backup-pre-0.2.0
 
 That is the entire mitigation, and it is the only complete one. Everything below explains what the
 migration does and what safety nets exist, but none of them replace the copy.
+
+## Moving from Forge 1.20.1 to NeoForge 1.21.1
+
+This guide is for server owners and players upgrading MCA: Crime from Forge 1.20.1 to NeoForge 1.21.1 on an existing world.
+
+### What Migrates Automatically
+
+Player data from Forge 1.20.1 player files is imported once on load:
+
+- When a player joins the NeoForge server for the first time after the upgrade, their crime data (karma, heat, band, wanted status) is read from their Forge player `.dat` file.
+- The data is loaded into the NeoForge attachment storage (an internal change; player behavior is unchanged).
+- If a player already has NeoForge-native data, it takes precedence and the Forge data is ignored.
+- The original Forge player file is left untouched and never written to. Normal player saves re-emit the data in the new format automatically.
+- A fallback to `<uuid>.dat_old` is attempted if the primary player file is unreadable.
+
+### What Does Not Migrate
+
+- **1.20.1 Forge clients cannot join a NeoForge 1.21.1 server.** The network protocol is incompatible (changed to version 7). Clients must update to NeoForge 1.21.1.
+- World files (block data, entity data) are compatible; only the network protocol differs.
+- Config files (keys and TOML structure) remain identical across both versions.
+
+### Step-by-Step Upgrade
+
+1. Back up the world and configs directory.
+2. Install NeoForge 1.21.1 and the production MCA: Crime port JAR on your server.
+3. Install MCA Reborn 1.21.1 and only the declared dependencies (no optional mods yet).
+4. Start the server. Watch the logs for import confirmations (below).
+5. Have each player join once. Each login triggers a single automatic import (if needed).
+6. Stop the server cleanly. Inspect the world data file at `world/data/mcacrime.dat` to confirm the upgrade completed (see below).
+7. Restart twice and confirm players' karma, heat, and band are persistent and unchanged.
+8. If you have MCA: Reputation installed, join once more with a player who had reputation data in the Forge world.
+9. Exercise normal gameplay: arrests, jails, cases, crimes. Data should persist across restarts.
+10. If any data is missing or wrong, restore the backup and contact support with the full server log from the first startup.
+
+### Verifying the Import
+
+Check the server log for these lines (one per player, on first join):
+
+```
+[MCA: Crime] Imported 1.20.1 Forge crime data for player <UUID>.
+```
+
+If a player file is unreadable or does not contain legacy crime data, the log shows:
+
+```
+[MCA: Crime] Could not read the player file for <UUID>; skipping the 1.20.1 crime-data import. The player keeps whatever state loaded normally.
+```
+
+Both outcomes are normal. New players or players with no Forge crime data simply start with defaults.
+
+### Rollback
+
+If the upgrade fails or data is corrupt, restore the backup and downgrade to Forge 1.20.1. Your original player `.dat` files and world data are preserved in the backup.
+
+### Known Differences
+
+- World file (`world/data/mcacrime.dat`) schema is unchanged (version 6).
+- All configuration keys remain the same; the TOML structure is identical.
+- Client resource packs and datapacks work the same.
+- Block positions and memory data in the world file keep their 1.20.1 structure.
 
 ## What happens on load
 
@@ -103,7 +163,7 @@ plainly rather than to imply a rollback path that works better than it does.
 ## Removing the mod
 
 Take the jar out and the world loads. `mcacrime.dat` is simply never read again, and the player
-capability data becomes inert NBT on each player. Nothing is deleted, so putting the jar back later
+attachment (`mcacrime:player_crime`) data becomes inert NBT on each player. Nothing is deleted, so putting the jar back later
 picks up exactly where it left off — karma, Heat, sentences, the ledger, and standing all intact.
 
 Two things end at removal, by nature rather than by choice: any jail sentence stops being enforced,

@@ -160,25 +160,27 @@ All commands are under **/crime**. Players can inspect and act on their own stat
 
 | Component | Requirement |
 |---|---|
-| Minecraft | 1.20.1 |
-| Mod loader | Forge 47.x; built and tested with 47.4.10 |
-| Required | MCA Reborn 7.6.x or 7.7.x ([7.6,8)) |
-| Optional | MCA: Reputation 0.2.0+ |
-| Java | Java 17 |
+| Minecraft | 1.21.1 on NeoForge |
+| NeoForge | the version pinned in `gradle.properties` or newer within the same minor |
+| Required | MCA Reborn, the exact NeoForge 1.21.1 build pinned in `gradle.properties` |
+| Optional | MCA: Reputation, the NeoForge 1.21.1 companion build |
+| Java | 21 (provisioned by the Gradle toolchain) |
 
-MCA: Crime resolves MCA integration through a runtime compatibility layer rather than linking one specific MCA package layout. The same jar is tested against MCA Reborn 7.6.20, 7.7.0-beta.2, and 7.7.1-alpha.2 package layouts.
+MCA: Crime resolves MCA integration through a runtime compatibility layer rather than linking one specific MCA package layout.
 
-Architectury does not need to be declared separately by this mod. Install the dependencies required by your chosen MCA Reborn build normally.
+Architectury does not need to be declared separately by this mod. MCA's 1.21.1 NeoForge build does not use it.
 
 ### Installation
 
-1. Install Minecraft 1.20.1 and Forge 47.x.
-2. Install a compatible MCA Reborn version.
+1. Install Minecraft 1.21.1 and NeoForge 21.1.248 or later.
+2. Install a compatible MCA Reborn 1.21.1 NeoForge build.
 3. Put the MCA: Crime jar in the mods folder on both the client and server.
-4. Optionally install MCA: Reputation 0.2.0 or newer on both sides.
+4. Optionally install MCA: Reputation 0.2.0 or newer (NeoForge 1.21.1 build) on both sides.
 5. Start the game once to generate config/mcacrime-common.toml and config/mcacrime-client.toml.
 
-For an existing world, make a backup before upgrading. Version 0.3.0 migrates older saved crime data to schema 4 when the world loads. The migration is designed to be forward-safe but is not reversible by installing an older jar.
+For an existing 1.20.1 world, back up before upgrading. Player data is migrated from the legacy Forge
+capability format on load. The migration is designed to be forward-safe but is not reversible by
+installing an older jar.
 
 ---
 
@@ -212,13 +214,13 @@ Full documentation is maintained in the repository:
 
 ## For mod developers
 
-MCA: Crime exposes a read-only, server-authoritative Java API and Forge events for crimes, witnessing, Karma and Heat changes, Wanted changes, jail, release, custody, fines, and case resolution. Public reads return immutable views and safe empty results instead of exposing mutable internal state. Gameplay mutation remains behind the mod's authoritative services so integrations cannot bypass idempotency, case transitions, or economy rules.
+MCA: Crime exposes a read-only, server-authoritative Java API and NeoForge events for crimes, witnessing, Karma and Heat changes, Wanted changes, jail, release, custody, fines, and case resolution. Public reads return immutable views and safe empty results instead of exposing mutable internal state. Two events are cancellable Pre events implementing `ICancellableEvent`. Gameplay mutation remains behind the mod's authoritative services so integrations cannot bypass idempotency, case transitions, or economy rules.
 
 ---
 
 ## Current status
 
-MCA: Crime 0.3.0 is an **alpha release**. Back up important worlds and report problems with the MCA, Forge, and MCA: Crime versions you are using. **/crime debug integrations** and **/crime debug custody** provide useful diagnostic summaries.
+MCA: Crime 0.5.0 is an **alpha release**. Back up important worlds and report problems with the MCA, NeoForge, and MCA: Crime versions you are using. **/crime debug integrations** and **/crime debug custody** provide useful diagnostic summaries.
 
 Current presentation limitations:
 

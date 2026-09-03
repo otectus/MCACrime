@@ -1,3 +1,5 @@
+> This document describes the Forge 1.20.1 era implementation and is kept for history. The current NeoForge 1.21.1 port is described in README.md, docs/MIGRATION.md, and docs/MCA_CRIME_1.21.1_NEOFORGE_PORT_SPEC.md.
+
 # Phase 4 — Captivity & Kidnapping: In-World Verification Checklist
 
 The Phase 4 logic is unit-tested where it's pure (custody NBT round-trip + forward-compat, the captivity

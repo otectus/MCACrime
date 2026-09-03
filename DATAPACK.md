@@ -56,7 +56,7 @@ So with the shipped defaults, an unwitnessed murder costs full karma and no Heat
 wants private crime to weigh less on conscience lowers `unwitnessedKarmaFactor`; a pack that wants
 public crime to weigh more raises `witnessedMultiplier`. They are not the same knob.
 
-### The seven shipped definitions
+### The ten shipped definitions
 
 | Crime id | `karmaDelta` | `heatDelta` | `victimTag` |
 |---|---:|---:|---|
@@ -67,9 +67,12 @@ public crime to weigh more raises `witnessedMultiplier`. They are not the same k
 | `mcacrime:kidnap` | −40 | 35 | `villager` |
 | `mcacrime:kill_villager` | −50 | 40 | `villager` |
 | `mcacrime:mugging_murder` | −70 | 55 | `villager` |
+| `mcacrime:assault_player` | −10 | 15 | `player` |
+| `mcacrime:extortion` | −12 | 10 | `villager` |
+| `mcacrime:murder_player` | −50 | 40 | `player` |
 
 All ship with `witnessedMultiplier: 1.0`. `jailbreak` has no victim tag because its victim is the
-authority, not a person — which is also why it is recorded as witnessed with no named witnesses.
+authority, not a person — which is also why it is recorded as witnessed with no named witnesses. `assault_player` and `murder_player` are only recorded when `pvpCountsAsCrime` is enabled.
 
 ### The fail-safe mirror
 
@@ -142,6 +145,37 @@ dialogue, gossip phrases, and incident-tag queries across the suite already spea
 Override any of the eight by writing a file with the same id in your own pack. The mapping from crime
 to incident is fixed in code — exactly one incident per crime, so a case can never produce two public
 deeds — but what that incident is *worth* is entirely yours.
+
+---
+
+## Item tags
+
+Tags are stored under `data/<namespace>/tags/item/`. This mod ships tags under the `mcacrime` namespace
+and publishes items through the common `c:` namespace.
+
+| Tag | Purpose |
+|---|---|
+| `mcacrime:weapons` | Items that trigger the Crime menu when held and right-clicked on a villager. Defaults to `#minecraft:swords` and `#minecraft:axes` plus the common `c:tools/melee_weapon`, `c:tools/ranged_weapon`, `c:tools/bow`, `c:tools/crossbow` and `c:tools/spear` tags. A datapack can add to it. |
+| `mcacrime:weapons_blacklist` | Items that are never weapons, overriding any whitelist or automatic detection. |
+| `c:ropes` | Common rope tag consumed by the restraint-rope recipe and rope detection; `data/c/tags/item/ropes.json` adds `mcacrime:restraint_rope` to it. |
+
+---
+
+## Dialogue
+
+Villager dialogue is data-driven:
+
+```
+data/<namespace>/mcacrime/dialogue/*.json
+```
+
+Reload with `/reload`. The server picks a translation key and the client renders it, so lines localise
+and no text crosses the wire; the choice is deterministic per encounter, so reopening a conversation
+cannot be used to reroll until a preferred line appears.
+
+Every fired event has a pool of dialogue in the mod or a custom datapack. The 22 events ship with
+content; `/crime validate` fails the build if a fired event has no pool or a pool names a key with no
+translation.
 
 ---
 

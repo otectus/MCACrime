@@ -1,3 +1,5 @@
+> This document describes the Forge 1.20.1 era implementation and is kept for history. The current NeoForge 1.21.1 port is described in README.md, docs/MIGRATION.md, and docs/MCA_CRIME_1.21.1_NEOFORGE_PORT_SPEC.md.
+
 # Phase 2 — Crime Detection: In-World Verification Checklist
 
 The Phase 2 logic is unit-tested where it's pure (false-positive gate fragments, witnessed/unwitnessed

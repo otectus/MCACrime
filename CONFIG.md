@@ -358,7 +358,7 @@ pre-empted by the Crime menu. Blacklist that item under `[weapons]`, or turn the
 | `weaponMods` | `tacz, cgm, pointblank, scguns, mwc` | — | Namespaces whose non-stackable, non-block items are assumed to be firearms. Editable guesses, not a verified list. |
 | `mugRequiresWeapon` | `true` | — | Mugging requires a weapon in one hand. Unarmed, the row stays visible and says so. |
 
-Both lists take plain item ids (`minecraft:iron_sword`) or `#tags` (`#forge:tools/spears`). Wildcards
+Both lists take plain item ids (`minecraft:iron_sword`) or `#tags` (`#c:tools/melee_weapon`). Wildcards
 are **not** accepted here, because nothing expands one. The validator parses every entry, checks
 plain ids against the item registry, and warns when the same entry appears on both lists.
 
@@ -368,8 +368,8 @@ Classification is first-match-wins, in this order:
 2. `blacklist`;
 3. `whitelist`;
 4. the `mcacrime:weapons_blacklist` item tag;
-5. the `mcacrime:weapons` item tag (ships covering swords, axes, and the Forge bow/crossbow/trident
-   tags, so a datapack can add to it rather than to anybody's config file);
+5. the `mcacrime:weapons` item tag (ships covering `#minecraft:swords`, `#minecraft:axes`, `#c:tools/melee_weapon`,
+   `#c:tools/ranged_weapon`, `#c:tools/bow`, `#c:tools/crossbow`, and `#c:tools/spear`, so a datapack can add to it);
 6. then, only if `autoDetect` is on: swords, axes and tridents; bows, crossbows and anything with a
    drawing use animation; a gun keyword in the item's path; a `weaponMods` namespace on a
    non-stackable, non-block item; digging tools other than axes, which are excluded; and finally the
@@ -378,7 +378,7 @@ Classification is first-match-wins, in this order:
 `/crime debug weapon` prints the held item's id, its class, the layer that decided it, and the
 threshold in force.
 
-**Config sync caveat.** This block is COMMON config, which Forge does not sync to clients. The client
+**Config sync caveat.** This block is COMMON config, which NeoForge does not sync to clients. The client
 runs the same rule to decide whether to swallow the right-click locally, so a client whose lists
 differ from the server's will mispredict the swing. The server's answer still decides what happens.
 
@@ -459,7 +459,7 @@ hearts change does not happen, not that anything crashes.
 | `ambientMessagesEnabled` | `true` | — | On-screen messages for band changes, being witnessed, and guard pursuit. |
 | `ambientMessageThrottleTicks` | `100` | `0 … 100000` | Minimum ticks between repeats of the same kind of message to one player. Band transitions are never throttled — they are the one thing you must not miss. |
 | `chatNameColorEnabled` | `false` | — | Colour player names in chat by band. This is now the only switch: the client-side `chatFormatToggle` that used to shadow it was removed in 0.4.0, because a client cannot opt out of text the server has already formatted, and a setting that reads as a choice but is not is worse than no setting at all. |
-| `chatNameColorMode` | `FULL` | `FULL`, `PREFIX_ONLY` | On 1.20.1 signed chat only exposes the message body to the server, so `FULL` adds a coloured prefix marker rather than recolouring the sender's name. `PREFIX_ONLY` adds a plainer marker. |
+| `chatNameColorMode` | `FULL` | `FULL`, `PREFIX_ONLY` | Signed chat only exposes the message body to the server, so `FULL` adds a coloured prefix marker rather than recolouring the sender's name. `PREFIX_ONLY` adds a plainer marker. |
 
 ## `[matching]`
 

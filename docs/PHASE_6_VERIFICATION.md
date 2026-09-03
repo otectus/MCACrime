@@ -1,3 +1,5 @@
+> This document describes the Forge 1.20.1 era implementation and is kept for history. The current NeoForge 1.21.1 port is described in README.md, docs/MIGRATION.md, and docs/MCA_CRIME_1.21.1_NEOFORGE_PORT_SPEC.md.
+
 # Phase 6 — Armed Interactions: In-World Verification Checklist
 
 The classification rules themselves are unit-tested (`WeaponRulesTest`, `ConfigValidatorTest`): the

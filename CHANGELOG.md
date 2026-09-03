@@ -5,10 +5,40 @@ All notable changes to MCA: Crime.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); this project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-Compatibility: Minecraft 1.20.1 · Forge 47.x · requires MCA Reborn `[7.6,8)`, built against
-`7.6.20`. Architectury is deliberately not declared — MCA 7.6 pulls it in itself and MCA 7.7
-dropped it. Optional: MCA: Reputation `[0.2,)`; the integration itself needs `0.3.0`, and an older
-companion degrades to the built-in store rather than failing the load.
+## [0.5.0] — NeoForge 1.21.1 port
+
+The maintainer deliberately kept the same version number across the loader change. The Minecraft/NeoForge
+dependency ranges distinguish this artifact from any future Forge build.
+
+**Back up your worlds before upgrading.** Player data is migrated from the legacy Forge capability format
+on first load and the migration is not reversible.
+
+### Changed (Forge 1.20.1 → NeoForge 1.21.1)
+
+- **Moved to NeoForge for Minecraft 1.21.1; Java 21 toolchain; MCA dependency pinned to the tested NeoForge build in `gradle.properties`**.
+- Player data is stored as a NeoForge data attachment `mcacrime:player_crime` rather than a Forge
+  capability. Legacy Forge capability data under `ForgeCaps` is imported once on player load; new-format
+  data always wins.
+- Network protocol bumped from `6` to `7`: custom payloads with named identifiers replace numeric
+  discriminators. Protocol 6 cannot talk to protocol 7.
+- Resource paths are now singular: `data/<ns>/mcacrime/crimes/*.json`, `data/<ns>/mcacrime/dialogue/*.json`,
+  and `data/<ns>/mcareputation/incidents/*.json` (was `recipes/`, `tags/items/`).
+- Item tags now use the common `c:` prefix: `c:ropes` for restraints (was `forge:ropes`). Custom item
+  tags like `#mcacrime:weapons` remain under the `mcacrime` namespace.
+- The one client-side mixin that poses a restrained player's arms is now registered via `neoforge.mods.toml`
+  rather than JAR manifest attributes (Forge-era MixinConfigs).
+- Config API changed from `ForgeConfigSpec` to `ModConfigSpec` (implementation detail; TOML files are
+  compatible).
+- Event annotations changed from `@Mod.EventBusSubscriber` to `@EventBusSubscriber` (NeoForge).
+- Events fire on `NeoForge.EVENT_BUS` instead of `MinecraftForge.EVENT_BUS`.
+- Architectury is no longer required at runtime. The MCA version in `gradle.properties` does not use it.
+- **MCA: Reputation companion requirement:** if you use the optional MCA: Reputation integration, use the NeoForge build. The integration handshake is API-version-gated and degrades gracefully if absent, but a Forge-era companion cannot load on this version.
+- World data file `data/mcacrime.dat` remains schema 6; no migration needed for world data.
+
+---
+
+Compatibility: Minecraft 1.21.1 on NeoForge; requires the MCA Reborn version pinned in `gradle.properties`.
+Optional: MCA: Reputation, NeoForge build.
 
 ## [0.5.0] — unreleased
 

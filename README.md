@@ -7,10 +7,9 @@ that gives a village law. Hurt someone where a guard can see it and you are purs
 jailed. Do it where nobody is looking and the world still records what happened — the law simply
 never hears about it.
 
-- **Minecraft** 1.20.1 · **Forge** 47.4.10+ · **Java** 17
-- **Requires** MCA Reborn `[7.6,8)` — one jar covers every build in that range, including the
-  7.7.1 package rename
-- **Optional companion** MCA: Reputation 0.2.0+
+- **Minecraft** 1.21.1 · **NeoForge** · **Java** 21
+- **Requires** MCA Reborn, the version pinned in `gradle.properties`
+- **Optional companion** MCA: Reputation, the NeoForge 1.21.1 build
 - **Licence** GPL-3.0-only
 
 ---
@@ -25,9 +24,10 @@ what the **law** does about you, on two separate axes that never read each other
 - **Heat** is short-term law-enforcement pressure. At 50 you are **Wanted** and guards come for
   you. It bleeds off per online minute, so lying low genuinely works — and lying logged out does
   not, because every clock in this mod counts online time only.
-- **Crimes are data.** Seven ship as JSON — theft, harming a villager, assaulting a guard,
-  jailbreak, kidnapping, killing a villager, and murder during a robbery — each with its own karma
-  and Heat cost. A datapack can retune all seven or add its own.
+- **Crimes are data.** Ten ship as JSON — theft, harming a villager, assaulting a guard,
+  jailbreak, kidnapping, killing a villager, murder during a robbery, assault on another player,
+  extortion, and murder of another player — each with its own karma and Heat cost. A datapack can
+  retune all ten or add its own.
 - **Witnesses** decide whether the law ever finds out. A villager or guard within twelve blocks
   with line of sight to the *victim* becomes a named witness, recorded by UUID at the moment it
   happened. An unwitnessed crime scales its karma penalty and, by default, generates no Heat at
@@ -63,24 +63,23 @@ what the **law** does about you, on two separate axes that never read each other
 
 No hearts replacement. No bounties, no trials, no bail. No NPC-authored crime — villagers do not
 commit crimes against each other. No positive karma for trading, gifting, or clicking through
-dialogue; those are farmable and belong to systems that already own them. No mixins anywhere, no
-per-tick village scans, no AI text generation, no telemetry, no network calls. Turning a subsystem
-off changes behaviour only — nothing in this mod deletes a saved record.
+dialogue; those are farmable and belong to systems that already own them. No mixins anywhere except
+one client-side mixin that poses a restrained player's arms, no per-tick village scans, no AI text
+generation, no telemetry, no network calls. Turning a subsystem off changes behaviour only ,
+nothing in this mod deletes a saved record.
 
 ## Installing
 
 Drop the jar in `mods/` alongside MCA Reborn. That is the whole installation; the mod works
 standalone.
 
-**Architectury is not required by this mod.** MCA 7.6 pulls it in itself and MCA 7.7 dropped it;
-this mod names no Architectury type, so a 7.7 user who has removed it is not blocked.
+**Architectury is not required by this mod.** MCA's version in `gradle.properties` does not use it; this mod names no
+Architectury type, so a user is not blocked.
 
-**One jar for every MCA build in range.** No class in this mod names an MCA type. Every MCA class
+**The MCA dependency range is pinned to the one tested NeoForge 1.21.1 build of MCA Reborn** (see `gradle.properties`); widen it only after the gameplay matrix has been run on another build. No class in this mod names an MCA type. Every MCA class
 and member is resolved by name at runtime, against whichever package root the installed MCA
-actually uses — MCA repackaged mid-version-line, and the root cannot be inferred from the version
-number (7.7.0-beta.2 still ships `forge.net.mca`, later 7.7 builds do not). Anything MCA has
-removed degrades to "absent" per member rather than throwing, so a future MCA that drops one
-method loses one feature instead of crashing a server.
+actually uses. Anything MCA has removed degrades to "absent" per member rather than throwing, so a
+future MCA that drops one method loses one feature instead of crashing a server.
 
 ## With the rest of the suite
 
@@ -169,14 +168,17 @@ its file and field. Schemas and worked examples are in **[DATAPACK.md](DATAPACK.
 
 ## For mod authors
 
-A read-only, server-authoritative Java API plus eleven Forge events. Mutation is never exposed —
-it stays behind the single state chokepoint on purpose. See **[API.md](API.md)**.
+A read-only, server-authoritative Java API plus events that include two cancellable Pre events.
+Mutation is never exposed — it stays behind the single state chokepoint on purpose. See
+**[API.md](API.md)**.
 
 ## Upgrading an existing world
 
-Older saves are migrated on load through schema 4 without a server or a config
-being consulted. The migration is **not reversible** — take a copy of your world first. The
-policy, what changes about village identity, and what an old jar does with a new save are in
+Worlds upgraded from Forge 1.20.1 are migrated on load through schema 6 without a server or a
+config being consulted. The migration is **not reversible** — take a copy of your world first.
+Player data is read once from the legacy Forge capability format (`ForgeCaps`) under `player.dat`
+and lifted into the NeoForge data attachment format; new-format data always wins. The policy,
+what changes about village identity, and what an old jar does with a new save are in
 **[MIGRATION.md](MIGRATION.md)**.
 
 ## Documentation
@@ -185,7 +187,7 @@ policy, what changes about village identity, and what an old jar does with a new
 |---|---|
 | [CONFIG.md](CONFIG.md) | every config option, default, range, and disabled behaviour |
 | [DATAPACK.md](DATAPACK.md) | crime and incident schemas with examples |
-| [API.md](API.md) | the public Java API, the eleven Forge events, and the failure contracts |
+| [API.md](API.md) | the public Java API, events, and failure contracts |
 | [MIGRATION.md](MIGRATION.md) | schema migration, removal, and rollback |
 | [CHANGELOG.md](CHANGELOG.md) | release notes |
 | [CURSEFORGE.md](CURSEFORGE.md) | the store listing copy |
@@ -195,7 +197,8 @@ policy, what changes about village identity, and what an old jar does with a new
 
 ## Building
 
-Needs a JDK 17 on `JAVA_HOME` (ForgeGradle 6 does not tolerate a newer JVM as the Gradle daemon).
+Needs the Java toolchain configured in `build.gradle`. The build resolves it through the Gradle wrapper
+and the foojay resolver if needed, so it works on any machine without needing `JAVA_HOME` pinned.
 
 ```bash
 ./gradlew build
@@ -219,14 +222,13 @@ Without `-PrequireReputation=true` the adapter package is excluded when the sibl
 absent, and the jar behaves exactly as it does with MCA: Reputation uninstalled. With the flag, a
 missing sibling fails the build instead of silently shipping without the bridge.
 
-The test suite includes a probe that replays the entire MCA binding manifest against real MCA jars
-— 7.6.20, 7.7.0-beta.2, and 7.7.1-alpha.2 — each in its own class loader, and fails if anything the
-mod needs has been renamed or removed. Because no class names an MCA type, the compiler can no
-longer catch that; this is what replaces it. Add a version to `mca_probe_versions` in
-`gradle.properties` whenever MCA moves again.
+The test suite includes a probe that replays the entire MCA binding manifest against the real MCA jars
+listed in `mca_probe_versions` in `gradle.properties`, each in its own class loader, and fails if anything
+the mod needs has been renamed or removed. Because no class names an MCA type, the compiler can no
+longer catch that; this is what replaces it. Add a version to `mca_probe_versions` whenever MCA moves again.
 
-**MCA Reborn does not load under a ForgeGradle dev runtime** — its bundled mixins only resolve
-against SRG names, so `runClient` is not a valid test of anything that touches MCA. Everything
+**MCA Reborn does not load under a dev runtime** for this NeoForge version — its bundled mixins only resolve
+against production names, so `runClient` is not a valid test of anything that touches MCA. Everything
 MCA-facing has to be verified in a production-style instance; the `PHASE_N_VERIFICATION.md` files
 are those checklists.
 

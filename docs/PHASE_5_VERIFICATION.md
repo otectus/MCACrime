@@ -1,3 +1,5 @@
+> This document describes the Forge 1.20.1 era implementation and is kept for history. The current NeoForge 1.21.1 port is described in README.md, docs/MIGRATION.md, and docs/MCA_CRIME_1.21.1_NEOFORGE_PORT_SPEC.md.
+
 # Phase 5 — Suite Integration Foundation & Reputation Bridge: In-World Verification Checklist
 
 Phases 0–2 of the suite integration plan (`MCA_CRIME_SUITE_INTEGRATION_IMPLEMENTATION_PLAN.md`,

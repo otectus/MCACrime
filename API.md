@@ -1,7 +1,7 @@
 # MCA: Crime — Java API
 
 Package `dev.otectus.mcacrime.api`. Everything a companion mod needs is here: a read-only facade,
-immutable model types, and eleven Forge events.
+immutable model types, and events on `NeoForge.EVENT_BUS`.
 
 ---
 
@@ -13,7 +13,7 @@ it does.
 1. **Nothing throws at an integration.** A dialogue evaluation or a quest condition must never crash
    because of this mod. Failures come back as an empty `Optional` or a neutral value. If you find a
    method that can throw, that is a bug here, not something to guard against on your side.
-2. **Only immutable views cross the boundary.** Never a `CrimeRecord`, never a capability, never the
+2. **Only immutable views cross the boundary.** Never a `CrimeRecord`, never an attachment, never the
    `SavedData`. Every collection inside a view is defensively copied, so holding a view cannot let
    you reach back into the ledger.
 3. **Reads are scoped to the player you ask about.** There is no "any player" query, and that is what
@@ -54,7 +54,7 @@ Compile against it, do not ship it:
 compileOnly files("../MCACrime/build/classes/java/main")
 ```
 
-Declare it optional in `mods.toml`, ordered `AFTER` so its registration has happened:
+Declare it optional in `neoforge.mods.toml`, ordered `AFTER` so its registration has happened:
 
 ```toml
 [[dependencies.yourmod]]
@@ -66,8 +66,9 @@ Declare it optional in `mods.toml`, ordered `AFTER` so its registration has happ
 ```
 
 Then reach it only behind a `ModList` check, inside `enqueueWork` during common setup so there is no
-registration race. If your adapter names any `mcacrime` type directly, keep it in its own class and
-load that class reflectively — otherwise the class loader resolves it on the seam class and a
+registration race. **MCA is bound reflectively, so addons must not assume MCA on the compile
+classpath.** If your adapter names any `mcacrime` type directly, keep it in its own class and load
+that class reflectively — otherwise the class loader resolves it on the seam class and a
 standalone install fails:
 
 ```java
@@ -213,11 +214,11 @@ static int communityStanding(MinecraftServer server, UUID playerId, CrimeCommuni
 is authoritative — the built-in one, or MCA: Reputation when it holds authority — so you do not have
 to know which is in charge.
 
-## Forge events
+## Events
 
-All on `MinecraftForge.EVENT_BUS`, all server-side, and **none of them are cancellable**. They fire
-after the state has already changed; they are notifications, not vetoes. Most extend `CrimeEvent`,
-which carries `getPlayer()`.
+All on `NeoForge.EVENT_BUS`, all server-side. Two of them are cancellable Pre events implementing
+`ICancellableEvent`. They fire after the state has already changed; they are notifications, not
+vetoes for most of them. Most extend `CrimeEvent`, which carries `getPlayer()`.
 
 | Event | Fires when | Notable |
 |---|---|---|
@@ -232,12 +233,23 @@ which carries `getPlayer()`.
 | `PlayerReleasedFromJailEvent` | Any release path | Carries a `ReleaseReason` — served, captivity cap, admin, pardon, invalid jail. Idempotent: one release, one event. |
 | `EntityKidnappedEvent` | Custody begins unlawfully | **Extends `Event`, not `CrimeEvent`**, because either party may be an NPC. Captive and captor are UUIDs with `isCaptivePlayer()` / `isCaptorPlayer()` flags and nullable `ServerPlayer` convenience accessors. Carries the `RestraintType`. |
 | `EntityReleasedFromCaptivityEvent` | Custody ends | Same shape, with a `CustodyReleaseReason` — escaped, rescued, captor gone, cap reached, admin, ransom paid, served, died. Idempotent. |
+| `CrimeObservationEvent.Pre` | An NPC learns about a crime | **Cancellable.** Implementing `ICancellableEvent`; cancel to prevent this NPC from witnessing anything. Call `setCanceled(true)` to cancel. |
+| `CrimeObservationEvent.Post` | An NPC has learned about a crime | Notification; already stored. Not cancellable. |
+| `CrimeReportEvent.Pre` | An observation reaches an authority | **Cancellable.** Implementing `ICancellableEvent`; cancel to suppress this one report, leaving other observations of the same incident untouched. Call `setCanceled(true)` to cancel. |
+| `CrimeReportEvent.Post` | A report has been filed | Notification; already stored. Not cancellable. |
 
 ### Choosing between the two crime events
 
 Use `CrimeWitnessedEvent` when you care that the village *knows*: gossip, guard reactions, public
 standing. Use `CrimeCommittedEvent` when you care that it *happened*: a quest that counts kills, a
 statistic, a hidden-history record. An unwitnessed murder posts only the second.
+
+### Choosing between observation and report events
+
+Use `CrimeObservationEvent.Pre` when you want to prevent an NPC learning about a crime
+(charmed/blinded/sleeping NPC). Use `CrimeReportEvent.Pre` when you want to suppress the filing of a
+report (bribery, intimidation, corrupt jurisdiction) without affecting other observations of the
+same incident.
 
 ## Idempotency
 
