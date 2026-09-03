@@ -14,7 +14,7 @@ import dev.otectus.mcacrime.state.world.CrimeWorldData;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraftforge.common.MinecraftForge;
+import net.neoforged.neoforge.common.NeoForge;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -100,7 +100,7 @@ public final class FineService {
         CrimeState.setHeat(player, newHeat, McaCrime.id("fine"), "fine:" + transactionId);
         RelationshipConsequences.applyRestitution(player, cost); // §11.3: a fine repairs some community standing
 
-        MinecraftForge.EVENT_BUS.post(new FinePaidEvent(player, transactionId, settled, cost, heat, newHeat));
+        NeoForge.EVENT_BUS.post(new FinePaidEvent(player, transactionId, settled, cost, heat, newHeat));
         // One merged message, not one per case: the player performed one act.
         player.sendSystemMessage(settled.isEmpty()
                 ? Component.translatable("mcacrime.fine.paid", cost)

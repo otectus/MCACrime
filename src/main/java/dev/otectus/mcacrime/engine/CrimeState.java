@@ -13,7 +13,7 @@ import dev.otectus.mcacrime.state.CrimeCapabilities;
 import dev.otectus.mcacrime.state.PlayerCrimeData;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraftforge.common.MinecraftForge;
+import net.neoforged.neoforge.common.NeoForge;
 
 import java.util.function.LongUnaryOperator;
 
@@ -157,7 +157,7 @@ public final class CrimeState {
             Band newBand = Band.fromKarma(newKarma, c.karmaBlueThreshold.get(), c.karmaRedThreshold.get());
             data.setKarma(newKarma);
             data.setCachedBand(newBand);
-            MinecraftForge.EVENT_BUS.post(new KarmaChangedEvent(player, oldKarma, newKarma, oldBand, newBand, source));
+            NeoForge.EVENT_BUS.post(new KarmaChangedEvent(player, oldKarma, newKarma, oldBand, newBand, source));
             CrimeNetwork.sendSelfStatus(player);
         }, () -> McaCrime.LOGGER.debug("Karma mutation on a player without the crime capability; ignoring"));
     }
@@ -178,10 +178,10 @@ public final class CrimeState {
             data.setWantedCached(nowWanted);
             // Every real change is reported; the wanted event stays reserved for the boundary crossing,
             // so a listener that only cares about pursuit does not have to filter out ordinary decay.
-            MinecraftForge.EVENT_BUS.post(new HeatChangedEvent(player, oldHeat, newHeat,
+            NeoForge.EVENT_BUS.post(new HeatChangedEvent(player, oldHeat, newHeat,
                     source == null ? INTERNAL : source, dedupeKey));
             if (wasWanted != nowWanted) {
-                MinecraftForge.EVENT_BUS.post(new WantedStatusChangedEvent(player, nowWanted, newHeat));
+                NeoForge.EVENT_BUS.post(new WantedStatusChangedEvent(player, nowWanted, newHeat));
             }
             CrimeNetwork.sendSelfStatus(player);
         }, () -> McaCrime.LOGGER.debug("Heat mutation on a player without the crime capability; ignoring"));

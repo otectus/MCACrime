@@ -12,11 +12,11 @@ import dev.otectus.mcacrime.util.TickFormat;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.network.chat.Component;
-import net.minecraftforge.api.distmarker.Dist;
-import net.minecraftforge.client.event.RegisterGuiOverlaysEvent;
+import net.neoforged.api.distmarker.Dist;
+import net.neoforged.neoforge.client.event.RegisterGuiOverlaysEvent;
 import net.minecraftforge.client.gui.overlay.VanillaGuiOverlay;
-import net.minecraftforge.eventbus.api.SubscribeEvent;
-import net.minecraftforge.fml.common.Mod;
+import net.neoforged.bus.api.SubscribeEvent;
+import net.neoforged.fml.common.EventBusSubscriber;
 
 /**
  * The mod's heads-up display: an action channel bar, a legal-status indicator, and a custody
@@ -33,7 +33,7 @@ import net.minecraftforge.fml.common.Mod;
  * as the boss bar and the subtitle overlay use. The mod's screens went grey to match the inventory,
  * but a light grey slab floating over the world would match nothing — least of all the game.
  */
-@Mod.EventBusSubscriber(modid = McaCrime.MOD_ID, bus = Mod.EventBusSubscriber.Bus.MOD, value = Dist.CLIENT)
+@EventBusSubscriber(modid = McaCrime.MOD_ID, value = Dist.CLIENT)
 public final class CrimeHudOverlays {
 
     private static final int BAR_W = 122;

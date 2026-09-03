@@ -9,13 +9,13 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.level.Level;
-import net.minecraftforge.event.TickEvent;
-import net.minecraftforge.eventbus.api.SubscribeEvent;
-import net.minecraftforge.fml.common.Mod;
-import net.minecraftforge.server.ServerLifecycleHooks;
+import net.neoforged.neoforge.event.tick.ServerTickEvent;
+import net.neoforged.bus.api.SubscribeEvent;
+import net.neoforged.fml.common.EventBusSubscriber;
+import net.neoforged.neoforge.server.ServerLifecycleHooks;
 
 /** Ticks only active action sessions; no world-wide scan. */
-@Mod.EventBusSubscriber(modid = McaCrime.MOD_ID)
+@EventBusSubscriber(modid = McaCrime.MOD_ID)
 public final class CrimeActionTicker {
 
     /**
@@ -28,8 +28,7 @@ public final class CrimeActionTicker {
     private CrimeActionTicker() {}
 
     @SubscribeEvent
-    public static void onServerTick(TickEvent.ServerTickEvent event) {
-        if (event.phase != TickEvent.Phase.END) return;
+    public static void onServerTick(ServerTickEvent.Post event) {
         MinecraftServer server = ServerLifecycleHooks.getCurrentServer();
         if (server == null) return;
         for (ActionSession session : ActionSessionManager.active()) {

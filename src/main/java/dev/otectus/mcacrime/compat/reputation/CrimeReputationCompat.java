@@ -22,7 +22,7 @@ import dev.otectus.mcareputation.incident.IncidentSubject;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.MinecraftServer;
 
-import javax.annotation.Nullable;
+import org.jetbrains.annotations.Nullable;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -313,7 +313,7 @@ public final class CrimeReputationCompat implements ReputationOps {
         @Override
         public void mirrorScore(UUID player, CommunityKey community, int score,
                                 ResourceLocation ladder, String highWaterTierId) {
-            MinecraftServer server = net.minecraftforge.server.ServerLifecycleHooks.getCurrentServer();
+            MinecraftServer server = net.neoforged.neoforge.server.ServerLifecycleHooks.getCurrentServer();
             if (server == null) {
                 return;
             }

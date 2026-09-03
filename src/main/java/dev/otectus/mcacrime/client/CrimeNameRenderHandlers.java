@@ -8,11 +8,11 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.network.chat.Style;
 import net.minecraft.network.chat.TextColor;
-import net.minecraftforge.api.distmarker.Dist;
-import net.minecraftforge.client.event.ClientPlayerNetworkEvent;
-import net.minecraftforge.client.event.RenderNameTagEvent;
-import net.minecraftforge.eventbus.api.SubscribeEvent;
-import net.minecraftforge.fml.common.Mod;
+import net.neoforged.api.distmarker.Dist;
+import net.neoforged.neoforge.client.event.ClientPlayerNetworkEvent;
+import net.neoforged.neoforge.client.event.RenderNameTagEvent;
+import net.neoforged.bus.api.SubscribeEvent;
+import net.neoforged.fml.common.EventBusSubscriber;
 
 /**
  * Non-destructive nameplate coloring by band (spec §4.1, §10.3). Client + Forge bus only. GREY players
@@ -20,7 +20,7 @@ import net.minecraftforge.fml.common.Mod;
  * color, so only <em>un-styled</em> descendants inherit it — names already styled by nickname/format
  * mods keep their styling. PREFIX_ONLY adds a small colored marker and never alters the name itself.
  */
-@Mod.EventBusSubscriber(modid = McaCrime.MOD_ID, value = Dist.CLIENT)
+@EventBusSubscriber(modid = McaCrime.MOD_ID, value = Dist.CLIENT)
 public final class CrimeNameRenderHandlers {
 
     private CrimeNameRenderHandlers() {
@@ -64,9 +64,7 @@ public final class CrimeNameRenderHandlers {
      * inherently local and would cost a packet per tick to ask about.
      */
     @SubscribeEvent
-    public static void onClientTick(net.minecraftforge.event.TickEvent.ClientTickEvent event) {
-        if (event.phase == net.minecraftforge.event.TickEvent.Phase.END) {
-            ClientActionData.tick();
-        }
+    public static void onClientTick(net.neoforged.neoforge.client.event.ClientTickEvent.Post event) {
+        ClientActionData.tick();
     }
 }

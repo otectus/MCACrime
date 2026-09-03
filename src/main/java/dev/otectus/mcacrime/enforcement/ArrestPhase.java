@@ -1,6 +1,6 @@
 package dev.otectus.mcacrime.enforcement;
 
-import javax.annotation.Nullable;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * Where a player is in the arrest lifecycle. One stored value, and the only thing that decides whether

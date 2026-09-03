@@ -2,16 +2,16 @@ package dev.otectus.mcacrime.ransom;
 
 import dev.otectus.mcacrime.McaCrime;
 import net.minecraft.server.MinecraftServer;
-import net.minecraftforge.event.TickEvent;
-import net.minecraftforge.eventbus.api.SubscribeEvent;
-import net.minecraftforge.fml.common.Mod;
-import net.minecraftforge.server.ServerLifecycleHooks;
+import net.neoforged.neoforge.event.tick.ServerTickEvent;
+import net.neoforged.bus.api.SubscribeEvent;
+import net.neoforged.fml.common.EventBusSubscriber;
+import net.neoforged.neoforge.server.ServerLifecycleHooks;
 
 /**
  * Re-validates open ransom demands ~once per second (spec §8.5): expiring stale ones and failing any whose
  * victim died / escaped / was rescued / was jailed. Cheap — it iterates only the small active-demand list.
  */
-@Mod.EventBusSubscriber(modid = McaCrime.MOD_ID)
+@EventBusSubscriber(modid = McaCrime.MOD_ID)
 public final class RansomTickHandler {
 
     private static int counter;
@@ -20,10 +20,7 @@ public final class RansomTickHandler {
     }
 
     @SubscribeEvent
-    public static void onServerTick(TickEvent.ServerTickEvent event) {
-        if (event.phase != TickEvent.Phase.END) {
-            return;
-        }
+    public static void onServerTick(ServerTickEvent.Post event) {
         if (++counter < 20) {
             return; // ~1/s
         }

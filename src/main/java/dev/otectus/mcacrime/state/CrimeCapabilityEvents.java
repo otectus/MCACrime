@@ -3,10 +3,10 @@ package dev.otectus.mcacrime.state;
 import dev.otectus.mcacrime.McaCrime;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.player.Player;
-import net.minecraftforge.event.AttachCapabilitiesEvent;
-import net.minecraftforge.event.entity.player.PlayerEvent;
-import net.minecraftforge.eventbus.api.SubscribeEvent;
-import net.minecraftforge.fml.common.Mod;
+import net.neoforged.neoforge.event.AttachCapabilitiesEvent;
+import net.neoforged.neoforge.event.entity.player.PlayerEvent;
+import net.neoforged.bus.api.SubscribeEvent;
+import net.neoforged.fml.common.EventBusSubscriber;
 
 /**
  * Forge-bus capability lifecycle: attach {@link PlayerCrimeData} to players, and copy it across
@@ -14,7 +14,7 @@ import net.minecraftforge.fml.common.Mod;
  * what makes a jail sentence survivable-but-not-escapable-by-suicide in later phases, and keeps
  * Karma/Heat intact through death now.
  */
-@Mod.EventBusSubscriber(modid = McaCrime.MOD_ID)
+@EventBusSubscriber(modid = McaCrime.MOD_ID)
 public final class CrimeCapabilityEvents {
 
     private CrimeCapabilityEvents() {

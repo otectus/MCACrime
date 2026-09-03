@@ -120,7 +120,7 @@ public final class EntitySelectors {
      * damage handling, which can run before config load in a malformed setup; an empty list there is
      * correct (nothing extra is protected yet) and a crash is not.
      */
-    private static List<? extends String> safeList(net.minecraftforge.common.ForgeConfigSpec.ConfigValue<List<? extends String>> value) {
+    private static List<? extends String> safeList(net.neoforged.neoforge.common.ModConfigSpec.ConfigValue<List<? extends String>> value) {
         try {
             List<? extends String> list = value.get();
             return list == null ? List.of() : list;

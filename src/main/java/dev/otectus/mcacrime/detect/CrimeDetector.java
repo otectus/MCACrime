@@ -24,9 +24,9 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.entity.LivingEntity;
-import net.minecraftforge.common.MinecraftForge;
+import net.neoforged.neoforge.common.NeoForge;
 
-import javax.annotation.Nullable;
+import org.jetbrains.annotations.Nullable;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
@@ -166,10 +166,10 @@ public final class CrimeDetector {
 
         CrimeRecordView view = record.view();
         if (witnessed) {
-            MinecraftForge.EVENT_BUS.post(new CrimeWitnessedEvent(offender, crimeId, victimId,
+            NeoForge.EVENT_BUS.post(new CrimeWitnessedEvent(offender, crimeId, victimId,
                     witnesses.totalWitnesses(), witnesses.witnessIds()));
         }
-        MinecraftForge.EVENT_BUS.post(new CrimeCommittedEvent(offender, crimeId, victimId, witnessed,
+        NeoForge.EVENT_BUS.post(new CrimeCommittedEvent(offender, crimeId, victimId, witnessed,
                 karmaApplied, heatApplied, recordId, view));
         return Optional.of(view);
     }

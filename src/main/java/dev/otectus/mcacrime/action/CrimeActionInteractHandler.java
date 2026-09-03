@@ -10,10 +10,10 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.item.ItemStack;
-import net.minecraftforge.event.entity.player.PlayerInteractEvent;
-import net.minecraftforge.eventbus.api.EventPriority;
-import net.minecraftforge.eventbus.api.SubscribeEvent;
-import net.minecraftforge.fml.common.Mod;
+import net.neoforged.neoforge.event.entity.player.PlayerInteractEvent;
+import net.neoforged.bus.api.EventPriority;
+import net.neoforged.bus.api.SubscribeEvent;
+import net.neoforged.fml.common.EventBusSubscriber;
 
 /**
  * The weapon-in-hand trigger (0.5.0): right-clicking an MCA villager while armed opens the same
@@ -36,7 +36,7 @@ import net.minecraftforge.fml.common.Mod;
  * <p>Documented side effect: while the trigger is on, right-click gifting a weapon to an MCA villager
  * is pre-empted. Blacklist the item under {@code [weapons]} or turn the trigger off to gift it.
  */
-@Mod.EventBusSubscriber(modid = McaCrime.MOD_ID)
+@EventBusSubscriber(modid = McaCrime.MOD_ID)
 public final class CrimeActionInteractHandler {
     private CrimeActionInteractHandler() {}
 

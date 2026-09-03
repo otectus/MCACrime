@@ -17,7 +17,7 @@ public final class CrimeCapabilities {
             CapabilityManager.get(new CapabilityToken<>() {
             });
 
-    public static final ResourceLocation ID = new ResourceLocation(McaCrime.MOD_ID, "player_crime");
+    public static final ResourceLocation ID = ResourceLocation.fromNamespaceAndPath(McaCrime.MOD_ID, "player_crime");
 
     private CrimeCapabilities() {
     }

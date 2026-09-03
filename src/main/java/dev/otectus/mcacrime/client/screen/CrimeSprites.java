@@ -37,7 +37,7 @@ import net.minecraft.resources.ResourceLocation;
 public final class CrimeSprites {
 
     public static final ResourceLocation SHEET =
-            new ResourceLocation(McaCrime.MOD_ID, "textures/gui/panel.png");
+            ResourceLocation.fromNamespaceAndPath(McaCrime.MOD_ID, "textures/gui/panel.png");
 
     /**
      * How a list row is drawn.

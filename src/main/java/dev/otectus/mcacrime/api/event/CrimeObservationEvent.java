@@ -3,15 +3,15 @@ package dev.otectus.mcacrime.api.event;
 import dev.otectus.mcacrime.memory.ObserverRole;
 import net.minecraft.core.BlockPos;
 import net.minecraft.resources.ResourceLocation;
-import net.minecraftforge.eventbus.api.Cancelable;
-import net.minecraftforge.eventbus.api.Event;
+import net.neoforged.bus.api.ICancellableEvent;
+import net.neoforged.bus.api.Event;
 
-import javax.annotation.Nullable;
+import org.jetbrains.annotations.Nullable;
 import java.util.UUID;
 
 /**
  * An NPC coming to know about a crime (spec §12.5). Fired server-side on
- * {@code MinecraftForge.EVENT_BUS}.
+ * {@code NeoForge.EVENT_BUS}.
  *
  * <p>The payload is UUIDs, {@link ResourceLocation}s and vanilla primitives — never an MCA type and
  * never one of this mod's internal mutable objects. A listener that wants the villager entity looks it
@@ -87,8 +87,7 @@ public abstract class CrimeObservationEvent extends Event {
     }
 
     /** Cancel to stop this NPC learning about this crime at all. Nothing is stored if cancelled. */
-    @Cancelable
-    public static final class Pre extends CrimeObservationEvent {
+    public static final class Pre extends CrimeObservationEvent implements ICancellableEvent {
         public Pre(UUID observationId, UUID incidentId, UUID observerId, UUID suspectId,
                    @Nullable UUID victimId, ResourceLocation actionId, ObserverRole role,
                    BlockPos location, float confidence) {

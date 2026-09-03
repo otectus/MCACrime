@@ -9,10 +9,10 @@ import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.entity.Entity;
-import net.minecraftforge.api.distmarker.Dist;
-import net.minecraftforge.client.event.ScreenEvent;
-import net.minecraftforge.eventbus.api.SubscribeEvent;
-import net.minecraftforge.fml.common.Mod;
+import net.neoforged.api.distmarker.Dist;
+import net.neoforged.neoforge.client.event.ScreenEvent;
+import net.neoforged.bus.api.SubscribeEvent;
+import net.neoforged.fml.common.EventBusSubscriber;
 
 import java.lang.reflect.Field;
 
@@ -27,7 +27,7 @@ import java.lang.reflect.Field;
  * element in MCA's panel, which is the opposite of what a bridge is for. It also cannot be checked —
  * MCA's mixins resolve only against SRG names, so it never appears under a development client.
  */
-@Mod.EventBusSubscriber(modid = McaCrime.MOD_ID, value = Dist.CLIENT)
+@EventBusSubscriber(modid = McaCrime.MOD_ID, value = Dist.CLIENT)
 public final class McaInteractionScreenBridge {
     private static volatile boolean applied;
 

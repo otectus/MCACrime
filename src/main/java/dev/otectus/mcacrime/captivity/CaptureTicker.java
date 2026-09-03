@@ -11,12 +11,12 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
-import net.minecraftforge.event.TickEvent;
-import net.minecraftforge.eventbus.api.SubscribeEvent;
-import net.minecraftforge.fml.common.Mod;
-import net.minecraftforge.server.ServerLifecycleHooks;
+import net.neoforged.neoforge.event.tick.ServerTickEvent;
+import net.neoforged.bus.api.SubscribeEvent;
+import net.neoforged.fml.common.EventBusSubscriber;
+import net.neoforged.neoforge.server.ServerLifecycleHooks;
 
-import javax.annotation.Nullable;
+import org.jetbrains.annotations.Nullable;
 import java.util.UUID;
 
 /**
@@ -25,7 +25,7 @@ import java.util.UUID;
  * completing a finished channel into {@link CustodyService#capture}. Bounded by the (small) number of active
  * channels — never a world scan.
  */
-@Mod.EventBusSubscriber(modid = McaCrime.MOD_ID)
+@EventBusSubscriber(modid = McaCrime.MOD_ID)
 public final class CaptureTicker {
 
     /** How often the capture channel refreshes its bar, matching the action engine's cadence. */
@@ -43,10 +43,7 @@ public final class CaptureTicker {
     }
 
     @SubscribeEvent
-    public static void onServerTick(TickEvent.ServerTickEvent event) {
-        if (event.phase != TickEvent.Phase.END) {
-            return;
-        }
+    public static void onServerTick(ServerTickEvent.Post event) {
         MinecraftServer server = ServerLifecycleHooks.getCurrentServer();
         if (server == null) {
             return;

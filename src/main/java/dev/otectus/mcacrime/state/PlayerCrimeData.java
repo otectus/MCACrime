@@ -6,7 +6,7 @@ import dev.otectus.mcacrime.enforcement.ArrestState;
 import dev.otectus.mcacrime.jail.JailState;
 import net.minecraft.nbt.CompoundTag;
 
-import javax.annotation.Nullable;
+import org.jetbrains.annotations.Nullable;
 import java.util.UUID;
 
 /**

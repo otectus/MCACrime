@@ -5,6 +5,7 @@ import dev.otectus.mcacrime.McaCrimeConfig;
 import dev.otectus.mcacrime.action.ActionSessionManager;
 import dev.otectus.mcacrime.action.CancelReason;
 import net.minecraft.network.chat.Component;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.ai.attributes.AttributeInstance;
@@ -12,15 +13,15 @@ import net.minecraft.world.entity.ai.attributes.AttributeModifier;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.phys.Vec3;
-import net.minecraftforge.event.entity.EntityMountEvent;
-import net.minecraftforge.event.entity.living.LivingEvent;
-import net.minecraftforge.event.entity.player.AttackEntityEvent;
-import net.minecraftforge.event.entity.player.PlayerEvent;
-import net.minecraftforge.event.entity.player.PlayerInteractEvent;
-import net.minecraftforge.event.level.BlockEvent;
-import net.minecraftforge.eventbus.api.Event;
-import net.minecraftforge.eventbus.api.SubscribeEvent;
-import net.minecraftforge.fml.common.Mod;
+import net.neoforged.neoforge.event.entity.EntityMountEvent;
+import net.neoforged.neoforge.event.entity.living.LivingEvent;
+import net.neoforged.neoforge.event.entity.player.AttackEntityEvent;
+import net.neoforged.neoforge.event.entity.player.PlayerEvent;
+import net.neoforged.neoforge.event.entity.player.PlayerInteractEvent;
+import net.neoforged.neoforge.event.level.BlockEvent;
+import net.neoforged.bus.api.ICancellableEvent;
+import net.neoforged.bus.api.SubscribeEvent;
+import net.neoforged.fml.common.EventBusSubscriber;
 
 import java.util.Map;
 import java.util.UUID;
@@ -41,12 +42,31 @@ import java.util.concurrent.ConcurrentHashMap;
  * login for a phase that no longer restrains, and again on respawn, because attributes are not copied
  * across a death.
  */
-@Mod.EventBusSubscriber(modid = McaCrime.MOD_ID)
+/*
+ * Spec §16 audit — every suppression handler, confirmed against the NeoForge 21.1 sources:
+ *
+ *   handler                    event                                          side    cancellation
+ *   onAttack                   AttackEntityEvent                              server  ICancellableEvent; cancel alone stops the attack
+ *   onRightClickItem           PlayerInteractEvent.RightClickItem             server  ICancellableEvent; cancel alone stops the use
+ *   onRightClickBlock          PlayerInteractEvent.RightClickBlock            server  ICancellableEvent; setCanceled(true) also forces useBlock/useItem to FALSE
+ *   onLeftClickBlock           PlayerInteractEvent.LeftClickBlock             server  ICancellableEvent; setCanceled(true) also forces useBlock/useItem to FALSE
+ *   onEntityInteract           PlayerInteractEvent.EntityInteract             server  ICancellableEvent; cancel alone stops the interaction
+ *   onEntityInteractSpecific   PlayerInteractEvent.EntityInteractSpecific     server  ICancellableEvent; cancel alone stops the interaction
+ *   onBreak                    BlockEvent.BreakEvent                          server  ICancellableEvent; cancel alone leaves the block
+ *   onMount                    EntityMountEvent                               both    ICancellableEvent; cancel alone prevents mounting
+ *   onJump                     LivingEvent.LivingJumpEvent                    both    NOT cancellable — the impulse is undone after the fact (see onJump)
+ *   onRespawn                  PlayerEvent.PlayerRespawnEvent                 server  NOT cancellable — observation only; re-derives the modifier
+ *
+ * Every handler narrows to ServerPlayer through restricted(), so the client copies are inert, and the
+ * arrest phase is read from ArrestStates rather than from a player attachment, so nothing here depends
+ * on attachment availability at the respawn/mount lifecycle points. Denials are rate-limited in
+ * explain() at DENIAL_INTERVAL_TICKS.
+ */
+@EventBusSubscriber(modid = McaCrime.MOD_ID)
 public final class RestraintHandlers {
 
     /** Stable id so a modifier left behind by a crash is recognised and removed rather than stacked. */
-    private static final UUID SPEED_MODIFIER_ID = UUID.fromString("6f2b1c94-0d7a-4a1e-9c33-2a5b7e0d41c6");
-    private static final String SPEED_MODIFIER_NAME = "mcacrime.restrained";
+    private static final ResourceLocation SPEED_MODIFIER_ID = McaCrime.id("restrained_speed");
 
     /** Last tick each player was told they cannot do something, so a denial is explained, not repeated. */
     private static final Map<UUID, Long> LAST_DENIAL = new ConcurrentHashMap<>();
@@ -167,7 +187,7 @@ public final class RestraintHandlers {
                 && ArrestStates.isRestrained(server);
     }
 
-    private static void deny(Event event, Player player) {
+    private static void deny(ICancellableEvent event, Player player) {
         if (!restricted(player)) {
             return;
         }
@@ -202,8 +222,8 @@ public final class RestraintHandlers {
         if (penalty <= 0.0) {
             return;
         }
-        speed.addTransientModifier(new AttributeModifier(SPEED_MODIFIER_ID, SPEED_MODIFIER_NAME,
-                -penalty, AttributeModifier.Operation.MULTIPLY_TOTAL));
+        speed.addTransientModifier(new AttributeModifier(SPEED_MODIFIER_ID,
+                -penalty, AttributeModifier.Operation.ADD_MULTIPLIED_TOTAL));
     }
 
     private static void removeSpeedModifier(ServerPlayer player) {

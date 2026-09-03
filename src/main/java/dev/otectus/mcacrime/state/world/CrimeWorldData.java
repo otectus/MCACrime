@@ -22,7 +22,7 @@ import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.saveddata.SavedData;
 
-import javax.annotation.Nullable;
+import org.jetbrains.annotations.Nullable;
 
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -190,7 +190,7 @@ public final class CrimeWorldData extends SavedData {
      */
     @Deprecated
     public int reputation(int villageId, UUID player) {
-        return CrimeCommunityKey.of(new ResourceLocation(CrimeDataMigrations.ASSUMED_DIMENSION), villageId)
+        return CrimeCommunityKey.of(ResourceLocation.parse(CrimeDataMigrations.ASSUMED_DIMENSION), villageId)
                 .map(key -> reputation(key, player)).orElse(0);
     }
 
@@ -200,7 +200,7 @@ public final class CrimeWorldData extends SavedData {
      */
     @Deprecated
     public void addReputation(int villageId, UUID player, int delta) {
-        CrimeCommunityKey.of(new ResourceLocation(CrimeDataMigrations.ASSUMED_DIMENSION), villageId)
+        CrimeCommunityKey.of(ResourceLocation.parse(CrimeDataMigrations.ASSUMED_DIMENSION), villageId)
                 .ifPresent(key -> addReputation(key, player, delta));
     }
 

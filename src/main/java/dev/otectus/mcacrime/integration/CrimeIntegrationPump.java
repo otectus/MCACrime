@@ -12,12 +12,12 @@ import dev.otectus.mcacrime.state.world.CrimeWorldData;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.MinecraftServer;
-import net.minecraftforge.event.TickEvent;
-import net.minecraftforge.event.entity.player.PlayerEvent;
-import net.minecraftforge.event.server.ServerStartedEvent;
-import net.minecraftforge.event.server.ServerStoppingEvent;
-import net.minecraftforge.eventbus.api.SubscribeEvent;
-import net.minecraftforge.fml.common.Mod;
+import net.neoforged.neoforge.event.tick.ServerTickEvent;
+import net.neoforged.neoforge.event.entity.player.PlayerEvent;
+import net.neoforged.neoforge.event.server.ServerStartedEvent;
+import net.neoforged.neoforge.event.server.ServerStoppingEvent;
+import net.neoforged.bus.api.SubscribeEvent;
+import net.neoforged.fml.common.EventBusSubscriber;
 
 import java.util.List;
 import java.util.Optional;
@@ -45,7 +45,7 @@ import java.util.UUID;
  * <p>Delivery is never attempted while loading saved data. That rule exists because calling into an
  * optional mod during deserialisation is how a missing class turns a world load into a crash.
  */
-@Mod.EventBusSubscriber(modid = McaCrime.MOD_ID)
+@EventBusSubscriber(modid = McaCrime.MOD_ID)
 public final class CrimeIntegrationPump {
 
     /** How much of a backlog the start-up and login drains may clear in one go. */
@@ -92,16 +92,15 @@ public final class CrimeIntegrationPump {
     }
 
     @SubscribeEvent
-    public static void onServerTick(TickEvent.ServerTickEvent event) {
-        if (event.phase != TickEvent.Phase.END
-                || !McaCrimeConfig.COMMON.replayPendingOperations.get()) {
+    public static void onServerTick(ServerTickEvent.Post event) {
+        if (!McaCrimeConfig.COMMON.replayPendingOperations.get()) {
             return;
         }
         if (++tickCounter < McaCrimeConfig.COMMON.pumpIntervalTicks.get()) {
             return;
         }
         tickCounter = 0;
-        MinecraftServer server = net.minecraftforge.server.ServerLifecycleHooks.getCurrentServer();
+        MinecraftServer server = net.neoforged.neoforge.server.ServerLifecycleHooks.getCurrentServer();
         if (server == null) {
             return;
         }

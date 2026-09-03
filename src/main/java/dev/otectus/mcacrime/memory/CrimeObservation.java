@@ -6,7 +6,7 @@ import net.minecraft.nbt.NbtUtils;
 import net.minecraft.nbt.Tag;
 import net.minecraft.resources.ResourceLocation;
 
-import javax.annotation.Nullable;
+import org.jetbrains.annotations.Nullable;
 import java.util.UUID;
 
 /**
@@ -123,7 +123,7 @@ public record CrimeObservation(UUID observationId,
                 tag.hasUUID("victim") ? tag.getUUID("victim") : null,
                 action,
                 dimension,
-                tag.contains("pos", Tag.TAG_COMPOUND) ? NbtUtils.readBlockPos(tag.getCompound("pos")) : BlockPos.ZERO,
+                readPos(tag), // TODO Phase 4 (§8.2): dual-shape read + hand-written compound X/Y/Z write
                 tag.getLong("at"),
                 tag.getFloat("confidence"),
                 tag.getBoolean("sawActor"),
@@ -131,5 +131,19 @@ public record CrimeObservation(UUID observationId,
                 tag.getBoolean("heardAct"),
                 ReportState.byName(tag.getString("report")),
                 tag.getLong("expires"));
+    }
+
+    /**
+     * Reads the observation position. Schema 6 writes the 1.20.1 compound {@code X/Y/Z} shape; the
+     * int-array shape is accepted so a world written by an interim build still loads.
+     *
+     * <p>TODO Phase 4 (§8.2): pair this with the hand-written compound writer.
+     */
+    private static BlockPos readPos(CompoundTag tag) {
+        if (tag.contains("pos", Tag.TAG_COMPOUND)) {
+            CompoundTag pos = tag.getCompound("pos");
+            return new BlockPos(pos.getInt("X"), pos.getInt("Y"), pos.getInt("Z"));
+        }
+        return NbtUtils.readBlockPos(tag, "pos").orElse(BlockPos.ZERO);
     }
 }

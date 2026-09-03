@@ -13,9 +13,9 @@ import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.LivingEntity;
-import net.minecraftforge.common.MinecraftForge;
+import net.neoforged.neoforge.common.NeoForge;
 
-import javax.annotation.Nullable;
+import org.jetbrains.annotations.Nullable;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -89,7 +89,7 @@ public final class ReportService {
         CrimeReportEvent.Pre pre = new CrimeReportEvent.Pre(reportId, observation.incidentId(),
                 observation.observationId(), reporter.getUUID(), observation.suspectedActorId(),
                 observation.actionId(), jurisdiction, observation.confidence(), authoritative);
-        if (MinecraftForge.EVENT_BUS.post(pre)) {
+        if (NeoForge.EVENT_BUS.post(pre).isCanceled()) {
             // Suppressed — intimidation, a bribe, a corrupt jurisdiction. Exactly one report is stopped
             // (§12.3 step 6); every other observation of the same incident is untouched and can still
             // be filed by somebody else.
@@ -107,7 +107,7 @@ public final class ReportService {
         data.replaceObservation(observation.withReportState(ReportState.FILED));
         propagate(server, report);
 
-        MinecraftForge.EVENT_BUS.post(new CrimeReportEvent.Post(report.reportId(), report.incidentId(),
+        NeoForge.EVENT_BUS.post(new CrimeReportEvent.Post(report.reportId(), report.incidentId(),
                 report.observationId(), report.reporterId(), report.suspectId(), report.actionId(),
                 report.jurisdiction(), report.confidence(), report.authoritative()));
 

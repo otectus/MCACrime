@@ -3,7 +3,7 @@ package dev.otectus.mcacrime.api.event;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerPlayer;
 
-import javax.annotation.Nullable;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * Fired once when a player is jailed (spec §16), on the not-already-jailed transition (re-jailing only

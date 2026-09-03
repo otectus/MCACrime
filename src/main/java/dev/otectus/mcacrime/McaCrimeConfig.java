@@ -1,7 +1,7 @@
 package dev.otectus.mcacrime;
 
 import dev.otectus.mcacrime.jail.JailContainmentMode;
-import net.minecraftforge.common.ForgeConfigSpec;
+import net.neoforged.neoforge.common.ModConfigSpec;
 import org.apache.commons.lang3.tuple.Pair;
 
 import java.util.List;
@@ -18,16 +18,16 @@ import java.util.List;
 public final class McaCrimeConfig {
 
     public static final Common COMMON;
-    public static final ForgeConfigSpec COMMON_SPEC;
+    public static final ModConfigSpec COMMON_SPEC;
     public static final Client CLIENT;
-    public static final ForgeConfigSpec CLIENT_SPEC;
+    public static final ModConfigSpec CLIENT_SPEC;
 
     static {
-        final Pair<Common, ForgeConfigSpec> common = new ForgeConfigSpec.Builder().configure(Common::new);
+        final Pair<Common, ModConfigSpec> common = new ModConfigSpec.Builder().configure(Common::new);
         COMMON = common.getLeft();
         COMMON_SPEC = common.getRight();
 
-        final Pair<Client, ForgeConfigSpec> client = new ForgeConfigSpec.Builder().configure(Client::new);
+        final Pair<Client, ModConfigSpec> client = new ModConfigSpec.Builder().configure(Client::new);
         CLIENT = client.getLeft();
         CLIENT_SPEC = client.getRight();
     }
@@ -37,253 +37,253 @@ public final class McaCrimeConfig {
 
     public static final class Common {
         // bands (§1.1) — read by the engine + validator
-        public final ForgeConfigSpec.IntValue karmaBlueThreshold;
-        public final ForgeConfigSpec.IntValue karmaRedThreshold;
-        public final ForgeConfigSpec.IntValue wantedHeatThreshold;
+        public final ModConfigSpec.IntValue karmaBlueThreshold;
+        public final ModConfigSpec.IntValue karmaRedThreshold;
+        public final ModConfigSpec.IntValue wantedHeatThreshold;
 
         // karma (§3) — read by the engine
-        public final ForgeConfigSpec.IntValue karmaMin;
-        public final ForgeConfigSpec.IntValue karmaMax;
-        public final ForgeConfigSpec.IntValue karmaDecayPerDay;
-        public final ForgeConfigSpec.DoubleValue unwitnessedKarmaFactor;
+        public final ModConfigSpec.IntValue karmaMin;
+        public final ModConfigSpec.IntValue karmaMax;
+        public final ModConfigSpec.IntValue karmaDecayPerDay;
+        public final ModConfigSpec.DoubleValue unwitnessedKarmaFactor;
 
         // positive-reward karma weights (§3.2) — skeleton for the reward/quest phases. Crime PENALTIES
         // are now data-driven in data/mcacrime/mcacrime/crimes/*.json (the single source of truth), so the
         // harm/kill/theft/vandalism/trespass weights moved there.
-        public final ForgeConfigSpec.IntValue tradeKarma;
-        public final ForgeConfigSpec.IntValue giftKarma;
-        public final ForgeConfigSpec.IntValue questCompleteKarma;
-        public final ForgeConfigSpec.IntValue defendVillageKarma;
-        public final ForgeConfigSpec.IntValue protectVillagerKarma;
-        public final ForgeConfigSpec.IntValue failQuestKarma;
+        public final ModConfigSpec.IntValue tradeKarma;
+        public final ModConfigSpec.IntValue giftKarma;
+        public final ModConfigSpec.IntValue questCompleteKarma;
+        public final ModConfigSpec.IntValue defendVillageKarma;
+        public final ModConfigSpec.IntValue protectVillagerKarma;
+        public final ModConfigSpec.IntValue failQuestKarma;
 
         // heat (§3) — read by the engine
-        public final ForgeConfigSpec.IntValue heatMax;
-        public final ForgeConfigSpec.IntValue heatDecayPerMinute;
-        public final ForgeConfigSpec.BooleanValue requireWitnessForHeat;
+        public final ModConfigSpec.IntValue heatMax;
+        public final ModConfigSpec.IntValue heatDecayPerMinute;
+        public final ModConfigSpec.BooleanValue requireWitnessForHeat;
 
         // detection (§5) — read by the crime detector
-        public final ForgeConfigSpec.BooleanValue enableCrimeDetection;
-        public final ForgeConfigSpec.IntValue witnessRadius;
-        public final ForgeConfigSpec.IntValue harmCooldownTicks;
-        public final ForgeConfigSpec.IntValue maxStoredWitnesses;
+        public final ModConfigSpec.BooleanValue enableCrimeDetection;
+        public final ModConfigSpec.IntValue witnessRadius;
+        public final ModConfigSpec.IntValue harmCooldownTicks;
+        public final ModConfigSpec.IntValue maxStoredWitnesses;
 
         // observations and reports (§12) — the identity-carrying replacement for the witness count
-        public final ForgeConfigSpec.BooleanValue enableObservations;
-        public final ForgeConfigSpec.IntValue hearingWitnessRadius;
-        public final ForgeConfigSpec.IntValue reportRadius;
-        public final ForgeConfigSpec.IntValue observationStatuteTicks;
-        public final ForgeConfigSpec.DoubleValue reportConfidenceThreshold;
+        public final ModConfigSpec.BooleanValue enableObservations;
+        public final ModConfigSpec.IntValue hearingWitnessRadius;
+        public final ModConfigSpec.IntValue reportRadius;
+        public final ModConfigSpec.IntValue observationStatuteTicks;
+        public final ModConfigSpec.DoubleValue reportConfidenceThreshold;
 
         // villager reaction state machine (§11.2)
-        public final ForgeConfigSpec.BooleanValue enableVillagerReactions;
-        public final ForgeConfigSpec.IntValue reactionTickIntervalTicks;
-        public final ForgeConfigSpec.IntValue reactionNavigationIntervalTicks;
-        public final ForgeConfigSpec.IntValue maxActiveReactions;
-        public final ForgeConfigSpec.IntValue reactionThreatenedTicks;
-        public final ForgeConfigSpec.IntValue reactionFleeTicks;
-        public final ForgeConfigSpec.IntValue reactionSeekHelpTicks;
-        public final ForgeConfigSpec.IntValue reactionHideTicks;
-        public final ForgeConfigSpec.IntValue reactionRecoveryTicks;
-        public final ForgeConfigSpec.IntValue safeDestinationSamples;
+        public final ModConfigSpec.BooleanValue enableVillagerReactions;
+        public final ModConfigSpec.IntValue reactionTickIntervalTicks;
+        public final ModConfigSpec.IntValue reactionNavigationIntervalTicks;
+        public final ModConfigSpec.IntValue maxActiveReactions;
+        public final ModConfigSpec.IntValue reactionThreatenedTicks;
+        public final ModConfigSpec.IntValue reactionFleeTicks;
+        public final ModConfigSpec.IntValue reactionSeekHelpTicks;
+        public final ModConfigSpec.IntValue reactionHideTicks;
+        public final ModConfigSpec.IntValue reactionRecoveryTicks;
+        public final ModConfigSpec.IntValue safeDestinationSamples;
 
         // dialogue (§16)
-        public final ForgeConfigSpec.BooleanValue enableDialogue;
-        public final ForgeConfigSpec.IntValue dialogueCooldownTicks;
+        public final ModConfigSpec.BooleanValue enableDialogue;
+        public final ModConfigSpec.IntValue dialogueCooldownTicks;
 
         // guard challenge (§13.2)
-        public final ForgeConfigSpec.BooleanValue enableGuardChallenge;
-        public final ForgeConfigSpec.IntValue guardChallengeWindowTicks;
-        public final ForgeConfigSpec.DoubleValue guardChallengeRadius;
-        public final ForgeConfigSpec.IntValue resistingArrestTicks;
-        public final ForgeConfigSpec.BooleanValue manageGuardPopulation;
-        public final ForgeConfigSpec.DoubleValue guardPopulationRatio;
-        public final ForgeConfigSpec.IntValue guardPopulationMinimum;
-        public final ForgeConfigSpec.IntValue guardPopulationMaxPerPass;
-        public final ForgeConfigSpec.IntValue guardPopulationScanIntervalTicks;
-        public final ForgeConfigSpec.IntValue guardPopulationCooldownTicks;
+        public final ModConfigSpec.BooleanValue enableGuardChallenge;
+        public final ModConfigSpec.IntValue guardChallengeWindowTicks;
+        public final ModConfigSpec.DoubleValue guardChallengeRadius;
+        public final ModConfigSpec.IntValue resistingArrestTicks;
+        public final ModConfigSpec.BooleanValue manageGuardPopulation;
+        public final ModConfigSpec.DoubleValue guardPopulationRatio;
+        public final ModConfigSpec.IntValue guardPopulationMinimum;
+        public final ModConfigSpec.IntValue guardPopulationMaxPerPass;
+        public final ModConfigSpec.IntValue guardPopulationScanIntervalTicks;
+        public final ModConfigSpec.IntValue guardPopulationCooldownTicks;
 
         // rescue (§14.3)
-        public final ForgeConfigSpec.BooleanValue enableRescue;
-        public final ForgeConfigSpec.IntValue rescueChannelTicks;
+        public final ModConfigSpec.BooleanValue enableRescue;
+        public final ModConfigSpec.IntValue rescueChannelTicks;
 
         // bail (§13.4) — the previously-inert enableBail switch, given a price
-        public final ForgeConfigSpec.IntValue bailCostPerMinute;
-        public final ForgeConfigSpec.DoubleValue bailMinServedFraction;
+        public final ModConfigSpec.IntValue bailCostPerMinute;
+        public final ModConfigSpec.DoubleValue bailMinServedFraction;
 
         // anti-farm caps (§3.3) — skeleton
-        public final ForgeConfigSpec.IntValue perVillagerDailyKarmaCap;
-        public final ForgeConfigSpec.IntValue perVillageDailyKarmaCap;
-        public final ForgeConfigSpec.IntValue perPlayerDailyKarmaCap;
-        public final ForgeConfigSpec.DoubleValue diminishingReturnsFactor;
+        public final ModConfigSpec.IntValue perVillagerDailyKarmaCap;
+        public final ModConfigSpec.IntValue perVillageDailyKarmaCap;
+        public final ModConfigSpec.IntValue perPlayerDailyKarmaCap;
+        public final ModConfigSpec.DoubleValue diminishingReturnsFactor;
 
         // enforcement (§4, §5.2)
-        public final ForgeConfigSpec.BooleanValue pvpCountsAsCrime;
-        public final ForgeConfigSpec.BooleanValue raidGrace;
-        public final ForgeConfigSpec.BooleanValue redIsLegalTarget;
-        public final ForgeConfigSpec.BooleanValue allowKillingRed;
-        public final ForgeConfigSpec.BooleanValue globalCrimePropagation;
-        public final ForgeConfigSpec.DoubleValue guardAggroRadius;
-        public final ForgeConfigSpec.IntValue guardScanIntervalTicks;
-        public final ForgeConfigSpec.BooleanValue enableVillagerFlee;
-        public final ForgeConfigSpec.DoubleValue villagerFleeRadius;
+        public final ModConfigSpec.BooleanValue pvpCountsAsCrime;
+        public final ModConfigSpec.BooleanValue raidGrace;
+        public final ModConfigSpec.BooleanValue redIsLegalTarget;
+        public final ModConfigSpec.BooleanValue allowKillingRed;
+        public final ModConfigSpec.BooleanValue globalCrimePropagation;
+        public final ModConfigSpec.DoubleValue guardAggroRadius;
+        public final ModConfigSpec.IntValue guardScanIntervalTicks;
+        public final ModConfigSpec.BooleanValue enableVillagerFlee;
+        public final ModConfigSpec.DoubleValue villagerFleeRadius;
 
         // kidnapping / capture (§8) — read by the capture + custody services
-        public final ForgeConfigSpec.BooleanValue enableKidnappingNpc;
-        public final ForgeConfigSpec.BooleanValue enableKidnappingPlayer;
-        public final ForgeConfigSpec.IntValue captureChannelTicks;
-        public final ForgeConfigSpec.DoubleValue captureMaxMoveBlocks;
-        public final ForgeConfigSpec.DoubleValue captureMaxRangeBlocks;
-        public final ForgeConfigSpec.BooleanValue captureRequireLineOfSight;
-        public final ForgeConfigSpec.DoubleValue captureLowHealthFraction;
-        public final ForgeConfigSpec.BooleanValue villagerCaptureRelaxedVulnerability;
-        public final ForgeConfigSpec.DoubleValue captureChannelMultiplierRope;
-        public final ForgeConfigSpec.DoubleValue captureChannelMultiplierCuffs;
-        public final ForgeConfigSpec.DoubleValue captureChannelMultiplierLockedCuffs;
-        public final ForgeConfigSpec.DoubleValue restraintEscapeChanceRope;
-        public final ForgeConfigSpec.DoubleValue restraintEscapeChanceCuffs;
-        public final ForgeConfigSpec.DoubleValue restraintEscapeChanceLockedCuffs;
-        public final ForgeConfigSpec.DoubleValue captiveTetherBlocks;
-        public final ForgeConfigSpec.BooleanValue captiveCanEscapeByDistance;
-        public final ForgeConfigSpec.BooleanValue npcCaptiveVirtualizeWhenUnloaded;
-        public final ForgeConfigSpec.IntValue maxUnlawfulCaptivesPerCaptor;
-        public final ForgeConfigSpec.IntValue captorDisconnectGraceTicks;
-        public final ForgeConfigSpec.IntValue escapeWorkTicksRope;
-        public final ForgeConfigSpec.IntValue escapeWorkTicksCuffs;
-        public final ForgeConfigSpec.IntValue escapeAttemptCooldownTicks;
+        public final ModConfigSpec.BooleanValue enableKidnappingNpc;
+        public final ModConfigSpec.BooleanValue enableKidnappingPlayer;
+        public final ModConfigSpec.IntValue captureChannelTicks;
+        public final ModConfigSpec.DoubleValue captureMaxMoveBlocks;
+        public final ModConfigSpec.DoubleValue captureMaxRangeBlocks;
+        public final ModConfigSpec.BooleanValue captureRequireLineOfSight;
+        public final ModConfigSpec.DoubleValue captureLowHealthFraction;
+        public final ModConfigSpec.BooleanValue villagerCaptureRelaxedVulnerability;
+        public final ModConfigSpec.DoubleValue captureChannelMultiplierRope;
+        public final ModConfigSpec.DoubleValue captureChannelMultiplierCuffs;
+        public final ModConfigSpec.DoubleValue captureChannelMultiplierLockedCuffs;
+        public final ModConfigSpec.DoubleValue restraintEscapeChanceRope;
+        public final ModConfigSpec.DoubleValue restraintEscapeChanceCuffs;
+        public final ModConfigSpec.DoubleValue restraintEscapeChanceLockedCuffs;
+        public final ModConfigSpec.DoubleValue captiveTetherBlocks;
+        public final ModConfigSpec.BooleanValue captiveCanEscapeByDistance;
+        public final ModConfigSpec.BooleanValue npcCaptiveVirtualizeWhenUnloaded;
+        public final ModConfigSpec.IntValue maxUnlawfulCaptivesPerCaptor;
+        public final ModConfigSpec.IntValue captorDisconnectGraceTicks;
+        public final ModConfigSpec.IntValue escapeWorkTicksRope;
+        public final ModConfigSpec.IntValue escapeWorkTicksCuffs;
+        public final ModConfigSpec.IntValue escapeAttemptCooldownTicks;
 
         // NPC crime (§9) — skeleton
-        public final ForgeConfigSpec.BooleanValue enableNpcCrime;
-        public final ForgeConfigSpec.IntValue maxActiveNpcCrimesPerVillage;
-        public final ForgeConfigSpec.IntValue minTimeBetweenNpcCrimes;
+        public final ModConfigSpec.BooleanValue enableNpcCrime;
+        public final ModConfigSpec.IntValue maxActiveNpcCrimesPerVillage;
+        public final ModConfigSpec.IntValue minTimeBetweenNpcCrimes;
 
         // jail (§6, §7)
-        public final ForgeConfigSpec.BooleanValue enableFines;
-        public final ForgeConfigSpec.BooleanValue enableBail;
-        public final ForgeConfigSpec.IntValue maxCaptivityRealMinutes;
-        public final ForgeConfigSpec.EnumValue<JailContainmentMode> jailContainmentMode;
-        public final ForgeConfigSpec.IntValue maxJailCommandTicks;
-        public final ForgeConfigSpec.IntValue jailRadiusDefault;
-        public final ForgeConfigSpec.BooleanValue buildHoldingCell;
-        public final ForgeConfigSpec.IntValue holdingCellSearchRadius;
-        public final ForgeConfigSpec.IntValue holdingCellLifetimeTicks;
-        public final ForgeConfigSpec.IntValue sentenceBaseTicks;
-        public final ForgeConfigSpec.IntValue sentenceTicksPerHeat;
-        public final ForgeConfigSpec.IntValue sentenceTicksPerCharge;
-        public final ForgeConfigSpec.IntValue arrestEscortTimeoutTicks;
-        public final ForgeConfigSpec.DoubleValue escortTetherBlocks;
-        public final ForgeConfigSpec.DoubleValue escortLeashBlocks;
-        public final ForgeConfigSpec.DoubleValue escortSpeedPenalty;
-        public final ForgeConfigSpec.DoubleValue escortWalkSpeed;
-        public final ForgeConfigSpec.IntValue escortNavigationIntervalTicks;
-        public final ForgeConfigSpec.IntValue escortStuckScans;
-        public final ForgeConfigSpec.BooleanValue restrainedPlayerRestrictions;
-        public final ForgeConfigSpec.IntValue arrestRecoveryTicks;
-        public final ForgeConfigSpec.DoubleValue jailAssignedMaxDistance;
-        public final ForgeConfigSpec.BooleanValue jailFallbackEnabled;
-        public final ForgeConfigSpec.ConfigValue<List<? extends Integer>> jailFallbackPos;
-        public final ForgeConfigSpec.ConfigValue<String> jailFallbackDim;
+        public final ModConfigSpec.BooleanValue enableFines;
+        public final ModConfigSpec.BooleanValue enableBail;
+        public final ModConfigSpec.IntValue maxCaptivityRealMinutes;
+        public final ModConfigSpec.EnumValue<JailContainmentMode> jailContainmentMode;
+        public final ModConfigSpec.IntValue maxJailCommandTicks;
+        public final ModConfigSpec.IntValue jailRadiusDefault;
+        public final ModConfigSpec.BooleanValue buildHoldingCell;
+        public final ModConfigSpec.IntValue holdingCellSearchRadius;
+        public final ModConfigSpec.IntValue holdingCellLifetimeTicks;
+        public final ModConfigSpec.IntValue sentenceBaseTicks;
+        public final ModConfigSpec.IntValue sentenceTicksPerHeat;
+        public final ModConfigSpec.IntValue sentenceTicksPerCharge;
+        public final ModConfigSpec.IntValue arrestEscortTimeoutTicks;
+        public final ModConfigSpec.DoubleValue escortTetherBlocks;
+        public final ModConfigSpec.DoubleValue escortLeashBlocks;
+        public final ModConfigSpec.DoubleValue escortSpeedPenalty;
+        public final ModConfigSpec.DoubleValue escortWalkSpeed;
+        public final ModConfigSpec.IntValue escortNavigationIntervalTicks;
+        public final ModConfigSpec.IntValue escortStuckScans;
+        public final ModConfigSpec.BooleanValue restrainedPlayerRestrictions;
+        public final ModConfigSpec.IntValue arrestRecoveryTicks;
+        public final ModConfigSpec.DoubleValue jailAssignedMaxDistance;
+        public final ModConfigSpec.BooleanValue jailFallbackEnabled;
+        public final ModConfigSpec.ConfigValue<List<? extends Integer>> jailFallbackPos;
+        public final ModConfigSpec.ConfigValue<String> jailFallbackDim;
 
         // fines + surrender (§6)
-        public final ForgeConfigSpec.IntValue fineBase;
-        public final ForgeConfigSpec.IntValue finePerHeat;
-        public final ForgeConfigSpec.IntValue jailableHeatThreshold;
-        public final ForgeConfigSpec.DoubleValue blueFineMultiplier;
-        public final ForgeConfigSpec.BooleanValue redCanPayFine;
-        public final ForgeConfigSpec.IntValue maxCasesPerFinePayment;
-        public final ForgeConfigSpec.DoubleValue surrenderNearRadius;
-        public final ForgeConfigSpec.IntValue surrenderHeatReduction;
-        public final ForgeConfigSpec.IntValue surrenderSentenceReductionPct;
+        public final ModConfigSpec.IntValue fineBase;
+        public final ModConfigSpec.IntValue finePerHeat;
+        public final ModConfigSpec.IntValue jailableHeatThreshold;
+        public final ModConfigSpec.DoubleValue blueFineMultiplier;
+        public final ModConfigSpec.BooleanValue redCanPayFine;
+        public final ModConfigSpec.IntValue maxCasesPerFinePayment;
+        public final ModConfigSpec.DoubleValue surrenderNearRadius;
+        public final ModConfigSpec.IntValue surrenderHeatReduction;
+        public final ModConfigSpec.IntValue surrenderSentenceReductionPct;
 
         // protected / responder entities (§9, §15) — validated by /crime validate
-        public final ForgeConfigSpec.ConfigValue<List<? extends String>> protectedEntities;
-        public final ForgeConfigSpec.ConfigValue<List<? extends String>> responderEntities;
+        public final ModConfigSpec.ConfigValue<List<? extends String>> protectedEntities;
+        public final ModConfigSpec.ConfigValue<List<? extends String>> responderEntities;
 
         // weapon-in-hand trigger + weapon classification (0.5.0) — read by item.weapon and the interact handler
-        public final ForgeConfigSpec.BooleanValue weaponTriggerEnabled;
-        public final ForgeConfigSpec.BooleanValue weaponTriggerRequireSneak;
-        public final ForgeConfigSpec.BooleanValue weaponTriggerAllowOffHand;
-        public final ForgeConfigSpec.ConfigValue<List<? extends String>> weaponWhitelist;
-        public final ForgeConfigSpec.ConfigValue<List<? extends String>> weaponBlacklist;
-        public final ForgeConfigSpec.BooleanValue weaponAutoDetect;
-        public final ForgeConfigSpec.DoubleValue weaponAutoDetectMinAttackDamage;
-        public final ForgeConfigSpec.ConfigValue<List<? extends String>> weaponGunKeywords;
-        public final ForgeConfigSpec.ConfigValue<List<? extends String>> weaponMods;
-        public final ForgeConfigSpec.BooleanValue mugRequiresWeapon;
+        public final ModConfigSpec.BooleanValue weaponTriggerEnabled;
+        public final ModConfigSpec.BooleanValue weaponTriggerRequireSneak;
+        public final ModConfigSpec.BooleanValue weaponTriggerAllowOffHand;
+        public final ModConfigSpec.ConfigValue<List<? extends String>> weaponWhitelist;
+        public final ModConfigSpec.ConfigValue<List<? extends String>> weaponBlacklist;
+        public final ModConfigSpec.BooleanValue weaponAutoDetect;
+        public final ModConfigSpec.DoubleValue weaponAutoDetectMinAttackDamage;
+        public final ModConfigSpec.ConfigValue<List<? extends String>> weaponGunKeywords;
+        public final ModConfigSpec.ConfigValue<List<? extends String>> weaponMods;
+        public final ModConfigSpec.BooleanValue mugRequiresWeapon;
 
         // ransom (§8.5) — read by the ransom service
-        public final ForgeConfigSpec.IntValue ransomCooldownPerVictimTicks;
-        public final ForgeConfigSpec.IntValue ransomCooldownPerVillageTicks;
-        public final ForgeConfigSpec.IntValue ransomCooldownPerFamilyTicks;
-        public final ForgeConfigSpec.IntValue ransomBaseAmount;
-        public final ForgeConfigSpec.DoubleValue ransomSpouseMultiplier;
-        public final ForgeConfigSpec.DoubleValue ransomParentMultiplier;
-        public final ForgeConfigSpec.DoubleValue ransomChildMultiplier;
-        public final ForgeConfigSpec.DoubleValue ransomSiblingMultiplier;
-        public final ForgeConfigSpec.DoubleValue ransomRelativeMultiplier;
-        public final ForgeConfigSpec.DoubleValue ransomVillageMultiplier;
-        public final ForgeConfigSpec.BooleanValue enableVillageRansomFallback;
-        public final ForgeConfigSpec.BooleanValue enableCloseFriendTier;
-        public final ForgeConfigSpec.IntValue ransomDemandTtlTicks;
-        public final ForgeConfigSpec.IntValue villageTreasuryInitialBalance;
+        public final ModConfigSpec.IntValue ransomCooldownPerVictimTicks;
+        public final ModConfigSpec.IntValue ransomCooldownPerVillageTicks;
+        public final ModConfigSpec.IntValue ransomCooldownPerFamilyTicks;
+        public final ModConfigSpec.IntValue ransomBaseAmount;
+        public final ModConfigSpec.DoubleValue ransomSpouseMultiplier;
+        public final ModConfigSpec.DoubleValue ransomParentMultiplier;
+        public final ModConfigSpec.DoubleValue ransomChildMultiplier;
+        public final ModConfigSpec.DoubleValue ransomSiblingMultiplier;
+        public final ModConfigSpec.DoubleValue ransomRelativeMultiplier;
+        public final ModConfigSpec.DoubleValue ransomVillageMultiplier;
+        public final ModConfigSpec.BooleanValue enableVillageRansomFallback;
+        public final ModConfigSpec.BooleanValue enableCloseFriendTier;
+        public final ModConfigSpec.IntValue ransomDemandTtlTicks;
+        public final ModConfigSpec.IntValue villageTreasuryInitialBalance;
 
         // mugging (§8.6) — read by the mugging service
-        public final ForgeConfigSpec.BooleanValue enableMugging;
-        public final ForgeConfigSpec.IntValue muggingBaseLoot;
-        public final ForgeConfigSpec.BooleanValue enableProfessionDeathDrops;
-        public final ForgeConfigSpec.IntValue muggingChannelTicks;
-        public final ForgeConfigSpec.IntValue muggingAttemptCooldownTicks;
-        public final ForgeConfigSpec.IntValue muggingVictimRecoveryTicks;
-        public final ForgeConfigSpec.IntValue muggingFearMemoryTicks;
-        public final ForgeConfigSpec.IntValue muggingPanicTicks;
-        public final ForgeConfigSpec.IntValue muggingActorSuccessCapPerDay;
-        public final ForgeConfigSpec.IntValue muggingActorValueCapPerDay;
-        public final ForgeConfigSpec.IntValue muggingVillageValueCapPerDay;
-        public final ForgeConfigSpec.IntValue muggingPurseCapacity;
-        public final ForgeConfigSpec.IntValue muggingPurseInitialMax;
-        public final ForgeConfigSpec.IntValue muggingPurseDailyIncome;
-        public final ForgeConfigSpec.BooleanValue allowHostileActionsAgainstChildren;
-        public final ForgeConfigSpec.BooleanValue allowGameplayCommandFallback;
+        public final ModConfigSpec.BooleanValue enableMugging;
+        public final ModConfigSpec.IntValue muggingBaseLoot;
+        public final ModConfigSpec.BooleanValue enableProfessionDeathDrops;
+        public final ModConfigSpec.IntValue muggingChannelTicks;
+        public final ModConfigSpec.IntValue muggingAttemptCooldownTicks;
+        public final ModConfigSpec.IntValue muggingVictimRecoveryTicks;
+        public final ModConfigSpec.IntValue muggingFearMemoryTicks;
+        public final ModConfigSpec.IntValue muggingPanicTicks;
+        public final ModConfigSpec.IntValue muggingActorSuccessCapPerDay;
+        public final ModConfigSpec.IntValue muggingActorValueCapPerDay;
+        public final ModConfigSpec.IntValue muggingVillageValueCapPerDay;
+        public final ModConfigSpec.IntValue muggingPurseCapacity;
+        public final ModConfigSpec.IntValue muggingPurseInitialMax;
+        public final ModConfigSpec.IntValue muggingPurseDailyIncome;
+        public final ModConfigSpec.BooleanValue allowHostileActionsAgainstChildren;
+        public final ModConfigSpec.BooleanValue allowGameplayCommandFallback;
 
         // relationship consequences (§10.1, §11.3) — read by RelationshipConsequences
-        public final ForgeConfigSpec.IntValue directVictimHeartLoss;
-        public final ForgeConfigSpec.IntValue familyHeartLoss;
-        public final ForgeConfigSpec.IntValue witnessTrustLoss;
-        public final ForgeConfigSpec.IntValue villageRepDrop;
-        public final ForgeConfigSpec.IntValue rescueHeartGain;
-        public final ForgeConfigSpec.IntValue familyHeartGain;
-        public final ForgeConfigSpec.IntValue villageRepRise;
-        public final ForgeConfigSpec.IntValue restitutionHeartGain;
-        public final ForgeConfigSpec.DoubleValue restitutionFractionOfFine;
+        public final ModConfigSpec.IntValue directVictimHeartLoss;
+        public final ModConfigSpec.IntValue familyHeartLoss;
+        public final ModConfigSpec.IntValue witnessTrustLoss;
+        public final ModConfigSpec.IntValue villageRepDrop;
+        public final ModConfigSpec.IntValue rescueHeartGain;
+        public final ModConfigSpec.IntValue familyHeartGain;
+        public final ModConfigSpec.IntValue villageRepRise;
+        public final ModConfigSpec.IntValue restitutionHeartGain;
+        public final ModConfigSpec.DoubleValue restitutionFractionOfFine;
 
         // ambient messages + chat coloring (§10.3) — read by AmbientMessages / ChatNameColor
-        public final ForgeConfigSpec.BooleanValue ambientMessagesEnabled;
-        public final ForgeConfigSpec.IntValue ambientMessageThrottleTicks;
-        public final ForgeConfigSpec.BooleanValue chatNameColorEnabled;
-        public final ForgeConfigSpec.EnumValue<NameColorMode> chatNameColorMode;
+        public final ModConfigSpec.BooleanValue ambientMessagesEnabled;
+        public final ModConfigSpec.IntValue ambientMessageThrottleTicks;
+        public final ModConfigSpec.BooleanValue chatNameColorEnabled;
+        public final ModConfigSpec.EnumValue<NameColorMode> chatNameColorMode;
 
         // matching (§12) — skeleton (used when profession gating lands)
-        public final ForgeConfigSpec.EnumValue<ProfessionMatchingMode> professionMatchingMode;
+        public final ModConfigSpec.EnumValue<ProfessionMatchingMode> professionMatchingMode;
 
         // debug (§12.3)
-        public final ForgeConfigSpec.BooleanValue strictJsonValidation;
-        public final ForgeConfigSpec.BooleanValue debugLogging;
+        public final ModConfigSpec.BooleanValue strictJsonValidation;
+        public final ModConfigSpec.BooleanValue debugLogging;
 
         // --- integrations (optional companion mods) ---
-        public final ForgeConfigSpec.BooleanValue enableReputation;
-        public final ForgeConfigSpec.BooleanValue mirrorReputationFallback;
-        public final ForgeConfigSpec.BooleanValue suppressLocalVillagePenalty;
-        public final ForgeConfigSpec.BooleanValue replayPendingOperations;
-        public final ForgeConfigSpec.IntValue pumpIntervalTicks;
-        public final ForgeConfigSpec.IntValue pumpBudgetPerTick;
-        public final ForgeConfigSpec.IntValue maxDeliveryAttempts;
-        public final ForgeConfigSpec.IntValue retryBaseDelayTicks;
-        public final ForgeConfigSpec.IntValue retryMaxDelayTicks;
-        public final ForgeConfigSpec.IntValue dedupeRetentionTicks;
-        public final ForgeConfigSpec.ConfigValue<String> fineResolutionStatus;
-        public final ForgeConfigSpec.ConfigValue<String> servedResolutionStatus;
+        public final ModConfigSpec.BooleanValue enableReputation;
+        public final ModConfigSpec.BooleanValue mirrorReputationFallback;
+        public final ModConfigSpec.BooleanValue suppressLocalVillagePenalty;
+        public final ModConfigSpec.BooleanValue replayPendingOperations;
+        public final ModConfigSpec.IntValue pumpIntervalTicks;
+        public final ModConfigSpec.IntValue pumpBudgetPerTick;
+        public final ModConfigSpec.IntValue maxDeliveryAttempts;
+        public final ModConfigSpec.IntValue retryBaseDelayTicks;
+        public final ModConfigSpec.IntValue retryMaxDelayTicks;
+        public final ModConfigSpec.IntValue dedupeRetentionTicks;
+        public final ModConfigSpec.ConfigValue<String> fineResolutionStatus;
+        public final ModConfigSpec.ConfigValue<String> servedResolutionStatus;
 
-        Common(ForgeConfigSpec.Builder b) {
+        Common(ModConfigSpec.Builder b) {
             b.push("bands");
             karmaBlueThreshold = b.comment("Karma at or above this is the Blue (lawful) band. Must be > redThreshold.")
                     .defineInRange("karmaBlueThreshold", 100, -1_000_000, 1_000_000);
@@ -854,25 +854,25 @@ public final class McaCrimeConfig {
     }
 
     public static final class Client {
-        public final ForgeConfigSpec.BooleanValue nameColorEnabled;
-        public final ForgeConfigSpec.EnumValue<NameColorMode> nameColorMode;
-        public final ForgeConfigSpec.BooleanValue showPlayerCardButton;
-        public final ForgeConfigSpec.BooleanValue showButtonOnMcaScreen;
-        public final ForgeConfigSpec.BooleanValue playerCardOpenByDefault;
-        public final ForgeConfigSpec.BooleanValue captiveScreenToggle;
-        public final ForgeConfigSpec.BooleanValue confirmHostileActions;
-        public final ForgeConfigSpec.BooleanValue hudEnabled;
-        public final ForgeConfigSpec.BooleanValue hudChannelBar;
-        public final ForgeConfigSpec.BooleanValue hudStatusIndicator;
-        public final ForgeConfigSpec.BooleanValue hudCustodyIndicator;
-        public final ForgeConfigSpec.BooleanValue renderRestraintPose;
-        public final ForgeConfigSpec.BooleanValue renderCuffs;
-        public final ForgeConfigSpec.BooleanValue renderEscortRope;
-        public final ForgeConfigSpec.EnumValue<dev.otectus.mcacrime.client.hud.HudAnchor> hudAnchor;
-        public final ForgeConfigSpec.IntValue hudOffsetX;
-        public final ForgeConfigSpec.IntValue hudOffsetY;
+        public final ModConfigSpec.BooleanValue nameColorEnabled;
+        public final ModConfigSpec.EnumValue<NameColorMode> nameColorMode;
+        public final ModConfigSpec.BooleanValue showPlayerCardButton;
+        public final ModConfigSpec.BooleanValue showButtonOnMcaScreen;
+        public final ModConfigSpec.BooleanValue playerCardOpenByDefault;
+        public final ModConfigSpec.BooleanValue captiveScreenToggle;
+        public final ModConfigSpec.BooleanValue confirmHostileActions;
+        public final ModConfigSpec.BooleanValue hudEnabled;
+        public final ModConfigSpec.BooleanValue hudChannelBar;
+        public final ModConfigSpec.BooleanValue hudStatusIndicator;
+        public final ModConfigSpec.BooleanValue hudCustodyIndicator;
+        public final ModConfigSpec.BooleanValue renderRestraintPose;
+        public final ModConfigSpec.BooleanValue renderCuffs;
+        public final ModConfigSpec.BooleanValue renderEscortRope;
+        public final ModConfigSpec.EnumValue<dev.otectus.mcacrime.client.hud.HudAnchor> hudAnchor;
+        public final ModConfigSpec.IntValue hudOffsetX;
+        public final ModConfigSpec.IntValue hudOffsetY;
 
-        Client(ForgeConfigSpec.Builder b) {
+        Client(ModConfigSpec.Builder b) {
             b.push("client");
             nameColorEnabled = b.comment("Color player names by band (Blue/Grey/Red) on their nameplates.")
                     .define("nameColorEnabled", true);

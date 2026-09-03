@@ -8,10 +8,10 @@ import net.minecraft.world.item.CreativeModeTab;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraftforge.eventbus.api.IEventBus;
-import net.minecraftforge.registries.DeferredRegister;
-import net.minecraftforge.registries.ForgeRegistries;
-import net.minecraftforge.registries.RegistryObject;
+import net.neoforged.bus.api.IEventBus;
+import net.neoforged.neoforge.registries.DeferredHolder;
+import net.neoforged.neoforge.registries.DeferredItem;
+import net.neoforged.neoforge.registries.DeferredRegister;
 
 /**
  * The mod's item registrations (spec §8.3) — its first items: the three restraints plus a creative tab.
@@ -21,18 +21,18 @@ import net.minecraftforge.registries.RegistryObject;
  */
 public final class CrimeItems {
 
-    public static final DeferredRegister<Item> ITEMS = DeferredRegister.create(ForgeRegistries.ITEMS, McaCrime.MOD_ID);
+    public static final DeferredRegister.Items ITEMS = DeferredRegister.createItems(McaCrime.MOD_ID);
     public static final DeferredRegister<CreativeModeTab> TABS =
             DeferredRegister.create(Registries.CREATIVE_MODE_TAB, McaCrime.MOD_ID);
 
-    public static final RegistryObject<Item> RESTRAINT_ROPE = ITEMS.register("restraint_rope",
+    public static final DeferredItem<Item> RESTRAINT_ROPE = ITEMS.register("restraint_rope",
             () -> new RestraintItem(RestraintType.ROPE, new Item.Properties()));
-    public static final RegistryObject<Item> RESTRAINT_CUFFS = ITEMS.register("restraint_cuffs",
+    public static final DeferredItem<Item> RESTRAINT_CUFFS = ITEMS.register("restraint_cuffs",
             () -> new RestraintItem(RestraintType.CUFFS, new Item.Properties().stacksTo(1)));
-    public static final RegistryObject<Item> RESTRAINT_LOCKED_CUFFS = ITEMS.register("restraint_locked_cuffs",
+    public static final DeferredItem<Item> RESTRAINT_LOCKED_CUFFS = ITEMS.register("restraint_locked_cuffs",
             () -> new RestraintItem(RestraintType.LOCKED_CUFFS, new Item.Properties().stacksTo(1)));
 
-    public static final RegistryObject<CreativeModeTab> TAB = TABS.register("crime", () ->
+    public static final DeferredHolder<CreativeModeTab, CreativeModeTab> TAB = TABS.register("crime", () ->
             CreativeModeTab.builder()
                     .title(Component.translatable("itemGroup.mcacrime"))
                     .icon(() -> new ItemStack(RESTRAINT_CUFFS.get()))

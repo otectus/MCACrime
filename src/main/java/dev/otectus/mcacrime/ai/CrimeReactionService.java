@@ -22,9 +22,9 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.phys.AABB;
-import net.minecraftforge.common.MinecraftForge;
+import net.neoforged.neoforge.common.NeoForge;
 
-import javax.annotation.Nullable;
+import org.jetbrains.annotations.Nullable;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -133,7 +133,7 @@ public final class CrimeReactionService {
         if (level != null) {
             release(level, villager);
         }
-        MinecraftForge.EVENT_BUS.post(new WitnessReactionChangedEvent(villager, controller.offenderId(),
+        NeoForge.EVENT_BUS.post(new WitnessReactionChangedEvent(villager, controller.offenderId(),
                 controller.state(), VictimReactionState.CALM));
     }
 
@@ -187,7 +187,7 @@ public final class CrimeReactionService {
                 if (level != null) {
                     release(level, villager);
                 }
-                MinecraftForge.EVENT_BUS.post(new WitnessReactionChangedEvent(villager,
+                NeoForge.EVENT_BUS.post(new WitnessReactionChangedEvent(villager,
                         controller.offenderId(), controller.state(), VictimReactionState.CALM));
             }
         }
@@ -447,7 +447,7 @@ public final class CrimeReactionService {
         if (offender != null && entity instanceof LivingEntity villager) {
             speakFor(level, villager, offender, controller, next);
         }
-        MinecraftForge.EVENT_BUS.post(new WitnessReactionChangedEvent(controller.villagerId(),
+        NeoForge.EVENT_BUS.post(new WitnessReactionChangedEvent(controller.villagerId(),
                 controller.offenderId(), previous, next));
         return true;
     }

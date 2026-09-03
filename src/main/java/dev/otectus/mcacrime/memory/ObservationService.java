@@ -16,9 +16,9 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.phys.AABB;
-import net.minecraftforge.common.MinecraftForge;
+import net.neoforged.neoforge.common.NeoForge;
 
-import javax.annotation.Nullable;
+import org.jetbrains.annotations.Nullable;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -183,13 +183,13 @@ public final class ObservationService {
                 observation.incidentId(), observation.observerId(), observation.suspectedActorId(),
                 observation.victimId(), observation.actionId(), observation.role(),
                 observation.location(), observation.confidence());
-        if (MinecraftForge.EVENT_BUS.post(pre)) {
+        if (NeoForge.EVENT_BUS.post(pre).isCanceled()) {
             return false;
         }
         if (!CrimeWorldData.get(server).addObservation(observation)) {
             return false;
         }
-        MinecraftForge.EVENT_BUS.post(new CrimeObservationEvent.Post(observation.observationId(),
+        NeoForge.EVENT_BUS.post(new CrimeObservationEvent.Post(observation.observationId(),
                 observation.incidentId(), observation.observerId(), observation.suspectedActorId(),
                 observation.victimId(), observation.actionId(), observation.role(),
                 observation.location(), observation.confidence()));

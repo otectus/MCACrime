@@ -2,7 +2,7 @@ package dev.otectus.mcacrime.client;
 
 import dev.otectus.mcacrime.network.ActionProgressS2CPacket;
 
-import javax.annotation.Nullable;
+import org.jetbrains.annotations.Nullable;
 import java.util.UUID;
 
 /**

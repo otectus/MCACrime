@@ -49,10 +49,10 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.phys.AABB;
-import net.minecraftforge.event.RegisterCommandsEvent;
-import net.minecraftforge.eventbus.api.SubscribeEvent;
-import net.minecraftforge.fml.ModList;
-import net.minecraftforge.fml.common.Mod;
+import net.neoforged.neoforge.event.RegisterCommandsEvent;
+import net.neoforged.bus.api.SubscribeEvent;
+import net.neoforged.fml.ModList;
+import net.neoforged.fml.common.EventBusSubscriber;
 
 import java.util.Comparator;
 import java.util.List;
@@ -65,7 +65,7 @@ import java.util.UUID;
  * {@code validate}. Every mutator routes through {@link CrimeState} (the server-authoritative chokepoint);
  * commands never write capability NBT directly.
  */
-@Mod.EventBusSubscriber(modid = McaCrime.MOD_ID)
+@EventBusSubscriber(modid = McaCrime.MOD_ID)
 public final class CrimeCommand {
 
     private CrimeCommand() {
@@ -484,7 +484,7 @@ public final class CrimeCommand {
         dev.otectus.mcacrime.item.weapon.WeaponMatch match =
                 dev.otectus.mcacrime.item.weapon.WeaponDetector.classify(stack);
         String id = stack.isEmpty() ? "-" : String.valueOf(
-                net.minecraftforge.registries.ForgeRegistries.ITEMS.getKey(stack.getItem()));
+                net.minecraft.core.registries.BuiltInRegistries.ITEM.getKey(stack.getItem()));
         ctx.getSource().sendSuccess(() -> Component.translatable("mcacrime.command.debug.weapon",
                 id, match.weaponClass().name(), match.layer(),
                 dev.otectus.mcacrime.item.weapon.WeaponDetector.minAttackDamage()), false);

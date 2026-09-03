@@ -35,9 +35,9 @@ import java.util.Set;
 public final class WeaponRules {
 
     /** Items a datapack declares to be weapons. */
-    public static final ResourceLocation WEAPONS_TAG = new ResourceLocation("mcacrime", "weapons");
+    public static final ResourceLocation WEAPONS_TAG = ResourceLocation.fromNamespaceAndPath("mcacrime", "weapons");
     /** Items a datapack declares are never weapons; beaten only by the config blacklist above it. */
-    public static final ResourceLocation WEAPONS_BLACKLIST_TAG = new ResourceLocation("mcacrime", "weapons_blacklist");
+    public static final ResourceLocation WEAPONS_BLACKLIST_TAG = ResourceLocation.fromNamespaceAndPath("mcacrime", "weapons_blacklist");
 
     private static final Set<String> RANGED_USE_ANIMS = Set.of("BOW", "CROSSBOW", "SPEAR");
 

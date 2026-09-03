@@ -7,7 +7,7 @@ import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.CommonComponents;
 import net.minecraft.network.chat.Component;
-import net.minecraftforge.common.ForgeConfigSpec;
+import net.neoforged.neoforge.common.ModConfigSpec;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -74,7 +74,7 @@ public final class CrimeConfigScreen extends Screen {
     }
 
     /** A boolean row that reads its current value each time it is redrawn, not once at build time. */
-    private void addToggle(String labelKey, ForgeConfigSpec.BooleanValue value) {
+    private void addToggle(String labelKey, ModConfigSpec.BooleanValue value) {
         int index = options.size();
         Button button = Button.builder(label(labelKey, value.get()), b -> {
                     value.set(!value.get());
@@ -89,7 +89,7 @@ public final class CrimeConfigScreen extends Screen {
     /** The anchor is a small enum, so it cycles rather than opening a second screen to choose from. */
     private void addAnchorCycle() {
         int index = options.size();
-        ForgeConfigSpec.EnumValue<HudAnchor> value = McaCrimeConfig.CLIENT.hudAnchor;
+        ModConfigSpec.EnumValue<HudAnchor> value = McaCrimeConfig.CLIENT.hudAnchor;
         Button button = Button.builder(anchorLabel(value.get()), b -> {
                     HudAnchor[] all = HudAnchor.values();
                     HudAnchor next = all[(value.get().ordinal() + 1) % all.length];

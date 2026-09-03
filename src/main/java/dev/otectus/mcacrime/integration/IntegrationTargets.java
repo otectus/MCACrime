@@ -15,11 +15,11 @@ public final class IntegrationTargets {
 
     /** Ask MCA: Reputation to record the civic incident for a crime case. */
     public static final ResourceLocation REPUTATION_RECORD_INCIDENT =
-            new ResourceLocation("mcareputation", "record_incident");
+            ResourceLocation.fromNamespaceAndPath("mcareputation", "record_incident");
 
     /** Ask MCA: Reputation to move a linked incident to a resolved status. */
     public static final ResourceLocation REPUTATION_RESOLVE_INCIDENT =
-            new ResourceLocation("mcareputation", "resolve_incident");
+            ResourceLocation.fromNamespaceAndPath("mcareputation", "resolve_incident");
 
     /** Create the companion-side record of a deed. */
     public static final ResourceLocation ACTION_CREATE = McaCrime.id("create");

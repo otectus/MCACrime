@@ -1,6 +1,6 @@
 package dev.otectus.mcacrime.ransom;
 
-import javax.annotation.Nullable;
+import org.jetbrains.annotations.Nullable;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;

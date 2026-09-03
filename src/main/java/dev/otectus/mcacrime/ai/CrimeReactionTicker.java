@@ -4,11 +4,11 @@ import dev.otectus.mcacrime.McaCrime;
 import dev.otectus.mcacrime.enforcement.LawHold;
 import dev.otectus.mcacrime.memory.ReportService;
 import net.minecraft.server.MinecraftServer;
-import net.minecraftforge.event.TickEvent;
-import net.minecraftforge.event.entity.living.LivingDeathEvent;
-import net.minecraftforge.event.server.ServerStoppingEvent;
-import net.minecraftforge.eventbus.api.SubscribeEvent;
-import net.minecraftforge.fml.common.Mod;
+import net.neoforged.neoforge.event.tick.ServerTickEvent;
+import net.neoforged.neoforge.event.entity.living.LivingDeathEvent;
+import net.neoforged.neoforge.event.server.ServerStoppingEvent;
+import net.neoforged.bus.api.SubscribeEvent;
+import net.neoforged.fml.common.EventBusSubscriber;
 import net.minecraft.server.level.ServerLevel;
 
 /**
@@ -21,7 +21,7 @@ import net.minecraft.server.level.ServerLevel;
  * <p>Observation pruning runs on a slow interval rather than every tick because a statute measured in
  * days does not need checking twenty times a second.
  */
-@Mod.EventBusSubscriber(modid = McaCrime.MOD_ID)
+@EventBusSubscriber(modid = McaCrime.MOD_ID)
 public final class CrimeReactionTicker {
 
     /** One online minute between statute sweeps. */
@@ -33,11 +33,8 @@ public final class CrimeReactionTicker {
     }
 
     @SubscribeEvent
-    public static void onServerTick(TickEvent.ServerTickEvent event) {
-        if (event.phase != TickEvent.Phase.END) {
-            return;
-        }
-        MinecraftServer server = net.minecraftforge.server.ServerLifecycleHooks.getCurrentServer();
+    public static void onServerTick(ServerTickEvent.Post event) {
+        MinecraftServer server = net.neoforged.neoforge.server.ServerLifecycleHooks.getCurrentServer();
         if (server == null) {
             return;
         }

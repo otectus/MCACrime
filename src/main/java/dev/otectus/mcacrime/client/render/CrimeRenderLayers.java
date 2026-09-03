@@ -5,10 +5,10 @@ import net.minecraft.client.model.PlayerModel;
 import net.minecraft.client.player.AbstractClientPlayer;
 import net.minecraft.client.renderer.entity.LivingEntityRenderer;
 import net.minecraft.client.renderer.entity.player.PlayerRenderer;
-import net.minecraftforge.api.distmarker.Dist;
-import net.minecraftforge.client.event.EntityRenderersEvent;
-import net.minecraftforge.eventbus.api.SubscribeEvent;
-import net.minecraftforge.fml.common.Mod;
+import net.neoforged.api.distmarker.Dist;
+import net.neoforged.neoforge.client.event.EntityRenderersEvent;
+import net.neoforged.bus.api.SubscribeEvent;
+import net.neoforged.fml.common.EventBusSubscriber;
 
 /**
  * Registers the mod's player render layers.
@@ -16,7 +16,7 @@ import net.minecraftforge.fml.common.Mod;
  * <p>Iterates {@code getSkins()} rather than naming {@code "default"} and {@code "slim"}, so both arm
  * models are covered without hardcoding either and a future skin type is picked up for free.
  */
-@Mod.EventBusSubscriber(modid = McaCrime.MOD_ID, bus = Mod.EventBusSubscriber.Bus.MOD, value = Dist.CLIENT)
+@EventBusSubscriber(modid = McaCrime.MOD_ID, value = Dist.CLIENT)
 public final class CrimeRenderLayers {
 
     private CrimeRenderLayers() {

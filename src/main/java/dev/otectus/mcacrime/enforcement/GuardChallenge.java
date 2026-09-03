@@ -2,7 +2,7 @@ package dev.otectus.mcacrime.enforcement;
 
 import dev.otectus.mcacrime.api.model.CrimeCommunityKey;
 
-import javax.annotation.Nullable;
+import org.jetbrains.annotations.Nullable;
 import java.util.UUID;
 
 /**

@@ -4,7 +4,7 @@ import dev.otectus.mcacrime.network.ActionProgressS2CPacket;
 import dev.otectus.mcacrime.network.CrimeNetwork;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraftforge.server.ServerLifecycleHooks;
+import net.neoforged.neoforge.server.ServerLifecycleHooks;
 
 import java.util.UUID;
 

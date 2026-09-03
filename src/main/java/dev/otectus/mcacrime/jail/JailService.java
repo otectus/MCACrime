@@ -18,9 +18,9 @@ import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.level.Level;
-import net.minecraftforge.common.MinecraftForge;
+import net.neoforged.neoforge.common.NeoForge;
 
-import javax.annotation.Nullable;
+import org.jetbrains.annotations.Nullable;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -113,7 +113,7 @@ public final class JailService {
                 player, dev.otectus.mcacrime.enforcement.ArrestPhase.JAILED);
         teleportToAnchor(player, jail); // best-effort; soft-confine fixes an unsafe/unloaded landing later
         dev.otectus.mcacrime.audio.CrimeSounds.jailed(player);
-        MinecraftForge.EVENT_BUS.post(new PlayerJailedEvent(player, clamped, anchor.pos()));
+        NeoForge.EVENT_BUS.post(new PlayerJailedEvent(player, clamped, anchor.pos()));
         CrimeNetwork.sendSelfStatus(player);
         player.sendSystemMessage(Component.translatable("mcacrime.jail.jailed", TickFormat.compact(clamped)));
         return true;
@@ -185,7 +185,7 @@ public final class JailService {
             SentenceResolutionService.markServed(player.getServer(), player.getUUID(), finished.getSentenceId());
         }
         dev.otectus.mcacrime.audio.CrimeSounds.released(player);
-        MinecraftForge.EVENT_BUS.post(new PlayerReleasedFromJailEvent(player, reason));
+        NeoForge.EVENT_BUS.post(new PlayerReleasedFromJailEvent(player, reason));
         CrimeNetwork.sendSelfStatus(player);
         player.sendSystemMessage(Component.translatable(releaseKey(reason)));
     }

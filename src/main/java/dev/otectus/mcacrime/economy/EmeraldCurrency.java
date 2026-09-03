@@ -52,7 +52,7 @@ public final class EmeraldCurrency implements Currency {
     public void grant(ServerPlayer player, long amount) {
         long remaining = Math.max(0L, amount);
         while (remaining > 0L) {
-            int stackSize = (int) Math.min(remaining, Items.EMERALD.getMaxStackSize());
+            int stackSize = (int) Math.min(remaining, Items.EMERALD.getDefaultMaxStackSize());
             ItemStack stack = new ItemStack(Items.EMERALD, stackSize);
             if (!player.getInventory().add(stack)) {
                 player.drop(stack, false);

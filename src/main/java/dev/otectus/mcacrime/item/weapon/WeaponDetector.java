@@ -17,8 +17,8 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.ProjectileWeaponItem;
 import net.minecraft.world.item.SwordItem;
 import net.minecraft.world.item.TridentItem;
-import net.minecraftforge.common.ForgeConfigSpec;
-import net.minecraftforge.registries.ForgeRegistries;
+import net.neoforged.neoforge.common.ModConfigSpec;
+import net.minecraft.core.registries.BuiltInRegistries;
 
 import java.util.List;
 
@@ -76,7 +76,7 @@ public final class WeaponDetector {
     private static WeaponProbe probe(ItemStack stack) {
         Item item = stack.getItem();
         return new WeaponProbe(
-                ForgeRegistries.ITEMS.getKey(item),
+                BuiltInRegistries.ITEM.getKey(item),
                 tag -> stack.is(TagKey.create(Registries.ITEM, tag)),
                 CrimeItems.restraintFor(stack) != RestraintType.NONE,
                 item instanceof SwordItem,
@@ -96,14 +96,14 @@ public final class WeaponDetector {
      * against a single configured threshold.
      */
     private static double attackDamage(ItemStack stack) {
-        double total = 0.0D;
-        for (AttributeModifier modifier : stack.getAttributeModifiers(EquipmentSlot.MAINHAND)
-                .get(Attributes.ATTACK_DAMAGE)) {
-            if (modifier.getOperation() == AttributeModifier.Operation.ADDITION) {
-                total += modifier.getAmount();
+        double[] total = {0.0D};
+        stack.forEachModifier(EquipmentSlot.MAINHAND, (attribute, modifier) -> {
+            if (attribute.is(Attributes.ATTACK_DAMAGE)
+                    && modifier.operation() == AttributeModifier.Operation.ADD_VALUE) {
+                total[0] += modifier.amount();
             }
-        }
-        return total;
+        });
+        return total[0];
     }
 
     private static WeaponRules rules() {
@@ -128,7 +128,7 @@ public final class WeaponDetector {
      * {@code EntitySelectors} needs, and for the same reason: this runs from interaction handling,
      * which can fire before config load in a malformed setup.
      */
-    private static List<? extends String> safeList(ForgeConfigSpec.ConfigValue<List<? extends String>> value) {
+    private static List<? extends String> safeList(ModConfigSpec.ConfigValue<List<? extends String>> value) {
         try {
             List<? extends String> list = value.get();
             return list == null ? List.of() : list;
@@ -137,7 +137,7 @@ public final class WeaponDetector {
         }
     }
 
-    private static boolean safeBoolean(ForgeConfigSpec.BooleanValue value, boolean fallback) {
+    private static boolean safeBoolean(ModConfigSpec.BooleanValue value, boolean fallback) {
         try {
             return value.get();
         } catch (IllegalStateException e) {
@@ -145,7 +145,7 @@ public final class WeaponDetector {
         }
     }
 
-    private static double safeDouble(ForgeConfigSpec.DoubleValue value, double fallback) {
+    private static double safeDouble(ModConfigSpec.DoubleValue value, double fallback) {
         try {
             return value.get();
         } catch (IllegalStateException e) {

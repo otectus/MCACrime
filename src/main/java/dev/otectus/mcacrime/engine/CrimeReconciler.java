@@ -8,9 +8,9 @@ import dev.otectus.mcacrime.network.CrimeNetwork;
 import dev.otectus.mcacrime.state.world.CrimeWorldData;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraftforge.event.entity.player.PlayerEvent;
-import net.minecraftforge.eventbus.api.SubscribeEvent;
-import net.minecraftforge.fml.common.Mod;
+import net.neoforged.neoforge.event.entity.player.PlayerEvent;
+import net.neoforged.bus.api.SubscribeEvent;
+import net.neoforged.fml.common.EventBusSubscriber;
 
 /**
  * Login reconciliation (spec §2 "on login the player capability is reconciled against SavedData"). In
@@ -20,7 +20,7 @@ import net.minecraftforge.fml.common.Mod;
  * between sessions), and pushes the initial display sync. It is also the documented seam where later
  * phases restore ledger-driven consequences on login.
  */
-@Mod.EventBusSubscriber(modid = McaCrime.MOD_ID)
+@EventBusSubscriber(modid = McaCrime.MOD_ID)
 public final class CrimeReconciler {
 
     private CrimeReconciler() {

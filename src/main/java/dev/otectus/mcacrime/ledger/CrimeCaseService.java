@@ -8,9 +8,9 @@ import dev.otectus.mcacrime.state.world.CrimeWorldData;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraftforge.common.MinecraftForge;
+import net.neoforged.neoforge.common.NeoForge;
 
-import javax.annotation.Nullable;
+import org.jetbrains.annotations.Nullable;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -95,7 +95,7 @@ public final class CrimeCaseService {
 
         ServerPlayer offender = server.getPlayerList().getPlayer(after.offender());
         if (offender != null) {
-            MinecraftForge.EVENT_BUS.post(
+            NeoForge.EVENT_BUS.post(
                     new CrimeRecordResolvedEvent(offender, before.view(), after.view(), entry));
         }
         return Result.of(CrimeMutationStatus.APPLIED, after.view());

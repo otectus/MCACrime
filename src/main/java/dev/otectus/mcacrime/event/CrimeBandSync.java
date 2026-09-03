@@ -7,8 +7,8 @@ import dev.otectus.mcacrime.engine.CrimeState;
 import dev.otectus.mcacrime.network.CrimeNetwork;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraftforge.eventbus.api.SubscribeEvent;
-import net.minecraftforge.fml.common.Mod;
+import net.neoforged.bus.api.SubscribeEvent;
+import net.neoforged.fml.common.EventBusSubscriber;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -19,7 +19,7 @@ import java.util.UUID;
  * are broadcast only on the rare band <em>transition</em> (not per karma point), and a full snapshot is
  * pushed to each joining client by {@link #syncOnLogin(ServerPlayer)} (called from the login reconcile).
  */
-@Mod.EventBusSubscriber(modid = McaCrime.MOD_ID)
+@EventBusSubscriber(modid = McaCrime.MOD_ID)
 public final class CrimeBandSync {
 
     private CrimeBandSync() {

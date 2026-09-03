@@ -13,12 +13,12 @@ import dev.otectus.mcacrime.network.RequestSelfMenuC2SPacket;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
 import net.minecraft.world.entity.Entity;
-import net.minecraftforge.api.distmarker.Dist;
-import net.minecraftforge.client.event.RegisterKeyMappingsEvent;
-import net.minecraftforge.client.settings.KeyConflictContext;
-import net.minecraftforge.event.TickEvent;
-import net.minecraftforge.eventbus.api.SubscribeEvent;
-import net.minecraftforge.fml.common.Mod;
+import net.neoforged.api.distmarker.Dist;
+import net.neoforged.neoforge.client.event.RegisterKeyMappingsEvent;
+import net.neoforged.neoforge.client.settings.KeyConflictContext;
+import net.neoforged.neoforge.client.event.ClientTickEvent;
+import net.neoforged.bus.api.SubscribeEvent;
+import net.neoforged.fml.common.EventBusSubscriber;
 
 import org.lwjgl.glfw.GLFW;
 
@@ -34,7 +34,7 @@ import org.lwjgl.glfw.GLFW;
  * conflicts with nothing. The last two ship unbound on purpose — each is a preference rather than a
  * need, and claiming further keys for them would be presumptuous.
  */
-@Mod.EventBusSubscriber(modid = McaCrime.MOD_ID, value = Dist.CLIENT)
+@EventBusSubscriber(modid = McaCrime.MOD_ID, value = Dist.CLIENT)
 public final class CrimeKeybinds {
 
     private static final String CATEGORY = "key.categories.mcacrime";
@@ -67,7 +67,7 @@ public final class CrimeKeybinds {
     private CrimeKeybinds() {
     }
 
-    @Mod.EventBusSubscriber(modid = McaCrime.MOD_ID, value = Dist.CLIENT, bus = Mod.EventBusSubscriber.Bus.MOD)
+    @EventBusSubscriber(modid = McaCrime.MOD_ID, value = Dist.CLIENT)
     public static final class Registration {
         private Registration() {
         }
@@ -89,10 +89,7 @@ public final class CrimeKeybinds {
      * is already open — otherwise the same key that opens the dossier closes and reopens it.
      */
     @SubscribeEvent
-    public static void onClientTick(TickEvent.ClientTickEvent event) {
-        if (event.phase != TickEvent.Phase.END) {
-            return;
-        }
+    public static void onClientTick(ClientTickEvent.Post event) {
         Minecraft minecraft = Minecraft.getInstance();
         // Both local clocks are held while the game is paused. ClientTickEvent keeps firing in a paused
         // single-player world but the integrated server is frozen, so a client that ran its countdown

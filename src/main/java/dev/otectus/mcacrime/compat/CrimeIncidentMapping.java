@@ -35,22 +35,22 @@ public final class CrimeIncidentMapping {
 
     /** Reputation's own assault incident, reused because existing content already speaks it. */
     public static final ResourceLocation VILLAGER_ASSAULTED =
-            new ResourceLocation(REPUTATION, "villager_assaulted");
+            ResourceLocation.fromNamespaceAndPath(REPUTATION, "villager_assaulted");
     /** Reputation's own killing incident, reused for the same reason. */
     public static final ResourceLocation VILLAGER_KILLED =
-            new ResourceLocation(REPUTATION, "villager_killed");
+            ResourceLocation.fromNamespaceAndPath(REPUTATION, "villager_killed");
 
     /** Crime-authored incidents, shipped as datapack JSON in this mod's namespace. */
-    public static final ResourceLocation GUARD_ASSAULTED = new ResourceLocation(CRIME, "guard_assaulted");
-    public static final ResourceLocation JAILBREAK = new ResourceLocation(CRIME, "jailbreak");
-    public static final ResourceLocation KIDNAPPING = new ResourceLocation(CRIME, "kidnapping");
-    public static final ResourceLocation THEFT = new ResourceLocation(CRIME, "theft");
-    public static final ResourceLocation MUGGING_MURDER = new ResourceLocation(CRIME, "mugging_murder");
+    public static final ResourceLocation GUARD_ASSAULTED = ResourceLocation.fromNamespaceAndPath(CRIME, "guard_assaulted");
+    public static final ResourceLocation JAILBREAK = ResourceLocation.fromNamespaceAndPath(CRIME, "jailbreak");
+    public static final ResourceLocation KIDNAPPING = ResourceLocation.fromNamespaceAndPath(CRIME, "kidnapping");
+    public static final ResourceLocation THEFT = ResourceLocation.fromNamespaceAndPath(CRIME, "theft");
+    public static final ResourceLocation MUGGING_MURDER = ResourceLocation.fromNamespaceAndPath(CRIME, "mugging_murder");
 
     /** Positive civic deeds. These add context; they never erase the incident they follow. */
-    public static final ResourceLocation FINE_PAID = new ResourceLocation(CRIME, "fine_paid");
-    public static final ResourceLocation SENTENCE_SERVED = new ResourceLocation(CRIME, "sentence_served");
-    public static final ResourceLocation CAPTIVE_RESCUED = new ResourceLocation(CRIME, "captive_rescued");
+    public static final ResourceLocation FINE_PAID = ResourceLocation.fromNamespaceAndPath(CRIME, "fine_paid");
+    public static final ResourceLocation SENTENCE_SERVED = ResourceLocation.fromNamespaceAndPath(CRIME, "sentence_served");
+    public static final ResourceLocation CAPTIVE_RESCUED = ResourceLocation.fromNamespaceAndPath(CRIME, "captive_rescued");
 
     /** The deeds MCA: Reputation would otherwise detect itself, and so must be claimed as authority. */
     private static final Map<ResourceLocation, ResourceLocation> OVERLAPPING = Map.of(

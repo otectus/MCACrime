@@ -14,10 +14,10 @@ import net.minecraft.util.Mth;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.phys.Vec3;
-import net.minecraftforge.api.distmarker.Dist;
-import net.minecraftforge.client.event.RenderLevelStageEvent;
-import net.minecraftforge.eventbus.api.SubscribeEvent;
-import net.minecraftforge.fml.common.Mod;
+import net.neoforged.api.distmarker.Dist;
+import net.neoforged.neoforge.client.event.RenderLevelStageEvent;
+import net.neoforged.bus.api.SubscribeEvent;
+import net.neoforged.fml.common.EventBusSubscriber;
 
 import java.util.Map;
 import java.util.UUID;
@@ -37,7 +37,7 @@ import java.util.UUID;
  * from a real leash. That makes it purely cosmetic: it cannot desync, and switching it off changes
  * nothing about the escort.
  */
-@Mod.EventBusSubscriber(modid = McaCrime.MOD_ID, value = Dist.CLIENT)
+@EventBusSubscriber(modid = McaCrime.MOD_ID, value = Dist.CLIENT)
 public final class EscortRopeRenderer {
 
     /** Segments along the rope. The same count vanilla uses for a lead, so the sag matches. */

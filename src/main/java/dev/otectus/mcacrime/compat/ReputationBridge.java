@@ -2,9 +2,9 @@ package dev.otectus.mcacrime.compat;
 
 import dev.otectus.mcacrime.McaCrime;
 import dev.otectus.mcacrime.McaCrimeConfig;
-import net.minecraftforge.fml.ModList;
+import net.neoforged.fml.ModList;
 
-import javax.annotation.Nullable;
+import org.jetbrains.annotations.Nullable;
 import java.util.Optional;
 
 /**

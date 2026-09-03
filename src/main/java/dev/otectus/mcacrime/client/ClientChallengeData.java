@@ -2,7 +2,7 @@ package dev.otectus.mcacrime.client;
 
 import dev.otectus.mcacrime.network.GuardChallengeS2CPacket;
 
-import javax.annotation.Nullable;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * Client-side cache of the open guard challenge, if any. Display-only, and never classloaded on a

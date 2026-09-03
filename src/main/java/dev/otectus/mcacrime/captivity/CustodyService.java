@@ -24,10 +24,10 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
-import net.minecraftforge.common.MinecraftForge;
+import net.neoforged.neoforge.common.NeoForge;
 import net.minecraft.util.RandomSource;
 
-import javax.annotation.Nullable;
+import org.jetbrains.annotations.Nullable;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -117,7 +117,7 @@ public final class CustodyService {
                 WitnessChecker.resolve(level, captiveEntity), "custody");
 
         CrimeSounds.restrainApplied(captiveEntity);
-        MinecraftForge.EVENT_BUS.post(new EntityKidnappedEvent(captiveUuid, captiveIsPlayer, captor.getUUID(),
+        NeoForge.EVENT_BUS.post(new EntityKidnappedEvent(captiveUuid, captiveIsPlayer, captor.getUUID(),
                 true, restraint, captivePlayer, captor));
 
         CrimeNetwork.sendSelfStatus(captor); // captor is now an active kidnapper -> Legal Target
@@ -234,7 +234,7 @@ public final class CustodyService {
         if (captivePlayer != null) {
             CrimeSounds.restraintRemoved(captivePlayer);
         }
-        MinecraftForge.EVENT_BUS.post(new EntityReleasedFromCaptivityEvent(captiveUuid, record.isCaptivePlayer(),
+        NeoForge.EVENT_BUS.post(new EntityReleasedFromCaptivityEvent(captiveUuid, record.isCaptivePlayer(),
                 captivePlayer, formerCaptor, reason));
     }
 

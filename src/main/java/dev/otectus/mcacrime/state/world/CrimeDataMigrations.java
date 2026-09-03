@@ -266,7 +266,7 @@ public final class CrimeDataMigrations {
     // ------------------------------------------------------------------ helpers
 
     private static CrimeCommunityKey overworld(int villageId) {
-        return new CrimeCommunityKey(new ResourceLocation(ASSUMED_DIMENSION), villageId);
+        return new CrimeCommunityKey(ResourceLocation.parse(ASSUMED_DIMENSION), villageId);
     }
 
     /** Adds one context entry to a record tag, creating the compound if needed. */

@@ -1,14 +1,14 @@
 package dev.otectus.mcacrime.api.event;
 
 import dev.otectus.mcacrime.ai.VictimReactionState;
-import net.minecraftforge.eventbus.api.Event;
+import net.neoforged.bus.api.Event;
 
-import javax.annotation.Nullable;
+import org.jetbrains.annotations.Nullable;
 import java.util.UUID;
 
 /**
  * One villager's reaction state changing (spec §12.5). Fired server-side on
- * {@code MinecraftForge.EVENT_BUS} after the transition has been applied.
+ * {@code NeoForge.EVENT_BUS} after the transition has been applied.
  *
  * <p>Not cancellable, and deliberately so. A reaction transition is not a policy decision another mod
  * should be able to veto halfway through — a villager stopped mid-flee by a cancelled event would be

@@ -16,7 +16,7 @@ import net.minecraft.world.entity.ai.memory.MemoryStatus;
 import net.minecraft.world.entity.npc.VillagerProfession;
 import net.minecraft.world.phys.Vec3;
 
-import javax.annotation.Nullable;
+import org.jetbrains.annotations.Nullable;
 import java.util.List;
 import java.util.Optional;
 import java.util.OptionalInt;
@@ -112,7 +112,7 @@ public final class McaCompat {
      */
     public static Optional<VillagerProfession> guardProfession() {
         Optional<VillagerProfession> direct = BuiltInRegistries.VILLAGER_PROFESSION
-                .getOptional(new ResourceLocation("mca", "guard"));
+                .getOptional(ResourceLocation.fromNamespaceAndPath("mca", "guard"));
         if (direct.isPresent()) {
             return direct;
         }

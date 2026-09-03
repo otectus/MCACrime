@@ -2,15 +2,15 @@ package dev.otectus.mcacrime.api.event;
 
 import dev.otectus.mcacrime.api.model.CrimeCommunityKey;
 import net.minecraft.resources.ResourceLocation;
-import net.minecraftforge.eventbus.api.Cancelable;
-import net.minecraftforge.eventbus.api.Event;
+import net.neoforged.bus.api.ICancellableEvent;
+import net.neoforged.bus.api.Event;
 
-import javax.annotation.Nullable;
+import org.jetbrains.annotations.Nullable;
 import java.util.UUID;
 
 /**
  * An observation reaching an authority (spec §12.5). Fired server-side on
- * {@code MinecraftForge.EVENT_BUS}.
+ * {@code NeoForge.EVENT_BUS}.
  *
  * <p>This is the event that matters for law enforcement, not {@link CrimeObservationEvent}: a crime
  * that was seen but never reported gives no guard anywhere a legal basis. Cancelling {@link Pre} is
@@ -88,8 +88,7 @@ public abstract class CrimeReportEvent extends Event {
     }
 
     /** Cancel to suppress this one report. Other observations of the same incident are untouched. */
-    @Cancelable
-    public static final class Pre extends CrimeReportEvent {
+    public static final class Pre extends CrimeReportEvent implements ICancellableEvent {
         public Pre(UUID reportId, UUID incidentId, UUID observationId, UUID reporterId, UUID suspectId,
                    ResourceLocation actionId, @Nullable CrimeCommunityKey jurisdiction, float confidence,
                    boolean authoritative) {

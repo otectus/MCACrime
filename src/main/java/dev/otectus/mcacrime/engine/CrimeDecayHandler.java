@@ -14,9 +14,9 @@ import dev.otectus.mcacrime.jail.JailService;
 import dev.otectus.mcacrime.state.CrimeCapabilities;
 import dev.otectus.mcacrime.state.PlayerCrimeData;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraftforge.event.TickEvent;
-import net.minecraftforge.eventbus.api.SubscribeEvent;
-import net.minecraftforge.fml.common.Mod;
+import net.neoforged.neoforge.event.tick.PlayerTickEvent;
+import net.neoforged.bus.api.SubscribeEvent;
+import net.neoforged.fml.common.EventBusSubscriber;
 
 import java.util.Optional;
 
@@ -32,7 +32,7 @@ import java.util.Optional;
  * fire the wanted/band-change events. Only the counter increment runs every tick; the (rare) decay work
  * is throttled to ~1 Hz and does nothing while a player's values are already at rest.
  */
-@Mod.EventBusSubscriber(modid = McaCrime.MOD_ID)
+@EventBusSubscriber(modid = McaCrime.MOD_ID)
 public final class CrimeDecayHandler {
 
     /** One Minecraft day. */
@@ -44,8 +44,8 @@ public final class CrimeDecayHandler {
     }
 
     @SubscribeEvent
-    public static void onPlayerTick(TickEvent.PlayerTickEvent event) {
-        if (event.phase != TickEvent.Phase.END || !(event.player instanceof ServerPlayer player)) {
+    public static void onPlayerTick(PlayerTickEvent.Post event) {
+        if (!(event.getEntity() instanceof ServerPlayer player)) {
             return;
         }
         Optional<PlayerCrimeData> opt = CrimeCapabilities.get(player);

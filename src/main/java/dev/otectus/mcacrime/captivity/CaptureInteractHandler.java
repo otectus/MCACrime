@@ -6,9 +6,9 @@ import dev.otectus.mcacrime.item.CrimeItems;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.LivingEntity;
-import net.minecraftforge.event.entity.player.PlayerInteractEvent;
-import net.minecraftforge.eventbus.api.SubscribeEvent;
-import net.minecraftforge.fml.common.Mod;
+import net.neoforged.neoforge.event.entity.player.PlayerInteractEvent;
+import net.neoforged.bus.api.SubscribeEvent;
+import net.neoforged.fml.common.EventBusSubscriber;
 
 /**
  * Right-click-with-a-restraint capture entry point (spec §8.2, §5.3 {@code EntityInteract}). Server-side
@@ -16,7 +16,7 @@ import net.minecraftforge.fml.common.Mod;
  * target it starts the channel via {@link CaptureService} and swallows the interaction so MCA's villager GUI
  * doesn't open.
  */
-@Mod.EventBusSubscriber(modid = McaCrime.MOD_ID)
+@EventBusSubscriber(modid = McaCrime.MOD_ID)
 public final class CaptureInteractHandler {
 
     private CaptureInteractHandler() {

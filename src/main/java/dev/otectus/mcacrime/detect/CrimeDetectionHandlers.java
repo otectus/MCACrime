@@ -11,18 +11,18 @@ import dev.otectus.mcacrime.captivity.CustodyReleaseReason;
 import dev.otectus.mcacrime.captivity.CustodyService;
 import dev.otectus.mcacrime.mug.MuggingService;
 import net.minecraft.server.level.ServerLevel;
-import net.minecraftforge.event.entity.living.LivingDeathEvent;
-import net.minecraftforge.event.entity.living.LivingHurtEvent;
-import net.minecraftforge.event.entity.player.PlayerEvent;
-import net.minecraftforge.eventbus.api.SubscribeEvent;
-import net.minecraftforge.fml.common.Mod;
+import net.neoforged.neoforge.event.entity.living.LivingDeathEvent;
+import net.neoforged.neoforge.event.entity.living.LivingDamageEvent;
+import net.neoforged.neoforge.event.entity.player.PlayerEvent;
+import net.neoforged.bus.api.SubscribeEvent;
+import net.neoforged.fml.common.EventBusSubscriber;
 
 /**
- * The Forge-bus entry points for crime detection (spec §5.3). Server-side only (guarded by the
+ * The game-bus entry points for crime detection (spec §5.3). Server-side only (guarded by the
  * {@link ServerLevel} check); the master toggle short-circuits before any work. All real logic lives in
  * {@link CrimeDetector} / {@link CrimeGate}.
  */
-@Mod.EventBusSubscriber(modid = McaCrime.MOD_ID)
+@EventBusSubscriber(modid = McaCrime.MOD_ID)
 public final class CrimeDetectionHandlers {
 
     /**
@@ -52,7 +52,7 @@ public final class CrimeDetectionHandlers {
     }
 
     @SubscribeEvent
-    public static void onLivingHurt(LivingHurtEvent event) {
+    public static void onLivingHurt(LivingDamageEvent.Post event) {
         // A channeling kidnapper who is hit breaks their capture (§8.2) — independent of the detection toggle.
         CaptureChannels.onKidnapperHurt(event.getEntity().getUUID());
         if (event.getEntity().level() instanceof ServerLevel hurtLevel) {
@@ -64,7 +64,7 @@ public final class CrimeDetectionHandlers {
         }
         if (event.getEntity().level() instanceof ServerLevel level) {
             guarded("hurt detection", () ->
-                    CrimeDetector.onHarm(event.getEntity(), event.getSource(), event.getAmount(), level));
+                    CrimeDetector.onHarm(event.getEntity(), event.getSource(), event.getNewDamage(), level));
         }
     }
 

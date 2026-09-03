@@ -4,8 +4,8 @@ import dev.otectus.mcacrime.McaCrimeConfig;
 import dev.otectus.mcacrime.compat.CrimeIncidentMapping;
 import dev.otectus.mcacrime.crime.type.CrimeTypeRegistry;
 import net.minecraft.resources.ResourceLocation;
-import net.minecraftforge.registries.ForgeRegistries;
-import net.minecraftforge.registries.IForgeRegistry;
+import net.minecraft.core.Registry;
+import net.minecraft.core.registries.BuiltInRegistries;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -325,12 +325,12 @@ public final class ConfigValidator {
                 c.weaponMods.get(),
                 c.weaponAutoDetectMinAttackDamage.get()));
 
-        registryCheck("protectedEntities", c.protectedEntities.get(), ForgeRegistries.ENTITY_TYPES,
+        registryCheck("protectedEntities", c.protectedEntities.get(), BuiltInRegistries.ENTITY_TYPE,
                 "an entity type", problems);
-        registryCheck("responderEntities", c.responderEntities.get(), ForgeRegistries.ENTITY_TYPES,
+        registryCheck("responderEntities", c.responderEntities.get(), BuiltInRegistries.ENTITY_TYPE,
                 "an entity type", problems);
-        registryCheck("weapons.whitelist", c.weaponWhitelist.get(), ForgeRegistries.ITEMS, "an item", problems);
-        registryCheck("weapons.blacklist", c.weaponBlacklist.get(), ForgeRegistries.ITEMS, "an item", problems);
+        registryCheck("weapons.whitelist", c.weaponWhitelist.get(), BuiltInRegistries.ITEM, "an item", problems);
+        registryCheck("weapons.blacklist", c.weaponBlacklist.get(), BuiltInRegistries.ITEM, "an item", problems);
 
         // Jail / fine sanity (spec §6, §7, §12.3).
         if (c.jailableHeatThreshold.get() < c.wantedHeatThreshold.get()) {
@@ -377,7 +377,7 @@ public final class ConfigValidator {
     }
 
     private static void registryCheck(String listName, List<? extends String> ids,
-                                      IForgeRegistry<?> registry, String noun, List<String> problems) {
+                                      Registry<?> registry, String noun, List<String> problems) {
         for (String id : ids) {
             if (id == null || id.isBlank() || id.startsWith("#") || id.indexOf('*') >= 0) {
                 continue; // blanks/tags/wildcards handled (or skipped) by the parse pass

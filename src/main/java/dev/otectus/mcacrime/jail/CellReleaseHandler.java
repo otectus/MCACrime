@@ -7,8 +7,8 @@ import dev.otectus.mcacrime.captivity.CustodyService;
 import dev.otectus.mcacrime.enforcement.GuardChallengeService;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraftforge.eventbus.api.SubscribeEvent;
-import net.minecraftforge.fml.common.Mod;
+import net.neoforged.bus.api.SubscribeEvent;
+import net.neoforged.fml.common.EventBusSubscriber;
 
 /**
  * What happens the moment a sentence ends: the prisoner comes out, the cell comes down, and the law
@@ -23,7 +23,7 @@ import net.minecraftforge.fml.common.Mod;
  * was only ever called when a player lost their legal basis, so finishing a sentence left guards with
  * a stale encounter and, before this release, a stale refusal.
  */
-@Mod.EventBusSubscriber(modid = McaCrime.MOD_ID)
+@EventBusSubscriber(modid = McaCrime.MOD_ID)
 public final class CellReleaseHandler {
 
     private CellReleaseHandler() {

@@ -4,16 +4,16 @@ import dev.otectus.mcacrime.McaCrime;
 import dev.otectus.mcacrime.state.CrimeCapabilities;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraftforge.event.level.BlockEvent;
-import net.minecraftforge.eventbus.api.SubscribeEvent;
-import net.minecraftforge.fml.common.Mod;
+import net.neoforged.neoforge.event.level.BlockEvent;
+import net.neoforged.bus.api.SubscribeEvent;
+import net.neoforged.fml.common.EventBusSubscriber;
 
 /**
  * CONTAINMENT-mode block protection (spec §7.3): a jailed player cannot break blocks inside their jail
  * region, so they can't mine out. PHYSICAL mode allows it (a genuine breakout, handled by {@link JailConfine}).
  * Cheap: the not-jailed check short-circuits for essentially every break in the game.
  */
-@Mod.EventBusSubscriber(modid = McaCrime.MOD_ID)
+@EventBusSubscriber(modid = McaCrime.MOD_ID)
 public final class ContainmentHandler {
 
     private ContainmentHandler() {

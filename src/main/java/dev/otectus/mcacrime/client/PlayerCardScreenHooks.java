@@ -3,10 +3,10 @@ package dev.otectus.mcacrime.client;
 import dev.otectus.mcacrime.McaCrime;
 import dev.otectus.mcacrime.McaCrimeConfig;
 import net.minecraft.client.gui.screens.inventory.InventoryScreen;
-import net.minecraftforge.api.distmarker.Dist;
-import net.minecraftforge.client.event.ScreenEvent;
-import net.minecraftforge.eventbus.api.SubscribeEvent;
-import net.minecraftforge.fml.common.Mod;
+import net.neoforged.api.distmarker.Dist;
+import net.neoforged.neoforge.client.event.ScreenEvent;
+import net.neoforged.bus.api.SubscribeEvent;
+import net.neoforged.fml.common.EventBusSubscriber;
 
 /**
  * Injects the reputation "player card" into the survival inventory (per the user's design): a small
@@ -19,7 +19,7 @@ import net.minecraftforge.fml.common.Mod;
  * potion-effect column beside the GUI from inside its own {@code render()}, so a card drawn as a
  * widget would be painted over by it. Drawing after the whole screen is what keeps the card on top.
  */
-@Mod.EventBusSubscriber(modid = McaCrime.MOD_ID, value = Dist.CLIENT)
+@EventBusSubscriber(modid = McaCrime.MOD_ID, value = Dist.CLIENT)
 public final class PlayerCardScreenHooks {
 
     /** Button offset from the inventory's top-left, at the bottom-left of the player-model box. */

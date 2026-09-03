@@ -6,9 +6,9 @@ import dev.otectus.mcacrime.api.event.CrimeWitnessedEvent;
 import dev.otectus.mcacrime.crime.Band;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraftforge.event.entity.player.PlayerEvent;
-import net.minecraftforge.eventbus.api.SubscribeEvent;
-import net.minecraftforge.fml.common.Mod;
+import net.neoforged.neoforge.event.entity.player.PlayerEvent;
+import net.neoforged.bus.api.SubscribeEvent;
+import net.neoforged.fml.common.EventBusSubscriber;
 
 import java.util.Locale;
 import java.util.concurrent.ConcurrentHashMap;
@@ -20,7 +20,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * {@code "uuid|kind"} keeps repeated events from spamming chat; it is cleared on logout and never persisted
  * (same rationale as the harm cooldown). Band transitions are inherently rare and are not throttled.
  */
-@Mod.EventBusSubscriber(modid = McaCrime.MOD_ID)
+@EventBusSubscriber(modid = McaCrime.MOD_ID)
 public final class AmbientMessages {
 
     private static final ConcurrentHashMap<String, Integer> LAST_SENT = new ConcurrentHashMap<>();
