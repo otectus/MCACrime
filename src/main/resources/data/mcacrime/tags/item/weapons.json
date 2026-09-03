@@ -4,15 +4,23 @@
     "#minecraft:swords",
     "#minecraft:axes",
     {
-      "id": "#forge:tools/bows",
+      "id": "#c:tools/melee_weapon",
       "required": false
     },
     {
-      "id": "#forge:tools/crossbows",
+      "id": "#c:tools/ranged_weapon",
       "required": false
     },
     {
-      "id": "#forge:tools/tridents",
+      "id": "#c:tools/bow",
+      "required": false
+    },
+    {
+      "id": "#c:tools/crossbow",
+      "required": false
+    },
+    {
+      "id": "#c:tools/spear",
       "required": false
     }
   ]

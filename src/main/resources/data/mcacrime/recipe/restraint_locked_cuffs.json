@@ -5,5 +5,5 @@
     { "item": "minecraft:tripwire_hook" },
     { "item": "minecraft:iron_nugget" }
   ],
-  "result": { "item": "mcacrime:restraint_locked_cuffs" }
+  "result": { "id": "mcacrime:restraint_locked_cuffs" }
 }

@@ -2,5 +2,5 @@
   "type": "minecraft:crafting_shaped",
   "pattern": ["I I", " I ", "I I"],
   "key": { "I": { "item": "minecraft:iron_nugget" } },
-  "result": { "item": "mcacrime:restraint_cuffs" }
+  "result": { "id": "mcacrime:restraint_cuffs" }
 }

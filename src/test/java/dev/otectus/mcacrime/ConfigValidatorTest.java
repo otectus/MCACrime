@@ -100,7 +100,7 @@ class ConfigValidatorTest {
     @Test
     void theDefaultWeaponListsAreValid() {
         assertTrue(weapons(List.of(), List.of()).isEmpty());
-        assertTrue(weapons(List.of("minecraft:stick", "#forge:tools/spears"), List.of("minecraft:trident")).isEmpty());
+        assertTrue(weapons(List.of("minecraft:stick", "#c:tools/spear"), List.of("minecraft:trident")).isEmpty());
     }
 
     @Test

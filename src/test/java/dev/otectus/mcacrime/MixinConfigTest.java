@@ -36,10 +36,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 class MixinConfigTest {
 
-    private static final Path CONFIG =
-            Path.of("src", "main", "resources", "mcacrime.mixins.json");
+    private static final Path CONFIG = TestPaths.resources("mcacrime.mixins.json");
     private static final Path MIXIN_SOURCE_ROOT =
-            Path.of("src", "main", "java", "dev", "otectus", "mcacrime", "mixin", "client");
+            TestPaths.sources("dev", "otectus", "mcacrime", "mixin", "client");
 
     @Test
     void everyMixinIsClientOnlySoADedicatedServerLoadsNone() {
@@ -75,10 +74,12 @@ class MixinConfigTest {
     void thePackageMatchesTheDirectoryAndTheToolchain() {
         JsonObject config = config();
         assertEquals("dev.otectus.mcacrime.mixin.client", config.get("package").getAsString());
-        assertEquals("JAVA_17", config.get("compatibilityLevel").getAsString());
-        assertEquals("mcacrime.refmap.json", config.get("refmap").getAsString(),
-                "the refmap name must match the one build.gradle asks the annotation processor for, or "
-                        + "member names stay in `official` mappings and the mixin fails in production");
+        assertEquals("JAVA_21", config.get("compatibilityLevel").getAsString());
+        // No refmap: NeoForge 1.21.1 production runs on Mojang names, so the annotation processor is
+        // gone and a leftover refmap declaration would point Mixin at a file that is never generated.
+        assertFalse(config.has("refmap"),
+                "a refmap is neither generated nor needed on NeoForge 1.21.1; declaring one names a "
+                        + "file that will not be in the jar");
     }
 
     private static JsonObject config() {

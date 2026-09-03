@@ -38,10 +38,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 class DialogueCoverageTest {
 
-    private static final Path DIALOGUE = Path.of("src", "main", "resources", "data", "mcacrime",
-            "mcacrime", "dialogue");
-    private static final Path LANG = Path.of("src", "main", "resources", "assets", "mcacrime",
-            "lang", "en_us.json");
+    // The doubled "mcacrime" is correct: namespace folder, then the loader's own directory.
+    private static final Path DIALOGUE =
+            TestPaths.resources("data", "mcacrime", "mcacrime", "dialogue");
+    private static final Path LANG =
+            TestPaths.resources("assets", "mcacrime", "lang", "en_us.json");
 
     private static JsonObject lang() {
         try {

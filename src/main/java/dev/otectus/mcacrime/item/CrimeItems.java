@@ -15,7 +15,7 @@ import net.neoforged.neoforge.registries.DeferredRegister;
 
 /**
  * The mod's item registrations (spec §8.3) — its first items: the three restraints plus a creative tab.
- * Rope also accepts any {@code forge:rope}-tagged item for broad mod compatibility (see {@link
+ * Rope also accepts any {@code c:ropes}-tagged item for broad mod compatibility (see {@link
  * #restraintFor}); cuffs and locked cuffs are custom items (vanilla has no equivalent). The Locks Reforged
  * key/removal path for locked cuffs is a Phase 7 seam.
  */
@@ -53,7 +53,7 @@ public final class CrimeItems {
 
     /**
      * The restraint a stack represents: this mod's {@link RestraintItem} carries its own type; any other
-     * {@code forge:rope}-tagged item counts as a {@link RestraintType#ROPE}; everything else is {@link
+     * {@code c:ropes}-tagged item counts as a {@link RestraintType#ROPE}; everything else is {@link
      * RestraintType#NONE} (not a restraint).
      */
     public static RestraintType restraintFor(ItemStack stack) {

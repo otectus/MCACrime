@@ -88,13 +88,13 @@ class WeaponRulesTest {
 
     @Test
     void listEntriesStartingWithHashAreTagsAndPlainOnesAreItemIds() {
-        WeaponRules tagged = rules(List.of("#forge:tools/spears"), List.of());
+        WeaponRules tagged = rules(List.of("#c:tools/spear"), List.of());
         assertTrue(tagged.classify(new Probe().id("modid:spear_of_nothing")
-                .tags("forge:tools/spears").build()).isWeapon());
+                .tags("c:tools/spear").build()).isWeapon());
         // The same string without the hash is an item id, and this item's id is not that.
-        WeaponRules byId = rules(List.of("forge:tools/spears"), List.of());
+        WeaponRules byId = rules(List.of("c:tools/spear"), List.of());
         assertFalse(byId.classify(new Probe().id("modid:spear_of_nothing")
-                .tags("forge:tools/spears").build()).isWeapon());
+                .tags("c:tools/spear").build()).isWeapon());
     }
 
     @Test

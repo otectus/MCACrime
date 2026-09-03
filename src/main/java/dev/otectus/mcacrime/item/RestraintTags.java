@@ -5,15 +5,20 @@ import net.minecraft.resources.ResourceLocation;
 import net.minecraft.tags.ItemTags;
 import net.minecraft.tags.TagKey;
 import net.minecraft.world.item.Item;
+import net.neoforged.neoforge.common.Tags;
 
 /**
- * Item tags for restraints (spec §8.3). {@code forge:rope} is the broad-compatibility tag so any modded
+ * Item tags for restraints (spec §8.3). {@code c:ropes} is the broad-compatibility tag so any modded
  * rope counts as a rope-strength restraint; {@code mcacrime:restraints} groups this mod's three items.
  */
 public final class RestraintTags {
 
-    /** Broad cross-mod rope tag — any item here works as a ROPE restraint. */
-    public static final TagKey<Item> ROPE = ItemTags.create(ResourceLocation.fromNamespaceAndPath("forge", "rope"));
+    /**
+     * Broad cross-mod rope tag — any item here works as a ROPE restraint. The 1.21.1 common-tag
+     * convention replaces {@code forge:rope}; the shipped {@code data/c/tags/item/ropes.json} keeps
+     * this mod's rope and the vanilla lead in it.
+     */
+    public static final TagKey<Item> ROPE = Tags.Items.ROPES;
     /** This mod's restraints. */
     public static final TagKey<Item> RESTRAINTS = ItemTags.create(ResourceLocation.fromNamespaceAndPath(McaCrime.MOD_ID, "restraints"));
 

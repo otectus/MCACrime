@@ -8,7 +8,7 @@ package dev.otectus.mcacrime.captivity;
  *
  * <ul>
  *   <li>{@link #NONE} — no restraint (an unrestrained captive, e.g. a soft-confined jail prisoner).</li>
- *   <li>{@link #ROPE} — basic; broad mod compatibility via the {@code forge:rope} item tag; easiest escape.</li>
+ *   <li>{@link #ROPE} — basic; broad mod compatibility via the {@code c:ropes} item tag; easiest escape.</li>
  *   <li>{@link #CUFFS} — the law/criminal arrest restraint; harder to escape.</li>
  *   <li>{@link #LOCKED_CUFFS} — strongest; needs a key/lockpick/rescue (Locks Reforged is a Phase 7 seam).</li>
  * </ul>

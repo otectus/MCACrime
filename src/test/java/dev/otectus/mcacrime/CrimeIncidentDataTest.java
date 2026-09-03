@@ -13,7 +13,6 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -38,9 +37,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class CrimeIncidentDataTest {
 
     private static final Path INCIDENTS =
-            Paths.get("src", "main", "resources", "data", "mcacrime", "mcareputation", "incidents");
+            TestPaths.resources("data", "mcacrime", "mcareputation", "incidents");
     private static final Path LANG =
-            Paths.get("src", "main", "resources", "assets", "mcacrime", "lang", "en_us.json");
+            TestPaths.resources("assets", "mcacrime", "lang", "en_us.json");
 
     private static final Set<String> VISIBILITIES = Set.of("private", "witnessed", "village", "global");
     private static final Set<String> SEVERITIES =
