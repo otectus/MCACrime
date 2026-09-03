@@ -226,7 +226,24 @@ tasks.named('processResources', ProcessResources).configure {
     }
 }
 
+// The GameTest harness resolves an unprefixed template (e.g. "platform") against
+// <run dir>/gameteststructures/*.snbt (StructureTemplateManager#loadFromTestStructures, which takes
+// only the path of the id). Neither vanilla nor NeoForge ship one, so stage the committed structure
+// into the run directory before any game run.
+tasks.register('stageGameTestStructures', Copy) {
+    from 'src/test/resources/gameteststructures'
+    into "${project.file('run-gametest')}/gameteststructures"
+}
+tasks.named('runGameTestServer').configure {
+    dependsOn 'stageGameTestStructures'
+}
+
 tasks.named('jar', Jar).configure {
+    // gametest/** is compiled and run by runGameTestServer, and is never shipped: it names
+    // net.minecraft.gametest, which is only on the classpath of a game-test run. checkJarContents
+    // fails the build if it reappears.
+    exclude 'dev/otectus/mcacrime/gametest/**'
+
     manifest {
         attributes([
                 'Specification-Title'     : mod_id,
@@ -281,7 +298,10 @@ tasks.register('checkJarContents') {
         def forbidden = ['net/minecraftforge/', 'net/conczin/mca/', 'forge/net/conczin/mca/',
                          'forge/net/mca/', 'net/mca/', 'dev/architectury/', 'me/shedaniel/',
                          'dev/otectus/mcareputation/', 'dev/otectus/mcaquests/',
-                         'dev/otectus/mcaconversations/', 'org/junit/']
+                         'dev/otectus/mcaconversations/', 'org/junit/',
+                         'dev/otectus/mcacrime/gametest/']
+        // Text entries whose expanded content is inspected below (spec 13.4).
+        def texts = [:]
 
         new java.util.zip.ZipFile(jarFile.get().asFile).withCloseable { zip ->
             zip.entries().each { entry ->
@@ -290,6 +310,10 @@ tasks.register('checkJarContents') {
                     zip.getInputStream(entry).withCloseable { input ->
                         implementationVersion = new java.util.jar.Manifest(input)
                                 .mainAttributes.getValue('Implementation-Version')
+                    }
+                } else if (entry.name == 'META-INF/neoforge.mods.toml' || entry.name.endsWith('.mixins.json')) {
+                    texts[entry.name] = zip.getInputStream(entry).withCloseable {
+                        new String(it.bytes, 'UTF-8')
                     }
                 } else if (entry.name.endsWith('.class')) {
                     byte[] bytes = zip.getInputStream(entry).withCloseable { it.bytes }
@@ -337,6 +361,20 @@ tasks.register('checkJarContents') {
         def mixinConfigs = entries.findAll { it.endsWith('.mixins.json') }
         if (mixinConfigs.size() != 1) {
             problems << "expected exactly one mixin config, found ${mixinConfigs.size()}: ${mixinConfigs}"
+        }
+        mixinConfigs.each { config ->
+            if (texts[config]?.contains('refmap')) {
+                problems << "${config} declares a refmap; NeoForge 1.21.1 production runs on Mojang names"
+            }
+        }
+        // An unexpanded placeholder here is the failure mode that boots to the mod list and then
+        // reports a version of literally '${mod_version}'.
+        def toml = texts['META-INF/neoforge.mods.toml']
+        if (toml != null) {
+            def unexpanded = toml.readLines().findAll { it.contains('${') }
+            if (!unexpanded.isEmpty()) {
+                problems << "unexpanded placeholder(s) in neoforge.mods.toml: ${unexpanded.take(5)}"
+            }
         }
 
         // --- nothing shaded, and no stale platform references ---
