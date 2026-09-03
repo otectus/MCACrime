@@ -5,8 +5,7 @@ import dev.otectus.mcacrime.captivity.CustodyRegistry;
 import dev.otectus.mcacrime.crime.Band;
 import dev.otectus.mcacrime.engine.CrimeState;
 import dev.otectus.mcacrime.jail.JailState;
-import dev.otectus.mcacrime.state.CrimeCapabilities;
-import dev.otectus.mcacrime.state.PlayerCrimeData;
+import dev.otectus.mcacrime.state.CrimeAttachments;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 
@@ -69,7 +68,7 @@ public final class LegalTarget {
 
     /** True while the player's refusal of a guard challenge is still standing (spec §13.2). */
     public static boolean isResistingArrest(ServerPlayer player) {
-        return CrimeCapabilities.get(player).map(PlayerCrimeData::isResistingArrest).orElse(false);
+        return CrimeAttachments.get(player).isResistingArrest();
     }
 
     /**
@@ -94,12 +93,8 @@ public final class LegalTarget {
     }
 
     public static boolean isEscapedPrisoner(ServerPlayer player) {
-        return CrimeCapabilities.get(player)
-                .map(data -> {
-                    JailState jail = data.getJail();
-                    return jail != null && jail.isEscaped();
-                })
-                .orElse(false);
+        JailState jail = CrimeAttachments.get(player).getJail();
+        return jail != null && jail.isEscaped();
     }
 
     /** True when the player is an active kidnapper — holding an entity in unlawful custody (spec §1.3, §8). */

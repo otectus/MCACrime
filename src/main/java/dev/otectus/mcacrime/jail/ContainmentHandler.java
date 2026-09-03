@@ -1,7 +1,7 @@
 package dev.otectus.mcacrime.jail;
 
 import dev.otectus.mcacrime.McaCrime;
-import dev.otectus.mcacrime.state.CrimeCapabilities;
+import dev.otectus.mcacrime.state.CrimeAttachments;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
 import net.neoforged.neoforge.event.level.BlockEvent;
@@ -24,16 +24,14 @@ public final class ContainmentHandler {
         if (!(event.getPlayer() instanceof ServerPlayer player)) {
             return;
         }
-        CrimeCapabilities.get(player).ifPresent(data -> {
-            JailState jail = data.getJail();
-            if (jail == null || jail.getModeSnapshot() == JailContainmentMode.PHYSICAL) {
-                return; // not jailed, or breakable-walls mode
-            }
-            ResourceLocation posDim = player.level().dimension().location();
-            if (JailRegion.contains(jail.getJailAnchor(), jail.getJailRadius(), jail.getJailDim(),
-                    event.getPos(), posDim)) {
-                event.setCanceled(true); // can't mine out of a CONTAINMENT/REINFORCED jail
-            }
-        });
+        JailState jail = CrimeAttachments.get(player).getJail();
+        if (jail == null || jail.getModeSnapshot() == JailContainmentMode.PHYSICAL) {
+            return; // not jailed, or breakable-walls mode
+        }
+        ResourceLocation posDim = player.level().dimension().location();
+        if (JailRegion.contains(jail.getJailAnchor(), jail.getJailRadius(), jail.getJailDim(),
+                event.getPos(), posDim)) {
+            event.setCanceled(true); // can't mine out of a CONTAINMENT/REINFORCED jail
+        }
     }
 }

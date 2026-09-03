@@ -9,7 +9,7 @@ import dev.otectus.mcacrime.crime.Band;
 import dev.otectus.mcacrime.crime.CrimeMath;
 import dev.otectus.mcacrime.crime.KarmaSource;
 import dev.otectus.mcacrime.network.CrimeNetwork;
-import dev.otectus.mcacrime.state.CrimeCapabilities;
+import dev.otectus.mcacrime.state.CrimeAttachments;
 import dev.otectus.mcacrime.state.PlayerCrimeData;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
@@ -36,11 +36,11 @@ public final class CrimeState {
     // ------------------------------------------------------------------ reads
 
     public static long getKarma(ServerPlayer player) {
-        return CrimeCapabilities.get(player).map(PlayerCrimeData::getKarma).orElse(0L);
+        return CrimeAttachments.get(player).getKarma();
     }
 
     public static long getHeat(ServerPlayer player) {
-        return CrimeCapabilities.get(player).map(PlayerCrimeData::getHeat).orElse(0L);
+        return CrimeAttachments.get(player).getHeat();
     }
 
     /** The band derived from current karma under current thresholds (never stale). */
@@ -55,7 +55,7 @@ public final class CrimeState {
 
     /** Whether the player is currently resisting arrest, having refused a guard's challenge (§13.2). */
     public static boolean isResistingArrest(ServerPlayer player) {
-        return CrimeCapabilities.get(player).map(PlayerCrimeData::isResistingArrest).orElse(false);
+        return CrimeAttachments.get(player).isResistingArrest();
     }
 
     /**
@@ -67,20 +67,19 @@ public final class CrimeState {
      * wait one out, and a refusal is the last thing that should be escapable by quitting for a minute.
      */
     public static void setResistingArrest(ServerPlayer player, boolean resisting) {
-        CrimeCapabilities.get(player).ifPresent(data -> {
-            boolean was = data.isResistingArrest();
-            data.setResistingArrestUntilTick(resisting
-                    ? data.getOnlineTicksLived() + McaCrimeConfig.COMMON.resistingArrestTicks.get()
-                    : 0L);
-            // Refusing ends the confrontation and hands the player to the resisting projection. The
-            // phase and the flag must not both claim to describe the same moment.
-            if (resisting && data.arrestPhase() == dev.otectus.mcacrime.enforcement.ArrestPhase.CONFRONTED) {
-                data.setArrest(null);
-            }
-            if (was != data.isResistingArrest()) {
-                CrimeNetwork.sendSelfStatus(player);
-            }
-        });
+        PlayerCrimeData data = CrimeAttachments.get(player);
+        boolean was = data.isResistingArrest();
+        data.setResistingArrestUntilTick(resisting
+                ? data.getOnlineTicksLived() + McaCrimeConfig.COMMON.resistingArrestTicks.get()
+                : 0L);
+        // Refusing ends the confrontation and hands the player to the resisting projection. The
+        // phase and the flag must not both claim to describe the same moment.
+        if (resisting && data.arrestPhase() == dev.otectus.mcacrime.enforcement.ArrestPhase.CONFRONTED) {
+            data.setArrest(null);
+        }
+        if (was != data.isResistingArrest()) {
+            CrimeNetwork.sendSelfStatus(player);
+        }
     }
 
     /**
@@ -137,53 +136,50 @@ public final class CrimeState {
     /** Recomputes the cached band + wanted flag under current config (login reconcile, config change). */
     public static void recomputeDerived(ServerPlayer player) {
         McaCrimeConfig.Common c = McaCrimeConfig.COMMON;
-        CrimeCapabilities.get(player).ifPresent(data -> {
-            data.setCachedBand(Band.fromKarma(data.getKarma(), c.karmaBlueThreshold.get(), c.karmaRedThreshold.get()));
-            data.setWantedCached(CrimeMath.isWanted(data.getHeat(), c.wantedHeatThreshold.get()));
-        });
+        PlayerCrimeData data = CrimeAttachments.get(player);
+        data.setCachedBand(Band.fromKarma(data.getKarma(), c.karmaBlueThreshold.get(), c.karmaRedThreshold.get()));
+        data.setWantedCached(CrimeMath.isWanted(data.getHeat(), c.wantedHeatThreshold.get()));
     }
 
     // ------------------------------------------------------------------ internals
 
     private static void applyKarma(ServerPlayer player, LongUnaryOperator op, KarmaSource source) {
-        CrimeCapabilities.get(player).ifPresentOrElse(data -> {
-            McaCrimeConfig.Common c = McaCrimeConfig.COMMON;
-            long oldKarma = data.getKarma();
-            long newKarma = CrimeMath.clamp(op.applyAsLong(oldKarma), c.karmaMin.get(), c.karmaMax.get());
-            if (newKarma == oldKarma) {
-                return; // idempotent no-op: no event, no sync
-            }
-            Band oldBand = Band.fromKarma(oldKarma, c.karmaBlueThreshold.get(), c.karmaRedThreshold.get());
-            Band newBand = Band.fromKarma(newKarma, c.karmaBlueThreshold.get(), c.karmaRedThreshold.get());
-            data.setKarma(newKarma);
-            data.setCachedBand(newBand);
-            NeoForge.EVENT_BUS.post(new KarmaChangedEvent(player, oldKarma, newKarma, oldBand, newBand, source));
-            CrimeNetwork.sendSelfStatus(player);
-        }, () -> McaCrime.LOGGER.debug("Karma mutation on a player without the crime capability; ignoring"));
+        PlayerCrimeData data = CrimeAttachments.get(player);
+        McaCrimeConfig.Common c = McaCrimeConfig.COMMON;
+        long oldKarma = data.getKarma();
+        long newKarma = CrimeMath.clamp(op.applyAsLong(oldKarma), c.karmaMin.get(), c.karmaMax.get());
+        if (newKarma == oldKarma) {
+            return; // idempotent no-op: no event, no sync
+        }
+        Band oldBand = Band.fromKarma(oldKarma, c.karmaBlueThreshold.get(), c.karmaRedThreshold.get());
+        Band newBand = Band.fromKarma(newKarma, c.karmaBlueThreshold.get(), c.karmaRedThreshold.get());
+        data.setKarma(newKarma);
+        data.setCachedBand(newBand);
+        NeoForge.EVENT_BUS.post(new KarmaChangedEvent(player, oldKarma, newKarma, oldBand, newBand, source));
+        CrimeNetwork.sendSelfStatus(player);
     }
 
     private static void applyHeat(ServerPlayer player, LongUnaryOperator op,
                                   ResourceLocation source, String dedupeKey) {
-        CrimeCapabilities.get(player).ifPresentOrElse(data -> {
-            McaCrimeConfig.Common c = McaCrimeConfig.COMMON;
-            long oldHeat = data.getHeat();
-            long newHeat = CrimeMath.clamp(op.applyAsLong(oldHeat), 0L, c.heatMax.get());
-            if (newHeat == oldHeat) {
-                return; // idempotent no-op: no event, no sync
-            }
-            long threshold = c.wantedHeatThreshold.get();
-            boolean wasWanted = CrimeMath.isWanted(oldHeat, threshold);
-            boolean nowWanted = CrimeMath.isWanted(newHeat, threshold);
-            data.setHeat(newHeat);
-            data.setWantedCached(nowWanted);
-            // Every real change is reported; the wanted event stays reserved for the boundary crossing,
-            // so a listener that only cares about pursuit does not have to filter out ordinary decay.
-            NeoForge.EVENT_BUS.post(new HeatChangedEvent(player, oldHeat, newHeat,
-                    source == null ? INTERNAL : source, dedupeKey));
-            if (wasWanted != nowWanted) {
-                NeoForge.EVENT_BUS.post(new WantedStatusChangedEvent(player, nowWanted, newHeat));
-            }
-            CrimeNetwork.sendSelfStatus(player);
-        }, () -> McaCrime.LOGGER.debug("Heat mutation on a player without the crime capability; ignoring"));
+        PlayerCrimeData data = CrimeAttachments.get(player);
+        McaCrimeConfig.Common c = McaCrimeConfig.COMMON;
+        long oldHeat = data.getHeat();
+        long newHeat = CrimeMath.clamp(op.applyAsLong(oldHeat), 0L, c.heatMax.get());
+        if (newHeat == oldHeat) {
+            return; // idempotent no-op: no event, no sync
+        }
+        long threshold = c.wantedHeatThreshold.get();
+        boolean wasWanted = CrimeMath.isWanted(oldHeat, threshold);
+        boolean nowWanted = CrimeMath.isWanted(newHeat, threshold);
+        data.setHeat(newHeat);
+        data.setWantedCached(nowWanted);
+        // Every real change is reported; the wanted event stays reserved for the boundary crossing,
+        // so a listener that only cares about pursuit does not have to filter out ordinary decay.
+        NeoForge.EVENT_BUS.post(new HeatChangedEvent(player, oldHeat, newHeat,
+                source == null ? INTERNAL : source, dedupeKey));
+        if (wasWanted != nowWanted) {
+            NeoForge.EVENT_BUS.post(new WantedStatusChangedEvent(player, nowWanted, newHeat));
+        }
+        CrimeNetwork.sendSelfStatus(player);
     }
 }

@@ -8,8 +8,7 @@ import dev.otectus.mcacrime.jail.JailService;
 import dev.otectus.mcacrime.jail.JailState;
 import dev.otectus.mcacrime.jail.ReleaseReason;
 import dev.otectus.mcacrime.ledger.SentenceResolutionService;
-import dev.otectus.mcacrime.state.CrimeCapabilities;
-import dev.otectus.mcacrime.state.PlayerCrimeData;
+import dev.otectus.mcacrime.state.CrimeAttachments;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
@@ -54,7 +53,7 @@ public final class BailActionHandler implements CrimeActionHandler {
         if (player == null || !actor.id().equals(target.getUUID())) {
             return ActionAvailability.hidden("mcacrime.bail.invalid");
         }
-        JailState jail = CrimeCapabilities.get(player).map(PlayerCrimeData::getJail).orElse(null);
+        JailState jail = CrimeAttachments.get(player).getJail();
         if (jail == null) {
             return ActionAvailability.hidden("mcacrime.bail.not_jailed");
         }
@@ -76,7 +75,7 @@ public final class BailActionHandler implements CrimeActionHandler {
         }
         ServerPlayer player = actor.asPlayer();
         MinecraftServer server = player.getServer();
-        JailState jail = CrimeCapabilities.get(player).map(PlayerCrimeData::getJail).orElse(null);
+        JailState jail = CrimeAttachments.get(player).getJail();
         if (server == null || jail == null) {
             return ActionResult.rejected("mcacrime.bail.not_jailed");
         }

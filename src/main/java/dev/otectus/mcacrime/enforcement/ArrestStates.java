@@ -2,7 +2,7 @@ package dev.otectus.mcacrime.enforcement;
 
 import dev.otectus.mcacrime.McaCrime;
 import dev.otectus.mcacrime.jail.JailAnchor;
-import dev.otectus.mcacrime.state.CrimeCapabilities;
+import dev.otectus.mcacrime.state.CrimeAttachments;
 import dev.otectus.mcacrime.state.PlayerCrimeData;
 import net.minecraft.server.level.ServerPlayer;
 
@@ -29,12 +29,12 @@ public final class ArrestStates {
 
     // ------------------------------------------------------------------ reads
 
-    /** This player's phase; {@code NONE} when they have no arrest or no capability. */
+    /** This player's phase; {@code NONE} when they have no arrest. */
     public static ArrestPhase phaseOf(@Nullable ServerPlayer player) {
         if (player == null) {
             return ArrestPhase.NONE;
         }
-        return CrimeCapabilities.get(player).map(PlayerCrimeData::arrestPhase).orElse(ArrestPhase.NONE);
+        return CrimeAttachments.get(player).arrestPhase();
     }
 
     /** The live arrest record, or null when there is none. Callers must not write the phase on it. */
@@ -43,7 +43,7 @@ public final class ArrestStates {
         if (player == null) {
             return null;
         }
-        return CrimeCapabilities.get(player).map(PlayerCrimeData::getArrest).orElse(null);
+        return CrimeAttachments.get(player).getArrest();
     }
 
     /** Whether the player is physically restrained right now. */
@@ -97,25 +97,24 @@ public final class ArrestStates {
     }
 
     private static boolean applyTransition(ServerPlayer player, ArrestPhase to) {
-        return CrimeCapabilities.get(player).map(data -> {
-            ArrestState state = data.getArrest();
-            ArrestPhase from = state == null ? ArrestPhase.NONE : state.getPhase();
-            if (!ArrestPhases.allows(from, to)) {
-                McaCrime.LOGGER.debug("MCA: Crime refused an illegal arrest transition {} -> {} for {}",
-                        from, to, player.getGameProfile().getName());
-                return false;
-            }
-            if (to == ArrestPhase.NONE) {
-                data.setArrest(null);
-                return true;
-            }
-            if (state == null) {
-                state = new ArrestState();
-                data.setArrest(state);
-            }
-            state.setPhase(to);
+        PlayerCrimeData data = CrimeAttachments.get(player);
+        ArrestState state = data.getArrest();
+        ArrestPhase from = state == null ? ArrestPhase.NONE : state.getPhase();
+        if (!ArrestPhases.allows(from, to)) {
+            McaCrime.LOGGER.debug("MCA: Crime refused an illegal arrest transition {} -> {} for {}",
+                    from, to, player.getGameProfile().getName());
+            return false;
+        }
+        if (to == ArrestPhase.NONE) {
+            data.setArrest(null);
             return true;
-        }).orElse(false);
+        }
+        if (state == null) {
+            state = new ArrestState();
+            data.setArrest(state);
+        }
+        state.setPhase(to);
+        return true;
     }
 
     /**
@@ -165,20 +164,19 @@ public final class ArrestStates {
      */
     public static void arm(ServerPlayer player, @Nullable JailAnchor anchor, long sentenceTicks,
                            long escortTimeoutTicks) {
-        CrimeCapabilities.get(player).ifPresent(data -> {
-            ArrestState state = data.getArrest();
-            if (state == null) {
-                return;
-            }
-            state.setAnchor(anchor);
-            state.setSentenceTicks(sentenceTicks);
-            state.setDeadlineOnlineTick(escortTimeoutTicks <= 0L
-                    ? 0L
-                    : data.getOnlineTicksLived() + escortTimeoutTicks);
-            state.setBestAnchorDistanceSqr(Double.MAX_VALUE);
-            state.setStuckStrikes(0);
-            state.setLastSeenPos(player.blockPosition());
-        });
+        PlayerCrimeData data = CrimeAttachments.get(player);
+        ArrestState state = data.getArrest();
+        if (state == null) {
+            return;
+        }
+        state.setAnchor(anchor);
+        state.setSentenceTicks(sentenceTicks);
+        state.setDeadlineOnlineTick(escortTimeoutTicks <= 0L
+                ? 0L
+                : data.getOnlineTicksLived() + escortTimeoutTicks);
+        state.setBestAnchorDistanceSqr(Double.MAX_VALUE);
+        state.setStuckStrikes(0);
+        state.setLastSeenPos(player.blockPosition());
     }
 
     /** Hands the escort to a different responder after the first one died, unloaded, or vanished. */
@@ -212,15 +210,14 @@ public final class ArrestStates {
         if (!transition(player, ArrestPhase.RECOVERY)) {
             return;
         }
-        CrimeCapabilities.get(player).ifPresent(data -> {
-            ArrestState state = data.getArrest();
-            if (state == null) {
-                return;
-            }
-            state.setGuard(null);
-            state.setEncounterId(null);
-            state.setDeadlineOnlineTick(data.getOnlineTicksLived() + Math.max(1L, expiryOnlineTicks));
-        });
+        PlayerCrimeData data = CrimeAttachments.get(player);
+        ArrestState state = data.getArrest();
+        if (state == null) {
+            return;
+        }
+        state.setGuard(null);
+        state.setEncounterId(null);
+        state.setDeadlineOnlineTick(data.getOnlineTicksLived() + Math.max(1L, expiryOnlineTicks));
     }
 
     /**

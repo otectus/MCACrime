@@ -32,7 +32,7 @@ import dev.otectus.mcacrime.ledger.CrimeLedger;
 import dev.otectus.mcacrime.ledger.CrimeRecord;
 import dev.otectus.mcacrime.mug.MuggingService;
 import dev.otectus.mcacrime.ransom.RansomService;
-import dev.otectus.mcacrime.state.CrimeCapabilities;
+import dev.otectus.mcacrime.state.CrimeAttachments;
 import dev.otectus.mcacrime.state.PlayerCrimeData;
 import dev.otectus.mcacrime.state.world.CrimeWorldData;
 import net.minecraft.ChatFormatting;
@@ -522,10 +522,10 @@ public final class CrimeCommand {
     private static int debugCustody(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
         ServerPlayer player = ctx.getSource().getPlayerOrException();
         MinecraftServer server = ctx.getSource().getServer();
-        PlayerCrimeData data = CrimeCapabilities.get(player).orElse(null);
+        PlayerCrimeData data = CrimeAttachments.get(player);
         StringBuilder sb = new StringBuilder("Custody debug:");
-        sb.append("\n  heldCaptive=").append(data == null ? "-" : data.getHeldCaptiveRef());
-        sb.append("\n  heldBy=").append(data == null ? "-" : data.getHeldByRef());
+        sb.append("\n  heldCaptive=").append(data.getHeldCaptiveRef());
+        sb.append("\n  heldBy=").append(data.getHeldByRef());
         if (server != null) {
             CustodyRecord rec = CrimeWorldData.get(server).getCustody(player.getUUID());
             sb.append("\n  asCaptive=").append(rec == null ? "-"

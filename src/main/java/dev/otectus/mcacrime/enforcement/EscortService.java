@@ -10,7 +10,7 @@ import dev.otectus.mcacrime.jail.JailAnchor;
 import dev.otectus.mcacrime.jail.JailRegion;
 import dev.otectus.mcacrime.jail.JailService;
 import dev.otectus.mcacrime.network.CrimeNetwork;
-import dev.otectus.mcacrime.state.CrimeCapabilities;
+import dev.otectus.mcacrime.state.CrimeAttachments;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
@@ -216,7 +216,7 @@ public final class EscortService {
 
         boolean inRegion = JailRegion.contains(destination, anchor.radius(), anchor.dim(),
                 here, level.dimension().location());
-        long online = CrimeCapabilities.get(prisoner).map(d -> d.getOnlineTicksLived()).orElse(0L);
+        long online = CrimeAttachments.get(prisoner).getOnlineTicksLived();
 
         Step step = decide(guardPresent, inRegion,
                 guardPresent ? guard.distanceToSqr(prisoner) : 0.0,

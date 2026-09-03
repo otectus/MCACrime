@@ -12,7 +12,8 @@ import dev.otectus.mcacrime.jail.JailRegion;
 import dev.otectus.mcacrime.jail.JailRegistry;
 import dev.otectus.mcacrime.jail.JailState;
 import dev.otectus.mcacrime.network.CrimeNetwork;
-import dev.otectus.mcacrime.state.CrimeCapabilities;
+import dev.otectus.mcacrime.state.CrimeAttachments;
+import dev.otectus.mcacrime.state.PlayerCrimeData;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
@@ -66,13 +67,12 @@ public final class SurrenderService {
         long finableCeiling = Math.max(0L, c.jailableHeatThreshold.get() - 1L);
         CrimeState.setHeat(player, Math.min(reduced, finableCeiling));
 
-        CrimeCapabilities.get(player).ifPresent(data -> {
-            data.setLastSurrenderTick(data.getOnlineTicksLived()); // a transient capture vulnerability (§8.2)
-            JailState jail = data.getJail();
-            if (jail != null) {
-                jail.setEscaped(false); // stop resisting arrest
-            }
-        });
+        PlayerCrimeData data = CrimeAttachments.get(player);
+        data.setLastSurrenderTick(data.getOnlineTicksLived()); // a transient capture vulnerability (§8.2)
+        JailState surrenderJail = data.getJail();
+        if (surrenderJail != null) {
+            surrenderJail.setEscaped(false); // stop resisting arrest
+        }
         // The sentence waiver used to be applied here, by writing straight into the live JailState --
         // and then the arrest below recomputed the sentence from full charges and took the maximum of
         // the two, which put the whole quarter back. It is now folded into the sentence itself by

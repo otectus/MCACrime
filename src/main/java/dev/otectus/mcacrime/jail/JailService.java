@@ -5,7 +5,7 @@ import dev.otectus.mcacrime.McaCrimeConfig;
 import dev.otectus.mcacrime.api.event.PlayerJailedEvent;
 import dev.otectus.mcacrime.api.event.PlayerReleasedFromJailEvent;
 import dev.otectus.mcacrime.network.CrimeNetwork;
-import dev.otectus.mcacrime.state.CrimeCapabilities;
+import dev.otectus.mcacrime.state.CrimeAttachments;
 import dev.otectus.mcacrime.ledger.SentenceResolutionService;
 import dev.otectus.mcacrime.state.PlayerCrimeData;
 import dev.otectus.mcacrime.util.TickFormat;
@@ -51,13 +51,12 @@ public final class JailService {
     // ------------------------------------------------------------------ queries
 
     public static boolean isJailed(ServerPlayer player) {
-        return CrimeCapabilities.get(player).map(PlayerCrimeData::isJailed).orElse(false);
+        return CrimeAttachments.get(player).isJailed();
     }
 
     public static long remainingTicks(ServerPlayer player) {
-        return CrimeCapabilities.get(player)
-                .map(d -> d.getJail() == null ? 0L : d.getJail().getRemainingOnlineTicks())
-                .orElse(0L);
+        JailState jail = CrimeAttachments.get(player).getJail();
+        return jail == null ? 0L : jail.getRemainingOnlineTicks();
     }
 
     // ------------------------------------------------------------------ jail
@@ -84,11 +83,7 @@ public final class JailService {
      */
     public static boolean jail(ServerPlayer player, long ticks, @Nullable JailAnchor explicit,
                                @Nullable UUID sentenceId, boolean allowReduce) {
-        Optional<PlayerCrimeData> opt = CrimeCapabilities.get(player);
-        if (opt.isEmpty()) {
-            return false;
-        }
-        PlayerCrimeData data = opt.get();
+        PlayerCrimeData data = CrimeAttachments.get(player);
         long clamped = Math.max(1L, Math.min(ticks, McaCrimeConfig.COMMON.maxJailCommandTicks.get()));
 
         if (data.isJailed()) {
@@ -167,11 +162,7 @@ public final class JailService {
     // ------------------------------------------------------------------ release (idempotent)
 
     public static void release(ServerPlayer player, ReleaseReason reason) {
-        Optional<PlayerCrimeData> opt = CrimeCapabilities.get(player);
-        if (opt.isEmpty()) {
-            return;
-        }
-        PlayerCrimeData data = opt.get();
+        PlayerCrimeData data = CrimeAttachments.get(player);
         if (!data.isJailed()) {
             return; // the single guard that makes double-release a no-op
         }
@@ -203,17 +194,15 @@ public final class JailService {
 
     /** On login, free a player whose jail dimension vanished and has no fallback (avoids a softlock, §7.4). */
     public static void reconcileOnLogin(ServerPlayer player) {
-        CrimeCapabilities.get(player).ifPresent(data -> {
-            JailState jail = data.getJail();
-            if (jail == null) {
-                return;
-            }
-            if (jail.hasValidAnchor()
-                    && resolveLevel(player.getServer(), jail.getJailDim()) == null
-                    && configFallbackAnchor().isEmpty()) {
-                release(player, ReleaseReason.INVALID_JAIL);
-            }
-        });
+        JailState jail = CrimeAttachments.get(player).getJail();
+        if (jail == null) {
+            return;
+        }
+        if (jail.hasValidAnchor()
+                && resolveLevel(player.getServer(), jail.getJailDim()) == null
+                && configFallbackAnchor().isEmpty()) {
+            release(player, ReleaseReason.INVALID_JAIL);
+        }
     }
 
     // ------------------------------------------------------------------ per-tick (from CrimeDecayHandler)

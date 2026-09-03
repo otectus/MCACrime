@@ -4,7 +4,9 @@ import dev.otectus.mcacrime.crime.Band;
 import dev.otectus.mcacrime.enforcement.ArrestPhase;
 import dev.otectus.mcacrime.enforcement.ArrestState;
 import dev.otectus.mcacrime.jail.JailState;
+import net.minecraft.core.HolderLookup;
 import net.minecraft.nbt.CompoundTag;
+import net.neoforged.neoforge.common.util.INBTSerializable;
 
 import org.jetbrains.annotations.Nullable;
 import java.util.UUID;
@@ -12,7 +14,7 @@ import java.util.UUID;
 /**
  * A player's own crime state (spec §2.1): Karma, Heat, the cached band, the online-tick decay clock,
  * and the daily anti-farm counters. Held in a Forge capability and serialised to the player's NBT, so
- * it survives logout, death (copied on {@code PlayerEvent.Clone}), dimension change, and restart
+ * it survives logout, death (copied by {@code copyOnDeath}), dimension change, and restart
  * (spec §7.1, §18). Server-authoritative — never trust a client copy.
  *
  * <p>Pure data + NBT (no Forge config / server deps) so it round-trips in unit tests. All mutation in
@@ -23,7 +25,7 @@ import java.util.UUID;
  * 0.1.0; the jail record is deferred to Phase 3 (its type does not exist yet) and {@link #load} tolerates
  * its later addition with zero migration.
  */
-public final class PlayerCrimeData {
+public final class PlayerCrimeData implements INBTSerializable<CompoundTag> {
 
     private long karma;
     private long heat;
@@ -276,6 +278,21 @@ public final class PlayerCrimeData {
         // Absent in every pre-0.4.0 save, which reads as no arrest. No migration, like the resisting
         // flag before it.
         arrest = tag.contains("arrest") ? ArrestState.load(tag.getCompound("arrest")) : null;
+    }
+
+    /**
+     * The attachment persistence hook (spec §7.1). Delegates to {@link #save()} so the on-disk keys
+     * stay identical to the 1.20.1 capability blob; nothing here is registry-aware, so the provider
+     * is unused.
+     */
+    @Override
+    public CompoundTag serializeNBT(HolderLookup.Provider provider) {
+        return save();
+    }
+
+    @Override
+    public void deserializeNBT(HolderLookup.Provider provider, CompoundTag tag) {
+        load(tag);
     }
 
     private static Band parseBand(String name) {

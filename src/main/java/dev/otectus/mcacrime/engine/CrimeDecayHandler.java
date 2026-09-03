@@ -11,14 +11,13 @@ import dev.otectus.mcacrime.enforcement.ArrestStates;
 import dev.otectus.mcacrime.enforcement.EscortRestraint;
 import dev.otectus.mcacrime.jail.JailConfine;
 import dev.otectus.mcacrime.jail.JailService;
-import dev.otectus.mcacrime.state.CrimeCapabilities;
+import dev.otectus.mcacrime.state.CrimeAttachments;
 import dev.otectus.mcacrime.state.PlayerCrimeData;
 import net.minecraft.server.level.ServerPlayer;
 import net.neoforged.neoforge.event.tick.PlayerTickEvent;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
 
-import java.util.Optional;
 
 /**
  * Online-tick Karma/Heat decay (spec §3.1, §7.1). The decay clock is a mod-owned monotonic counter
@@ -48,11 +47,7 @@ public final class CrimeDecayHandler {
         if (!(event.getEntity() instanceof ServerPlayer player)) {
             return;
         }
-        Optional<PlayerCrimeData> opt = CrimeCapabilities.get(player);
-        if (opt.isEmpty()) {
-            return;
-        }
-        PlayerCrimeData data = opt.get();
+        PlayerCrimeData data = CrimeAttachments.get(player);
         long online = data.incrementOnlineTicks(); // the only clock decay reads
         // Jail sentence + kidnapping cap decrement every online tick (matching the clock) BEFORE the throttle.
         if (data.isJailed()) {

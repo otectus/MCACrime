@@ -13,8 +13,7 @@ import dev.otectus.mcacrime.jail.HoldingCellService;
 import dev.otectus.mcacrime.jail.JailAnchor;
 import dev.otectus.mcacrime.jail.JailRegistry;
 import dev.otectus.mcacrime.jail.JailService;
-import dev.otectus.mcacrime.state.CrimeCapabilities;
-import dev.otectus.mcacrime.state.PlayerCrimeData;
+import dev.otectus.mcacrime.state.CrimeAttachments;
 import dev.otectus.mcacrime.state.world.CrimeWorldData;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
@@ -238,7 +237,7 @@ public final class ArrestService {
         }
         boolean anchorResolves = anchor != null
                 && JailService.resolveLevel(server, anchor.dim()) != null;
-        long online = CrimeCapabilities.get(player).map(PlayerCrimeData::getOnlineTicksLived).orElse(0L);
+        long online = CrimeAttachments.get(player).getOnlineTicksLived();
         boolean expired = state != null && state.expired(online);
         boolean guardPresent = state != null && state.getGuard() != null
                 && player.level() instanceof ServerLevel level

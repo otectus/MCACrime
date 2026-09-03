@@ -13,7 +13,7 @@ import dev.otectus.mcacrime.detect.WitnessChecker;
 import dev.otectus.mcacrime.jail.JailService;
 import dev.otectus.mcacrime.network.ActionProgressS2CPacket;
 import dev.otectus.mcacrime.network.CrimeNetwork;
-import dev.otectus.mcacrime.state.CrimeCapabilities;
+import dev.otectus.mcacrime.state.CrimeAttachments;
 import dev.otectus.mcacrime.state.PlayerCrimeData;
 import dev.otectus.mcacrime.state.world.CrimeWorldData;
 import net.minecraft.core.BlockPos;
@@ -28,7 +28,6 @@ import net.neoforged.neoforge.common.NeoForge;
 import net.minecraft.util.RandomSource;
 
 import org.jetbrains.annotations.Nullable;
-import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -98,16 +97,16 @@ public final class CustodyService {
             return false; // commit-time invariant: a race cannot bypass the start check
         }
         boolean captiveIsPlayer = captiveEntity instanceof ServerPlayer;
-        long start = CrimeCapabilities.get(captor).map(PlayerCrimeData::getOnlineTicksLived).orElse(0L);
+        long start = CrimeAttachments.get(captor).getOnlineTicksLived();
         CustodyRecord record = new CustodyRecord(captiveUuid, captiveIsPlayer, false,
                 CustodyOwner.kidnapper(captor.getUUID()), restraint, start,
                 captiveEntity.blockPosition(), level.dimension().location());
         CrimeWorldData.get(server).putCustody(record);
 
-        CrimeCapabilities.get(captor).ifPresent(d -> d.setHeldCaptiveRef(captiveUuid));
+        CrimeAttachments.get(captor).setHeldCaptiveRef(captiveUuid);
         ServerPlayer captivePlayer = captiveIsPlayer ? (ServerPlayer) captiveEntity : null;
         if (captivePlayer != null) {
-            CrimeCapabilities.get(captivePlayer).ifPresent(d -> d.setHeldByRef(captor.getUUID()));
+            CrimeAttachments.get(captivePlayer).setHeldByRef(captor.getUUID());
         } else {
             McaCompat.leashTo(captiveEntity, captor); // best-effort physical hold for an NPC
         }
@@ -162,12 +161,11 @@ public final class CustodyService {
         if (CustodyRegistry.isCaptive(server, captiveUuid)) {
             return false;
         }
-        long start = CrimeCapabilities.get(captive).map(PlayerCrimeData::getOnlineTicksLived).orElse(0L);
+        long start = CrimeAttachments.get(captive).getOnlineTicksLived();
         CustodyRecord record = new CustodyRecord(captiveUuid, true, true, owner, RestraintType.NONE,
                 start, holdPos, holdDim);
         CrimeWorldData.get(server).putCustody(record);
-        CrimeCapabilities.get(captive).ifPresent(d -> d.setHeldByRef(
-                owner.ownerUuid().orElse(captiveUuid)));
+        CrimeAttachments.get(captive).setHeldByRef(owner.ownerUuid().orElse(captiveUuid));
         CrimeNetwork.sendSelfStatus(captive);
         CrimeNetwork.sendCaptiveStatus(captive);
         return true;
@@ -209,18 +207,17 @@ public final class CustodyService {
         if (formerCaptor != null) {
             ServerPlayer captorPlayer = server.getPlayerList().getPlayer(formerCaptor);
             if (captorPlayer != null) {
-                CrimeCapabilities.get(captorPlayer).ifPresent(d -> {
-                    if (captiveUuid.equals(d.getHeldCaptiveRef())) {
-                        d.setHeldCaptiveRef(null);
-                    }
-                });
+                PlayerCrimeData captorData = CrimeAttachments.get(captorPlayer);
+                if (captiveUuid.equals(captorData.getHeldCaptiveRef())) {
+                    captorData.setHeldCaptiveRef(null);
+                }
                 CrimeNetwork.sendSelfStatus(captorPlayer);
             }
         }
 
         ServerPlayer captivePlayer = record.isCaptivePlayer() ? server.getPlayerList().getPlayer(captiveUuid) : null;
         if (captivePlayer != null) {
-            CrimeCapabilities.get(captivePlayer).ifPresent(d -> d.setHeldByRef(null));
+            CrimeAttachments.get(captivePlayer).setHeldByRef(null);
             CrimeNetwork.sendSelfStatus(captivePlayer);
             CrimeNetwork.sendCaptiveStatus(captivePlayer); // record already removed -> clears the client
             captivePlayer.sendSystemMessage(Component.translatable(releaseKey(reason)));
@@ -390,25 +387,23 @@ public final class CustodyService {
             return;
         }
         CrimeWorldData world = CrimeWorldData.get(server);
-        Optional<PlayerCrimeData> dataOpt = CrimeCapabilities.get(player);
+        PlayerCrimeData data = CrimeAttachments.get(player);
         CustodyRecord asCaptive = world.getCustody(player.getUUID());
         if (asCaptive != null && !asCaptive.isLawful()) {
             UUID captor = asCaptive.getOwner().ownerUuid().orElse(null);
             if (captor == null) {
                 release(server, player.getUUID(), CustodyReleaseReason.CAPTOR_GONE);
             } else {
-                dataOpt.ifPresent(d -> d.setHeldByRef(captor)); // table is authoritative
+                data.setHeldByRef(captor); // table is authoritative
             }
         } else {
-            dataOpt.ifPresent(d -> {
-                if (d.getHeldByRef() != null) {
-                    d.setHeldByRef(null); // no longer a kidnapping captive
-                }
-            });
+            if (data.getHeldByRef() != null) {
+                data.setHeldByRef(null); // no longer a kidnapping captive
+            }
         }
         java.util.List<CustodyRecord> owned = CustodyRegistry.byOwner(server, player.getUUID()).stream()
                 .filter(record -> !record.isLawful()).toList();
-        dataOpt.ifPresent(d -> d.setHeldCaptiveRef(owned.isEmpty() ? null : owned.get(0).getCaptive()));
+        data.setHeldCaptiveRef(owned.isEmpty() ? null : owned.get(0).getCaptive());
         // Legacy builds could orphan several records behind one scalar cache. Keep the oldest/first
         // authoritative record and release the ambiguous extras instead of hiding them forever.
         for (int i = 1; i < owned.size(); i++) {

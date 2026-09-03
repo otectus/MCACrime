@@ -17,8 +17,7 @@ import dev.otectus.mcacrime.jail.JailService;
 import dev.otectus.mcacrime.jail.JailState;
 import dev.otectus.mcacrime.ledger.CrimeCaseService;
 import dev.otectus.mcacrime.ledger.CrimeRecord;
-import dev.otectus.mcacrime.state.CrimeCapabilities;
-import dev.otectus.mcacrime.state.PlayerCrimeData;
+import dev.otectus.mcacrime.state.CrimeAttachments;
 import dev.otectus.mcacrime.state.world.CrimeWorldData;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
@@ -208,9 +207,7 @@ public final class McaCrimeApi {
             return Optional.empty();
         }
         try {
-            return CrimeCapabilities.get(player)
-                    .map(PlayerCrimeData::getJail)
-                    .filter(jail -> jail != null)
+            return Optional.ofNullable(CrimeAttachments.get(player).getJail())
                     .map(McaCrimeApi::toView);
         } catch (Throwable t) {
             McaCrime.LOGGER.debug("MCA: Crime — sentence lookup failed; returning empty", t);

@@ -4,7 +4,8 @@ import dev.otectus.mcacrime.McaCrimeConfig;
 import dev.otectus.mcacrime.action.ActionAvailability;
 import dev.otectus.mcacrime.action.ActionSessionManager;
 import dev.otectus.mcacrime.compat.McaCompat;
-import dev.otectus.mcacrime.state.CrimeCapabilities;
+import dev.otectus.mcacrime.state.CrimeAttachments;
+import dev.otectus.mcacrime.state.PlayerCrimeData;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
@@ -73,10 +74,9 @@ public final class CaptureService {
     }
 
     private static boolean recentlySurrendered(ServerPlayer player) {
-        return CrimeCapabilities.get(player).map(d -> {
-            long last = d.getLastSurrenderTick();
-            return last > 0L && d.getOnlineTicksLived() - last < SURRENDER_VULNERABILITY_TICKS;
-        }).orElse(false);
+        PlayerCrimeData data = CrimeAttachments.get(player);
+        long last = data.getLastSurrenderTick();
+        return last > 0L && data.getOnlineTicksLived() - last < SURRENDER_VULNERABILITY_TICKS;
     }
 
     private static double channelMultiplier(RestraintType restraint) {

@@ -197,9 +197,7 @@ public final class HoldingCellService {
         if (cell.sentenceId() == null) {
             return true;
         }
-        JailState jail = dev.otectus.mcacrime.state.CrimeCapabilities.get(prisoner)
-                .map(dev.otectus.mcacrime.state.PlayerCrimeData::getJail)
-                .orElse(null);
+        JailState jail = dev.otectus.mcacrime.state.CrimeAttachments.get(prisoner).getJail();
         return jail == null || jail.getSentenceId() == null
                 || cell.sentenceId().equals(jail.getSentenceId());
     }
