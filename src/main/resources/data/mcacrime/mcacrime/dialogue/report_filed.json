@@ -1,0 +1,12 @@
+{
+  "event": "mcacrime:report_filed",
+  "fallback": "dialogue.mcacrime.report.filed.generic",
+  "variants": [
+    {
+      "priority": 0,
+      "lines": [
+        "dialogue.mcacrime.report.filed.generic"
+      ]
+    }
+  ]
+}

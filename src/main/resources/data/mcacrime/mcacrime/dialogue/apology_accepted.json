@@ -1,0 +1,21 @@
+{
+  "event": "mcacrime:apology_accepted",
+  "fallback": "dialogue.mcacrime.apology.accepted.generic",
+  "variants": [
+    {
+      "priority": 90,
+      "lines": [
+        "dialogue.mcacrime.apology.accepted.family.1"
+      ],
+      "when": {
+        "relationship": "family"
+      }
+    },
+    {
+      "priority": 0,
+      "lines": [
+        "dialogue.mcacrime.apology.accepted.generic"
+      ]
+    }
+  ]
+}

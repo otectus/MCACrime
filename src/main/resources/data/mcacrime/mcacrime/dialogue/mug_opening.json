@@ -1,0 +1,58 @@
+{
+  "event": "mcacrime:mug_opening",
+  "fallback": "dialogue.mcacrime.mug.opening.generic",
+  "variants": [
+    {
+      "priority": 100,
+      "lines": [
+        "dialogue.mcacrime.mug.opening.bold.1",
+        "dialogue.mcacrime.mug.opening.bold.2"
+      ],
+      "when": {
+        "personality": "bold"
+      }
+    },
+    {
+      "priority": 95,
+      "lines": [
+        "dialogue.mcacrime.mug.opening.family.1"
+      ],
+      "when": {
+        "relationship": "family"
+      }
+    },
+    {
+      "priority": 90,
+      "lines": [
+        "dialogue.mcacrime.mug.opening.guard.1"
+      ],
+      "when": {
+        "role": "guard"
+      }
+    },
+    {
+      "priority": 85,
+      "lines": [
+        "dialogue.mcacrime.mug.opening.repeat.1"
+      ],
+      "when": {
+        "repeat": "true"
+      }
+    },
+    {
+      "priority": 70,
+      "lines": [
+        "dialogue.mcacrime.mug.opening.cautious.1"
+      ],
+      "when": {
+        "personality": "cautious"
+      }
+    },
+    {
+      "priority": 0,
+      "lines": [
+        "dialogue.mcacrime.mug.opening.generic"
+      ]
+    }
+  ]
+}

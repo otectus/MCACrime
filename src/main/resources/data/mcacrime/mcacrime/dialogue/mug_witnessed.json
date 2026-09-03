@@ -1,0 +1,30 @@
+{
+  "event": "mcacrime:mug_witnessed",
+  "fallback": "dialogue.mcacrime.mug.witnessed.generic",
+  "variants": [
+    {
+      "priority": 90,
+      "lines": [
+        "dialogue.mcacrime.mug.witnessed.guard.1"
+      ],
+      "when": {
+        "role": "guard"
+      }
+    },
+    {
+      "priority": 80,
+      "lines": [
+        "dialogue.mcacrime.mug.witnessed.cautious.1"
+      ],
+      "when": {
+        "personality": "cautious"
+      }
+    },
+    {
+      "priority": 0,
+      "lines": [
+        "dialogue.mcacrime.mug.witnessed.generic"
+      ]
+    }
+  ]
+}

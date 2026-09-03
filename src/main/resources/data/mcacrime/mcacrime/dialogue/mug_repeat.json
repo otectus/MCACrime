@@ -1,0 +1,21 @@
+{
+  "event": "mcacrime:mug_repeat",
+  "fallback": "dialogue.mcacrime.mug.repeat.generic",
+  "variants": [
+    {
+      "priority": 90,
+      "lines": [
+        "dialogue.mcacrime.mug.repeat.many.1"
+      ],
+      "when": {
+        "encounters": "many"
+      }
+    },
+    {
+      "priority": 0,
+      "lines": [
+        "dialogue.mcacrime.mug.repeat.generic"
+      ]
+    }
+  ]
+}

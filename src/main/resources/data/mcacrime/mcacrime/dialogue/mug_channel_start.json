@@ -1,0 +1,30 @@
+{
+  "event": "mcacrime:mug_channel_start",
+  "fallback": "dialogue.mcacrime.mug.channel_start.generic",
+  "variants": [
+    {
+      "priority": 90,
+      "lines": [
+        "dialogue.mcacrime.mug.channel_start.bold.1"
+      ],
+      "when": {
+        "personality": "bold"
+      }
+    },
+    {
+      "priority": 70,
+      "lines": [
+        "dialogue.mcacrime.mug.channel_start.cautious.1"
+      ],
+      "when": {
+        "personality": "cautious"
+      }
+    },
+    {
+      "priority": 0,
+      "lines": [
+        "dialogue.mcacrime.mug.channel_start.generic"
+      ]
+    }
+  ]
+}

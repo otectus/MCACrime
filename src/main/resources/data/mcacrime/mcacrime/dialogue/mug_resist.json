@@ -1,0 +1,31 @@
+{
+  "event": "mcacrime:mug_resist",
+  "fallback": "dialogue.mcacrime.mug.resist.generic",
+  "variants": [
+    {
+      "priority": 95,
+      "lines": [
+        "dialogue.mcacrime.mug.resist.guard.1"
+      ],
+      "when": {
+        "role": "guard"
+      }
+    },
+    {
+      "priority": 90,
+      "lines": [
+        "dialogue.mcacrime.mug.resist.bold.1",
+        "dialogue.mcacrime.mug.resist.bold.2"
+      ],
+      "when": {
+        "personality": "bold"
+      }
+    },
+    {
+      "priority": 0,
+      "lines": [
+        "dialogue.mcacrime.mug.resist.generic"
+      ]
+    }
+  ]
+}

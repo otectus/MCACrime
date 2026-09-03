@@ -1,0 +1,30 @@
+{
+  "event": "mcacrime:mug_blocked",
+  "fallback": "dialogue.mcacrime.mug.blocked.generic",
+  "variants": [
+    {
+      "priority": 90,
+      "lines": [
+        "dialogue.mcacrime.mug.blocked.guard.1"
+      ],
+      "when": {
+        "role": "guard"
+      }
+    },
+    {
+      "priority": 80,
+      "lines": [
+        "dialogue.mcacrime.mug.blocked.family.1"
+      ],
+      "when": {
+        "relationship": "family"
+      }
+    },
+    {
+      "priority": 0,
+      "lines": [
+        "dialogue.mcacrime.mug.blocked.generic"
+      ]
+    }
+  ]
+}

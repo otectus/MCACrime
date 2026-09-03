@@ -1,0 +1,39 @@
+{
+  "event": "mcacrime:mug_success",
+  "fallback": "dialogue.mcacrime.mug.success.generic",
+  "variants": [
+    {
+      "priority": 95,
+      "lines": [
+        "dialogue.mcacrime.mug.success.family.1"
+      ],
+      "when": {
+        "relationship": "family"
+      }
+    },
+    {
+      "priority": 90,
+      "lines": [
+        "dialogue.mcacrime.mug.success.bold.1"
+      ],
+      "when": {
+        "personality": "bold"
+      }
+    },
+    {
+      "priority": 70,
+      "lines": [
+        "dialogue.mcacrime.mug.success.cautious.1"
+      ],
+      "when": {
+        "personality": "cautious"
+      }
+    },
+    {
+      "priority": 0,
+      "lines": [
+        "dialogue.mcacrime.mug.success.generic"
+      ]
+    }
+  ]
+}

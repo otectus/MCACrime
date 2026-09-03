@@ -1,0 +1,34 @@
+{
+  "display": {
+    "translate": "mcacrime.incident.guard_assaulted"
+  },
+  "default_delta": -12,
+  "visibility": "witnessed",
+  "severity": "major",
+  "tags": [
+    "crime",
+    "violence",
+    "official"
+  ],
+  "retention_ticks": 336000,
+  "decay": {
+    "type": "linear_to_zero",
+    "delay_ticks": 48000,
+    "amount_per_day": 2
+  },
+  "resolution": {
+    "apologized": 0.75,
+    "atoned": 0.25,
+    "forgiven": 0.0,
+    "disproven": 0.0
+  },
+  "gossip": {
+    "tone": "condemnation",
+    "phrase": "mcacrime.gossip.guard_assaulted",
+    "with": [
+      "player",
+      "subject"
+    ]
+  },
+  "max_override_abs": 25
+}

@@ -1,0 +1,30 @@
+{
+  "event": "mcacrime:mug_empty",
+  "fallback": "dialogue.mcacrime.mug.empty.generic",
+  "variants": [
+    {
+      "priority": 90,
+      "lines": [
+        "dialogue.mcacrime.mug.empty.broke.1"
+      ],
+      "when": {
+        "purse": "empty"
+      }
+    },
+    {
+      "priority": 80,
+      "lines": [
+        "dialogue.mcacrime.mug.empty.repeat.1"
+      ],
+      "when": {
+        "repeat": "true"
+      }
+    },
+    {
+      "priority": 0,
+      "lines": [
+        "dialogue.mcacrime.mug.empty.generic"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  "event": "mcacrime:ransom_refuse",
+  "fallback": "dialogue.mcacrime.ransom.refuse.generic",
+  "variants": [
+    {
+      "priority": 90,
+      "lines": [
+        "dialogue.mcacrime.ransom.refuse.guard.1"
+      ],
+      "when": {
+        "role": "guard"
+      }
+    },
+    {
+      "priority": 0,
+      "lines": [
+        "dialogue.mcacrime.ransom.refuse.generic"
+      ]
+    }
+  ]
+}

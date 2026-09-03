@@ -1,0 +1,21 @@
+{
+  "event": "mcacrime:captive_taken",
+  "fallback": "dialogue.mcacrime.captive.taken.generic",
+  "variants": [
+    {
+      "priority": 90,
+      "lines": [
+        "dialogue.mcacrime.captive.taken.bold.1"
+      ],
+      "when": {
+        "personality": "bold"
+      }
+    },
+    {
+      "priority": 0,
+      "lines": [
+        "dialogue.mcacrime.captive.taken.generic"
+      ]
+    }
+  ]
+}
