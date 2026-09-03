@@ -53,9 +53,14 @@ class NoMcaStaticLinkTest {
 
     @Test
     void noCompiledClassReferencesAnMcaType() throws IOException {
-        Path classesDir = Paths.get("build", "classes", "java", "main");
+        // Resolved from mcacrime.projectRoot, not relatively: the NeoForge unit-test runner works out
+        // of build/minecraft-junit, so a relative path lands nowhere near the class output.
+        String projectRoot = System.getProperty("mcacrime.projectRoot");
+        assertTrue(projectRoot != null && !projectRoot.isBlank(),
+                "mcacrime.projectRoot is not set; the test task in build.gradle supplies it");
+        Path classesDir = Paths.get(projectRoot, "build", "classes", "java", "main");
         assertTrue(Files.isDirectory(classesDir),
-                "build/classes/java/main does not exist; run `./gradlew compileJava` (or `test`, "
+                classesDir + " does not exist; run `./gradlew compileJava` (or `test`, "
                         + "which depends on it) before running this test directly.");
 
         List<String> violations = new ArrayList<>();

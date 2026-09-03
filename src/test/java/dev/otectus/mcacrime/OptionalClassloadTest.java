@@ -3,7 +3,6 @@ package dev.otectus.mcacrime;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
-import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -53,11 +52,18 @@ class OptionalClassloadTest {
             "import net.conczin.mca.",
             "import net.mca.");
 
+    /**
+     * The class output on disk, resolved from {@code mcacrime.projectRoot}. Deliberately not from a
+     * {@code getResource} URL: that path is percent-encoded, so any space in the checkout path (this
+     * one has one) turns into a {@code NoSuchFileException}. The unit-test runner also works out of
+     * build/minecraft-junit, so a relative path is no good either.
+     */
     private static Path compiledClasses() {
-        URL marker = OptionalClassloadTest.class.getResource("/dev/otectus/mcacrime/McaCrime.class");
-        assertNotNull(marker, "compiled classes not found on the test classpath");
-        Path classFile = Paths.get(marker.getPath().replaceFirst("^/([A-Za-z]:)", "$1"));
-        return classFile.getParent().getParent().getParent().getParent(); // .../classes/java/main
+        String projectRoot = System.getProperty("mcacrime.projectRoot");
+        assertNotNull(projectRoot, "mcacrime.projectRoot is not set; the test task in build.gradle supplies it");
+        Path classes = Paths.get(projectRoot, "build", "classes", "java", "main");
+        assertTrue(Files.isDirectory(classes), "compiled classes not found at " + classes);
+        return classes;
     }
 
     private static String normalise(Path root, Path file) {
@@ -143,7 +149,8 @@ class OptionalClassloadTest {
      */
     @Test
     void onlyTheCompatLayerNamesMcaTypes() throws IOException {
-        Path source = Paths.get("src", "main", "java", "dev", "otectus", "mcacrime");
+        Path source = Paths.get(System.getProperty("mcacrime.projectRoot", ""),
+                "src", "main", "java", "dev", "otectus", "mcacrime");
         assertTrue(Files.isDirectory(source), "source tree not found at " + source.toAbsolutePath());
 
         List<String> offenders = new ArrayList<>();

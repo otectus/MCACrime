@@ -95,13 +95,6 @@ configurations {
     // it ever returns.
     localRuntime
     runtimeClasspath.extendsFrom localRuntime
-
-    // Keep MCA off the unit-test runtime. The unit suite is precisely where "MCA is absent" has to be
-    // the real, exercised state. McaBindingProbeTest still reaches the real MCA jars, by opening each
-    // in a throwaway class loader rather than by having them on the classpath.
-    testRuntimeClasspath {
-        exclude group: 'net.conczin.mca', module: 'mca-neoforge'
-    }
 }
 
 mcaProbeVersions.eachWithIndex { version, i ->
@@ -124,6 +117,20 @@ dependencies {
     // maven.modrinth:sodium and maven.modrinth:ferrite-core, which do not resolve without the
     // Modrinth Maven. Nothing this mod needs is lost.
     localRuntime("net.conczin.mca:mca-neoforge:${mca_version}") {
+        transitive = false
+    }
+
+    // ...and on the unit-test runtime as well, which the Forge build could not do. ModDevGradle's
+    // unitTest runner boots the real NeoForge mod loader, and the loader enforces the `mca` dependency
+    // declared in neoforge.mods.toml: without the jar here it aborts before a single test runs. On
+    // NeoForge the MCA jar is mojmap, so it needs no remapping to sit on a test configuration -- the
+    // fg.deobf remap is what made this impossible on 1.20.1.
+    //
+    // testRuntimeOnly, so MCA is still absent from compileClasspath and testCompileClasspath: no
+    // source file can name an MCA type, and NoMcaStaticLinkTest stays a real gate. McaBindingProbeTest
+    // is likewise unaffected -- it loads each probe jar through a child-first loader for the MCA
+    // package roots, so a probed build's classes never come from this runtime jar.
+    testRuntimeOnly("net.conczin.mca:mca-neoforge:${mca_version}") {
         transitive = false
     }
 

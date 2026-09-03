@@ -30,12 +30,18 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * fails if anything required is missing, so a member MCA dropped shows up in CI instead of in a
  * player's crash report.
  *
- * <p>MCA is opened in its own {@link URLClassLoader} rather than placed on the test classpath, so the
- * manifest is verified against real MCA without a single MCA class being linked into the test JVM.
- * The loader's parent is the test classloader, which is what makes the check meaningful: Minecraft and
- * Architectury types named in MCA's method signatures resolve to the very same classes the manifest's
- * parameter hints use, so a hint like {@code Village#getResidents(ServerLevel)} genuinely
- * discriminates between MCA's two same-arity overloads.
+ * <p>Each MCA build is opened in its own {@link ProbeClassLoader} rather than being read off the test
+ * classpath, so the manifest is verified against real MCA without a single MCA class being linked into
+ * the test JVM. The loader's parent is the test classloader, which is what makes the check meaningful:
+ * Minecraft and Architectury types named in MCA's method signatures resolve to the very same classes
+ * the manifest's parameter hints use, so a hint like {@code Village#getResidents(ServerLevel)}
+ * genuinely discriminates between MCA's two same-arity overloads.
+ *
+ * <p>MCA packages themselves are loaded <em>child-first</em>, and that is not an optimisation. The
+ * unit-test runtime carries the dev MCA build (the NeoForge mod loader refuses to boot without it),
+ * so a parent-first loader would answer every {@code net.conczin.mca.*} request from that one jar and
+ * every probed version would silently report the dev build's shape — exactly the single-version blind
+ * spot this fleet exists to remove.
  *
  * <h2>Required vs optional</h2>
  *
@@ -69,8 +75,7 @@ class McaBindingProbeTest {
         // sharing a loader would silently exercise whichever root won, and the other would go
         // unchecked. That is precisely how the missing forge.net.conczin.mca root shipped.
         for (Path jar : jars) {
-            try (URLClassLoader loader = new URLClassLoader(new URL[] {jar.toUri().toURL()},
-                    McaBindingProbeTest.class.getClassLoader())) {
+            try (ProbeClassLoader loader = new ProbeClassLoader(jar)) {
                 McaBinding.Resolution resolution = McaBinding.resolveAgainst(loader);
 
                 assertNotNull(resolution.root(),
@@ -107,6 +112,58 @@ class McaBindingProbeTest {
             // callers with no null check of their own.
             assertNotNull(resolution.handle(McaBinding.GET_VILLAGER_BRAIN));
             assertEquals(null, resolution.cls(McaBinding.VILLAGER_CLASS));
+        }
+    }
+
+    /**
+     * A {@link URLClassLoader} over one MCA jar that is child-first for MCA packages and parent-first
+     * for everything else.
+     *
+     * <p>The split is the whole point. MCA is on the test runtime — the NeoForge unit-test loader
+     * enforces the {@code mca} dependency in {@code neoforge.mods.toml} — so plain parent-first
+     * delegation would serve every probed version out of that single jar. Minecraft, Architectury and
+     * JDK types must still come from the parent, though, or MCA's method descriptors would name
+     * different {@code Class} objects than the manifest's parameter hints and every overload
+     * discrimination would miss.
+     */
+    private static final class ProbeClassLoader extends URLClassLoader {
+
+        /** Mirrors {@code McaBinding.CANDIDATE_ROOTS}, which is private; keep the two in step. */
+        private static final String[] MCA_ROOTS = {
+                "forge.net.conczin.mca.", "forge.net.mca.", "net.conczin.mca.", "net.mca.",
+        };
+
+        ProbeClassLoader(Path jar) throws Exception {
+            super(new URL[] {jar.toUri().toURL()}, McaBindingProbeTest.class.getClassLoader());
+        }
+
+        @Override
+        protected Class<?> loadClass(String name, boolean resolve) throws ClassNotFoundException {
+            synchronized (getClassLoadingLock(name)) {
+                if (!isMcaClass(name)) {
+                    return super.loadClass(name, resolve);
+                }
+                Class<?> loaded = findLoadedClass(name);
+                if (loaded == null) {
+                    // This jar only, with no parent fallback: a root this jar does not carry must read
+                    // as absent. Delegating upwards would hand back the dev MCA build on the test
+                    // runtime and probeRoot() would report a root the probed version does not have.
+                    loaded = findClass(name);
+                }
+                if (resolve) {
+                    resolveClass(loaded);
+                }
+                return loaded;
+            }
+        }
+
+        private static boolean isMcaClass(String name) {
+            for (String root : MCA_ROOTS) {
+                if (name.startsWith(root)) {
+                    return true;
+                }
+            }
+            return false;
         }
     }
 
