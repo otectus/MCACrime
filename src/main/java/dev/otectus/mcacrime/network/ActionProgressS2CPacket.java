@@ -1,13 +1,13 @@
 package dev.otectus.mcacrime.network;
 
-import dev.otectus.mcacrime.client.CrimeClientHandlers;
-import net.minecraft.network.FriendlyByteBuf;
-import net.minecraftforge.api.distmarker.Dist;
-import net.minecraftforge.fml.DistExecutor;
-import net.minecraftforge.network.NetworkEvent;
+import dev.otectus.mcacrime.McaCrime;
+import net.minecraft.core.UUIDUtil;
+import net.minecraft.network.RegistryFriendlyByteBuf;
+import net.minecraft.network.codec.ByteBufCodecs;
+import net.minecraft.network.codec.StreamCodec;
+import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 
 import java.util.UUID;
-import java.util.function.Supplier;
 
 /**
  * The life of one channelled action, as the client needs to draw it.
@@ -21,7 +21,13 @@ import java.util.function.Supplier;
  * already happened on the server.
  */
 public record ActionProgressS2CPacket(UUID sessionId, String actionLabelKey, int progress, int required,
-                                      Phase phase, String outcomeKey) {
+                                      Phase phase, String outcomeKey) implements CustomPacketPayload {
+
+    /** A label is a translation key, so this is generous already. */
+    public static final int MAX_LABEL_LENGTH = 128;
+
+    /** An outcome key may carry a reason suffix, so it gets twice the room a label does. */
+    public static final int MAX_OUTCOME_LENGTH = 256;
 
     /** Where in its life the action is. */
     public enum Phase {
@@ -35,7 +41,17 @@ public record ActionProgressS2CPacket(UUID sessionId, String actionLabelKey, int
         CANCELLED
     }
 
-    private static final Phase[] PHASES = Phase.values();
+    public static final Type<ActionProgressS2CPacket> TYPE = new Type<>(McaCrime.id("action_progress"));
+
+    public static final StreamCodec<RegistryFriendlyByteBuf, ActionProgressS2CPacket> STREAM_CODEC =
+            StreamCodec.composite(
+                    UUIDUtil.STREAM_CODEC, ActionProgressS2CPacket::sessionId,
+                    ByteBufCodecs.stringUtf8(MAX_LABEL_LENGTH), ActionProgressS2CPacket::actionLabelKey,
+                    ByteBufCodecs.VAR_INT, ActionProgressS2CPacket::progress,
+                    ByteBufCodecs.VAR_INT, ActionProgressS2CPacket::required,
+                    CrimeStreamCodecs.enumCodec(Phase.class, "action phase"), ActionProgressS2CPacket::phase,
+                    ByteBufCodecs.stringUtf8(MAX_OUTCOME_LENGTH), ActionProgressS2CPacket::outcomeKey,
+                    ActionProgressS2CPacket::new);
 
     public ActionProgressS2CPacket {
         actionLabelKey = actionLabelKey == null ? "" : actionLabelKey;
@@ -55,32 +71,8 @@ public record ActionProgressS2CPacket(UUID sessionId, String actionLabelKey, int
         return new ActionProgressS2CPacket(sessionId, labelKey, 1, 1, phase, outcomeKey);
     }
 
-    public static void encode(ActionProgressS2CPacket msg, FriendlyByteBuf buf) {
-        buf.writeUUID(msg.sessionId);
-        buf.writeUtf(msg.actionLabelKey, 128);
-        buf.writeVarInt(msg.progress);
-        buf.writeVarInt(msg.required);
-        buf.writeEnum(msg.phase);
-        buf.writeUtf(msg.outcomeKey, 256);
-    }
-
-    public static ActionProgressS2CPacket decode(FriendlyByteBuf buf) {
-        UUID sessionId = buf.readUUID();
-        String label = buf.readUtf(128);
-        int progress = buf.readVarInt();
-        int required = buf.readVarInt();
-        // Read defensively: a decoder throw drops the connection, and a bad ordinal here is worth
-        // less than the session it would cost.
-        int ordinal = buf.readVarInt();
-        Phase phase = ordinal >= 0 && ordinal < PHASES.length ? PHASES[ordinal] : Phase.PROGRESS;
-        String outcome = buf.readUtf(256);
-        return new ActionProgressS2CPacket(sessionId, label, progress, required, phase, outcome);
-    }
-
-    public static void handle(ActionProgressS2CPacket msg, Supplier<NetworkEvent.Context> ctx) {
-        NetworkEvent.Context context = ctx.get();
-        context.enqueueWork(() -> DistExecutor.unsafeRunWhenOn(Dist.CLIENT,
-                () -> () -> CrimeClientHandlers.onActionProgress(msg)));
-        context.setPacketHandled(true);
+    @Override
+    public Type<? extends CustomPacketPayload> type() {
+        return TYPE;
     }
 }

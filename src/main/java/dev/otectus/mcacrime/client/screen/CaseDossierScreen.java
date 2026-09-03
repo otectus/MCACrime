@@ -62,7 +62,7 @@ public final class CaseDossierScreen extends Screen {
     protected void init() {
         // Ask on open rather than on a timer. A record is a record: it does not need to be live, and
         // polling it would turn an occasional screen into steady traffic on a busy server.
-        CrimeNetwork.CHANNEL.sendToServer(new RequestCaseLedgerC2SPacket());
+        CrimeNetwork.sendToServer(new RequestCaseLedgerC2SPacket());
 
         panelHeight = Math.min(HEADER_H + VISIBLE_ROWS * ROW_H + FOOTER_H, Math.max(140, height - 40));
         panelLeft = (width - PANEL_W) / 2;

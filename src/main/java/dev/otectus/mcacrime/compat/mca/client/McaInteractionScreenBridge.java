@@ -42,7 +42,7 @@ public final class McaInteractionScreenBridge {
         Entity villager = findVillager(screen);
         if (villager == null) return;
         Button crime = Button.builder(Component.translatable("gui.mcacrime.actions"), button ->
-                        CrimeNetwork.CHANNEL.sendToServer(new RequestActionMenuC2SPacket(villager.getUUID())))
+                        CrimeNetwork.sendToServer(new RequestActionMenuC2SPacket(villager.getUUID())))
                 .bounds(Math.max(4, screen.width - 106), 6, 100, 20)
                 .build();
         event.addListener(crime);

@@ -22,8 +22,7 @@ import dev.otectus.mcacrime.network.ActionMenuEntry;
 import dev.otectus.mcacrime.network.CrimeNetwork;
 import dev.otectus.mcacrime.network.StartActionC2SPacket;
 import net.minecraft.network.chat.Component;
-// TODO Phase 5: net.neoforged.neoforge.network.PacketDistributor
-import net.minecraftforge.network.PacketDistributor;
+import net.neoforged.neoforge.network.PacketDistributor;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
@@ -186,7 +185,7 @@ public final class CrimeActionService {
         ActionMenuSession menu = new ActionMenuSession(UUID.randomUUID(), actor.getUUID(), targetId,
                 level.dimension().location(), 1, now + MENU_TTL);
         MENUS.put(actor.getUUID(), menu);
-        CrimeNetwork.CHANNEL.send(PacketDistributor.PLAYER.with(() -> actor), new ActionMenuS2CPacket(
+        PacketDistributor.sendToPlayer(actor, new ActionMenuS2CPacket(
                 menu.id(), menu.revision(), targetId, kind, describe(target), actions));
         return true;
     }

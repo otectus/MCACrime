@@ -1,13 +1,13 @@
 package dev.otectus.mcacrime.network;
 
-import dev.otectus.mcacrime.client.CrimeClientHandlers;
-import net.minecraft.network.FriendlyByteBuf;
-import net.minecraftforge.api.distmarker.Dist;
-import net.minecraftforge.fml.DistExecutor;
-import net.minecraftforge.network.NetworkEvent;
+import dev.otectus.mcacrime.McaCrime;
+import net.minecraft.core.UUIDUtil;
+import net.minecraft.network.RegistryFriendlyByteBuf;
+import net.minecraft.network.codec.ByteBufCodecs;
+import net.minecraft.network.codec.StreamCodec;
+import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 
 import java.util.UUID;
-import java.util.function.Supplier;
 
 /**
  * Server to client: one player is, or is no longer, restrained, and who is holding them.
@@ -24,22 +24,20 @@ import java.util.function.Supplier;
  * <p>Display only. Nothing the client does with this can change whether the player is actually
  * restrained; that lives in {@code ArrestPhase} on the server.
  */
-public record RestraintSyncS2CPacket(UUID subject, boolean restrained, int guardEntityId) {
+public record RestraintSyncS2CPacket(UUID subject, boolean restrained,
+                                     int guardEntityId) implements CustomPacketPayload {
 
-    public static void encode(RestraintSyncS2CPacket msg, FriendlyByteBuf buf) {
-        buf.writeUUID(msg.subject);
-        buf.writeBoolean(msg.restrained);
-        buf.writeVarInt(msg.guardEntityId);
-    }
+    public static final Type<RestraintSyncS2CPacket> TYPE = new Type<>(McaCrime.id("restraint_sync"));
 
-    public static RestraintSyncS2CPacket decode(FriendlyByteBuf buf) {
-        return new RestraintSyncS2CPacket(buf.readUUID(), buf.readBoolean(), buf.readVarInt());
-    }
+    public static final StreamCodec<RegistryFriendlyByteBuf, RestraintSyncS2CPacket> STREAM_CODEC =
+            StreamCodec.composite(
+                    UUIDUtil.STREAM_CODEC, RestraintSyncS2CPacket::subject,
+                    ByteBufCodecs.BOOL, RestraintSyncS2CPacket::restrained,
+                    ByteBufCodecs.VAR_INT, RestraintSyncS2CPacket::guardEntityId,
+                    RestraintSyncS2CPacket::new);
 
-    public static void handle(RestraintSyncS2CPacket msg, Supplier<NetworkEvent.Context> ctx) {
-        NetworkEvent.Context context = ctx.get();
-        context.enqueueWork(() ->
-                DistExecutor.unsafeRunWhenOn(Dist.CLIENT, () -> () -> CrimeClientHandlers.onRestraint(msg)));
-        context.setPacketHandled(true);
+    @Override
+    public Type<? extends CustomPacketPayload> type() {
+        return TYPE;
     }
 }

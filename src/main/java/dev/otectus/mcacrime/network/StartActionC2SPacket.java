@@ -1,28 +1,32 @@
 package dev.otectus.mcacrime.network;
 
-import dev.otectus.mcacrime.action.CrimeActionService;
-import net.minecraft.network.FriendlyByteBuf;
+import dev.otectus.mcacrime.McaCrime;
+import net.minecraft.core.UUIDUtil;
+import net.minecraft.network.RegistryFriendlyByteBuf;
+import net.minecraft.network.codec.ByteBufCodecs;
+import net.minecraft.network.codec.StreamCodec;
+import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.resources.ResourceLocation;
-import net.minecraft.server.level.ServerPlayer;
-import net.minecraftforge.network.NetworkEvent;
 
 import java.util.UUID;
-import java.util.function.Supplier;
 
+/** "Run this row of the menu you just sent me." Every field is rechecked server-side before anything runs. */
 public record StartActionC2SPacket(UUID nonce, UUID menuId, int menuRevision,
-                                   ResourceLocation actionId, UUID targetId) {
-    public static void encode(StartActionC2SPacket msg, FriendlyByteBuf buf) {
-        buf.writeUUID(msg.nonce); buf.writeUUID(msg.menuId); buf.writeVarInt(msg.menuRevision);
-        buf.writeResourceLocation(msg.actionId); buf.writeUUID(msg.targetId);
-    }
-    public static StartActionC2SPacket decode(FriendlyByteBuf buf) {
-        return new StartActionC2SPacket(buf.readUUID(), buf.readUUID(), buf.readVarInt(),
-                buf.readResourceLocation(), buf.readUUID());
-    }
-    public static void handle(StartActionC2SPacket msg, Supplier<NetworkEvent.Context> ctx) {
-        NetworkEvent.Context context = ctx.get();
-        ServerPlayer sender = context.getSender();
-        if (sender != null) context.enqueueWork(() -> CrimeActionService.startFromMenu(sender, msg));
-        context.setPacketHandled(true);
+                                   ResourceLocation actionId, UUID targetId) implements CustomPacketPayload {
+
+    public static final Type<StartActionC2SPacket> TYPE = new Type<>(McaCrime.id("start_action"));
+
+    public static final StreamCodec<RegistryFriendlyByteBuf, StartActionC2SPacket> STREAM_CODEC =
+            StreamCodec.composite(
+                    UUIDUtil.STREAM_CODEC, StartActionC2SPacket::nonce,
+                    UUIDUtil.STREAM_CODEC, StartActionC2SPacket::menuId,
+                    ByteBufCodecs.VAR_INT, StartActionC2SPacket::menuRevision,
+                    ResourceLocation.STREAM_CODEC, StartActionC2SPacket::actionId,
+                    UUIDUtil.STREAM_CODEC, StartActionC2SPacket::targetId,
+                    StartActionC2SPacket::new);
+
+    @Override
+    public Type<? extends CustomPacketPayload> type() {
+        return TYPE;
     }
 }

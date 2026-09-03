@@ -116,7 +116,7 @@ public final class CrimeKeybinds {
             // from what it was last told and the server still validates every row either way.
             boolean captive = ClientCaptiveData.captive()
                     && McaCrimeConfig.CLIENT.captiveScreenToggle.get();
-            CrimeNetwork.CHANNEL.sendToServer(new RequestSelfMenuC2SPacket(
+            CrimeNetwork.sendToServer(new RequestSelfMenuC2SPacket(
                     captive ? ActionMenuKind.CAPTIVE : ActionMenuKind.SELF));
         } else if (challenge && ClientChallengeData.active()) {
             minecraft.setScreen(new GuardChallengeScreen());
@@ -125,7 +125,7 @@ public final class CrimeKeybinds {
             // checks them for this request exactly as it does for the button on MCA's own screen.
             Entity looked = minecraft.crosshairPickEntity;
             if (McaCompat.isMcaVillager(looked)) {
-                CrimeNetwork.CHANNEL.sendToServer(new RequestActionMenuC2SPacket(looked.getUUID()));
+                CrimeNetwork.sendToServer(new RequestActionMenuC2SPacket(looked.getUUID()));
             }
         }
     }

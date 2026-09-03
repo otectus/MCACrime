@@ -134,7 +134,7 @@ class CrimeDataMigrationTest {
 
         CompoundTag record = migrated.getList("ledger", Tag.TAG_COMPOUND).getCompound(0);
         assertEquals(Optional.of(new CrimeCommunityKey(
-                        new net.minecraft.resources.ResourceLocation("minecraft", "overworld"), 3)),
+                        net.minecraft.resources.ResourceLocation.fromNamespaceAndPath("minecraft", "overworld"), 3)),
                 CrimeCommunityKey.load(record.getCompound("community")));
         assertEquals("assumed_overworld",
                 record.getCompound("context").getString(CrimeContext.LEGACY_MIGRATION));
@@ -165,7 +165,7 @@ class CrimeDataMigrationTest {
     void aRecordThatAlreadyHasACommunityIsLeftAlone() {
         CompoundTag record = legacyRecord(UUID.randomUUID(), 3, true);
         CrimeCommunityKey nether = new CrimeCommunityKey(
-                new net.minecraft.resources.ResourceLocation("minecraft", "the_nether"), 3);
+                net.minecraft.resources.ResourceLocation.fromNamespaceAndPath("minecraft", "the_nether"), 3);
         record.put("community", nether.save());
 
         CompoundTag migrated = CrimeDataMigrations.v0to1(legacyStore(record));
@@ -248,7 +248,7 @@ class CrimeDataMigrationTest {
         assertEquals(1, data.ledgerSize());
         assertFalse(data.isReadOnlyFutureData());
         assertEquals(-6, data.reputation(new CrimeCommunityKey(
-                new net.minecraft.resources.ResourceLocation("minecraft", "overworld"), 3), OFFENDER));
+                net.minecraft.resources.ResourceLocation.fromNamespaceAndPath("minecraft", "overworld"), 3), OFFENDER));
 
         CompoundTag resaved = data.save(new CompoundTag(), RegistryAccess.EMPTY);
         assertEquals(CrimeDataMigrations.CURRENT_SCHEMA, CrimeDataMigrations.schemaOf(resaved));

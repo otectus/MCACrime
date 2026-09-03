@@ -1,36 +1,30 @@
 package dev.otectus.mcacrime.network;
 
-import dev.otectus.mcacrime.client.CrimeClientHandlers;
+import dev.otectus.mcacrime.McaCrime;
 import dev.otectus.mcacrime.crime.Band;
-import net.minecraft.network.FriendlyByteBuf;
-import net.minecraftforge.api.distmarker.Dist;
-import net.minecraftforge.fml.DistExecutor;
-import net.minecraftforge.network.NetworkEvent;
-
-import java.util.function.Supplier;
+import net.minecraft.network.RegistryFriendlyByteBuf;
+import net.minecraft.network.codec.ByteBufCodecs;
+import net.minecraft.network.codec.StreamCodec;
+import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 
 /** Server→client: the receiving player's own karma/heat/band/wanted/jail/legal-target, for the reputation player card. */
 public record SelfStatusS2CPacket(long karma, long heat, Band band, boolean wanted,
-                                  long jailRemainingTicks, boolean legalTarget) {
+                                  long jailRemainingTicks, boolean legalTarget) implements CustomPacketPayload {
 
-    public static void encode(SelfStatusS2CPacket msg, FriendlyByteBuf buf) {
-        buf.writeLong(msg.karma);
-        buf.writeLong(msg.heat);
-        buf.writeEnum(msg.band);
-        buf.writeBoolean(msg.wanted);
-        buf.writeLong(msg.jailRemainingTicks);
-        buf.writeBoolean(msg.legalTarget);
-    }
+    public static final Type<SelfStatusS2CPacket> TYPE = new Type<>(McaCrime.id("self_status"));
 
-    public static SelfStatusS2CPacket decode(FriendlyByteBuf buf) {
-        return new SelfStatusS2CPacket(buf.readLong(), buf.readLong(), buf.readEnum(Band.class), buf.readBoolean(),
-                buf.readLong(), buf.readBoolean());
-    }
+    public static final StreamCodec<RegistryFriendlyByteBuf, SelfStatusS2CPacket> STREAM_CODEC =
+            StreamCodec.composite(
+                    CrimeStreamCodecs.LONG, SelfStatusS2CPacket::karma,
+                    CrimeStreamCodecs.LONG, SelfStatusS2CPacket::heat,
+                    CrimeStreamCodecs.enumCodec(Band.class, "band"), SelfStatusS2CPacket::band,
+                    ByteBufCodecs.BOOL, SelfStatusS2CPacket::wanted,
+                    CrimeStreamCodecs.LONG, SelfStatusS2CPacket::jailRemainingTicks,
+                    ByteBufCodecs.BOOL, SelfStatusS2CPacket::legalTarget,
+                    SelfStatusS2CPacket::new);
 
-    public static void handle(SelfStatusS2CPacket msg, Supplier<NetworkEvent.Context> ctx) {
-        NetworkEvent.Context context = ctx.get();
-        context.enqueueWork(() ->
-                DistExecutor.unsafeRunWhenOn(Dist.CLIENT, () -> () -> CrimeClientHandlers.onSelfStatus(msg)));
-        context.setPacketHandled(true);
+    @Override
+    public Type<? extends CustomPacketPayload> type() {
+        return TYPE;
     }
 }

@@ -1,12 +1,10 @@
 package dev.otectus.mcacrime.network;
 
+import dev.otectus.mcacrime.McaCrime;
 import dev.otectus.mcacrime.action.ActionMenuKind;
-import dev.otectus.mcacrime.action.CrimeActionService;
-import net.minecraft.network.FriendlyByteBuf;
-import net.minecraft.server.level.ServerPlayer;
-import net.minecraftforge.network.NetworkEvent;
-
-import java.util.function.Supplier;
+import net.minecraft.network.RegistryFriendlyByteBuf;
+import net.minecraft.network.codec.StreamCodec;
+import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 
 /**
  * "Open the panel about my own situation" — the captive panel, or the standing panel.
@@ -20,30 +18,22 @@ import java.util.function.Supplier;
  * declares and evaluates every row from live state, so asking for the captive panel while free simply
  * produces a panel with nothing available on it.
  */
-public record RequestSelfMenuC2SPacket(ActionMenuKind kind) {
+public record RequestSelfMenuC2SPacket(ActionMenuKind kind) implements CustomPacketPayload {
 
-    private static final ActionMenuKind[] KINDS = ActionMenuKind.values();
+    public static final Type<RequestSelfMenuC2SPacket> TYPE = new Type<>(McaCrime.id("request_self_menu"));
+
+    public static final StreamCodec<RegistryFriendlyByteBuf, RequestSelfMenuC2SPacket> STREAM_CODEC =
+            StreamCodec.composite(
+                    CrimeStreamCodecs.enumCodec(ActionMenuKind.class, "action menu kind"),
+                    RequestSelfMenuC2SPacket::kind,
+                    RequestSelfMenuC2SPacket::new);
 
     public RequestSelfMenuC2SPacket {
         kind = kind == null ? ActionMenuKind.SELF : kind;
     }
 
-    public static void encode(RequestSelfMenuC2SPacket msg, FriendlyByteBuf buf) {
-        buf.writeVarInt(msg.kind.ordinal());
-    }
-
-    public static RequestSelfMenuC2SPacket decode(FriendlyByteBuf buf) {
-        int ordinal = buf.readVarInt();
-        return new RequestSelfMenuC2SPacket(
-                ordinal >= 0 && ordinal < KINDS.length ? KINDS[ordinal] : ActionMenuKind.SELF);
-    }
-
-    public static void handle(RequestSelfMenuC2SPacket msg, Supplier<NetworkEvent.Context> ctx) {
-        NetworkEvent.Context context = ctx.get();
-        ServerPlayer sender = context.getSender();
-        if (sender != null) {
-            context.enqueueWork(() -> CrimeActionService.openSelfMenu(sender, msg.kind()));
-        }
-        context.setPacketHandled(true);
+    @Override
+    public Type<? extends CustomPacketPayload> type() {
+        return TYPE;
     }
 }

@@ -86,7 +86,7 @@ public final class GuardChallengeScreen extends Screen {
      * point of asking is to decide afterwards.
      */
     private void respond(UUID encounter, ChallengeResponse response) {
-        CrimeNetwork.CHANNEL.sendToServer(new GuardChallengeResponseC2SPacket(encounter, response));
+        CrimeNetwork.sendToServer(new GuardChallengeResponseC2SPacket(encounter, response));
         if (response.closesEncounter() && minecraft != null) {
             minecraft.setScreen(null);
         }

@@ -1,15 +1,14 @@
 package dev.otectus.mcacrime.network;
 
-import dev.otectus.mcacrime.client.CrimeClientHandlers;
+import dev.otectus.mcacrime.McaCrime;
 import dev.otectus.mcacrime.enforcement.GuardChallenge;
-import net.minecraft.network.FriendlyByteBuf;
+import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.network.chat.Component;
-import net.minecraftforge.api.distmarker.Dist;
-import net.minecraftforge.fml.DistExecutor;
-import net.minecraftforge.network.NetworkEvent;
+import net.minecraft.network.chat.ComponentSerialization;
+import net.minecraft.network.codec.StreamCodec;
+import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 
 import java.util.UUID;
-import java.util.function.Supplier;
 
 /**
  * A guard challenge opening or closing (spec §13.2).
@@ -24,7 +23,13 @@ import java.util.function.Supplier;
  */
 public record GuardChallengeS2CPacket(boolean open, UUID encounterId, Component guardName,
                                       Component jurisdiction, int chargeCount, long assessedFine,
-                                      boolean canPay, long remainingTicks) {
+                                      boolean canPay, long remainingTicks) implements CustomPacketPayload {
+
+    public static final Type<GuardChallengeS2CPacket> TYPE = new Type<>(McaCrime.id("guard_challenge"));
+
+    /** Eight fields, two past what {@code StreamCodec.composite} carries, so written by hand. */
+    public static final StreamCodec<RegistryFriendlyByteBuf, GuardChallengeS2CPacket> STREAM_CODEC =
+            StreamCodec.of(GuardChallengeS2CPacket::write, GuardChallengeS2CPacket::read);
 
     public GuardChallengeS2CPacket {
         encounterId = encounterId == null ? new UUID(0L, 0L) : encounterId;
@@ -62,27 +67,26 @@ public record GuardChallengeS2CPacket(boolean open, UUID encounterId, Component 
                 0, 0L, false, 0L);
     }
 
-    public static void encode(GuardChallengeS2CPacket msg, FriendlyByteBuf buf) {
-        buf.writeBoolean(msg.open);
-        buf.writeUUID(msg.encounterId);
-        buf.writeComponent(msg.guardName);
-        buf.writeComponent(msg.jurisdiction);
-        buf.writeVarInt(msg.chargeCount);
-        buf.writeVarLong(msg.assessedFine);
-        buf.writeBoolean(msg.canPay);
-        buf.writeVarLong(msg.remainingTicks);
+    private static void write(RegistryFriendlyByteBuf buf, GuardChallengeS2CPacket msg) {
+        buf.writeBoolean(msg.open());
+        buf.writeUUID(msg.encounterId());
+        ComponentSerialization.STREAM_CODEC.encode(buf, msg.guardName());
+        ComponentSerialization.STREAM_CODEC.encode(buf, msg.jurisdiction());
+        buf.writeVarInt(msg.chargeCount());
+        buf.writeVarLong(msg.assessedFine());
+        buf.writeBoolean(msg.canPay());
+        buf.writeVarLong(msg.remainingTicks());
     }
 
-    public static GuardChallengeS2CPacket decode(FriendlyByteBuf buf) {
-        return new GuardChallengeS2CPacket(buf.readBoolean(), buf.readUUID(), buf.readComponent(),
-                buf.readComponent(), buf.readVarInt(), buf.readVarLong(), buf.readBoolean(),
-                buf.readVarLong());
+    private static GuardChallengeS2CPacket read(RegistryFriendlyByteBuf buf) {
+        return new GuardChallengeS2CPacket(buf.readBoolean(), buf.readUUID(),
+                ComponentSerialization.STREAM_CODEC.decode(buf),
+                ComponentSerialization.STREAM_CODEC.decode(buf),
+                buf.readVarInt(), buf.readVarLong(), buf.readBoolean(), buf.readVarLong());
     }
 
-    public static void handle(GuardChallengeS2CPacket msg, Supplier<NetworkEvent.Context> ctx) {
-        NetworkEvent.Context context = ctx.get();
-        context.enqueueWork(() -> DistExecutor.unsafeRunWhenOn(Dist.CLIENT,
-                () -> () -> CrimeClientHandlers.onGuardChallenge(msg)));
-        context.setPacketHandled(true);
+    @Override
+    public Type<? extends CustomPacketPayload> type() {
+        return TYPE;
     }
 }

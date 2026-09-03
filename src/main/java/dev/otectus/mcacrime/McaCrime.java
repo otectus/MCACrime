@@ -7,6 +7,7 @@ import dev.otectus.mcacrime.compat.mca.McaBinding;
 import dev.otectus.mcacrime.config.ConfigValidator;
 import dev.otectus.mcacrime.crime.type.CrimeTypeRegistry;
 import dev.otectus.mcacrime.item.CrimeItems;
+import dev.otectus.mcacrime.network.CrimeNetwork;
 import dev.otectus.mcacrime.state.CrimeAttachments;
 import net.minecraft.resources.ResourceLocation;
 import net.neoforged.bus.api.IEventBus;
@@ -49,7 +50,7 @@ public final class McaCrime {
         CrimeItems.register(modBus); // restraints + creative tab (spec §8.3)
         // Payload registration is a mod-bus listener, never a common-setup call: the registrar is
         // only open for the duration of the event.
-        // TODO Phase 5: modBus.addListener(CrimeNetwork::register);
+        modBus.addListener(CrimeNetwork::register);
 
         LOGGER.info("MCA: Crime initialising (mod id '{}')", MOD_ID);
     }

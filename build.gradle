@@ -159,6 +159,28 @@ dependencies {
                 "optional Reputation adapter. Build ../MCAReputation_1.21.1 (./gradlew classes) to include it.")
     }
 
+    // The client, mixin and MCA-client-bridge packages are still on the Forge APIs and are ported in
+    // Phase 7. Excluding them keeps compileJava a real gate on everything that is already ported.
+    sourceSets.main.java {
+        exclude 'dev/otectus/mcacrime/mixin/**', 'dev/otectus/mcacrime/compat/mca/client/**'
+        // Everything under client/ except HudAnchor, which is a bare enum the common config declares a
+        // config value of; excluding it would break McaCrimeConfig, which is already ported.
+        exclude {
+            it.file.isFile() && it.path.startsWith('dev/otectus/mcacrime/client/') &&
+                    it.path != 'dev/otectus/mcacrime/client/hud/HudAnchor.java'
+        }
+    } // TEMP Phase 5 -- remove in Phase 7
+
+    // Five tests assert on client geometry, colours and HUD anchoring, so they cannot compile while
+    // the client package is excluded above.
+    sourceSets.test.java {
+        exclude 'dev/otectus/mcacrime/ChallengePanelLayoutTest.java',
+                'dev/otectus/mcacrime/CrimeRowListGeometryTest.java',
+                'dev/otectus/mcacrime/HudAnchorTest.java',
+                'dev/otectus/mcacrime/LangCoverageTest.java',
+                'dev/otectus/mcacrime/PanelColoursTest.java'
+    } // TEMP Phase 5 -- remove in Phase 7
+
     // Unit tests for the non-MCA karma/heat engine (spec section 18).
     //
     // NOTE: no mixin annotation processor and no refmap, deliberately. NeoForge 1.21.1 production

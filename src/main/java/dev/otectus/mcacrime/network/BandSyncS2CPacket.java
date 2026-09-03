@@ -1,31 +1,27 @@
 package dev.otectus.mcacrime.network;
 
-import dev.otectus.mcacrime.client.CrimeClientHandlers;
+import dev.otectus.mcacrime.McaCrime;
 import dev.otectus.mcacrime.crime.Band;
-import net.minecraft.network.FriendlyByteBuf;
-import net.minecraftforge.api.distmarker.Dist;
-import net.minecraftforge.fml.DistExecutor;
-import net.minecraftforge.network.NetworkEvent;
+import net.minecraft.core.UUIDUtil;
+import net.minecraft.network.RegistryFriendlyByteBuf;
+import net.minecraft.network.codec.StreamCodec;
+import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 
 import java.util.UUID;
-import java.util.function.Supplier;
 
 /** Server→client: a single player's band changed (for non-destructive nameplate coloring). */
-public record BandSyncS2CPacket(UUID player, Band band) {
+public record BandSyncS2CPacket(UUID player, Band band) implements CustomPacketPayload {
 
-    public static void encode(BandSyncS2CPacket msg, FriendlyByteBuf buf) {
-        buf.writeUUID(msg.player);
-        buf.writeEnum(msg.band);
-    }
+    public static final Type<BandSyncS2CPacket> TYPE = new Type<>(McaCrime.id("band_sync"));
 
-    public static BandSyncS2CPacket decode(FriendlyByteBuf buf) {
-        return new BandSyncS2CPacket(buf.readUUID(), buf.readEnum(Band.class));
-    }
+    public static final StreamCodec<RegistryFriendlyByteBuf, BandSyncS2CPacket> STREAM_CODEC =
+            StreamCodec.composite(
+                    UUIDUtil.STREAM_CODEC, BandSyncS2CPacket::player,
+                    CrimeStreamCodecs.enumCodec(Band.class, "band"), BandSyncS2CPacket::band,
+                    BandSyncS2CPacket::new);
 
-    public static void handle(BandSyncS2CPacket msg, Supplier<NetworkEvent.Context> ctx) {
-        NetworkEvent.Context context = ctx.get();
-        context.enqueueWork(() ->
-                DistExecutor.unsafeRunWhenOn(Dist.CLIENT, () -> () -> CrimeClientHandlers.onBandSync(msg)));
-        context.setPacketHandled(true);
+    @Override
+    public Type<? extends CustomPacketPayload> type() {
+        return TYPE;
     }
 }

@@ -1,33 +1,38 @@
 package dev.otectus.mcacrime.network;
 
-import dev.otectus.mcacrime.client.CrimeClientHandlers;
+import dev.otectus.mcacrime.McaCrime;
 import dev.otectus.mcacrime.crime.Band;
-import net.minecraft.network.FriendlyByteBuf;
-import net.minecraftforge.api.distmarker.Dist;
-import net.minecraftforge.fml.DistExecutor;
-import net.minecraftforge.network.NetworkEvent;
+import net.minecraft.core.UUIDUtil;
+import net.minecraft.network.RegistryFriendlyByteBuf;
+import net.minecraft.network.codec.ByteBufCodecs;
+import net.minecraft.network.codec.StreamCodec;
+import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
-import java.util.function.Supplier;
 
 /** Server→client: a full snapshot of every online player's band, sent to a joining client. */
-public record BandBulkSyncS2CPacket(Map<UUID, Band> bands) {
+public record BandBulkSyncS2CPacket(Map<UUID, Band> bands) implements CustomPacketPayload {
 
-    public static void encode(BandBulkSyncS2CPacket msg, FriendlyByteBuf buf) {
-        buf.writeMap(msg.bands, FriendlyByteBuf::writeUUID, FriendlyByteBuf::writeEnum);
-    }
+    /**
+     * Hard ceiling on the snapshot (spec §9.6). One entry per online player, so this sits far above any
+     * real player list; the point is that the count is refused before anything is allocated, which the
+     * Forge build's unbounded {@code readMap} did not do.
+     */
+    public static final int MAX_PLAYERS = 1024;
 
-    public static BandBulkSyncS2CPacket decode(FriendlyByteBuf buf) {
-        Map<UUID, Band> bands = buf.readMap(HashMap::new, FriendlyByteBuf::readUUID, b -> b.readEnum(Band.class));
-        return new BandBulkSyncS2CPacket(bands);
-    }
+    public static final Type<BandBulkSyncS2CPacket> TYPE = new Type<>(McaCrime.id("band_bulk_sync"));
 
-    public static void handle(BandBulkSyncS2CPacket msg, Supplier<NetworkEvent.Context> ctx) {
-        NetworkEvent.Context context = ctx.get();
-        context.enqueueWork(() ->
-                DistExecutor.unsafeRunWhenOn(Dist.CLIENT, () -> () -> CrimeClientHandlers.onBandBulk(msg)));
-        context.setPacketHandled(true);
+    public static final StreamCodec<RegistryFriendlyByteBuf, BandBulkSyncS2CPacket> STREAM_CODEC =
+            StreamCodec.composite(
+                    ByteBufCodecs.map(HashMap::new, UUIDUtil.STREAM_CODEC,
+                            CrimeStreamCodecs.enumCodec(Band.class, "band"), MAX_PLAYERS),
+                    BandBulkSyncS2CPacket::bands,
+                    BandBulkSyncS2CPacket::new);
+
+    @Override
+    public Type<? extends CustomPacketPayload> type() {
+        return TYPE;
     }
 }

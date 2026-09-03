@@ -210,7 +210,7 @@ public class CrimeInteractionScreen extends Screen {
     }
 
     private void send(ActionMenuEntry entry) {
-        CrimeNetwork.CHANNEL.sendToServer(new StartActionC2SPacket(UUID.randomUUID(), menu.menuId(),
+        CrimeNetwork.sendToServer(new StartActionC2SPacket(UUID.randomUUID(), menu.menuId(),
                 menu.revision(), entry.actionId(), menu.targetId()));
     }
 

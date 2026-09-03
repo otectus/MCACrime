@@ -1,17 +1,16 @@
 package dev.otectus.mcacrime.network;
 
-import dev.otectus.mcacrime.client.CrimeClientHandlers;
+import dev.otectus.mcacrime.McaCrime;
 import dev.otectus.mcacrime.ledger.Resolution;
-import net.minecraft.network.FriendlyByteBuf;
+import io.netty.handler.codec.DecoderException;
+import net.minecraft.network.RegistryFriendlyByteBuf;
+import net.minecraft.network.codec.ByteBufCodecs;
+import net.minecraft.network.codec.StreamCodec;
+import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.resources.ResourceLocation;
-import net.minecraftforge.api.distmarker.Dist;
-import net.minecraftforge.fml.DistExecutor;
-import net.minecraftforge.network.NetworkEvent;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
-import java.util.function.Supplier;
 
 /**
  * The player's own case file, for the dossier screen.
@@ -23,12 +22,20 @@ import java.util.function.Supplier;
  * <p>Rows carry a crime <em>type id</em> rather than rendered text, so the dossier localises like
  * everything else and a resource pack can rename a crime without the server knowing.
  */
-public record CaseLedgerS2CPacket(List<Row> rows, int totalOpen, long totalDue) {
+public record CaseLedgerS2CPacket(List<Row> rows, int totalOpen,
+                                  long totalDue) implements CustomPacketPayload {
 
     /** Row cap. A dossier is a summary; a player with more open cases than this has a bigger problem. */
     public static final int MAX_ROWS = 64;
 
-    private static final Resolution[] RESOLUTIONS = Resolution.values();
+    public static final Type<CaseLedgerS2CPacket> TYPE = new Type<>(McaCrime.id("case_ledger"));
+
+    public static final StreamCodec<RegistryFriendlyByteBuf, CaseLedgerS2CPacket> STREAM_CODEC =
+            StreamCodec.composite(
+                    Row.STREAM_CODEC.apply(ByteBufCodecs.list(MAX_ROWS)), CaseLedgerS2CPacket::rows,
+                    ByteBufCodecs.VAR_INT, CaseLedgerS2CPacket::totalOpen,
+                    ByteBufCodecs.VAR_LONG, CaseLedgerS2CPacket::totalDue,
+                    CaseLedgerS2CPacket::new);
 
     /**
      * One case as the screen needs it.
@@ -38,54 +45,52 @@ public record CaseLedgerS2CPacket(List<Row> rows, int totalOpen, long totalDue) 
      */
     public record Row(UUID caseId, ResourceLocation crimeType, Resolution resolution,
                       long committedAt, long fine, boolean witnessed, String community) {
+
+        /** A community label, not the key's own string form; a village name never needs more. */
+        public static final int MAX_COMMUNITY_LENGTH = 128;
+
+        /** Seven fields, one past what {@code StreamCodec.composite} carries, so written by hand. */
+        public static final StreamCodec<RegistryFriendlyByteBuf, Row> STREAM_CODEC =
+                StreamCodec.of(Row::write, Row::read);
+
         public Row {
             resolution = resolution == null ? Resolution.UNRESOLVED : resolution;
             community = community == null ? "" : community;
             fine = Math.max(0L, fine);
         }
-    }
 
-    public CaseLedgerS2CPacket {
-        rows = rows == null ? List.of() : List.copyOf(rows);
-        totalOpen = Math.max(0, totalOpen);
-        totalDue = Math.max(0L, totalDue);
-    }
-
-    public static void encode(CaseLedgerS2CPacket msg, FriendlyByteBuf buf) {
-        List<Row> rows = msg.rows.stream().limit(MAX_ROWS).toList();
-        buf.writeVarInt(rows.size());
-        for (Row row : rows) {
+        private static void write(RegistryFriendlyByteBuf buf, Row row) {
             buf.writeUUID(row.caseId());
             buf.writeResourceLocation(row.crimeType());
             buf.writeVarInt(row.resolution().ordinal());
             buf.writeVarLong(row.committedAt());
             buf.writeVarLong(row.fine());
             buf.writeBoolean(row.witnessed());
-            buf.writeUtf(row.community(), 128);
+            buf.writeUtf(row.community(), MAX_COMMUNITY_LENGTH);
         }
-        buf.writeVarInt(msg.totalOpen);
-        buf.writeVarLong(msg.totalDue);
-    }
 
-    public static CaseLedgerS2CPacket decode(FriendlyByteBuf buf) {
-        int count = Math.min(MAX_ROWS, Math.max(0, buf.readVarInt()));
-        List<Row> rows = new ArrayList<>(count);
-        for (int i = 0; i < count; i++) {
+        private static Row read(RegistryFriendlyByteBuf buf) {
             UUID caseId = buf.readUUID();
             ResourceLocation type = buf.readResourceLocation();
             int ordinal = buf.readVarInt();
-            Resolution resolution = ordinal >= 0 && ordinal < RESOLUTIONS.length
-                    ? RESOLUTIONS[ordinal] : Resolution.UNRESOLVED;
-            rows.add(new Row(caseId, type, resolution, buf.readVarLong(), buf.readVarLong(),
-                    buf.readBoolean(), buf.readUtf(128)));
+            Resolution[] resolutions = Resolution.values();
+            if (ordinal < 0 || ordinal >= resolutions.length) {
+                throw new DecoderException("mcacrime: case resolution ordinal " + ordinal
+                        + " outside [0, " + (resolutions.length - 1) + "]");
+            }
+            return new Row(caseId, type, resolutions[ordinal], buf.readVarLong(), buf.readVarLong(),
+                    buf.readBoolean(), buf.readUtf(MAX_COMMUNITY_LENGTH));
         }
-        return new CaseLedgerS2CPacket(rows, buf.readVarInt(), buf.readVarLong());
     }
 
-    public static void handle(CaseLedgerS2CPacket msg, Supplier<NetworkEvent.Context> ctx) {
-        NetworkEvent.Context context = ctx.get();
-        context.enqueueWork(() -> DistExecutor.unsafeRunWhenOn(Dist.CLIENT,
-                () -> () -> CrimeClientHandlers.onCaseLedger(msg)));
-        context.setPacketHandled(true);
+    public CaseLedgerS2CPacket {
+        rows = rows == null ? List.of() : List.copyOf(rows).stream().limit(MAX_ROWS).toList();
+        totalOpen = Math.max(0, totalOpen);
+        totalDue = Math.max(0L, totalDue);
+    }
+
+    @Override
+    public Type<? extends CustomPacketPayload> type() {
+        return TYPE;
     }
 }
