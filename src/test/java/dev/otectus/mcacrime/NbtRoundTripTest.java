@@ -4,6 +4,7 @@ import dev.otectus.mcacrime.crime.Band;
 import dev.otectus.mcacrime.state.DailyKarmaCounters;
 import dev.otectus.mcacrime.state.PlayerCrimeData;
 import dev.otectus.mcacrime.state.world.CrimeWorldData;
+import net.minecraft.core.RegistryAccess;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
 import org.junit.jupiter.api.Test;
@@ -110,7 +111,7 @@ class NbtRoundTripTest {
         data.addReputation(7, player, 5);
         data.addReputation(7, player, 3); // merges to 8
 
-        CrimeWorldData loaded = CrimeWorldData.load(data.save(new CompoundTag()));
+        CrimeWorldData loaded = CrimeWorldData.load(data.save(new CompoundTag(), RegistryAccess.EMPTY), RegistryAccess.EMPTY);
         assertEquals(8, loaded.reputation(7, player));
         assertEquals(0, loaded.reputation(9, player)); // unknown village
     }
@@ -125,8 +126,8 @@ class NbtRoundTripTest {
         bounties.add(entry);
         input.put("bounties", bounties); // a future-phase structure this version doesn't understand
 
-        CrimeWorldData data = CrimeWorldData.load(input);
-        CompoundTag out = data.save(new CompoundTag());
+        CrimeWorldData data = CrimeWorldData.load(input, RegistryAccess.EMPTY);
+        CompoundTag out = data.save(new CompoundTag(), RegistryAccess.EMPTY);
         assertTrue(out.contains("bounties"), "reserved 'bounties' slot must survive a load+save round-trip");
         assertEquals(1, out.getList("bounties", 10).size()); // 10 = TAG_COMPOUND
     }

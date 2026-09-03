@@ -4,6 +4,7 @@ import dev.otectus.mcacrime.jail.JailAnchor;
 import dev.otectus.mcacrime.jail.JailRegistry;
 import dev.otectus.mcacrime.state.world.CrimeWorldData;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.RegistryAccess;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.resources.ResourceLocation;
 import org.junit.jupiter.api.Test;
@@ -16,8 +17,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /** Jail anchor persistence (spec §7.4): anchor NBT round-trip and the CrimeWorldData registry. */
 class JailRegistryNbtTest {
 
-    private static final ResourceLocation OVERWORLD = new ResourceLocation("minecraft", "overworld");
-    private static final ResourceLocation NETHER = new ResourceLocation("minecraft", "the_nether");
+    private static final ResourceLocation OVERWORLD = ResourceLocation.fromNamespaceAndPath("minecraft", "overworld");
+    private static final ResourceLocation NETHER = ResourceLocation.fromNamespaceAndPath("minecraft", "the_nether");
 
     @Test
     void anchorRoundTrips() {
@@ -42,7 +43,7 @@ class JailRegistryNbtTest {
         data.addJailAnchor(new JailAnchor(new BlockPos(1, 2, 3), OVERWORLD, 4));
         data.addJailAnchor(new JailAnchor(new BlockPos(5, 6, 7), NETHER, 8));
 
-        CrimeWorldData loaded = CrimeWorldData.load(data.save(new CompoundTag()));
+        CrimeWorldData loaded = CrimeWorldData.load(data.save(new CompoundTag(), RegistryAccess.EMPTY), RegistryAccess.EMPTY);
         assertEquals(2, loaded.jailAnchors().size());
         assertEquals(new BlockPos(1, 2, 3), loaded.jailAnchors().get(0).pos());
         assertEquals(NETHER, loaded.jailAnchors().get(1).dim());

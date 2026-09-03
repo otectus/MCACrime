@@ -14,6 +14,7 @@ import dev.otectus.mcacrime.memory.CrimeReport;
 import dev.otectus.mcacrime.memory.ReportState;
 import dev.otectus.mcacrime.memory.VillagerCrimeProfile;
 import dev.otectus.mcacrime.ransom.RansomState;
+import net.minecraft.core.HolderLookup;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.Tag;
@@ -133,12 +134,16 @@ public final class CrimeWorldData extends SavedData {
     /** True when the file came from a newer jar and nothing was parsed. */
     private boolean fromTheFuture;
 
+    /** The 1.21.1 constructor/deserialiser pair the data storage builds this store from. */
+    public static final SavedData.Factory<CrimeWorldData> FACTORY =
+            new SavedData.Factory<>(CrimeWorldData::new, CrimeWorldData::load);
+
     public CrimeWorldData() {
     }
 
     public static CrimeWorldData get(MinecraftServer server) {
         ServerLevel overworld = server.overworld();
-        return overworld.getDataStorage().computeIfAbsent(CrimeWorldData::load, CrimeWorldData::new, DATA_NAME);
+        return overworld.getDataStorage().computeIfAbsent(FACTORY, DATA_NAME);
     }
 
     /**
@@ -765,7 +770,7 @@ public final class CrimeWorldData extends SavedData {
     // --- persistence ---
 
     @Override
-    public CompoundTag save(CompoundTag tag) {
+    public CompoundTag save(CompoundTag tag, HolderLookup.Provider provider) {
         // A store from a newer jar was never parsed; hand it back exactly as found rather than
         // overwriting it with what this build happens to understand.
         if (fromTheFuture && reserved.contains(FUTURE_KEY, Tag.TAG_COMPOUND)) {
@@ -862,7 +867,7 @@ public final class CrimeWorldData extends SavedData {
         return tag;
     }
 
-    public static CrimeWorldData load(CompoundTag raw) {
+    public static CrimeWorldData load(CompoundTag raw, HolderLookup.Provider provider) {
         CrimeWorldData data = new CrimeWorldData();
 
         int schema = CrimeDataMigrations.schemaOf(raw);

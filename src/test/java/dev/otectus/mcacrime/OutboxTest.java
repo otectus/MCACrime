@@ -7,6 +7,7 @@ import dev.otectus.mcacrime.integration.DeliveryPolicy;
 import dev.otectus.mcacrime.integration.IntegrationTargets;
 import dev.otectus.mcacrime.crime.type.CrimeIds;
 import dev.otectus.mcacrime.state.world.CrimeWorldData;
+import net.minecraft.core.RegistryAccess;
 import net.minecraft.nbt.CompoundTag;
 import org.junit.jupiter.api.Test;
 
@@ -57,7 +58,7 @@ class OutboxTest {
         CrimeIntegrationOperation pending = operation(100L);
         assertTrue(data.enqueueOperation(pending));
 
-        CrimeWorldData reloaded = CrimeWorldData.load(data.save(new CompoundTag()));
+        CrimeWorldData reloaded = CrimeWorldData.load(data.save(new CompoundTag(), RegistryAccess.EMPTY), RegistryAccess.EMPTY);
 
         assertEquals(1, reloaded.pendingOperationCount());
         assertEquals(pending, reloaded.dueOperations(200L, 10).get(0));

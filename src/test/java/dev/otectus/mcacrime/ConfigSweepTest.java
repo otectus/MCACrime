@@ -28,9 +28,9 @@ class ConfigSweepTest {
 
     // ------------------------------------------------------------------ professionMatchingMode
 
-    private static final ResourceLocation MCA_GUARD = new ResourceLocation("mca", "guard");
-    private static final ResourceLocation MODDED_GUARD = new ResourceLocation("somemod", "guard");
-    private static final ResourceLocation CAPTAIN = new ResourceLocation("mca", "guard_captain");
+    private static final ResourceLocation MCA_GUARD = ResourceLocation.fromNamespaceAndPath("mca", "guard");
+    private static final ResourceLocation MODDED_GUARD = ResourceLocation.fromNamespaceAndPath("somemod", "guard");
+    private static final ResourceLocation CAPTAIN = ResourceLocation.fromNamespaceAndPath("mca", "guard_captain");
 
     @Test
     void strictMatchingCaresAboutTheWholeId() {
@@ -49,9 +49,9 @@ class ConfigSweepTest {
     @Test
     void looseMatchingCatchesCompoundNames() {
         assertTrue(ProfessionMatcher.matches(CAPTAIN, "guard", ProfessionMatchingMode.LOOSE));
-        assertTrue(ProfessionMatcher.matches(new ResourceLocation("mca", "village_guard"), "guard",
+        assertTrue(ProfessionMatcher.matches(ResourceLocation.fromNamespaceAndPath("mca", "village_guard"), "guard",
                 ProfessionMatchingMode.LOOSE));
-        assertFalse(ProfessionMatcher.matches(new ResourceLocation("mca", "farmer"), "guard",
+        assertFalse(ProfessionMatcher.matches(ResourceLocation.fromNamespaceAndPath("mca", "farmer"), "guard",
                 ProfessionMatchingMode.LOOSE));
     }
 
@@ -67,7 +67,7 @@ class ConfigSweepTest {
 
     private static JailState sentence(long remaining, long served) {
         JailState jail = new JailState(remaining, new BlockPos(0, 64, 0),
-                new ResourceLocation("minecraft", "overworld"), 8,
+                ResourceLocation.fromNamespaceAndPath("minecraft", "overworld"), 8,
                 dev.otectus.mcacrime.jail.JailContainmentMode.CONTAINMENT);
         jail.setRealOnlineTicksServed(served);
         return jail;

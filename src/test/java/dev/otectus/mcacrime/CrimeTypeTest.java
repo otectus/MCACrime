@@ -17,7 +17,7 @@ class CrimeTypeTest {
 
     @Test
     void codecRoundTrips() {
-        CrimeType type = new CrimeType(new ResourceLocation("mcacrime", "kill_villager"), -50L, 40L, 1.5, "villager");
+        CrimeType type = new CrimeType(ResourceLocation.fromNamespaceAndPath("mcacrime", "kill_villager"), -50L, 40L, 1.5, "villager");
         var encoded = CrimeType.CODEC.encodeStart(JsonOps.INSTANCE, type).result().orElseThrow();
         CrimeType decoded = CrimeType.CODEC.parse(JsonOps.INSTANCE, encoded).result().orElseThrow();
         assertEquals(type, decoded);
@@ -49,6 +49,6 @@ class CrimeTypeTest {
         assertEquals(-10L, CrimeTypeRegistry.getOrBuiltin(CrimeIds.HARM_VILLAGER).get().karmaDelta());
         assertEquals(-50L, CrimeTypeRegistry.getOrBuiltin(CrimeIds.KILL_VILLAGER).get().karmaDelta());
         assertEquals(-15L, CrimeTypeRegistry.getOrBuiltin(CrimeIds.ASSAULT_GUARD).get().karmaDelta());
-        assertFalse(CrimeTypeRegistry.getOrBuiltin(new ResourceLocation("mcacrime", "does_not_exist")).isPresent());
+        assertFalse(CrimeTypeRegistry.getOrBuiltin(ResourceLocation.fromNamespaceAndPath("mcacrime", "does_not_exist")).isPresent());
     }
 }

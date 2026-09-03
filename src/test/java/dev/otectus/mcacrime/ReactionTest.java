@@ -25,7 +25,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 class ReactionTest {
 
-    private static final ResourceLocation DIM = new ResourceLocation("minecraft", "overworld");
+    private static final ResourceLocation DIM = ResourceLocation.fromNamespaceAndPath("minecraft", "overworld");
 
     // ------------------------------------------------------------------ destination scoring
 

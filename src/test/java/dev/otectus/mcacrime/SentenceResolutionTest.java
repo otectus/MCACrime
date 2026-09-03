@@ -26,7 +26,7 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 class SentenceResolutionTest {
 
-    private static final ResourceLocation OVERWORLD = new ResourceLocation("minecraft", "overworld");
+    private static final ResourceLocation OVERWORLD = ResourceLocation.fromNamespaceAndPath("minecraft", "overworld");
 
     private static JailState sentence(long ticks) {
         return new JailState(ticks, new BlockPos(0, 64, 0), OVERWORLD, 8, JailContainmentMode.PHYSICAL);

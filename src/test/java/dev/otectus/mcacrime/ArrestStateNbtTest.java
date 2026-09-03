@@ -24,7 +24,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 class ArrestStateNbtTest {
 
-    private static final ResourceLocation OVERWORLD = new ResourceLocation("minecraft", "overworld");
+    private static final ResourceLocation OVERWORLD = ResourceLocation.fromNamespaceAndPath("minecraft", "overworld");
 
     @Test
     void roundTripsEverythingThatOutlivesARestart() {

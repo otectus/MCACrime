@@ -4,6 +4,7 @@ import dev.otectus.mcacrime.crime.type.CrimeIds;
 import dev.otectus.mcacrime.ledger.CrimeRecord;
 import dev.otectus.mcacrime.ledger.Resolution;
 import dev.otectus.mcacrime.state.world.CrimeWorldData;
+import net.minecraft.core.RegistryAccess;
 import net.minecraft.nbt.CompoundTag;
 import org.junit.jupiter.api.Test;
 
@@ -47,7 +48,7 @@ class CrimeLedgerTest {
         data.addRecord(r1); // duplicate id -> ignored (replay-safe)
         assertEquals(2, data.ledgerSize());
 
-        CrimeWorldData loaded = CrimeWorldData.load(data.save(new CompoundTag()));
+        CrimeWorldData loaded = CrimeWorldData.load(data.save(new CompoundTag(), RegistryAccess.EMPTY), RegistryAccess.EMPTY);
         assertEquals(2, loaded.ledgerSize());
 
         List<CrimeRecord> forOffender = loaded.recordsForOffender(offender);

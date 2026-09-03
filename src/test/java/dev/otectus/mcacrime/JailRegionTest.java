@@ -11,8 +11,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /** Jail-region geometry (spec §7.3): a Chebyshev cube within one dimension. */
 class JailRegionTest {
 
-    private static final ResourceLocation OVERWORLD = new ResourceLocation("minecraft", "overworld");
-    private static final ResourceLocation NETHER = new ResourceLocation("minecraft", "the_nether");
+    private static final ResourceLocation OVERWORLD = ResourceLocation.fromNamespaceAndPath("minecraft", "overworld");
+    private static final ResourceLocation NETHER = ResourceLocation.fromNamespaceAndPath("minecraft", "the_nether");
     private static final BlockPos ANCHOR = new BlockPos(0, 64, 0);
 
     @Test

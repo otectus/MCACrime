@@ -8,7 +8,9 @@ import dev.otectus.mcacrime.memory.ReportState;
 import dev.otectus.mcacrime.state.world.CrimeDataMigrations;
 import dev.otectus.mcacrime.state.world.CrimeWorldData;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.RegistryAccess;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.NbtUtils;
 import net.minecraft.resources.ResourceLocation;
 import org.junit.jupiter.api.Test;
 
@@ -31,8 +33,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 class ObservationTest {
 
-    private static final ResourceLocation ACTION = new ResourceLocation("mcacrime", "harm_villager");
-    private static final ResourceLocation DIM = new ResourceLocation("minecraft", "overworld");
+    private static final ResourceLocation ACTION = ResourceLocation.fromNamespaceAndPath("mcacrime", "harm_villager");
+    private static final ResourceLocation DIM = ResourceLocation.fromNamespaceAndPath("minecraft", "overworld");
 
     private static CrimeObservation observation(UUID observer, ObserverRole role, ReportState state) {
         return new CrimeObservation(UUID.randomUUID(), UUID.randomUUID(), observer, role,
@@ -46,6 +48,32 @@ class ObservationTest {
     void observationSurvivesARoundTrip() {
         CrimeObservation original = observation(UUID.randomUUID(), ObserverRole.EYEWITNESS, ReportState.PENDING);
         assertEquals(original, CrimeObservation.load(original.save()));
+    }
+
+    @Test
+    void thePositionIsStillWrittenAsTheLegacyCompound() {
+        // Schema 6 means the 1.20.1 shape on both sides of the port (§8.2): writing an IntArrayTag
+        // here would make one schema number describe two different files.
+        CompoundTag pos = observation(UUID.randomUUID(), ObserverRole.GUARD, ReportState.PENDING)
+                .save().getCompound("pos");
+        assertEquals(4, pos.getInt("X"));
+        assertEquals(64, pos.getInt("Y"));
+        assertEquals(-9, pos.getInt("Z"));
+    }
+
+    @Test
+    void bothPositionShapesLoad() {
+        CrimeObservation original = observation(UUID.randomUUID(), ObserverRole.GUARD, ReportState.PENDING);
+
+        CompoundTag legacy = original.save(); // compound X/Y/Z, as written
+        assertEquals(new BlockPos(4, 64, -9), CrimeObservation.load(legacy).location());
+
+        // An interim build that reached for 1.21.1's NbtUtils.writeBlockPos left int arrays behind;
+        // reading them as "absent" would quietly move every observation to the origin.
+        CompoundTag intArray = original.save();
+        intArray.put("pos", NbtUtils.writeBlockPos(new BlockPos(4, 64, -9)));
+        assertEquals(new BlockPos(4, 64, -9), CrimeObservation.load(intArray).location());
+        assertEquals(original, CrimeObservation.load(intArray));
     }
 
     @Test
@@ -153,7 +181,7 @@ class ObservationTest {
                 50L, 5000L, 1.0F, true);
         data.addReport(report);
 
-        CrimeWorldData reloaded = CrimeWorldData.load(data.save(new CompoundTag()));
+        CrimeWorldData reloaded = CrimeWorldData.load(data.save(new CompoundTag(), RegistryAccess.EMPTY), RegistryAccess.EMPTY);
         assertEquals(1, reloaded.observationCount());
         assertEquals(stored, reloaded.observation(stored.observationId()).orElseThrow());
         assertEquals(List.of(report), reloaded.reportsAgainst(stored.suspectedActorId()));

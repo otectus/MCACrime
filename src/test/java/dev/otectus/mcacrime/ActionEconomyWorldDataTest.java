@@ -1,6 +1,7 @@
 package dev.otectus.mcacrime;
 
 import dev.otectus.mcacrime.state.world.CrimeWorldData;
+import net.minecraft.core.RegistryAccess;
 import net.minecraft.nbt.CompoundTag;
 import org.junit.jupiter.api.Test;
 
@@ -20,7 +21,7 @@ class ActionEconomyWorldDataTest {
         UUID transaction = UUID.randomUUID();
         assertTrue(data.recordTransactionReceipt(transaction));
         assertFalse(data.recordTransactionReceipt(transaction));
-        CrimeWorldData loaded = CrimeWorldData.load(data.save(new CompoundTag()));
+        CrimeWorldData loaded = CrimeWorldData.load(data.save(new CompoundTag(), RegistryAccess.EMPTY), RegistryAccess.EMPTY);
         assertEquals(3, loaded.treasuryBalance("overworld:1", 999));
         assertTrue(loaded.hasTransactionReceipt(transaction));
         assertFalse(loaded.recordTransactionReceipt(transaction));

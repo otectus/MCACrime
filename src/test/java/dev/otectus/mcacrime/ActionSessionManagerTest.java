@@ -11,8 +11,8 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class ActionSessionManagerTest {
     private static ActionSession session(UUID actor, UUID target, UUID nonce) {
-        return new ActionSession(UUID.randomUUID(), nonce, new ResourceLocation("mcacrime", "test"),
-                actor, target, new ResourceLocation("minecraft", "overworld"), Vec3.ZERO, 1L, 5);
+        return new ActionSession(UUID.randomUUID(), nonce, ResourceLocation.fromNamespaceAndPath("mcacrime", "test"),
+                actor, target, ResourceLocation.fromNamespaceAndPath("minecraft", "overworld"), Vec3.ZERO, 1L, 5);
     }
 
     @Test

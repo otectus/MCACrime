@@ -5,6 +5,7 @@ import dev.otectus.mcacrime.captivity.CustodyRecord;
 import dev.otectus.mcacrime.captivity.RestraintType;
 import dev.otectus.mcacrime.state.world.CrimeWorldData;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.RegistryAccess;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.StringTag;
@@ -21,7 +22,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /** Custody table in CrimeWorldData (spec §2.3): round-trip, idempotency, malformed-skip, forward-compat. */
 class CrimeWorldDataCustodyTest {
 
-    private static final ResourceLocation OVERWORLD = new ResourceLocation("minecraft", "overworld");
+    private static final ResourceLocation OVERWORLD = ResourceLocation.fromNamespaceAndPath("minecraft", "overworld");
 
     @Test
     void custodyRoundTripsAndIsIdempotent() {
@@ -34,7 +35,7 @@ class CrimeWorldDataCustodyTest {
         assertEquals(1, data.custodyRecords().size());
         assertTrue(data.isCaptive(captive));
 
-        CrimeWorldData loaded = CrimeWorldData.load(data.save(new CompoundTag()));
+        CrimeWorldData loaded = CrimeWorldData.load(data.save(new CompoundTag(), RegistryAccess.EMPTY), RegistryAccess.EMPTY);
         assertEquals(1, loaded.custodyRecords().size());
         assertNotNull(loaded.getCustody(captive));
         assertEquals(RestraintType.ROPE, loaded.getCustody(captive).getRestraint());
@@ -49,10 +50,10 @@ class CrimeWorldDataCustodyTest {
         UUID good = UUID.randomUUID();
         data.putCustody(new CustodyRecord(good, false, false, CustodyOwner.none(), RestraintType.NONE, 0L, null, null));
 
-        CompoundTag saved = data.save(new CompoundTag());
+        CompoundTag saved = data.save(new CompoundTag(), RegistryAccess.EMPTY);
         saved.getCompound("custody").putString("not-a-uuid", "x"); // inject a bad key
 
-        CrimeWorldData loaded = CrimeWorldData.load(saved);
+        CrimeWorldData loaded = CrimeWorldData.load(saved, RegistryAccess.EMPTY);
         assertEquals(1, loaded.custodyRecords().size()); // good kept, bad skipped
     }
 
@@ -64,10 +65,10 @@ class CrimeWorldDataCustodyTest {
         newerShape.add(StringTag.valueOf("future-data"));
         onDisk.put("custody", newerShape);
 
-        CrimeWorldData loaded = CrimeWorldData.load(onDisk);
+        CrimeWorldData loaded = CrimeWorldData.load(onDisk, RegistryAccess.EMPTY);
         assertTrue(loaded.custodyRecords().isEmpty()); // didn't try to parse the foreign shape
 
-        CompoundTag resaved = loaded.save(new CompoundTag());
+        CompoundTag resaved = loaded.save(new CompoundTag(), RegistryAccess.EMPTY);
         assertEquals(newerShape, resaved.get("custody")); // preserved verbatim
     }
 
@@ -78,8 +79,8 @@ class CrimeWorldDataCustodyTest {
         bounties.putString("future", "data");
         onDisk.put("bounties", bounties);
 
-        CrimeWorldData loaded = CrimeWorldData.load(onDisk);
-        CompoundTag resaved = loaded.save(new CompoundTag());
+        CrimeWorldData loaded = CrimeWorldData.load(onDisk, RegistryAccess.EMPTY);
+        CompoundTag resaved = loaded.save(new CompoundTag(), RegistryAccess.EMPTY);
         assertEquals(bounties, resaved.getCompound("bounties"));
     }
 }

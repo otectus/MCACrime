@@ -56,7 +56,7 @@ class WeaponRulesTest {
         Probe useAnim(String value) { this.useAnim = value; return this; }
 
         WeaponProbe build() {
-            return new WeaponProbe(new ResourceLocation(id),
+            return new WeaponProbe(ResourceLocation.parse(id),
                     tag -> tags.contains(tag.toString()),
                     restraint, sword, axe, trident, projectile, diggerNonAxe, block, stackable, damage, useAnim);
         }

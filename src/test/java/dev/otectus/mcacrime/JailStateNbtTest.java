@@ -16,8 +16,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /** Jail persistence (spec §7.1): NBT round-trip, deep copy on death, absent-key safety, capability carry. */
 class JailStateNbtTest {
 
-    private static final ResourceLocation OVERWORLD = new ResourceLocation("minecraft", "overworld");
-    private static final ResourceLocation NETHER = new ResourceLocation("minecraft", "the_nether");
+    private static final ResourceLocation OVERWORLD = ResourceLocation.fromNamespaceAndPath("minecraft", "overworld");
+    private static final ResourceLocation NETHER = ResourceLocation.fromNamespaceAndPath("minecraft", "the_nether");
 
     @Test
     void roundTripsAllFields() {

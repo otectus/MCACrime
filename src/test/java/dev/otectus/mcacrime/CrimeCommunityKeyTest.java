@@ -22,8 +22,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 class CrimeCommunityKeyTest {
 
-    private static final ResourceLocation OVERWORLD = new ResourceLocation("minecraft", "overworld");
-    private static final ResourceLocation NETHER = new ResourceLocation("minecraft", "the_nether");
+    private static final ResourceLocation OVERWORLD = ResourceLocation.fromNamespaceAndPath("minecraft", "overworld");
+    private static final ResourceLocation NETHER = ResourceLocation.fromNamespaceAndPath("minecraft", "the_nether");
 
     /**
      * The reason the whole type exists. MCA allocates village ids from a per-level store, so village 3

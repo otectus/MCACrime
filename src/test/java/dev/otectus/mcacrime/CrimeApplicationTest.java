@@ -11,7 +11,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 class CrimeApplicationTest {
 
     private static CrimeType type(double witnessedMultiplier) {
-        return new CrimeType(new ResourceLocation("mcacrime", "harm_villager"), -10L, 20L, witnessedMultiplier, "villager");
+        return new CrimeType(ResourceLocation.fromNamespaceAndPath("mcacrime", "harm_villager"), -10L, 20L, witnessedMultiplier, "villager");
     }
 
     @Test

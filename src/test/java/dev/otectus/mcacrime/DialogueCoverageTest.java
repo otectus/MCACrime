@@ -58,7 +58,7 @@ class DialogueCoverageTest {
             for (Path file : files.filter(p -> p.toString().endsWith(".json")).toList()) {
                 JsonObject json = JsonParser.parseString(
                         Files.readString(file, StandardCharsets.UTF_8)).getAsJsonObject();
-                ResourceLocation fileId = new ResourceLocation("mcacrime",
+                ResourceLocation fileId = ResourceLocation.fromNamespaceAndPath("mcacrime",
                         file.getFileName().toString().replace(".json", ""));
                 CrimeDialogueDefinition definition = CrimeDialogueDefinition.parse(fileId, json);
                 loaded.put(definition.event(), definition);

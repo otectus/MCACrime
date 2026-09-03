@@ -97,7 +97,7 @@ class CrimeIncidentDataTest {
 
     @Test
     void anUnknownCrimeTypeMapsToNothing() {
-        assertTrue(CrimeIncidentMapping.incidentFor(new ResourceLocation("othermod", "jaywalking")).isEmpty());
+        assertTrue(CrimeIncidentMapping.incidentFor(ResourceLocation.fromNamespaceAndPath("othermod", "jaywalking")).isEmpty());
     }
 
     // ------------------------------------------------------------------ resolution mapping

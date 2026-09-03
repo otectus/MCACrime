@@ -88,7 +88,7 @@ public record CrimeObservation(UUID observationId,
         }
         tag.putString("action", actionId.toString());
         tag.putString("dim", dimension.toString());
-        tag.put("pos", NbtUtils.writeBlockPos(location));
+        tag.put("pos", writePos(location));
         tag.putLong("at", observedAt);
         tag.putFloat("confidence", confidence);
         tag.putBoolean("sawActor", sawActor);
@@ -123,7 +123,7 @@ public record CrimeObservation(UUID observationId,
                 tag.hasUUID("victim") ? tag.getUUID("victim") : null,
                 action,
                 dimension,
-                readPos(tag), // TODO Phase 4 (§8.2): dual-shape read + hand-written compound X/Y/Z write
+                readPos(tag),
                 tag.getLong("at"),
                 tag.getFloat("confidence"),
                 tag.getBoolean("sawActor"),
@@ -134,10 +134,26 @@ public record CrimeObservation(UUID observationId,
     }
 
     /**
-     * Reads the observation position. Schema 6 writes the 1.20.1 compound {@code X/Y/Z} shape; the
-     * int-array shape is accepted so a world written by an interim build still loads.
+     * Writes the position in the 1.20.1 compound {@code X/Y/Z} shape by hand (spec §8.2, §17).
      *
-     * <p>TODO Phase 4 (§8.2): pair this with the hand-written compound writer.
+     * <p>1.21.1's {@code NbtUtils.writeBlockPos} emits an {@code IntArrayTag} instead. Using it here
+     * would change the on-disk shape of every observation while the store still calls itself schema
+     * 6, so a 1.20.1 world and a 1.21.1 one would disagree about what schema 6 means. The format
+     * stays put; only the reader learns a second shape.
+     */
+    private static CompoundTag writePos(BlockPos pos) {
+        CompoundTag tag = new CompoundTag();
+        tag.putInt("X", pos.getX());
+        tag.putInt("Y", pos.getY());
+        tag.putInt("Z", pos.getZ());
+        return tag;
+    }
+
+    /**
+     * Reads the observation position. Schema 6 writes the 1.20.1 compound {@code X/Y/Z} shape; the
+     * int-array shape is accepted too, so a world written by an interim build that used 1.21.1's
+     * {@code NbtUtils.writeBlockPos} still loads rather than silently reading every observation at
+     * the origin (spec §8.2).
      */
     private static BlockPos readPos(CompoundTag tag) {
         if (tag.contains("pos", Tag.TAG_COMPOUND)) {

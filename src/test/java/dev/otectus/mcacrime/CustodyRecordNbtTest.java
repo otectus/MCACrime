@@ -20,7 +20,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /** Custody persistence (spec §2.3): record/owner NBT round-trip, deep copy, absent-key safety, enum fail-safes. */
 class CustodyRecordNbtTest {
 
-    private static final ResourceLocation OVERWORLD = new ResourceLocation("minecraft", "overworld");
+    private static final ResourceLocation OVERWORLD = ResourceLocation.fromNamespaceAndPath("minecraft", "overworld");
 
     @Test
     void kidnapRecordRoundTripsAllFields() {

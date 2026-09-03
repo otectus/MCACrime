@@ -22,7 +22,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 class DialogueTest {
 
-    private static final ResourceLocation FILE = new ResourceLocation("mcacrime", "mug_opening");
+    private static final ResourceLocation FILE = ResourceLocation.fromNamespaceAndPath("mcacrime", "mug_opening");
 
     private static CrimeDialogueDefinition parse(String json) {
         JsonObject object = JsonParser.parseString(json).getAsJsonObject();
@@ -62,7 +62,7 @@ class DialogueTest {
     @Test
     void theSpecsOwnExampleParses() {
         CrimeDialogueDefinition definition = parse(SAMPLE);
-        assertEquals(new ResourceLocation("mcacrime", "mug_opening"), definition.event());
+        assertEquals(ResourceLocation.fromNamespaceAndPath("mcacrime", "mug_opening"), definition.event());
         assertEquals(3, definition.variants().size());
     }
 

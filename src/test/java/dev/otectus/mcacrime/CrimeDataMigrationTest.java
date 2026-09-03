@@ -7,6 +7,7 @@ import dev.otectus.mcacrime.ledger.CrimeRecord;
 import dev.otectus.mcacrime.ledger.Resolution;
 import dev.otectus.mcacrime.state.world.CrimeDataMigrations;
 import dev.otectus.mcacrime.state.world.CrimeWorldData;
+import net.minecraft.core.RegistryAccess;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.Tag;
@@ -242,16 +243,16 @@ class CrimeDataMigrationTest {
     @Test
     void aLegacyStoreLoadsAndReSavesAtTheCurrentSchema() {
         UUID recordId = UUID.randomUUID();
-        CrimeWorldData data = CrimeWorldData.load(legacyStore(legacyRecord(recordId, 3, true)));
+        CrimeWorldData data = CrimeWorldData.load(legacyStore(legacyRecord(recordId, 3, true)), RegistryAccess.EMPTY);
 
         assertEquals(1, data.ledgerSize());
         assertFalse(data.isReadOnlyFutureData());
         assertEquals(-6, data.reputation(new CrimeCommunityKey(
                 new net.minecraft.resources.ResourceLocation("minecraft", "overworld"), 3), OFFENDER));
 
-        CompoundTag resaved = data.save(new CompoundTag());
+        CompoundTag resaved = data.save(new CompoundTag(), RegistryAccess.EMPTY);
         assertEquals(CrimeDataMigrations.CURRENT_SCHEMA, CrimeDataMigrations.schemaOf(resaved));
-        assertEquals(1, CrimeWorldData.load(resaved).ledgerSize());
+        assertEquals(1, CrimeWorldData.load(resaved, RegistryAccess.EMPTY).ledgerSize());
     }
 
     /** Two rows claiming one id: both survive, the first keeps the id, and the repair is reproducible. */
@@ -260,8 +261,8 @@ class CrimeDataMigrationTest {
         UUID shared = UUID.randomUUID();
         CompoundTag store = legacyStore(legacyRecord(shared, 3, true), legacyRecord(shared, 4, false));
 
-        CrimeWorldData first = CrimeWorldData.load(store.copy());
-        CrimeWorldData second = CrimeWorldData.load(store.copy());
+        CrimeWorldData first = CrimeWorldData.load(store.copy(), RegistryAccess.EMPTY);
+        CrimeWorldData second = CrimeWorldData.load(store.copy(), RegistryAccess.EMPTY);
 
         assertEquals(2, first.ledgerSize(), "neither record may be silently dropped");
         List<CrimeRecord> records = first.recordsForOffender(OFFENDER);
@@ -288,12 +289,12 @@ class CrimeDataMigrationTest {
         future.putInt(CrimeDataMigrations.TAG_SCHEMA, CrimeDataMigrations.CURRENT_SCHEMA + 5);
         future.putString("somethingNewAndUnknown", "keep me");
 
-        CrimeWorldData data = CrimeWorldData.load(future.copy());
+        CrimeWorldData data = CrimeWorldData.load(future.copy(), RegistryAccess.EMPTY);
 
         assertTrue(data.isReadOnlyFutureData());
         assertEquals(0, data.ledgerSize(), "nothing from a future store is parsed");
         data.addRecord(CrimeRecord.load(legacyRecord(UUID.randomUUID(), 1, false)));
         assertEquals(0, data.ledgerSize(), "and nothing may be written into it");
-        assertEquals(future, data.save(new CompoundTag()));
+        assertEquals(future, data.save(new CompoundTag(), RegistryAccess.EMPTY));
     }
 }
