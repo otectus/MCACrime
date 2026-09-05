@@ -39,6 +39,10 @@ public final class CrimeContext {
     public static final String LEGACY_WITNESS_IDENTITY_MISSING = "legacy_witness_identity_missing";
     /** Stamped when a duplicate record id was repaired on load; the value is the original id. */
     public static final String DUPLICATE_ID_REPAIRED = "duplicate_id_repaired";
+    /** {@code npc} / {@code player} — what kind of offender the record names (0.5.1). */
+    public static final String OFFENDER_KIND = "offender_kind";
+    /** The encoded {@link CrimeFlag} set. The same string as {@link CrimeFlag#CONTEXT_KEY}. */
+    public static final String FLAGS = CrimeFlag.CONTEXT_KEY;
     /** The fine transaction that settled this case. */
     public static final String FINE_TRANSACTION = "fine_txn";
 

@@ -1,0 +1,53 @@
+{
+  "format_version": 1,
+  "id": "mcacrime:bounty_board",
+  "weight": 8,
+  "category": "combat",
+  "difficulty": "hard",
+  "repeat": {
+    "type": "repeatable"
+  },
+  "giver": {
+    "professions": [
+      "mca:guard"
+    ],
+    "adult_only": true
+  },
+  "title": {
+    "translate": "quest.mcacrime.bounty.quest_title"
+  },
+  "dialogue": {
+    "offer": {
+      "translate": "quest.mcacrime.bounty.dialogue.offer"
+    },
+    "accept": {
+      "translate": "quest.mcacrime.bounty.dialogue.accept"
+    },
+    "decline": {
+      "translate": "quest.mcacrime.bounty.dialogue.decline"
+    },
+    "in_progress": {
+      "translate": "quest.mcacrime.bounty.dialogue.in_progress"
+    },
+    "ready": {
+      "translate": "quest.mcacrime.bounty.dialogue.ready"
+    },
+    "complete": {
+      "translate": "quest.mcacrime.bounty.dialogue.complete"
+    },
+    "failed": {
+      "translate": "quest.mcacrime.bounty.dialogue.failed"
+    }
+  },
+  "objectives": [
+    {
+      "type": "mcacrime:bounty"
+    }
+  ],
+  "rewards": [
+    {
+      "type": "mcaquests:hearts",
+      "amount": 4
+    }
+  ]
+}

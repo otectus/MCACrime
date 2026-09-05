@@ -1,0 +1,21 @@
+{
+  "event": "mcacrime:npc_mug_success",
+  "fallback": "dialogue.mcacrime.npc_mug_success.generic",
+  "variants": [
+    {
+      "priority": 90,
+      "lines": [
+        "dialogue.mcacrime.npc_mug_success.bold.1"
+      ],
+      "when": {
+        "personality": "bold"
+      }
+    },
+    {
+      "priority": 0,
+      "lines": [
+        "dialogue.mcacrime.npc_mug_success.generic"
+      ]
+    }
+  ]
+}

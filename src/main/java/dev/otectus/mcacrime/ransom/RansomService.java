@@ -6,7 +6,7 @@ import dev.otectus.mcacrime.captivity.CustodyReleaseReason;
 import dev.otectus.mcacrime.captivity.CustodyService;
 import dev.otectus.mcacrime.compat.McaCompat;
 import dev.otectus.mcacrime.crime.type.CrimeIds;
-import dev.otectus.mcacrime.economy.EmeraldCurrency;
+import dev.otectus.mcacrime.economy.Currencies;
 import dev.otectus.mcacrime.economy.account.EconomicTransactionService;
 import dev.otectus.mcacrime.jail.JailService;
 import dev.otectus.mcacrime.ledger.CrimeLedger;
@@ -33,7 +33,7 @@ import java.util.UUID;
  * paid after the victim died, escaped, was rescued, or was jailed — those flip it to the matching failure.
  * Family payers must be reachable (online) players; when none exist it downgrades to a lower-value
  * village-authority settlement (or is refused if that fallback is disabled). The only writer of {@link
- * RansomState}; amounts charge atomically via {@link EmeraldCurrency}.
+ * RansomState}; amounts charge atomically via {@link Currencies#active()}.
  */
 public final class RansomService {
 
@@ -142,7 +142,7 @@ public final class RansomService {
         if (captor == null) {
             return refuse(payer, "mcacrime.ransom.captoraway"); // hold the demand until the captor returns
         }
-        if (EmeraldCurrency.INSTANCE.balance(payer) < state.getAmount()) {
+        if (Currencies.active().balance(payer) < state.getAmount()) {
             return refuse(payer, "mcacrime.ransom.need");
         }
         if (!EconomicTransactionService.transferPlayerToPlayer(world, state.getDemandId(), payer, captor,
@@ -296,7 +296,7 @@ public final class RansomService {
         ServerPlayer player = server.getPlayerList().getPlayer(uuid);
         long required = RansomCalculator.amount(McaCrimeConfig.COMMON.ransomBaseAmount.get(), tierMultiplier(tier));
         out.add(new PayerResolver.Candidate(uuid, tier, true,
-                player != null && EmeraldCurrency.INSTANCE.balance(player) >= required));
+                player != null && Currencies.active().balance(player) >= required));
     }
 
     private static boolean cooldownsReady(CrimeWorldData world, UUID victim, @Nullable UUID payer,

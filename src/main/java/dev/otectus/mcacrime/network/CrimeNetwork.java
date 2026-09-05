@@ -5,12 +5,16 @@ import dev.otectus.mcacrime.McaCrimeConfig;
 import dev.otectus.mcacrime.captivity.CustodyRecord;
 import dev.otectus.mcacrime.crime.Band;
 import dev.otectus.mcacrime.engine.CrimeState;
-import dev.otectus.mcacrime.enforcement.LegalTarget;
+import dev.otectus.mcacrime.enforcement.OutlawResolver;
+import dev.otectus.mcacrime.enforcement.RestraintVisualState;
+import dev.otectus.mcacrime.item.weapon.WeaponPolicySnapshot;
 import dev.otectus.mcacrime.jail.JailService;
+import dev.otectus.mcacrime.job.CriminalJob;
 import dev.otectus.mcacrime.state.world.CrimeWorldData;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.entity.Entity;
 import net.minecraftforge.network.NetworkRegistry;
 import net.minecraftforge.network.PacketDistributor;
 import net.minecraftforge.network.simple.SimpleChannel;
@@ -25,9 +29,10 @@ import java.util.UUID;
  */
 public final class CrimeNetwork {
 
-    // 6: added the restraint sync pair. A client that does not know how to draw an arrest would
-    // otherwise sit silently mismatched against a server that expects it to.
-    private static final String PROTOCOL_VERSION = "6";
+    // 7: the restraint sync pair now carries a RestraintVisualType and covers NPCs as well as
+    // players. A 6 client would read the enum byte as part of the guard entity id and draw the rope to
+    // whatever entity that happened to be, so the two versions must not talk to each other.
+    private static final String PROTOCOL_VERSION = "7";
 
     public static final SimpleChannel CHANNEL = NetworkRegistry.newSimpleChannel(
             new ResourceLocation(McaCrime.MOD_ID, "main"),
@@ -77,6 +82,12 @@ public final class CrimeNetwork {
         CHANNEL.registerMessage(nextId++, RestraintBulkSyncS2CPacket.class,
                 RestraintBulkSyncS2CPacket::encode, RestraintBulkSyncS2CPacket::decode,
                 RestraintBulkSyncS2CPacket::handle);
+        CHANNEL.registerMessage(nextId++, WeaponPolicyS2CPacket.class,
+                WeaponPolicyS2CPacket::encode, WeaponPolicyS2CPacket::decode,
+                WeaponPolicyS2CPacket::handle);
+        CHANNEL.registerMessage(nextId++, CriminalJobSyncS2CPacket.class,
+                CriminalJobSyncS2CPacket::encode, CriminalJobSyncS2CPacket::decode,
+                CriminalJobSyncS2CPacket::handle);
     }
 
     /** Pushes a guard challenge, or its closure, to the challenged player alone. */
@@ -106,7 +117,7 @@ public final class CrimeNetwork {
                 CrimeState.getBand(player),
                 CrimeState.isWanted(player),
                 JailService.remainingTicks(player),
-                LegalTarget.isLegalTarget(player)));
+                OutlawResolver.resolve(player).lawfulCombatTarget()));
     }
 
     /** Pushes the player's own captivity status (held? lawful? captor? cap remaining?) to their client. */
@@ -150,13 +161,62 @@ public final class CrimeNetwork {
      * <p>Broadcast rather than sent to the subject, because cuffs and a lead are things other people
      * look at. Display-only, like every other sync on this channel.
      */
-    public static void broadcastRestraint(UUID subject, boolean restrained, int guardEntityId) {
-        CHANNEL.send(PacketDistributor.ALL.noArg(),
-                new RestraintSyncS2CPacket(subject, restrained, guardEntityId));
+    public static void broadcastRestraint(UUID subject, RestraintVisualState state) {
+        CHANNEL.send(PacketDistributor.ALL.noArg(), RestraintSyncS2CPacket.of(subject, state));
     }
 
-    /** Sends every currently restrained player to one joining client. */
-    public static void sendRestraintBulk(ServerPlayer to, Map<UUID, Integer> restrained) {
+    /**
+     * Sends one subject's restraint state to a single client.
+     *
+     * <p>What a client that has just started tracking an entity needs: it missed the broadcast, and
+     * telling everybody again for its benefit would be a broadcast per chunk load.
+     */
+    public static void sendRestraintTo(ServerPlayer to, UUID subject, RestraintVisualState state) {
+        CHANNEL.send(PacketDistributor.PLAYER.with(() -> to), RestraintSyncS2CPacket.of(subject, state));
+    }
+
+    /**
+     * Tells one client which weapons the server counts as drawn.
+     *
+     * <p>Sent on login, because the client's own COMMON file is not the one being gated on and a
+     * button that disagrees with the server is worse than no button.
+     */
+    public static void sendWeaponPolicy(ServerPlayer to) {
+        CHANNEL.send(PacketDistributor.PLAYER.with(() -> to),
+                new WeaponPolicyS2CPacket(WeaponPolicySnapshot.fromConfig()));
+    }
+
+    /** Re-sends the policy to everybody after a config reload, so no client keeps the old lists. */
+    public static void broadcastWeaponPolicy(MinecraftServer server) {
+        if (server == null) {
+            return;
+        }
+        WeaponPolicyS2CPacket packet = new WeaponPolicyS2CPacket(WeaponPolicySnapshot.fromConfig());
+        CHANNEL.send(PacketDistributor.ALL.noArg(), packet);
+    }
+
+    /** Tells one tracking client that this villager has a criminal job. */
+    public static void sendCriminalJob(ServerPlayer to, UUID villager, CriminalJob job) {
+        CHANNEL.send(PacketDistributor.PLAYER.with(() -> to), new CriminalJobSyncS2CPacket(villager, job));
+    }
+
+    /**
+     * Tells everybody tracking this villager what its criminal job now is.
+     *
+     * <p>Tracking rather than everybody, because the client only needs the answer for a villager it
+     * can see and could otherwise be handed a map of every fence on the server. {@link CriminalJob#NONE}
+     * is a real message here: it is how a client is told to forget one.
+     */
+    public static void broadcastCriminalJob(Entity villager, CriminalJob job) {
+        if (villager == null) {
+            return;
+        }
+        CHANNEL.send(PacketDistributor.TRACKING_ENTITY.with(() -> villager),
+                new CriminalJobSyncS2CPacket(villager.getUUID(), job));
+    }
+
+    /** Sends every currently restrained subject to one joining client. */
+    public static void sendRestraintBulk(ServerPlayer to, Map<UUID, RestraintVisualState> restrained) {
         CHANNEL.send(PacketDistributor.PLAYER.with(() -> to), new RestraintBulkSyncS2CPacket(restrained));
     }
 }

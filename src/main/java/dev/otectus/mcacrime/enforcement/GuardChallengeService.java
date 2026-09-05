@@ -12,6 +12,8 @@ import dev.otectus.mcacrime.economy.FineCalculator;
 import dev.otectus.mcacrime.economy.FineService;
 import dev.otectus.mcacrime.economy.SurrenderService;
 import dev.otectus.mcacrime.engine.CrimeState;
+import dev.otectus.mcacrime.ledger.CrimeContext;
+import dev.otectus.mcacrime.ledger.CrimeFlag;
 import dev.otectus.mcacrime.ledger.CrimeRecord;
 import dev.otectus.mcacrime.memory.ReportService;
 import dev.otectus.mcacrime.network.CrimeNetwork;
@@ -24,9 +26,11 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.LivingEntity;
 
 import javax.annotation.Nullable;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
 import java.util.OptionalLong;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -134,7 +138,7 @@ public final class GuardChallengeService {
                 McaCrimeConfig.COMMON.fineBase.get(), McaCrimeConfig.COMMON.finePerHeat.get(),
                 McaCrimeConfig.COMMON.jailableHeatThreshold.get(),
                 McaCrimeConfig.COMMON.blueFineMultiplier.get(), McaCrimeConfig.COMMON.redCanPayFine.get());
-        boolean finable = McaCrimeConfig.COMMON.enableFines.get() && fine.isPresent();
+        boolean finable = finable(McaCrimeConfig.COMMON.enableFines.get(), fine, mandatoryFlagsOf(open));
 
         GuardChallenge challenge = new GuardChallenge(UUID.randomUUID(), guard.getUUID(), player.getUUID(),
                 jurisdiction, open.size(), fine.orElse(0L), finable, now,
@@ -365,5 +369,30 @@ public final class GuardChallengeService {
     /** The band a challenge is being issued against, for dialogue context. */
     static Band bandOf(ServerPlayer player) {
         return CrimeState.getBand(player);
+    }
+
+    /**
+     * Whether this encounter may be settled with money (0.5.1).
+     *
+     * <p>Pure, and extracted from the challenge for one reason: spec §"Guards and thief arrests" says
+     * a caught-in-the-act offender is <em>always</em> jail-eligible, which means the fine branch has to
+     * be closed by a fact about the record rather than by the amount. Folding that into the boolean
+     * expression it used to be would have left the rule true only for as long as nobody moved the
+     * line.
+     *
+     * @param flags the union of the flags on every unresolved record the offender carries
+     */
+    public static boolean finable(boolean finesEnabled, OptionalLong fine, Set<CrimeFlag> flags) {
+        return finesEnabled && fine.isPresent()
+                && (flags == null || !flags.contains(CrimeFlag.MANDATORY_CUSTODY));
+    }
+
+    /** The flags carried by every still-actionable record, collapsed into one set. */
+    private static Set<CrimeFlag> mandatoryFlagsOf(List<CrimeRecord> open) {
+        EnumSet<CrimeFlag> flags = EnumSet.noneOf(CrimeFlag.class);
+        for (CrimeRecord record : open) {
+            flags.addAll(CrimeFlag.decode(record.context().get(CrimeContext.FLAGS)));
+        }
+        return flags;
     }
 }

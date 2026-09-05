@@ -1,5 +1,7 @@
 package dev.otectus.mcacrime.captivity;
 
+import dev.otectus.mcacrime.enforcement.OutlawResolver;
+import dev.otectus.mcacrime.enforcement.RestraintSync;
 import dev.otectus.mcacrime.McaCrimeConfig;
 import dev.otectus.mcacrime.action.ActionSessionManager;
 import dev.otectus.mcacrime.action.CancelReason;
@@ -98,6 +100,34 @@ public final class CustodyService {
             return false; // commit-time invariant: a race cannot bypass the start check
         }
         boolean captiveIsPlayer = captiveEntity instanceof ServerPlayer;
+
+        // A citizen's arrest is not a kidnapping (0.5.1). Restraining somebody the law already
+        // authorises force against, while a price stands on their head, is the thing the whole alive
+        // route exists to make possible -- and charging the hunter with kidnapping for it is exactly
+        // the "hunter punished for lawful force" bug this release was opened to kill. Routed to the
+        // lawful path instead, which writes no kidnap record, posts no EntityKidnappedEvent, and does
+        // not count against the captor's unlawful-captive allowance.
+        if (captiveIsPlayer && McaCrimeConfig.COMMON.payForAliveCapture.get()
+                && OutlawResolver.resolve((ServerPlayer) captiveEntity).bountyEligible()) {
+            boolean taken = captureLawful(server, (ServerPlayer) captiveEntity,
+                    CustodyOwner.bountyHunter(captor.getUUID()), captiveEntity.blockPosition(),
+                    level.dimension().location());
+            if (taken) {
+                // captureLawful writes RestraintType.NONE, which is right for a guard's arrest and
+                // wrong here: the hunter did put cuffs or rope on them, and the client draws what the
+                // record says.
+                CustodyRecord lawful = CrimeWorldData.get(server).getCustody(captiveUuid);
+                if (lawful != null) {
+                    lawful.setRestraint(restraint);
+                    CrimeWorldData.get(server).putCustody(lawful);
+                }
+                RestraintSync.broadcast(captiveEntity);
+                CrimeSounds.restrainApplied(captiveEntity);
+                captor.sendSystemMessage(Component.translatable("mcacrime.bounty.citizens_arrest"));
+            }
+            return taken;
+        }
+
         long start = CrimeCapabilities.get(captor).map(PlayerCrimeData::getOnlineTicksLived).orElse(0L);
         CustodyRecord record = new CustodyRecord(captiveUuid, captiveIsPlayer, false,
                 CustodyOwner.kidnapper(captor.getUUID()), restraint, start,
@@ -111,6 +141,9 @@ public final class CustodyService {
         } else {
             McaCompat.leashTo(captiveEntity, captor); // best-effort physical hold for an NPC
         }
+        // Cuffs and rope are drawn from a client cache, and the cache only learns about a villager
+        // when somebody says so. A capture is exactly such a moment.
+        RestraintSync.broadcast(captiveEntity);
 
         // The captor is the criminal: commit the kidnap crime (Karma/Heat + ledger + witnessed events).
         CrimeDetector.commitDirect(captor, CrimeIds.KIDNAP, captiveEntity, level,
@@ -174,6 +207,40 @@ public final class CustodyService {
     }
 
     /**
+     * Takes a villager into <b>lawful</b> custody on behalf of a guard or a jail (0.5.1).
+     *
+     * <p>The NPC twin of {@link #captureLawful}, and separate from it for the same reason that method
+     * is separate from {@link #capture}: almost everything the player path does is about a player.
+     * There is no capability to write a {@code heldByRef} into, no self-status packet to send, and no
+     * captive screen to open — what a restrained villager needs is the record, the restraint, and a
+     * client that knows to draw it.
+     *
+     * <p>It deliberately does <em>not</em> post {@link EntityKidnappedEvent}. That event's contract is
+     * unlawful captivity, and an arrest firing it would tell every listener — including any companion
+     * mod reading it as evidence of a crime — that the guard had just kidnapped somebody.
+     *
+     * @return false when the villager is already held by anybody, lawfully or not
+     */
+    public static boolean captureNpcLawful(MinecraftServer server, LivingEntity captive, CustodyOwner owner,
+                                           RestraintType restraint, @Nullable BlockPos holdPos,
+                                           @Nullable ResourceLocation holdDim) {
+        if (server == null || captive == null || owner == null || captive instanceof ServerPlayer) {
+            return false;
+        }
+        UUID captiveUuid = captive.getUUID();
+        if (CustodyRegistry.isCaptive(server, captiveUuid)) {
+            return false;
+        }
+        CustodyRecord record = new CustodyRecord(captiveUuid, false, true, owner,
+                restraint == null ? RestraintType.NONE : restraint, 0L, holdPos, holdDim);
+        CrimeWorldData.get(server).putCustody(record);
+        // Same reason as the kidnapping path: cuffs are drawn from a client cache that only learns
+        // about a villager when somebody tells it.
+        RestraintSync.broadcast(captive);
+        return true;
+    }
+
+    /**
      * Rewrites who holds a lawful captive, without releasing and re-taking them.
      *
      * <p>Used at the end of an escort: custody passes from the arresting guard to the jail itself, and
@@ -229,6 +296,11 @@ public final class CustodyService {
             if (npc != null) {
                 McaCompat.clearLeash(npc); // never delete the captive (§8.4) — only free it
             }
+        }
+        if (!record.isCaptivePlayer()) {
+            // By id, not by entity: the record may outlive the loaded villager, and a client that saw
+            // the cuffs must be told they are gone even when the chunk is asleep.
+            RestraintSync.broadcast(server, captiveUuid);
         }
 
         if (captivePlayer != null) {
@@ -354,7 +426,7 @@ public final class CustodyService {
                 // The HUD channel bar, not an action-bar line that overwrites itself every second.
                 CrimeNetwork.sendActionProgress(captive, new ActionProgressS2CPacket(escapeBarId(record),
                         "gui.mcacrime.action.escape", progress, required,
-                        ActionProgressS2CPacket.Phase.PROGRESS, ""));
+                        ActionProgressS2CPacket.Phase.PROGRESS, "", Component.empty()));
             }
         }
         long capTicks = (long) McaCrimeConfig.COMMON.maxCaptivityRealMinutes.get() * 1200L;
@@ -508,6 +580,9 @@ public final class CustodyService {
                 if (holder != null) {
                     McaCompat.leashTo(npc, holder);
                 }
+                // ...and re-announce it. Clients tracking a captive that was virtual while they were
+                // watching have nothing in their cache to draw from.
+                RestraintSync.broadcast(npc);
             }
 
             record.setRealTicksHeld(record.getRealTicksHeld() + elapsedTicks);

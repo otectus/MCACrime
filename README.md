@@ -193,6 +193,10 @@ policy, what changes about village identity, and what an old jar does with a new
 | [MCA_CRIME_SUITE_INTEGRATION_IMPLEMENTATION_PLAN.md](MCA_CRIME_SUITE_INTEGRATION_IMPLEMENTATION_PLAN.md) | the suite integration design |
 | [PHASE_2](PHASE_2_VERIFICATION.md) · [PHASE_3](PHASE_3_VERIFICATION.md) · [PHASE_4](PHASE_4_VERIFICATION.md) · [PHASE_5](PHASE_5_VERIFICATION.md) | the in-world checklists that must pass before a release is tagged |
 
+## Credits
+
+Restraint item artwork (open cuffs, locked cuffs, rope) by TheWiggleDuck.
+
 ## Building
 
 Needs a JDK 17 on `JAVA_HOME` (ForgeGradle 6 does not tolerate a newer JVM as the Gradle daemon).

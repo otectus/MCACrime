@@ -5,8 +5,16 @@ import dev.otectus.mcacrime.crime.type.CrimeIds;
 import dev.otectus.mcacrime.ledger.CrimeContext;
 import dev.otectus.mcacrime.ledger.CrimeRecord;
 import dev.otectus.mcacrime.ledger.Resolution;
+import dev.otectus.mcacrime.bounty.BountyResolutionType;
+import dev.otectus.mcacrime.job.CriminalJob;
+import dev.otectus.mcacrime.ledger.Warrant;
+import dev.otectus.mcacrime.state.world.BountyClaimRecord;
+import dev.otectus.mcacrime.state.world.BountyContractRecord;
 import dev.otectus.mcacrime.state.world.CrimeDataMigrations;
+import dev.otectus.mcacrime.state.world.CriminalVillagerRecord;
 import dev.otectus.mcacrime.state.world.CrimeWorldData;
+import dev.otectus.mcacrime.state.world.StolenGoodsRecord;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.Tag;
@@ -19,6 +27,7 @@ import java.util.UUID;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -93,7 +102,9 @@ class CrimeDataMigrationTest {
 
         CompoundTag migrated = CrimeDataMigrations.migrate(five);
 
-        assertEquals(6, CrimeDataMigrations.schemaOf(migrated));
+        // migrate() runs every remaining step, so the stamp is whatever this build writes; what this
+        // test is about is the roster below it, not the number.
+        assertEquals(CrimeDataMigrations.CURRENT_SCHEMA, CrimeDataMigrations.schemaOf(migrated));
         assertTrue(migrated.contains("holdingCells", Tag.TAG_LIST));
         assertEquals(0, migrated.getList("holdingCells", Tag.TAG_COMPOUND).size(),
                 "an assigned jail must never be mistaken for a cell this mod built");
@@ -295,5 +306,128 @@ class CrimeDataMigrationTest {
         data.addRecord(CrimeRecord.load(legacyRecord(UUID.randomUUID(), 1, false)));
         assertEquals(0, data.ledgerSize(), "and nothing may be written into it");
         assertEquals(future, data.save(new CompoundTag()));
+    }
+
+    // ------------------------------------------------------------------ schema 7 (0.5.1)
+
+    private static final ResourceLocation ASSAULT = new ResourceLocation("mcacrime", "assault");
+
+    /**
+     * A world saved by 0.5.0 has none of the social-crime collections, and must load with all six
+     * empty rather than with anything synthesised from what it does have.
+     */
+    @Test
+    void aSchemaSixStoreLoadsWithEmptySocialCrimeCollections() {
+        CompoundTag store = legacyStore(legacyRecord(UUID.randomUUID(), 2, true));
+        store.putInt(CrimeDataMigrations.TAG_SCHEMA, CrimeDataMigrations.SCHEMA_0_5_0);
+
+        CrimeWorldData data = CrimeWorldData.load(store);
+
+        assertFalse(data.isReadOnlyFutureData());
+        assertTrue(data.criminalVillagers().isEmpty());
+        assertTrue(data.bountyContracts().isEmpty());
+        assertEquals(null, data.warrant(OFFENDER));
+        assertEquals(null, data.criminalVillager(OFFENDER));
+        assertEquals(0L, data.fenceRestockDay(OFFENDER));
+        assertTrue(data.stolenGoodsByThief(OFFENDER).isEmpty());
+    }
+
+    /** Migration stamps 7 without inventing a single entry in any of the six new collections. */
+    @Test
+    void migratingToSevenAddsNoData() {
+        CompoundTag store = legacyStore(legacyRecord(UUID.randomUUID(), 2, true));
+        store.putInt(CrimeDataMigrations.TAG_SCHEMA, CrimeDataMigrations.SCHEMA_0_5_0);
+
+        CompoundTag migrated = CrimeDataMigrations.migrate(store);
+
+        assertEquals(CrimeDataMigrations.SCHEMA_0_5_1, migrated.getInt(CrimeDataMigrations.TAG_SCHEMA));
+        assertFalse(migrated.contains("criminalVillagers"));
+        assertFalse(migrated.contains("warrants"));
+        assertFalse(migrated.contains("stolenGoods"));
+    }
+
+    @Test
+    void everySocialCrimeCollectionRoundTrips() {
+        CrimeWorldData data = new CrimeWorldData();
+        UUID thief = UUID.randomUUID();
+        UUID victim = UUID.randomUUID();
+        UUID contractId = UUID.randomUUID();
+
+        CriminalVillagerRecord criminal = new CriminalVillagerRecord(thief, CriminalJob.THIEF, 3L, 40L, 5L,
+                true, 12345L, "mca:farmer");
+        data.putCriminalVillager(criminal);
+        // Stolen goods are deliberately absent from this round-trip. Loading one reaches
+        // ItemStack.EMPTY, whose class initialiser needs the item registry, and there is no Minecraft
+        // bootstrap on this test classpath. The record's own persistence is covered in-game instead;
+        // what is testable here without a registry -- the by-thief index -- is asserted below.
+        Warrant warrant = Warrant.open(UUID.randomUUID(), OFFENDER, ASSAULT, UUID.randomUUID(), 100L);
+        data.putWarrant(warrant);
+        BountyClaimRecord claim = new BountyClaimRecord(OFFENDER, warrant.id(), warrant.revision(),
+                victim, 250L, 1000L, BountyResolutionType.CAPTURED_ALIVE);
+        assertTrue(data.putBountyClaimIfAbsent("claim-key", claim));
+        BountyContractRecord contract = new BountyContractRecord(contractId, OFFENDER, "Somebody",
+                warrant.id(), warrant.revision(), 250L, true, true, 5000L);
+        data.putBountyContract(contract);
+        data.setFenceRestockDay(victim, 9L);
+
+        CrimeWorldData loaded = CrimeWorldData.load(data.save(new CompoundTag()));
+
+        assertEquals(criminal, loaded.criminalVillager(thief));
+        assertEquals(warrant, loaded.warrant(OFFENDER));
+        assertEquals(claim, loaded.bountyClaim("claim-key"));
+        assertEquals(1, loaded.bountyContracts().size());
+        assertEquals(contract, loaded.bountyContracts().iterator().next());
+        assertEquals(9L, loaded.fenceRestockDay(victim));
+    }
+
+    /** The by-thief index is derived, so it must be rebuilt on load and maintained on removal. */
+    @Test
+    void removingStolenGoodsKeepsTheIndexInStep() {
+        CrimeWorldData data = new CrimeWorldData();
+        UUID thief = UUID.randomUUID();
+        UUID transaction = UUID.randomUUID();
+        // A currency-only theft: the stack is left null rather than ItemStack.EMPTY, which cannot be
+        // class-initialised without an item registry. Nothing here reads it.
+        data.putStolenGoods(new StolenGoodsRecord(transaction, thief, UUID.randomUUID(), null, 5L, 10L));
+        assertEquals(1, data.stolenGoodsByThief(thief).size());
+
+        assertNotNull(data.removeStolenGoods(transaction));
+        assertTrue(data.stolenGoodsByThief(thief).isEmpty());
+        assertEquals(null, data.removeStolenGoods(transaction), "a second removal finds nothing");
+    }
+
+    /** A claim key may be recorded exactly once. This is the whole anti-double-pay mechanism. */
+    @Test
+    void aClaimKeyIsRecordedOnlyOnce() {
+        CrimeWorldData data = new CrimeWorldData();
+        BountyClaimRecord first = new BountyClaimRecord(OFFENDER, UUID.randomUUID(), 1L, UUID.randomUUID(),
+                100L, 10L, BountyResolutionType.KILLED);
+        BountyClaimRecord second = new BountyClaimRecord(OFFENDER, first.warrantId(), 1L, UUID.randomUUID(),
+                100L, 20L, BountyResolutionType.KILLED);
+        assertTrue(data.putBountyClaimIfAbsent("k", first));
+        assertFalse(data.putBountyClaimIfAbsent("k", second));
+        assertEquals(first, data.bountyClaim("k"));
+    }
+
+    /**
+     * An over-long list is truncated at the cap rather than throwing, and a malformed entry is skipped
+     * rather than costing the world every other criminal in it.
+     */
+    @Test
+    void overCapAndMalformedEntriesAreSurvivable() {
+        CompoundTag store = legacyStore();
+        store.putInt(CrimeDataMigrations.TAG_SCHEMA, CrimeDataMigrations.CURRENT_SCHEMA);
+        ListTag criminals = new ListTag();
+        // One past the 4096 cap, plus one entry with no villager id at the front.
+        criminals.add(new CompoundTag());
+        for (int i = 0; i < 4200; i++) {
+            criminals.add(new CriminalVillagerRecord(UUID.randomUUID(), CriminalJob.FENCE, 1L, 0L, 1L,
+                    false, i, null).save());
+        }
+        store.put("criminalVillagers", criminals);
+
+        CrimeWorldData data = CrimeWorldData.load(store);
+
+        assertEquals(4096, data.criminalVillagers().size());
     }
 }

@@ -37,8 +37,20 @@ import net.minecraft.resources.ResourceLocation;
  */
 public final class CrimeDataMigrations {
 
+    /** The schema 0.5.0 wrote: everything up to and including the holding-cell roster. */
+    public static final int SCHEMA_0_5_0 = 6;
+
+    /**
+     * The schema 0.5.1 writes. It adds six collections -- criminal villagers, stolen goods, warrants,
+     * bounty claims, bounty contracts and fence restock stamps -- and nothing else. Every one of them
+     * defaults to empty, which is why {@link #v6to7} writes no lists: absent already reads as empty
+     * everywhere, and emitting six empty lists into every existing world would grow the file to say
+     * nothing.
+     */
+    public static final int SCHEMA_0_5_1 = 7;
+
     /** The schema this build writes. */
-    public static final int CURRENT_SCHEMA = 6;
+    public static final int CURRENT_SCHEMA = SCHEMA_0_5_1;
 
     /** Root NBT key holding the schema integer. Absent means 0. */
     public static final String TAG_SCHEMA = "schema";
@@ -85,6 +97,9 @@ public final class CrimeDataMigrations {
         }
         if (schema < 6) {
             working = v5to6(working);
+        }
+        if (schema < 7) {
+            working = v6to7(working);
         }
         working.putInt(TAG_SCHEMA, CURRENT_SCHEMA);
         return working;
@@ -260,6 +275,22 @@ public final class CrimeDataMigrations {
             out.put("holdingCells", new ListTag());
         }
         out.putInt(TAG_SCHEMA, 6);
+        return out;
+    }
+
+    /**
+     * Adds the 0.5.1 social-crime collections. All six start empty and none of them is written here.
+     *
+     * <p>The temptation is to seed {@code criminalVillagers} from villagers who already have crime
+     * records against them, or {@code warrants} from players who are currently Wanted. Neither is
+     * defensible. A criminal job is an assignment this mod makes deliberately and can un-make; deriving
+     * one from history would make a villager a thief because a player once hit them. A warrant carries
+     * an id and a revision that bounty claims are keyed on forever, and synthesising one would mint a
+     * claim key for a wanted state nobody was ever charged under.
+     */
+    public static CompoundTag v6to7(CompoundTag tag) {
+        CompoundTag out = tag.copy();
+        out.putInt(TAG_SCHEMA, 7);
         return out;
     }
 

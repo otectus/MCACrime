@@ -10,10 +10,125 @@ Compatibility: Minecraft 1.20.1 · Forge 47.x · requires MCA Reborn `[7.6,8)`, 
 dropped it. Optional: MCA: Reputation `[0.2,)`; the integration itself needs `0.3.0`, and an older
 companion degrades to the built-in store rather than failing the load.
 
-## [0.5.0] — unreleased
+## [0.5.0] — 2026-09-02
 
 Armed interactions. The crime menu now opens the way the fiction already implied it should: by
 drawing a weapon on somebody.
+
+## [0.5.1] — unreleased
+
+Criminal NPCs and their social ecology. Restrained villagers render with arms behind their back
+and wrist restraints on every tracking client. Civilians freeze when threatened; armed villagers
+resist. Thieves scout, mug, and flee autonomously; fences trade contraband with pricing that
+reflects community standing and police attention. A unified outlaw authority governs guard
+hostility, assault legality, and bounty eligibility. Bounties for killing or delivering escaped
+prisoners reward players without gaming through repeated suicide.
+
+### Added
+
+- **Restraint artwork.** The three restraint items (open cuffs, locked cuffs, rope) now use custom
+  icons by TheWiggleDuck instead of placeholder textures.
+- **Restrained villager pose and wrist visuals.** Restrained MCA villagers hold both arms behind
+  their back on all tracking clients, including those joining after the restraint was applied.
+  Cuffed and rope-bound wrists render with distinct visuals.
+- **Weapon-point compliance.** Unarmed civilian MCA villagers freeze in place and move more slowly
+  during an active coercive crime. Armed villagers (guards, archers, weapon-holders, tagged combat
+  NPCs) resist instead. Cancelling the coercive action restores full movement.
+- **Criminal occupation system.** Thief and Fence are persisted criminal jobs, assigned to
+  villagers through an optional sweep and shown as vanilla professions when enabled by config.
+- **Autonomous thieves.** Thieves scout for targets, approach and threaten players, mug them for
+  currency and one eligible inventory item (with protection for hotbar, armor, and off-hand by
+  config), and flee. Mugging displays a timed HUD channel. Drawing a weapon or guard intervention
+  aborts the mug before any theft occurs. Stolen goods are persisted by thief and owner, recovered
+  on the thief's death or arrest, and protected from duplication on save/reload cycles.
+- **Contraband trading.** Fences trade tag-driven illicit goods with pricing that adjusts for the
+  buyer's karma, Heat, and Wanted status: discounts for ally NPCs and surcharges for criminals and
+  fugitives, with Locks Reforged lock/pick support (optional, degrades gracefully). Fence stock
+  cycles on a configurable day interval. Fences accept trade unarmed when opened from the Crime
+  menu.
+- **Guard intervention in NPC crime.** Guards pursue thieves, arrest them, apply restraints, escort
+  them to jail, and release them after a sentence. Caught-in-the-act mugging creates mandatory
+  custody that cannot be paid off with a fine.
+- **Unified outlaw authority.** A single `OutlawResolver` now governs guard hostility, whether
+  force is lawful, and bounty eligibility, so no player gains crime liability for force the law
+  itself permits against an outlaw.
+- **Bounty system.** Qualified kills of eligible outlaws can result in configurable bounty rewards
+  (enabled by default). Bounty claims are keyed on warrant id + revision to prevent double-payment
+  across respawns and failed arrests. Alive captures pay a multiplier of the kill reward. Optional
+  MCA: Quests integration publishes bounties as guard-given contracts that never double-pay.
+- **Crime button at bottom of MCA screen.** The Crime button now sits at the bottom of MCA's
+  villager interaction screen (configurable position), is disabled without a drawn weapon, and
+  shows a tooltip explaining why.
+- **Crime button server validation.** The server re-validates the weapon requirement when the menu
+  packet arrives, so client and server always agree on what is permitted.
+- **Weapon policy sync.** The server sends the exact weapon classification policy to every client on
+  login and `/crime reload`, so the Crime button state matches the server's rules.
+- **Fence unarmed access.** Fences can be traded with unarmed through the Crime menu, bypassing the
+  weapon requirement gate only for fence-specific trades.
+- **Thief command suite.** `/crime job assign thief` and `/crime job clear` manage criminal
+  assignments; `/crime job list` and `/crime debug thieves` report state.
+- **Warrant system.** Warrants track open bounties per outlaw with revisions bumped on each new
+  qualifying crime, preventing bounty claims from one warrant across multiple versions.
+- **Bounty command suite.** `/crime warrant <player>` and `/crime bounty <player>` query outlaw
+  status and bounty quotes; `/crime debug bounty` reports active bounties.
+- **New config sections.** `criminalJobs`, `criminalJobs.thief`, `criminalJobs.fence`, and
+  `bounty` sections added with every tuning value (see CONFIG.md for the full key list). All
+  numeric keys are validated by `/crime validate`.
+- **New entity tags.** `mcacrime:always_resists_weapon_threats`, `mcacrime:never_resists_weapon_threats`,
+  and `mcacrime:armed_villager_roles` allow datapacks to customize threat compliance per entity type.
+- **New item tags.** `mcacrime:illicit_goods`, `mcacrime:fence_sells`, `mcacrime:fence_buys`,
+  `mcacrime:fence_blacklist`, and `mcacrime:thief_theft_immune` allow datapacks to drive fence
+  inventory and theft exceptions without editing config.
+- **`debugLogging` now active.** The config key now actually gates debug output instead of being
+  read but unused.
+- **Network protocol 6 → 7.** Restraint sync packets changed shape to include visual type; two new
+  S2C packets added for weapon policy and criminal job sync.
+- **World data schema 6 → 7.** New collections for criminal villagers, stolen goods, bounty claims,
+  bounty contracts, warrants, and fence restock timers. A maintenance sweep every 6000 ticks expires
+  stale records and old bounty claims; optional MCA: Quests integration declares bounty contracts.
+
+### Changed
+
+- **Mixin retargeted.** The single mixin moved from `PlayerModel.setupAnim` TAIL to
+  `LivingEntityRenderer.render`, still exactly one `@Inject`, now applying to both player and
+  villager restraint poses.
+- **MCA interaction Crime button positioning.** Anchor moved from top-right to bottom, automatically
+  placed above the hotbar and any other HUD elements. Configurable via `client.crimeButtonAnchor`.
+- **Crime menu weapon gate.** Moved from opening-the-menu stage (now just disabled+tooltip) to the
+  `Mug` action itself and to permission checks on coercive handlers, so unarmed players see why they
+  cannot act rather than seeing a hidden menu.
+- **Weapon policy client-server consistency.** Client weapon rule snapshot is now shipped on login
+  and reload so the Crime button never lies about what the server will permit.
+
+### Fixed
+
+- **Late-joining clients see restrained pose.** Restrained villagers now sync their pose state to
+  clients who join after they were already restrained, not just to those watching from the moment
+  of restraint.
+- **Restraint compliance gate.** Weapons drawn during a coercive mug are now checked every tick; the
+  action cancels if a weapon is removed mid-mug.
+- **HUD outcome line displays formatted values instead of placeholders.** The action progress bar's
+  outcome text used to show a literal `%s` instead of the mug success amount or other formatted
+  values — a pre-existing defect from when the action HUD was introduced. `ActionProgressS2CPacket`
+  now carries `outcomeText` as a pre-formatted `Component` computed from `ActionResult.message()`,
+  so the client renders the complete outcome without re-translating the key.
+
+### Notes
+
+- **Restraint artwork credit.** The three new restraint item textures were created by
+  TheWiggleDuck.
+- **Seven new event types** under `api/event`: `BountyResolvedEvent`, `CrimeAttemptEvent`,
+  `CrimeIntentEvent`, `CriminalJobChangedEvent`, `FenceTradeEvent`, `NpcCrimeCommittedEvent`, and
+  `WarrantChangedEvent` carry bounty resolution, warrant changes, and fence trades for companion mods.
+- **Two new abstraction interfaces** — `EconomicCrimeActor` and `InventoryCrimeActor` — make NPC
+  crime pluggable without widening `CrimeActor` itself.
+- **Locks Reforged optional support.** When installed and enabled, fences offer locks and picks
+  with tiered pricing; the integration degrades to the tag-driven default when absent.
+- **MCA: Quests optional support.** When installed and enabled, bounties are published as guard-given
+  quests with completion tracked through the Crime signal system; the integration degrades to direct
+  bounties when absent.
+- **Dedicated server tested.** Builds verified against MCA Reborn 7.6.20, 7.7.0-beta.2, and
+  7.7.1-alpha.2 with zero client class leakage to the server.
 
 ### Added
 

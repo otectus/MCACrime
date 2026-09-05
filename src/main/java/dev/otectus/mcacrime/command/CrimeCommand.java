@@ -5,6 +5,8 @@ import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.context.CommandContext;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import dev.otectus.mcacrime.McaCrime;
+import dev.otectus.mcacrime.bounty.BountyClaimLedger;
+import dev.otectus.mcacrime.bounty.BountyService;
 import dev.otectus.mcacrime.captivity.CustodyRecord;
 import dev.otectus.mcacrime.captivity.CustodyRegistry;
 import dev.otectus.mcacrime.captivity.CustodyReleaseReason;
@@ -12,28 +14,41 @@ import dev.otectus.mcacrime.captivity.CustodyService;
 import dev.otectus.mcacrime.api.McaCrimeApi;
 import dev.otectus.mcacrime.action.CrimeActionIds;
 import dev.otectus.mcacrime.action.CrimeActionService;
+import dev.otectus.mcacrime.compat.LocksReforgedBridge;
 import dev.otectus.mcacrime.compat.McaCompat;
+import dev.otectus.mcacrime.compat.McaQuestsBridge;
 import dev.otectus.mcacrime.compat.ReputationBridge;
 import dev.otectus.mcacrime.config.ConfigValidator;
 import dev.otectus.mcacrime.crime.Band;
 import dev.otectus.mcacrime.crime.KarmaSource;
 import dev.otectus.mcacrime.crime.type.CrimeTypeRegistry;
+import dev.otectus.mcacrime.economy.Currencies;
 import dev.otectus.mcacrime.economy.FineService;
 import dev.otectus.mcacrime.economy.SurrenderService;
 import dev.otectus.mcacrime.engine.CrimeState;
 import dev.otectus.mcacrime.McaCrimeConfig;
 import dev.otectus.mcacrime.enforcement.LegalTarget;
 import dev.otectus.mcacrime.jail.JailAnchor;
+import dev.otectus.mcacrime.ai.thief.ThiefBehaviorController;
+import dev.otectus.mcacrime.ai.thief.ThiefBehaviorService;
+import dev.otectus.mcacrime.job.CriminalJob;
+import dev.otectus.mcacrime.job.WorldCriminalJobService;
 import dev.otectus.mcacrime.jail.JailRegistry;
 import dev.otectus.mcacrime.jail.JailService;
 import dev.otectus.mcacrime.jail.ReleaseReason;
 import dev.otectus.mcacrime.integration.CrimeIntegrationOperation;
 import dev.otectus.mcacrime.ledger.CrimeLedger;
 import dev.otectus.mcacrime.ledger.CrimeRecord;
+import dev.otectus.mcacrime.ledger.Warrant;
+import dev.otectus.mcacrime.ledger.WarrantService;
 import dev.otectus.mcacrime.mug.MuggingService;
+import dev.otectus.mcacrime.mug.npc.NpcMugSession;
+import dev.otectus.mcacrime.mug.npc.NpcMuggingService;
 import dev.otectus.mcacrime.ransom.RansomService;
 import dev.otectus.mcacrime.state.CrimeCapabilities;
 import dev.otectus.mcacrime.state.PlayerCrimeData;
+import dev.otectus.mcacrime.state.world.BountyClaimRecord;
+import dev.otectus.mcacrime.state.world.CriminalVillagerRecord;
 import dev.otectus.mcacrime.state.world.CrimeWorldData;
 import net.minecraft.ChatFormatting;
 import net.minecraft.commands.CommandSourceStack;
@@ -56,6 +71,8 @@ import net.minecraftforge.fml.common.Mod;
 
 import java.util.Comparator;
 import java.util.List;
+import java.util.Locale;
+import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -67,6 +84,16 @@ import java.util.UUID;
  */
 @Mod.EventBusSubscriber(modid = McaCrime.MOD_ID)
 public final class CrimeCommand {
+
+    /** How far {@code /crime job} looks for the villager the operator means. */
+    private static final double JOB_TARGET_RADIUS = 8.0D;
+    /** How far {@code /crime mugtest} will look for a thief. Wider than the job radius on purpose. */
+    private static final double MUGTEST_RADIUS = 32.0D;
+
+    /** Chat is not a spreadsheet: a save with hundreds of criminals prints the first twenty. */
+    private static final int JOB_LIST_LIMIT = 20;
+    /** How many recent bounty claims the debug dump prints. A long-lived world has thousands. */
+    private static final int BOUNTY_CLAIM_LIST_LIMIT = 10;
 
     private CrimeCommand() {
     }
@@ -139,8 +166,36 @@ public final class CrimeCommand {
                                 .executes(ctx -> assignJail(ctx, McaCrimeConfig.COMMON.jailRadiusDefault.get()))
                                 .then(Commands.argument("radius", IntegerArgumentType.integer(1, 64))
                                         .executes(ctx -> assignJail(ctx, IntegerArgumentType.getInteger(ctx, "radius"))))))
+                .then(Commands.literal("job")
+                        .requires(src -> src.hasPermission(3))
+                        .then(Commands.literal("assign")
+                                .then(Commands.literal("thief")
+                                        .executes(ctx -> assignJob(ctx, CriminalJob.THIEF)))
+                                .then(Commands.literal("fence")
+                                        .executes(ctx -> assignJob(ctx, CriminalJob.FENCE))))
+                        .then(Commands.literal("clear")
+                                .executes(ctx -> assignJob(ctx, CriminalJob.NONE)))
+                        .then(Commands.literal("list")
+                                .executes(CrimeCommand::listJobs)))
+                .then(Commands.literal("warrant")
+                        .requires(src -> src.hasPermission(2))
+                        .then(Commands.argument("target", EntityArgument.player())
+                                .executes(CrimeCommand::warrant)))
+                .then(Commands.literal("bounty")
+                        .requires(src -> src.hasPermission(2))
+                        .then(Commands.argument("target", EntityArgument.player())
+                                .executes(CrimeCommand::bounty)))
+                .then(Commands.literal("mugtest")
+                        .requires(src -> src.hasPermission(3))
+                        .executes(CrimeCommand::mugTest))
                 .then(Commands.literal("debug")
                         .requires(src -> src.hasPermission(2))
+                        .then(Commands.literal("thieves")
+                                .executes(CrimeCommand::debugThieves))
+                        .then(Commands.literal("bounty")
+                                .executes(CrimeCommand::debugBounty))
+                        .then(Commands.literal("jobs")
+                                .executes(CrimeCommand::debugJobs))
                         .then(Commands.literal("villager")
                                 .executes(CrimeCommand::debugVillager))
                         .then(Commands.literal("custody")
@@ -181,6 +236,14 @@ public final class CrimeCommand {
                             + "MCA: Crime is not producing those incidents.")
                     .withStyle(ChatFormatting.YELLOW), false);
         }
+        source.sendSuccess(() -> Component.literal("locks reforged: installed="
+                + ModList.get().isLoaded("locks")
+                + " enabled=" + McaCrimeConfig.COMMON.locksReforgedFenceTrades.get()
+                + " state=" + LocksReforgedBridge.status()), false);
+        source.sendSuccess(() -> Component.literal("mca quests: installed="
+                + ModList.get().isLoaded("mcaquests")
+                + " enabled=" + McaCrimeConfig.COMMON.mcaQuestsBounties.get()
+                + " state=" + McaQuestsBridge.status()), false);
 
         CrimeWorldData data = CrimeWorldData.get(source.getServer());
         source.sendSuccess(() -> Component.literal("outbox: pending=" + data.pendingOperationCount()
@@ -192,6 +255,223 @@ public final class CrimeCommand {
                     + " -> " + newest.lastError()).withStyle(ChatFormatting.RED), false);
         }
         return data.pendingOperationCount();
+    }
+
+    // --- criminal jobs (0.5.1) ---
+
+    /**
+     * Assigns or clears a criminal job on the nearest MCA villager.
+     *
+     * <p>The target is the nearest villager within 8 blocks rather than an entity selector, because
+     * the thing an operator actually wants to say is "this one, the one I am looking at", and a
+     * selector for an MCA villager needs a UUID nobody has to hand.
+     */
+    private static int assignJob(CommandContext<CommandSourceStack> ctx, CriminalJob job)
+            throws CommandSyntaxException {
+        ServerPlayer player = ctx.getSource().getPlayerOrException();
+        Entity villager = nearestMcaVillager(player, JOB_TARGET_RADIUS);
+        if (villager == null) {
+            ctx.getSource().sendFailure(Component.translatable("mcacrime.command.job.none_nearby",
+                    (int) JOB_TARGET_RADIUS));
+            return 0;
+        }
+        MinecraftServer server = ctx.getSource().getServer();
+        WorldCriminalJobService jobs = WorldCriminalJobService.of(server);
+        jobs.set(villager.getUUID(), job);
+        Component name = McaCompat.getVillagerDisplayName(villager);
+        ctx.getSource().sendSuccess(() -> job == CriminalJob.NONE
+                ? Component.translatable("mcacrime.command.job.cleared", name)
+                : Component.translatable("mcacrime.command.job.assigned", name, job.id()), true);
+        return 1;
+    }
+
+    /** Every persisted criminal, loaded or not, bounded so a large save cannot flood chat. */
+    private static int listJobs(CommandContext<CommandSourceStack> ctx) {
+        CommandSourceStack source = ctx.getSource();
+        List<CriminalVillagerRecord> records =
+                List.copyOf(WorldCriminalJobService.of(source.getServer()).all());
+        source.sendSuccess(() -> Component.translatable("mcacrime.command.job.list_header", records.size()), false);
+        records.stream().limit(JOB_LIST_LIMIT).forEach(record -> source.sendSuccess(() -> Component.literal(
+                        "  " + record.villager() + " " + record.job().id()
+                                + " assignedDay=" + record.assignedDay()
+                                + " lastSeenDay=" + record.lastSeenDay()
+                                + (record.wildOrigin() ? " wild" : ""))
+                .withStyle(ChatFormatting.DARK_GRAY), false));
+        return records.size();
+    }
+
+
+    // --- warrants and bounties (0.5.1) ---
+
+    /** What the law currently has open on somebody. The identity every bounty claim is keyed on. */
+    private static int warrant(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
+        ServerPlayer target = EntityArgument.getPlayer(ctx, "target");
+        Warrant warrant = CrimeWorldData.get(ctx.getSource().getServer()).warrant(target.getUUID());
+        if (warrant == null) {
+            ctx.getSource().sendSuccess(() ->
+                    Component.translatable("mcacrime.command.warrant.none", target.getName()), false);
+            return 0;
+        }
+        ctx.getSource().sendSuccess(() -> Component.translatable("mcacrime.command.warrant.status",
+                target.getName(),
+                warrant.open() ? "open" : "closed",
+                warrant.revision(),
+                warrant.topOffense() == null ? "-" : warrant.topOffense().toString()), false);
+        return warrant.open() ? 1 : 0;
+    }
+
+    /**
+     * What somebody is worth right now.
+     *
+     * <p>Reports nothing rather than zero when they are not eligible, because "no price on their
+     * head" and "a price of nothing" are different answers and only one of them is a number.
+     */
+    private static int bounty(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
+        ServerPlayer target = EntityArgument.getPlayer(ctx, "target");
+        Optional<Long> quote = BountyService.quote(target);
+        if (quote.isEmpty()) {
+            ctx.getSource().sendSuccess(() ->
+                    Component.translatable("mcacrime.command.warrant.none", target.getName()), false);
+            return 0;
+        }
+        long amount = quote.get();
+        ctx.getSource().sendSuccess(() ->
+                Component.translatable("mcacrime.command.bounty.quote", target.getName(),
+                        Currencies.active().format(amount)), false);
+        return (int) Math.min(Integer.MAX_VALUE, amount);
+    }
+
+    /** Every open warrant and the most recent claims, for working out why a payout did or did not land. */
+    private static int debugBounty(CommandContext<CommandSourceStack> ctx) {
+        CommandSourceStack source = ctx.getSource();
+        CrimeWorldData data = CrimeWorldData.get(source.getServer());
+        source.sendSuccess(() -> Component.literal("bounty: enabled="
+                + McaCrimeConfig.COMMON.bountyEnabled.get()
+                + " kills=" + McaCrimeConfig.COMMON.payForKills.get()
+                + " alive=" + McaCrimeConfig.COMMON.payForAliveCapture.get()
+                + " claims=" + data.bountyClaims().size()), false);
+        for (ServerPlayer player : source.getServer().getPlayerList().getPlayers()) {
+            WarrantService.open(source.getServer(), player.getUUID()).ifPresent(warrant ->
+                    source.sendSuccess(() -> Component.literal("  " + player.getGameProfile().getName()
+                                    + " rev=" + warrant.revision()
+                                    + " quote=" + BountyService.quote(player).map(String::valueOf).orElse("-"))
+                            .withStyle(ChatFormatting.DARK_GRAY), false));
+        }
+        data.bountyClaims().values().stream()
+                .sorted(Comparator.comparingLong(BountyClaimRecord::claimedAt).reversed())
+                .limit(BOUNTY_CLAIM_LIST_LIMIT)
+                .forEach(record -> source.sendSuccess(() -> Component.literal("  claim " + record.target()
+                                + " rev=" + record.revision()
+                                + " " + record.type().name().toLowerCase(Locale.ROOT)
+                                + " reward=" + record.reward()
+                                + " day=" + BountyClaimLedger.claimedDay(record))
+                        .withStyle(ChatFormatting.DARK_GRAY), false));
+        return data.bountyClaims().size();
+    }
+
+    // --- thieves (0.5.1) ---
+
+    /**
+     * Points the nearest thief at the caller.
+     *
+     * <p>A thief picks victims on a jittered scan and refuses anybody armed, so waiting for one to
+     * choose you is a poor way to test four seconds of interaction. Everything after selection still
+     * applies: guard risk, reach, the weapon check and the cancellable attempt event all run.
+     */
+    private static int mugTest(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
+        ServerPlayer player = ctx.getSource().getPlayerOrException();
+        MinecraftServer server = ctx.getSource().getServer();
+        WorldCriminalJobService jobs = WorldCriminalJobService.of(server);
+        AABB box = player.getBoundingBox().inflate(MUGTEST_RADIUS);
+        Entity thief = player.level().getEntities(player, box, entity -> McaCompat.isMcaVillager(entity)
+                        && jobs.get(entity.getUUID()) == CriminalJob.THIEF).stream()
+                .min(Comparator.comparingDouble(entity -> entity.distanceToSqr(player)))
+                .orElse(null);
+        if (!(thief instanceof net.minecraft.world.entity.LivingEntity living)
+                || !ThiefBehaviorService.forceTarget(living, player)) {
+            ctx.getSource().sendFailure(Component.translatable("mcacrime.command.mugtest.no_thief",
+                    (int) MUGTEST_RADIUS));
+            return 0;
+        }
+        Component name = McaCompat.getVillagerDisplayName(thief);
+        ctx.getSource().sendSuccess(() -> Component.translatable("mcacrime.command.mugtest.started", name), true);
+        return 1;
+    }
+
+    /**
+     * Every thief this server is currently driving, and every mugging in progress.
+     *
+     * <p>The think and scan schedules are in the output on purpose: spec §"Performance requirements"
+     * asks for proof that no controller thinks every tick, and this is where an operator sees it.
+     */
+    private static int debugThieves(CommandContext<CommandSourceStack> ctx) {
+        CommandSourceStack source = ctx.getSource();
+        List<ThiefBehaviorController> controllers = ThiefBehaviorService.snapshot();
+        List<NpcMugSession> sessions = NpcMuggingService.snapshot();
+        long now = source.getServer().overworld().getGameTime();
+
+        StringBuilder sb = new StringBuilder("Thief debug:");
+        sb.append("\n  tracked=").append(controllers.size())
+                .append(" muggings=").append(sessions.size())
+                .append(" enableThieves=").append(McaCrimeConfig.COMMON.enableThieves.get());
+        for (ThiefBehaviorController controller : controllers) {
+            sb.append("\n  ").append(controller.thiefId())
+                    .append(" ").append(controller.state())
+                    .append(" for ").append(controller.ticksInState(now)).append("t")
+                    .append(" victim=").append(controller.victimId() == null ? "<none>" : controller.victimId())
+                    .append(" risk=").append(String.format(java.util.Locale.ROOT, "%.2f",
+                            controller.guardRisk().riskScore()))
+                    .append(" guards=").append(controller.guardRisk().nearbyCount())
+                    .append(" failures=").append(controller.failures());
+        }
+        for (NpcMugSession session : sessions) {
+            sb.append("\n  mug ").append(session.transactionId())
+                    .append(" thief=").append(session.thiefId())
+                    .append(" victim=").append(session.victimId())
+                    .append(" ").append(session.progress()).append("/").append(session.requiredTicks());
+        }
+        String message = sb.toString();
+        source.sendSuccess(() -> Component.literal(message), false);
+        return controllers.size();
+    }
+
+    /**
+     * What the assignment sweep is working with here: the settings, the totals, and the nearest
+     * villager's own eligibility.
+     *
+     * <p>Without the last part the only signal that assignment works is waiting for a thief to appear,
+     * and "nothing has happened yet" and "nothing can ever happen" look identical from the outside.
+     */
+    private static int debugJobs(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
+        ServerPlayer player = ctx.getSource().getPlayerOrException();
+        MinecraftServer server = ctx.getSource().getServer();
+        WorldCriminalJobService jobs = WorldCriminalJobService.of(server);
+        int thieves = 0;
+        int fences = 0;
+        for (CriminalVillagerRecord record : jobs.all()) {
+            if (record.job() == CriminalJob.THIEF) thieves++;
+            if (record.job() == CriminalJob.FENCE) fences++;
+        }
+        StringBuilder sb = new StringBuilder("Criminal jobs debug:");
+        sb.append("\n  thieves=").append(thieves).append(" fences=").append(fences);
+        sb.append("\n  enableThieves=").append(McaCrimeConfig.COMMON.enableThieves.get())
+                .append(" enableFences=").append(McaCrimeConfig.COMMON.enableFences.get());
+        sb.append("\n  presentThief=").append(McaCrimeConfig.COMMON.presentThiefAsMcaProfession.get())
+                .append(" presentFence=").append(McaCrimeConfig.COMMON.presentFenceAsMcaProfession.get());
+        Entity villager = nearestMcaVillager(player, JOB_TARGET_RADIUS);
+        if (villager == null) {
+            sb.append("\n  nearest: none within ").append((int) JOB_TARGET_RADIUS).append(" blocks");
+        } else {
+            sb.append("\n  nearest=").append(villager.getUUID())
+                    .append(" job=").append(jobs.get(villager.getUUID()).id())
+                    .append(" adult=").append(McaCompat.isAdultVillager(villager))
+                    .append(" law=").append(McaCompat.isGuard(villager) || McaCompat.isArcher(villager))
+                    .append(" village=").append(McaCompat.getHomeVillageId(villager).stream()
+                            .mapToObj(Integer::toString).findFirst().orElse("<none>"));
+        }
+        String message = sb.toString();
+        ctx.getSource().sendSuccess(() -> Component.literal(message), false);
+        return thieves + fences;
     }
 
     private static int debugActions(CommandContext<CommandSourceStack> ctx) {

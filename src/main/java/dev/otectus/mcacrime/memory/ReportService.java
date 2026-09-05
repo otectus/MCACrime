@@ -6,8 +6,13 @@ import dev.otectus.mcacrime.api.event.CrimeReportEvent;
 import dev.otectus.mcacrime.api.model.CrimeCommunityKey;
 import dev.otectus.mcacrime.compat.McaCompat;
 import dev.otectus.mcacrime.detect.CrimeCommunityResolver;
+import dev.otectus.mcacrime.detect.EntitySelectors;
 import dev.otectus.mcacrime.dialogue.CrimeDialogueService;
 import dev.otectus.mcacrime.dialogue.DialogueEvents;
+import dev.otectus.mcacrime.enforcement.ActiveIncidentRegistry;
+import dev.otectus.mcacrime.enforcement.NpcCriminalPursuit;
+import dev.otectus.mcacrime.job.WorldCriminalJobService;
+import dev.otectus.mcacrime.ledger.CrimeFlag;
 import dev.otectus.mcacrime.state.world.CrimeWorldData;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
@@ -16,6 +21,7 @@ import net.minecraft.world.entity.LivingEntity;
 import net.minecraftforge.common.MinecraftForge;
 
 import javax.annotation.Nullable;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -67,7 +73,37 @@ public final class ReportService {
         if (observation == null || !observation.pending()) {
             return Optional.empty();
         }
-        return file(level, reporter, observation, false);
+        Optional<CrimeReport> filed = file(level, reporter, observation, false);
+        filed.ifPresent(report -> pursueCriminalSuspect(level, responder, report, observation));
+        return filed;
+    }
+
+    /**
+     * The "guard becomes aware after completion" path of spec §"Guard intervention".
+     *
+     * <p>A guard that watched the threat is handled by the active-incident scan; this is the other
+     * half — a victim or a witness walks up afterwards and says who did it, and the guard goes after
+     * the offender on the strength of the report rather than of anything it saw. The synthetic
+     * incident it engages with deliberately carries no {@code CAUGHT_IN_ACT}: the guard did not catch
+     * this one in the act, and the mandatory-custody branch must not be reached by hearsay.
+     */
+    private static void pursueCriminalSuspect(ServerLevel level, LivingEntity responder, CrimeReport report,
+                                              CrimeObservation observation) {
+        MinecraftServer server = level.getServer();
+        if (server == null || !EntitySelectors.isResponder(responder)) {
+            return;
+        }
+        UUID suspectId = report.suspectId();
+        if (suspectId == null || !WorldCriminalJobService.of(server).isCriminal(suspectId)) {
+            return; // an ordinary villager is not chased for having been named
+        }
+        if (!(level.getEntity(suspectId) instanceof LivingEntity suspect) || !suspect.isAlive()) {
+            return;
+        }
+        NpcCriminalPursuit.engage(level, responder, new ActiveIncidentRegistry.ActiveIncident(
+                report.reportId(), suspectId, observation.victimId(), level.dimension(),
+                level.getGameTime(), EnumSet.of(CrimeFlag.NPC_OFFENDER),
+                ActiveIncidentRegistry.Phase.COMMITTED));
     }
 
     /**

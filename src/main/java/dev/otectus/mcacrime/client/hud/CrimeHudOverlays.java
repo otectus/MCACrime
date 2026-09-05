@@ -37,6 +37,8 @@ import net.minecraftforge.fml.common.Mod;
 public final class CrimeHudOverlays {
 
     private static final int BAR_W = 122;
+    /** The one channel label that is somebody else's action against this player. */
+    private static final String NPC_MUG_LABEL = "gui.mcacrime.action.npc_mug";
     private static final int PAD = 4;
 
     private CrimeHudOverlays() {
@@ -96,11 +98,20 @@ public final class CrimeHudOverlays {
         int y = height - 62;
 
         if (channelling) {
+            boolean mugged = NPC_MUG_LABEL.equals(ClientActionData.labelKey());
+            if (mugged && !McaCrimeConfig.CLIENT.showNpcMuggingHud.get()) return;
             Component label = Component.translatable(ClientActionData.labelKey());
             graphics.drawString(mc.font, label, x + (BAR_W - mc.font.width(label)) / 2, y - 10, 0xFFFFFF, true);
             CrimeSprites.bar(graphics, x, y, BAR_W, ClientActionData.fraction());
+            if (mugged) {
+                // The counterplay, under the bar that is counting down on it. A player being mugged by
+                // an NPC has no menu open and no reason to know that a weapon is the answer.
+                Component hint = Component.translatable("gui.mcacrime.action.npc_mug.hint");
+                graphics.drawString(mc.font, hint, x + (BAR_W - mc.font.width(hint)) / 2,
+                        y + CrimeSprites.BAR_H + 2, 0xFFD98A, true);
+            }
         } else {
-            Component line = Component.translatable(ClientActionData.outcomeKey());
+            Component line = ClientActionData.outcomeText();
 
             // Three-byte colours on purpose. The fade composes its own alpha into the top byte below,
             // so giving these an explicit 0xFF would pin the text opaque and the outcome would vanish

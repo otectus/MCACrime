@@ -1,6 +1,7 @@
 package dev.otectus.mcacrime;
 
 import dev.otectus.mcacrime.jail.JailContainmentMode;
+import dev.otectus.mcacrime.mug.npc.TheftPolicy;
 import net.minecraftforge.common.ForgeConfigSpec;
 import org.apache.commons.lang3.tuple.Pair;
 
@@ -86,6 +87,11 @@ public final class McaCrimeConfig {
         public final ForgeConfigSpec.IntValue reactionHideTicks;
         public final ForgeConfigSpec.IntValue reactionRecoveryTicks;
         public final ForgeConfigSpec.IntValue safeDestinationSamples;
+        public final ForgeConfigSpec.DoubleValue civilianCrimeReactionSpeedMultiplier;
+        public final ForgeConfigSpec.BooleanValue freezeComplyingVictims;
+        public final ForgeConfigSpec.BooleanValue armedVillagersCanResist;
+        public final ForgeConfigSpec.DoubleValue complianceResistThreshold;
+        public final ForgeConfigSpec.DoubleValue complianceHelpThreshold;
 
         // dialogue (§16)
         public final ForgeConfigSpec.BooleanValue enableDialogue;
@@ -125,6 +131,12 @@ public final class McaCrimeConfig {
         public final ForgeConfigSpec.BooleanValue globalCrimePropagation;
         public final ForgeConfigSpec.DoubleValue guardAggroRadius;
         public final ForgeConfigSpec.IntValue guardScanIntervalTicks;
+        public final ForgeConfigSpec.DoubleValue guardThiefResponseRadius;
+        public final ForgeConfigSpec.IntValue guardThiefPursuitTimeoutTicks;
+        public final ForgeConfigSpec.BooleanValue guardsUseForceOnArmedThieves;
+        public final ForgeConfigSpec.BooleanValue returnStolenGoodsOnArrest;
+        public final ForgeConfigSpec.DoubleValue stolenGoodsReturnRadius;
+        public final ForgeConfigSpec.IntValue npcEscortOrphanTicks;
         public final ForgeConfigSpec.BooleanValue enableVillagerFlee;
         public final ForgeConfigSpec.DoubleValue villagerFleeRadius;
 
@@ -156,6 +168,67 @@ public final class McaCrimeConfig {
         public final ForgeConfigSpec.BooleanValue enableNpcCrime;
         public final ForgeConfigSpec.IntValue maxActiveNpcCrimesPerVillage;
         public final ForgeConfigSpec.IntValue minTimeBetweenNpcCrimes;
+        public final ForgeConfigSpec.IntValue npcMugHudUpdateIntervalTicks;
+        public final ForgeConfigSpec.IntValue npcMugWeaponCheckIntervalTicks;
+
+        // criminal jobs (0.5.1) — read by the job package
+        public final ForgeConfigSpec.BooleanValue enableThieves;
+        public final ForgeConfigSpec.BooleanValue enableFences;
+        public final ForgeConfigSpec.DoubleValue villageThiefChance;
+        public final ForgeConfigSpec.DoubleValue villageFenceChance;
+        public final ForgeConfigSpec.DoubleValue wildThiefChance;
+        public final ForgeConfigSpec.IntValue minVillagePopulationForFence;
+        public final ForgeConfigSpec.IntValue criminalAssignmentCooldownDays;
+        public final ForgeConfigSpec.IntValue assignmentScanIntervalTicks;
+        public final ForgeConfigSpec.BooleanValue presentFenceAsMcaProfession;
+        public final ForgeConfigSpec.BooleanValue presentThiefAsMcaProfession;
+        public final ForgeConfigSpec.IntValue staleRecordGraceDays;
+
+        // criminalJobs.thief (0.5.1) -- read by the ai/thief package through ThiefPolicy
+        public final ForgeConfigSpec.IntValue thiefMugDurationTicks;
+        public final ForgeConfigSpec.IntValue thiefMugCooldownTicks;
+        public final ForgeConfigSpec.IntValue thiefScanIntervalTicks;
+        public final ForgeConfigSpec.DoubleValue thiefTargetSearchRadius;
+        public final ForgeConfigSpec.DoubleValue thiefGuardAvoidRadius;
+        public final ForgeConfigSpec.DoubleValue thiefGuardHardAbortRadius;
+        public final ForgeConfigSpec.DoubleValue thiefGuardRiskAbortThreshold;
+        public final ForgeConfigSpec.IntValue thiefMinCurrencySteal;
+        public final ForgeConfigSpec.IntValue thiefMaxCurrencySteal;
+        public final ForgeConfigSpec.BooleanValue thiefStealAllIfBelowMinimum;
+        public final ForgeConfigSpec.BooleanValue thiefProtectHotbar;
+        public final ForgeConfigSpec.BooleanValue thiefProtectArmor;
+        public final ForgeConfigSpec.BooleanValue thiefProtectOffhand;
+        public final ForgeConfigSpec.EnumValue<TheftPolicy.ItemTheftMode> thiefItemTheftMode;
+        public final ForgeConfigSpec.IntValue thiefStolenGoodsPersistenceDays;
+        public final ForgeConfigSpec.IntValue thiefJailTicks;
+
+        // criminalJobs.fence (0.5.1) -- read by economy/fence through FencePolicy
+        public final ForgeConfigSpec.DoubleValue fenceMaxKarmaDiscount;
+        public final ForgeConfigSpec.DoubleValue fenceMaxHeatMarkup;
+        public final ForgeConfigSpec.DoubleValue fenceWantedMarkup;
+        public final ForgeConfigSpec.DoubleValue fenceMinimumPriceMultiplier;
+        public final ForgeConfigSpec.DoubleValue fenceMaximumPriceMultiplier;
+        public final ForgeConfigSpec.DoubleValue fenceBuyPriceRatio;
+        public final ForgeConfigSpec.IntValue fenceDefaultBasePrice;
+        public final ForgeConfigSpec.IntValue fenceOfferCount;
+        public final ForgeConfigSpec.IntValue fenceRestockIntervalDays;
+
+        // bounty (0.5.1) -- read by the bounty package
+        public final ForgeConfigSpec.BooleanValue bountyEnabled;
+        public final ForgeConfigSpec.IntValue baseBounty;
+        public final ForgeConfigSpec.IntValue minBounty;
+        public final ForgeConfigSpec.IntValue maxBounty;
+        public final ForgeConfigSpec.DoubleValue severityRewardScale;
+        public final ForgeConfigSpec.DoubleValue fineRewardShare;
+        public final ForgeConfigSpec.IntValue repeatOffenderBonus;
+        public final ForgeConfigSpec.BooleanValue payForKills;
+        public final ForgeConfigSpec.BooleanValue payForAliveCapture;
+        public final ForgeConfigSpec.DoubleValue killMultiplier;
+        public final ForgeConfigSpec.DoubleValue aliveCaptureMultiplier;
+        public final ForgeConfigSpec.IntValue bountyKarmaReward;
+        public final ForgeConfigSpec.BooleanValue redBandBountyEligible;
+        public final ForgeConfigSpec.IntValue claimRetentionDays;
+        public final ForgeConfigSpec.DoubleValue bountyDeliveryRadius;
 
         // jail (§6, §7)
         public final ForgeConfigSpec.BooleanValue enableFines;
@@ -203,6 +276,7 @@ public final class McaCrimeConfig {
         public final ForgeConfigSpec.BooleanValue weaponTriggerEnabled;
         public final ForgeConfigSpec.BooleanValue weaponTriggerRequireSneak;
         public final ForgeConfigSpec.BooleanValue weaponTriggerAllowOffHand;
+        public final ForgeConfigSpec.BooleanValue requireWeaponForCrimeMenu;
         public final ForgeConfigSpec.ConfigValue<List<? extends String>> weaponWhitelist;
         public final ForgeConfigSpec.ConfigValue<List<? extends String>> weaponBlacklist;
         public final ForgeConfigSpec.BooleanValue weaponAutoDetect;
@@ -270,6 +344,9 @@ public final class McaCrimeConfig {
         public final ForgeConfigSpec.BooleanValue debugLogging;
 
         // --- integrations (optional companion mods) ---
+        public final ForgeConfigSpec.ConfigValue<String> currencyId;
+        public final ForgeConfigSpec.BooleanValue locksReforgedFenceTrades;
+        public final ForgeConfigSpec.BooleanValue mcaQuestsBounties;
         public final ForgeConfigSpec.BooleanValue enableReputation;
         public final ForgeConfigSpec.BooleanValue mirrorReputationFallback;
         public final ForgeConfigSpec.BooleanValue suppressLocalVillagePenalty;
@@ -391,6 +468,28 @@ public final class McaCrimeConfig {
                     "How many candidate destinations a fleeing villager scores. Bounded sampling, never an"
                             + " unbounded POI search on the server thread.")
                     .defineInRange("safeDestinationSamples", 8, 1, 32);
+            civilianCrimeReactionSpeedMultiplier = b.comment(
+                    "Movement speed of an unarmed villager while this mod is steering them, as a fraction of",
+                    "normal. A frightened farmer who runs at trading speed reads as a bug. Applied as a",
+                    "transient attribute modifier and removed on every exit path, so it can never persist.")
+                    .defineInRange("civilianCrimeReactionSpeedMultiplier", 0.65, 0.10, 1.00);
+            freezeComplyingVictims = b.comment(
+                    "Whether an unarmed villager holds still while a coercive action (a mugging, a capture)",
+                    "is actually running against them. It takes a live session naming that villager -- being",
+                    "near an armed player never freezes anybody. Off makes them run instead.")
+                    .define("freezeComplyingVictims", true);
+            armedVillagersCanResist = b.comment(
+                    "Whether guards, archers, weapon-holders and tagged combatants fight back instead of",
+                    "complying. Off means even a guard can be mugged, which is a legitimate but very",
+                    "different game.")
+                    .define("armedVillagersCanResist", true);
+            complianceResistThreshold = b.comment(
+                    "Bravery at or above which an unthreatened villager fights rather than runs.")
+                    .defineInRange("complianceResistThreshold", 0.6, 0.0, 1.0);
+            complianceHelpThreshold = b.comment(
+                    "Score at or above which a villager goes and fetches a responder rather than running,",
+                    "when there is one to fetch.")
+                    .defineInRange("complianceHelpThreshold", 0.5, 0.0, 1.0);
             b.pop();
 
             b.comment("Data-driven villager lines. The server picks the line; the client renders the key.")
@@ -475,6 +574,33 @@ public final class McaCrimeConfig {
                     "wobbling by one from causing repeated re-evaluation; it should be comfortably longer",
                     "than guardPopulationScanIntervalTicks.")
                     .defineInRange("guardPopulationCooldownTicks", 6000, 1200, 1_728_000);
+            guardThiefResponseRadius = b.comment(
+                    "How far a guard will notice a mugging in progress. Line of sight is required as",
+                    "well, so this is the range at which a guard who can already see the threat reacts",
+                    "to it -- not a radius within which guards become psychic.")
+                    .defineInRange("guardThiefResponseRadius", 24.0, 4.0, 64.0);
+            guardThiefPursuitTimeoutTicks = b.comment(
+                    "How long a guard chases a thief before giving up. The chase also ends when the",
+                    "thief gets further away than guardAggroRadius.")
+                    .defineInRange("guardThiefPursuitTimeoutTicks", 600, 40, 24_000);
+            guardsUseForceOnArmedThieves = b.comment(
+                    "An armed thief is fought rather than merely chased. Off makes every arrest a",
+                    "non-lethal capture, which is safer for the thief and slower for the guard.")
+                    .define("guardsUseForceOnArmedThieves", true);
+            returnStolenGoodsOnArrest = b.comment(
+                    "A guard hands back what the thief took, to any victim standing nearby. Off leaves",
+                    "killing the prisoner as the only way to recover property, which is exactly the",
+                    "incentive this exists to remove.")
+                    .define("returnStolenGoodsOnArrest", true);
+            stolenGoodsReturnRadius = b.comment(
+                    "How close a victim must be to the arrest to be handed their property back. Owners",
+                    "further away keep their claim: the ledger entry is untouched.")
+                    .defineInRange("stolenGoodsReturnRadius", 16.0, 1.0, 64.0);
+            npcEscortOrphanTicks = b.comment(
+                    "How long a restrained thief waits for a replacement escort after its guard dies or",
+                    "wanders off, before being jailed where it stands. This is the backstop against a",
+                    "cuffed villager standing in a field forever.")
+                    .defineInRange("npcEscortOrphanTicks", 1200, 100, 24_000);
             b.pop();
 
             b.pop();
@@ -532,6 +658,180 @@ public final class McaCrimeConfig {
                     .define("enableNpcCrime", false);
             maxActiveNpcCrimesPerVillage = b.defineInRange("maxActiveNpcCrimesPerVillage", 2, 0, 1000);
             minTimeBetweenNpcCrimes = b.defineInRange("minTimeBetweenNpcCrimes", 6000, 0, 1_000_000);
+            npcMugHudUpdateIntervalTicks = b.comment(
+                    "Ticks between progress packets for a thief's mugging bar. The client interpolates",
+                    "between them, so this is packet volume rather than smoothness.")
+                    .defineInRange("npcMugHudUpdateIntervalTicks", 3, 1, 20);
+            npcMugWeaponCheckIntervalTicks = b.comment(
+                    "Ticks between weapon checks on a mugging victim. 1 is every tick, which is what the",
+                    "counterplay deserves: drawing a sword should stop the mug now, not in a moment.")
+                    .defineInRange("npcMugWeaponCheckIntervalTicks", 1, 1, 10);
+            b.pop();
+
+            b.comment(
+                    "Thief and Fence occupations, persisted by this mod rather than by MCA. A criminal job",
+                    "survives arrest: going to jail does not stop somebody being a thief.")
+                    .push("criminalJobs");
+            enableThieves = b.define("enableThieves", true);
+            enableFences = b.define("enableFences", true);
+            villageThiefChance = b.comment("Chance an eligible village adult is made a thief when the sweep considers them.")
+                    .defineInRange("villageThiefChance", 0.025D, 0.0D, 1.0D);
+            villageFenceChance = b.comment("As above, for fences. Fences belong to settlements, not the wilderness.")
+                    .defineInRange("villageFenceChance", 0.010D, 0.0D, 1.0D);
+            wildThiefChance = b.comment("Chance for a villager with no home village. Independent criminals should be rare.")
+                    .defineInRange("wildThiefChance", 0.0025D, 0.0D, 1.0D);
+            minVillagePopulationForFence = b.comment("A village smaller than this never produces a fence.")
+                    .defineInRange("minVillagePopulationForFence", 5, 1, 200);
+            criminalAssignmentCooldownDays = b.comment("Days a village waits after producing one criminal before it may produce another.")
+                    .defineInRange("criminalAssignmentCooldownDays", 3, 0, 365);
+            assignmentScanIntervalTicks = b.comment("Server ticks between assignment passes.")
+                    .defineInRange("assignmentScanIntervalTicks", 1200, 200, 24000);
+            presentFenceAsMcaProfession = b.comment(
+                    "Show a fence as the 'mcacrime:fence' villager profession. On by default: a fence",
+                    "nobody can identify is a shop with no sign. The previous profession is remembered and",
+                    "restored if this is turned off again.")
+                    .define("presentFenceAsMcaProfession", true);
+            presentThiefAsMcaProfession = b.comment(
+                    "Show a thief as the 'mcacrime:thief' villager profession. Off by default: a thief",
+                    "wearing a label has no cover. Turn it on for a pack that wants criminals legible.")
+                    .define("presentThiefAsMcaProfession", false);
+            staleRecordGraceDays = b.comment("Days a criminal record is kept after the villager was last seen loaded.")
+                    .defineInRange("staleRecordGraceDays", 14, 1, 365);
+
+            b.comment(
+                    "How a thief goes about a mugging. Radii are in blocks and every interval is in",
+                    "server ticks; the scan interval is jittered by a quarter either way so thieves in",
+                    "one village never all look around on the same tick.")
+                    .push("thief");
+            thiefMugDurationTicks = b.comment("How long the victim's bar takes to fill. Four seconds by default.")
+                    .defineInRange("mugDurationTicks", 80, 20, 600);
+            thiefMugCooldownTicks = b.comment("How long a thief waits after one mugging before looking for another.")
+                    .defineInRange("mugCooldownTicks", 12000, 0, 240000);
+            thiefScanIntervalTicks = b.comment("Ticks between a scouting thief's target scans.")
+                    .defineInRange("scanIntervalTicks", 30, 10, 200);
+            thiefTargetSearchRadius = b.comment("How far a thief will consider a victim.")
+                    .defineInRange("targetSearchRadius", 20.0D, 4.0D, 64.0D);
+            thiefGuardAvoidRadius = b.comment("Guards within this distance contribute to the thief's risk score.")
+                    .defineInRange("guardAvoidRadius", 16.0D, 0.0D, 64.0D);
+            thiefGuardHardAbortRadius = b.comment(
+                    "A guard this close is a problem whatever else is true: the risk score jumps and the",
+                    "thief breaks off rather than robbing somebody beside the police station.")
+                    .defineInRange("guardHardAbortRadius", 8.0D, 0.0D, 64.0D);
+            thiefGuardRiskAbortThreshold = b.comment("Risk score at or above which a target is refused and an approach broken off.")
+                    .defineInRange("guardRiskAbortThreshold", 0.6D, 0.0D, 1.0D);
+            thiefMinCurrencySteal = b.comment(
+                    "Smallest amount of the active currency one mugging takes, when there is that much",
+                    "to take.")
+                    .defineInRange("minCurrencySteal", 1, 0, 1_000_000);
+            thiefMaxCurrencySteal = b.comment("Largest amount one mugging takes. Must not be below the minimum.")
+                    .defineInRange("maxCurrencySteal", 8, 0, 1_000_000);
+            thiefStealAllIfBelowMinimum = b.comment(
+                    "When the victim holds less than minCurrencySteal, take all of it. Off instead skips",
+                    "currency entirely and falls through to the item, so a thief who will not take four",
+                    "emeralds takes a spare pickaxe.")
+                    .define("stealAllIfBelowMinimum", true);
+            thiefProtectHotbar = b.comment("Thieves never reach into the hotbar. On by default: what you are holding is yours.")
+                    .define("protectHotbar", true);
+            thiefProtectArmor = b.comment("Thieves never take worn armor.")
+                    .define("protectArmor", true);
+            thiefProtectOffhand = b.comment("Thieves never take the offhand item.")
+                    .define("protectOffhand", true);
+            thiefItemTheftMode = b.comment(
+                    "How much of the chosen slot goes: SINGLE_ITEM takes one count, WHOLE_STACK takes",
+                    "the slot, RANDOM_COUNT takes somewhere between. SINGLE_ITEM is the default because",
+                    "it is the only one whose punishment does not depend on how the victim stacked.")
+                    .defineEnum("itemTheftMode", TheftPolicy.ItemTheftMode.SINGLE_ITEM);
+            thiefStolenGoodsPersistenceDays = b.comment(
+                    "Days a stolen item stays attributable to its owner before it is laundered out of",
+                    "the world data. 0 keeps stolen goods forever. Goods are never expired out from",
+                    "under a thief who is still mugging or fleeing.")
+                    .defineInRange("stolenGoodsPersistenceDays", 7, 0, 365);
+            thiefJailTicks = b.comment(
+                    "How long an arrested thief serves. Ten minutes by default. A criminal job survives",
+                    "the sentence: a thief comes out of jail still a thief.")
+                    .defineInRange("thiefJailTicks", 12000, 200, 240_000);
+            b.pop();
+
+            b.comment(
+                    "What a fence charges. Karma and Heat are deliberately not collapsed into one",
+                    "number: Karma says whether the player is one of us, Heat says how much attention",
+                    "doing business with them attracts, and a notorious outlaw the guards are actively",
+                    "hunting pays the surcharge despite the discount.")
+                    .push("fence");
+            fenceMaxKarmaDiscount = b.comment(
+                    "Largest discount criminal standing earns, at the Red band threshold. 0.25 = 25% off.")
+                    .defineInRange("maxKarmaDiscount", 0.25D, 0.0D, 1.0D);
+            fenceMaxHeatMarkup = b.comment(
+                    "Largest surcharge Heat adds, at the Wanted threshold. Stacks with the discount above.")
+                    .defineInRange("maxHeatMarkup", 0.35D, 0.0D, 1.0D);
+            fenceWantedMarkup = b.comment("Flat surcharge added on top while the player is Wanted.")
+                    .defineInRange("wantedMarkup", 0.20D, 0.0D, 1.0D);
+            fenceMinimumPriceMultiplier = b.comment(
+                    "Floor on the combined multiplier. Must be below maximumPriceMultiplier.")
+                    .defineInRange("minimumPriceMultiplier", 0.55D, 0.05D, 1.0D);
+            fenceMaximumPriceMultiplier = b.comment("Ceiling on the combined multiplier.")
+                    .defineInRange("maximumPriceMultiplier", 2.50D, 1.0D, 10.0D);
+            fenceBuyPriceRatio = b.comment(
+                    "What a fence pays for goods, as a fraction of what it sells them for. Always",
+                    "resolved to strictly less than the sale price, so buying and re-selling the same",
+                    "item can never turn a profit.")
+                    .defineInRange("buyPriceRatio", 0.5D, 0.05D, 0.95D);
+            fenceDefaultBasePrice = b.comment(
+                    "Price used for contraband that a tag names but no fence_prices file gives a value.")
+                    .defineInRange("defaultBasePrice", 8, 1, 100000);
+            fenceOfferCount = b.comment("How many trades one fence offers at a time.")
+                    .defineInRange("offerCount", 6, 1, 12);
+            fenceRestockIntervalDays = b.comment(
+                    "In-game days a fence keeps the same stock. 0 re-rolls it every time it is opened.")
+                    .defineInRange("restockIntervalDays", 1, 0, 30);
+            b.pop();
+            b.pop();
+
+            b.comment(
+                    "Prices on the heads of outlaws, and how they may be collected.",
+                    "",
+                    "A bounty is priced off the ledger, not off the kill: what somebody is worth is what",
+                    "they have outstanding. Payment is keyed on (target, warrant, revision), so one",
+                    "wanted state pays exactly once however many times the target dies.")
+                    .push("bounty");
+            bountyEnabled = b.define("enabled", true);
+            baseBounty = b.comment("What a freshly Wanted outlaw is worth before their record is counted.")
+                    .defineInRange("baseBounty", 8, 0, 1_000_000);
+            minBounty = b.comment("Floor on the payout. A bounty worth nothing is a bounty nobody hunts.")
+                    .defineInRange("minBounty", 1, 0, 1_000_000);
+            maxBounty = b.comment("Ceiling on the payout, so a career criminal is not a jackpot.")
+                    .defineInRange("maxBounty", 128, 0, 1_000_000);
+            severityRewardScale = b.comment("Multiplier on the Heat of the target's unresolved cases.")
+                    .defineInRange("severityRewardScale", 2.0D, 0.0D, 100.0D);
+            fineRewardShare = b.comment("Fraction of the target's outstanding fines folded into the price.")
+                    .defineInRange("fineRewardShare", 0.25D, 0.0D, 1.0D);
+            repeatOffenderBonus = b.comment("Added per warrant already closed against the target.")
+                    .defineInRange("repeatOffenderBonus", 4, 0, 100_000);
+            payForKills = b.comment("Whether killing a bounty-eligible outlaw pays.")
+                    .define("payForKills", true);
+            payForAliveCapture = b.comment(
+                    "Whether taking a bounty-eligible outlaw alive pays. This is also the switch that",
+                    "makes restraining one a citizen's arrest rather than a kidnapping: with it off,",
+                    "cuffing an outlaw is the crime it has always been.")
+                    .define("payForAliveCapture", true);
+            killMultiplier = b.defineInRange("killMultiplier", 1.0D, 0.0D, 10.0D);
+            aliveCaptureMultiplier = b.comment(
+                    "Alive is worth more than dead by default, which is the entire reason the restraint",
+                    "and jail mechanics are worth a hunter's trouble.")
+                    .defineInRange("aliveCaptureMultiplier", 1.25D, 0.0D, 10.0D);
+            bountyKarmaReward = b.comment("Karma granted to the claimant. Bounty hunting is lawful work.")
+                    .defineInRange("karmaReward", 2, 0, 50);
+            redBandBountyEligible = b.comment(
+                    "Whether a Red-band player with no Wanted status can carry a bounty. Off by default:",
+                    "a reputation is not a warrant, and redIsLegalTarget already decides whether it is",
+                    "grounds for force.")
+                    .define("redBandEligible", false);
+            claimRetentionDays = b.comment("In-game days a paid claim is remembered before it is forgotten.")
+                    .defineInRange("claimRetentionDays", 30, 1, 3650);
+            bountyDeliveryRadius = b.comment(
+                    "How close a hunter holding an outlaw must bring them to a guard for the arrest to",
+                    "count as a delivery.")
+                    .defineInRange("deliveryRadius", 4.0D, 1.0D, 16.0D);
             b.pop();
 
             b.push("jail");
@@ -680,6 +980,11 @@ public final class McaCrimeConfig {
                     .define("requireSneak", false);
             weaponTriggerAllowOffHand = b.comment("Also open the menu for an off-hand weapon interaction.")
                     .define("allowOffHand", true);
+            requireWeaponForCrimeMenu = b.comment(
+                    "Require a drawn weapon before the Crime menu will open, however it was reached --",
+                    "including the button on MCA's own interaction screen. Turning this off makes every",
+                    "coercive action available with empty hands.")
+                    .define("requireWeaponForCrimeMenu", true);
             b.pop();
 
             b.push("weapons");
@@ -805,6 +1110,21 @@ public final class McaCrimeConfig {
 
             b.comment("Optional companion mods. Every setting here is a no-op when that mod is absent.")
                     .push("integrations");
+            currencyId = b.comment(
+                    "Which registered currency fines, bail, ransom, theft and bounties are paid in.",
+                    "'mcacrime:emerald' is built in; an economy mod registers its own id. An id nothing",
+                    "has registered falls back to emeralds with one warning rather than taking the",
+                    "economy offline.")
+                    .define("currencyId", "mcacrime:emerald");
+            locksReforgedFenceTrades = b.comment(
+                    "Let fences stock Locks Reforged locks, picks and keys when that mod is installed.",
+                    "A no-op without it: nothing here names a Locks class, and the goods are looked up",
+                    "by registry id.")
+                    .define("locksReforgedFenceTrades", true);
+            mcaQuestsBounties = b.comment(
+                    "Publish open bounties as MCA: Quests contracts when that mod is installed. A bounty",
+                    "is paid once whichever route claims it.")
+                    .define("mcaQuestsBounties", true);
             enableReputation = b.comment(
                     "Record community standing through MCA: Reputation when it is installed, instead of the",
                     "built-in per-village store. With this off, MCA: Crime keeps its own standing and MCA:",
@@ -868,6 +1188,8 @@ public final class McaCrimeConfig {
         public final ForgeConfigSpec.BooleanValue renderRestraintPose;
         public final ForgeConfigSpec.BooleanValue renderCuffs;
         public final ForgeConfigSpec.BooleanValue renderEscortRope;
+        public final ForgeConfigSpec.BooleanValue showNpcMuggingHud;
+        public final ForgeConfigSpec.EnumValue<CrimeButtonAnchor> crimeButtonAnchor;
         public final ForgeConfigSpec.EnumValue<dev.otectus.mcacrime.client.hud.HudAnchor> hudAnchor;
         public final ForgeConfigSpec.IntValue hudOffsetX;
         public final ForgeConfigSpec.IntValue hudOffsetY;
@@ -884,6 +1206,11 @@ public final class McaCrimeConfig {
                     .define("playerCardOpenByDefault", false);
             showButtonOnMcaScreen = b.comment("Add the Crime button to MCA's own villager interaction screen.")
                     .define("showButtonOnMcaScreen", true);
+            crimeButtonAnchor = b.comment(
+                    "Where the Crime button sits on MCA's interaction screen. BOTTOM measures MCA's own",
+                    "widgets and drops in underneath them; TOP_RIGHT is the corner placement used before",
+                    "0.5.1, kept for MCA builds whose panel reaches the bottom of the screen.")
+                    .defineEnum("crimeButtonAnchor", CrimeButtonAnchor.BOTTOM);
             captiveScreenToggle = b.comment("Show the captive panel when you are being held.")
                     .define("captiveScreenToggle", true);
             confirmHostileActions = b.comment("Ask for confirmation before a hostile action. "
@@ -905,6 +1232,10 @@ public final class McaCrimeConfig {
                     .define("renderCuffs", true);
             renderEscortRope = b.comment("Draw the lead between an escorting guard and their prisoner.")
                     .define("renderEscortRope", true);
+            showNpcMuggingHud = b.comment(
+                    "Show the bar and the hint line while a thief is mugging you. Presentation only --",
+                    "with it off the mugging still runs, and drawing a weapon still stops it.")
+                    .define("showNpcMuggingHud", true);
             hudAnchor = b.comment("Which screen corner or edge the status and custody boxes sit against.",
                             "Bottom anchors are lifted clear of the hotbar and health rows automatically.",
                             "The channel bar always sits above the hotbar, where the eye already is.")
@@ -924,6 +1255,12 @@ public final class McaCrimeConfig {
         STRICT,
         NORMALIZED,
         LOOSE
+    }
+
+    /** Where the Crime button is anchored on MCA's interaction screen (0.5.1). */
+    public enum CrimeButtonAnchor {
+        BOTTOM,
+        TOP_RIGHT
     }
 
     /** How band name coloring is applied (spec §10.3). */

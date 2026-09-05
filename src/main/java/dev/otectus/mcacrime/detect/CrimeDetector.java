@@ -14,6 +14,7 @@ import dev.otectus.mcacrime.crime.type.CrimeTypeRegistry;
 import dev.otectus.mcacrime.engine.CrimeState;
 import dev.otectus.mcacrime.integration.CrimeIntegrationHooks;
 import dev.otectus.mcacrime.ledger.CrimeContext;
+import dev.otectus.mcacrime.ledger.CrimeFlag;
 import dev.otectus.mcacrime.ledger.CrimeLedger;
 import dev.otectus.mcacrime.ledger.CrimeRecord;
 import dev.otectus.mcacrime.ledger.Resolution;
@@ -27,10 +28,13 @@ import net.minecraft.world.entity.LivingEntity;
 import net.minecraftforge.common.MinecraftForge;
 
 import javax.annotation.Nullable;
+import java.util.EnumSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -172,6 +176,80 @@ public final class CrimeDetector {
         MinecraftForge.EVENT_BUS.post(new CrimeCommittedEvent(offender, crimeId, victimId, witnessed,
                 karmaApplied, heatApplied, recordId, view));
         return Optional.of(view);
+    }
+
+    /**
+     * The NPC counterpart of {@link #commitDirect}: writes the record for a crime a villager
+     * committed (0.5.1).
+     *
+     * <p>Three things are deliberately missing relative to the player path, and all three are missing
+     * because the offender is not a player. Karma and Heat live in a player capability, so there is
+     * nothing to add them to; {@code CrimeCommittedEvent} and {@code CrimeWitnessedEvent} both name a
+     * {@code ServerPlayer} offender in their public API and cannot describe a thief. The caller posts
+     * {@code NpcCrimeCommittedEvent} instead, which is that API's counterpart.
+     *
+     * <p>Everything else is the same tail: the same record shape, the same ledger, the same companion
+     * hook, the same observations. A mugging by a villager is a case in the same book as a mugging by
+     * a player, which is the point of the release.
+     *
+     * @param flags     circumstances stamped into the record context, where the guard challenge and
+     *                  the custody branch read them back
+     * @param detection how it came to light, exactly as {@code commitDirect} means it
+     * @return the committed case, or empty when the crime type is unknown and nothing was written
+     */
+    public static Optional<CrimeRecordView> commitNpc(LivingEntity offender, ResourceLocation crimeId,
+                                                      @Nullable LivingEntity victim, ServerLevel level,
+                                                      WitnessResult witnesses, String detection,
+                                                      Set<CrimeFlag> flags) {
+        if (offender == null || level == null) {
+            return Optional.empty();
+        }
+        if (CrimeTypeRegistry.getOrBuiltin(crimeId).isEmpty()) {
+            McaCrime.LOGGER.debug("No crime type (or builtin) for '{}'; skipping", crimeId);
+            return Optional.empty();
+        }
+        MinecraftServer server = level.getServer();
+        if (server == null) {
+            return Optional.empty();
+        }
+
+        // The offender is a villager standing next to its own crime, so the witness scan finds it.
+        // A thief is not a witness to a mugging it is committing: leaving it in would let it observe,
+        // and then report, itself.
+        WitnessResult effective = withoutOffender(witnesses, offender.getUUID());
+
+        UUID recordId = UUID.randomUUID();
+        UUID victimId = victim == null ? null : victim.getUUID();
+        OptionalInt villageId = McaCompat.getHomeVillageId(offender);
+        CrimeCommunityKey community = CrimeCommunityResolver.resolve(offender, level).orElse(null);
+        Map<String, String> context = buildContext(victim, effective, detection);
+        context.put(CrimeContext.OFFENDER_KIND, "npc");
+        context.put(CrimeContext.FLAGS, CrimeFlag.encode(flags == null || flags.isEmpty()
+                ? EnumSet.noneOf(CrimeFlag.class) : EnumSet.copyOf(flags)));
+
+        CrimeRecord record = new CrimeRecord(recordId, offender.getUUID(), victimId, crimeId,
+                villageId, community, effective.witnessed(), effective.witnessIds(), level.getGameTime(),
+                0L, 0L, 0L, 0L, Resolution.UNRESOLVED, 0L, java.util.List.of(), null, context);
+
+        CrimeLedger.record(server, record);
+        CrimeIntegrationHooks.onCommitted(server, record.view());
+        dev.otectus.mcacrime.memory.ObservationService.record(level, offender, victim, crimeId,
+                recordId, effective);
+        return Optional.of(record.view());
+    }
+
+    /** The witness set with one identity removed, counts kept honest. */
+    private static WitnessResult withoutOffender(WitnessResult witnesses, UUID offender) {
+        if (witnesses == null) {
+            return WitnessResult.none();
+        }
+        if (!witnesses.witnessIds().contains(offender)) {
+            return witnesses;
+        }
+        Set<UUID> ids = new LinkedHashSet<>(witnesses.witnessIds());
+        ids.remove(offender);
+        return WitnessResult.of(ids, Math.max(0, witnesses.scannedCandidates() - 1),
+                Math.max(ids.size(), witnesses.totalWitnesses() - 1));
     }
 
     /**

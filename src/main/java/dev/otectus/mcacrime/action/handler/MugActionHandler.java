@@ -39,6 +39,11 @@ public final class MugActionHandler implements CrimeActionHandler {
     }
 
     @Override
+    public boolean coercive() {
+        return true;
+    }
+
+    @Override
     public ActionAvailability evaluate(CrimeActor actor, LivingEntity target, ServerLevel level, long now) {
         McaCrimeConfig.Common c = McaCrimeConfig.COMMON;
         if (!c.enableMugging.get()) return ActionAvailability.hidden("mcacrime.mug.disabled");
@@ -112,6 +117,13 @@ public final class MugActionHandler implements CrimeActionHandler {
     @Override
     public void tick(ActionSession session, CrimeActor actor, LivingEntity target, ServerLevel level) {
         LivingEntity self = actor.entity();
+        // The threat is the weapon. Putting it away mid-channel ends the mugging on the spot, which is
+        // why this is checked every tick rather than on the same interval as everything else: a mugger
+        // who can sheathe for four ticks and still be paid has found the loophole.
+        if (McaCrimeConfig.COMMON.mugRequiresWeapon.get() && WeaponDetector.drawnWeapon(self).isEmpty()) {
+            ActionSessionManager.cancel(session, CancelReason.WEAPON_LOST);
+            return;
+        }
         if (self.distanceToSqr(session.actorStart()) > 2.25D) {
             ActionSessionManager.cancel(session, CancelReason.MOVED);
             return;
@@ -164,8 +176,9 @@ public final class MugActionHandler implements CrimeActionHandler {
                     CrimeDialogueService.context(level, target, player, session.sessionId(), outcome));
         }
         McaCompat.makeVillagerFlee(target, player);
-        ActionSessionManager.finish(session, ActionResult.accepted(
-                transferred > 0 ? "mcacrime.mug.success" : "mcacrime.mug.empty"));
+        ActionSessionManager.finish(session, transferred > 0
+                ? ActionResult.accepted("mcacrime.mug.success", transferred)
+                : ActionResult.accepted("mcacrime.mug.empty"));
     }
 
     @Override

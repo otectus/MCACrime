@@ -54,6 +54,21 @@ public final class VillagerPurse {
         return debit;
     }
 
+    /**
+     * Adds up to {@code amount}, returning how much actually fit.
+     *
+     * <p>Capacity-bounded like {@link #refill}: a thief who mugs three players in a row does not end
+     * the day carrying a fortune, and what it is carrying is what a victim can get back off it.
+     */
+    public int deposit(int amount) {
+        int credit = Math.min(Math.max(0, capacity - balance), Math.max(0, amount));
+        if (credit > 0) {
+            balance += credit;
+            revision++;
+        }
+        return credit;
+    }
+
     public CompoundTag save() {
         CompoundTag tag = new CompoundTag();
         tag.putInt("balance", balance);

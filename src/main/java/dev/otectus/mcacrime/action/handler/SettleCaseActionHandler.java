@@ -43,8 +43,11 @@ public final class SettleCaseActionHandler implements CrimeActionHandler {
         ActionAvailability availability = evaluate(actor, target, level, level.getGameTime());
         if (!availability.isAvailable()) return ActionResult.rejected(availability.reason());
         ServerPlayer player = actor.asPlayer();
-        return FineService.payFine(player) == 1
-                ? ActionResult.accepted("mcacrime.fine.paid")
+        // pay() rather than payFine(): identical arguments, and the amount is the placeholder the
+        // outcome line needs, which the int return of payFine() cannot carry.
+        FineService.Payment payment = FineService.pay(player, java.util.List.of(), true);
+        return payment.paid()
+                ? ActionResult.accepted("mcacrime.fine.paid", payment.amount())
                 : ActionResult.rejected("mcacrime.action.feedback_sent");
     }
 

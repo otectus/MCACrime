@@ -2,6 +2,7 @@ package dev.otectus.mcacrime.network;
 
 import dev.otectus.mcacrime.client.CrimeClientHandlers;
 import net.minecraft.network.FriendlyByteBuf;
+import net.minecraft.network.chat.Component;
 import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.fml.DistExecutor;
 import net.minecraftforge.network.NetworkEvent;
@@ -19,9 +20,14 @@ import java.util.function.Supplier;
  *
  * <p>Display only. The client cannot start, advance or cancel anything with it; it is told what
  * already happened on the server.
+ *
+ * <p>{@code outcomeText} is the formatted outcome and {@code outcomeKey} its bare identity. Both
+ * travel because they answer different questions: the key is what the server-side ledger and the
+ * replay cache speak in, while the text is the only one of the two that can carry the amount a
+ * mugging took. A key alone put "You rob the villager of %s emeralds." on the HUD verbatim.
  */
 public record ActionProgressS2CPacket(UUID sessionId, String actionLabelKey, int progress, int required,
-                                      Phase phase, String outcomeKey) {
+                                      Phase phase, String outcomeKey, Component outcomeText) {
 
     /** Where in its life the action is. */
     public enum Phase {
@@ -40,6 +46,7 @@ public record ActionProgressS2CPacket(UUID sessionId, String actionLabelKey, int
     public ActionProgressS2CPacket {
         actionLabelKey = actionLabelKey == null ? "" : actionLabelKey;
         outcomeKey = outcomeKey == null ? "" : outcomeKey;
+        outcomeText = outcomeText == null ? Component.empty() : outcomeText;
         phase = phase == null ? Phase.PROGRESS : phase;
         required = Math.max(1, required);
         progress = Math.max(0, Math.min(progress, required));
@@ -47,12 +54,18 @@ public record ActionProgressS2CPacket(UUID sessionId, String actionLabelKey, int
 
     /** A bar that has just appeared, at zero. */
     public static ActionProgressS2CPacket started(UUID sessionId, String labelKey, int required) {
-        return new ActionProgressS2CPacket(sessionId, labelKey, 0, required, Phase.STARTED, "");
+        return new ActionProgressS2CPacket(sessionId, labelKey, 0, required, Phase.STARTED, "", Component.empty());
     }
 
-    /** A bar that ended, one way or the other. */
+    /** A bar that ended on a key alone, for an outcome that takes no arguments. */
     public static ActionProgressS2CPacket ended(UUID sessionId, String labelKey, Phase phase, String outcomeKey) {
-        return new ActionProgressS2CPacket(sessionId, labelKey, 1, 1, phase, outcomeKey);
+        return ended(sessionId, labelKey, phase, outcomeKey, Component.empty());
+    }
+
+    /** A bar that ended, one way or the other, carrying the formatted outcome line. */
+    public static ActionProgressS2CPacket ended(UUID sessionId, String labelKey, Phase phase, String outcomeKey,
+                                                Component outcomeText) {
+        return new ActionProgressS2CPacket(sessionId, labelKey, 1, 1, phase, outcomeKey, outcomeText);
     }
 
     public static void encode(ActionProgressS2CPacket msg, FriendlyByteBuf buf) {
@@ -62,6 +75,7 @@ public record ActionProgressS2CPacket(UUID sessionId, String actionLabelKey, int
         buf.writeVarInt(msg.required);
         buf.writeEnum(msg.phase);
         buf.writeUtf(msg.outcomeKey, 256);
+        buf.writeComponent(msg.outcomeText);
     }
 
     public static ActionProgressS2CPacket decode(FriendlyByteBuf buf) {
@@ -74,7 +88,8 @@ public record ActionProgressS2CPacket(UUID sessionId, String actionLabelKey, int
         int ordinal = buf.readVarInt();
         Phase phase = ordinal >= 0 && ordinal < PHASES.length ? PHASES[ordinal] : Phase.PROGRESS;
         String outcome = buf.readUtf(256);
-        return new ActionProgressS2CPacket(sessionId, label, progress, required, phase, outcome);
+        Component outcomeText = buf.readComponent();
+        return new ActionProgressS2CPacket(sessionId, label, progress, required, phase, outcome, outcomeText);
     }
 
     public static void handle(ActionProgressS2CPacket msg, Supplier<NetworkEvent.Context> ctx) {

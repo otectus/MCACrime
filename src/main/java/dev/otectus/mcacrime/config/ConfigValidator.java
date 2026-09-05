@@ -230,6 +230,342 @@ public final class ConfigValidator {
         return problems;
     }
 
+    /**
+     * The guard-intervention block, as a pure function of the values.
+     *
+     * <p>Ranges are enforced by {@code defineInRange}; what is worth reporting is the pair that parses
+     * and then cannot mean what it says — a response radius a guard may never chase across, and an
+     * orphan timeout shorter than the escort timeout that would produce it.
+     */
+    public static List<String> validateGuardIntervention(double responseRadius, int pursuitTimeoutTicks,
+                                                         double aggroRadius, boolean returnStolenGoods,
+                                                         double stolenGoodsReturnRadius,
+                                                         int escortTimeoutTicks, int orphanTicks) {
+        List<String> problems = new ArrayList<>();
+        if (responseRadius > aggroRadius) {
+            problems.add("guardThiefResponseRadius (" + responseRadius + ") is larger than guardAggroRadius ("
+                    + aggroRadius + "), so a guard notices muggings it is immediately told to stop chasing.");
+        }
+        if (pursuitTimeoutTicks < 40) {
+            problems.add("guardThiefPursuitTimeoutTicks (" + pursuitTimeoutTicks
+                    + ") is too short for a guard to cross guardAggroRadius; no pursuit would ever reach.");
+        }
+        if (returnStolenGoods && stolenGoodsReturnRadius <= 0.0D) {
+            problems.add("returnStolenGoodsOnArrest is on but stolenGoodsReturnRadius is 0, so no victim "
+                    + "is ever near enough and nothing is ever returned.");
+        }
+        if (escortTimeoutTicks > 0 && orphanTicks < escortTimeoutTicks) {
+            problems.add("npcEscortOrphanTicks (" + orphanTicks + ") is shorter than arrestEscortTimeoutTicks ("
+                    + escortTimeoutTicks + "), so an escort is jailed in place before it has run out of time.");
+        }
+        return problems;
+    }
+
+    /**
+     * The currency selection, as a pure function of the value.
+     *
+     * <p>A separate method for the reason every other block here is: {@code validateIntegrations} has
+     * tests written against its signature, and widening it to add a check is how those tests start
+     * being rewritten for reasons unrelated to what they assert. Only the <em>shape</em> is checked --
+     * whether an id is actually registered depends on which mods loaded, and {@code Currencies} already
+     * warns once and falls back rather than failing.
+     */
+    public static List<String> validateCurrency(String currencyId) {
+        List<String> problems = new ArrayList<>();
+        if (currencyId == null || currencyId.isBlank()) {
+            problems.add("integrations.currencyId is blank; it must name a currency, e.g. 'mcacrime:emerald'.");
+        } else if (ResourceLocation.tryParse(currencyId.trim()) == null) {
+            problems.add("integrations.currencyId is not a valid id: '" + currencyId + "'.");
+        }
+        return problems;
+    }
+
+    /**
+     * The criminal-job block, as a pure function of the values.
+     *
+     * <p>The ranges themselves are already enforced by {@code defineInRange}. What is worth reporting
+     * is the combination that parses and then means something the operator did not intend: a fence
+     * minimum no village will ever reach, and both occupations switched off while the sweep still runs.
+     */
+    public static List<String> validateCriminalJobs(boolean enableThieves, boolean enableFences,
+                                                    double villageThiefChance, double villageFenceChance,
+                                                    double wildThiefChance, int minVillagePopulationForFence,
+                                                    int cooldownDays, int scanIntervalTicks,
+                                                    int staleRecordGraceDays) {
+        List<String> problems = new ArrayList<>();
+        problems.addAll(chance("villageThiefChance", villageThiefChance));
+        problems.addAll(chance("villageFenceChance", villageFenceChance));
+        problems.addAll(chance("wildThiefChance", wildThiefChance));
+        if (minVillagePopulationForFence < 1) {
+            problems.add("criminalJobs.minVillagePopulationForFence (" + minVillagePopulationForFence
+                    + ") must be at least 1.");
+        }
+        if (cooldownDays < 0) {
+            problems.add("criminalJobs.criminalAssignmentCooldownDays (" + cooldownDays
+                    + ") cannot be negative.");
+        }
+        if (scanIntervalTicks < 1) {
+            problems.add("criminalJobs.assignmentScanIntervalTicks (" + scanIntervalTicks
+                    + ") must be at least 1.");
+        }
+        if (staleRecordGraceDays < 1) {
+            problems.add("criminalJobs.staleRecordGraceDays (" + staleRecordGraceDays
+                    + ") must be at least 1, or criminal records are dropped the day they are written.");
+        }
+        if (enableFences && villageFenceChance > 0.0D && minVillagePopulationForFence > 200) {
+            problems.add("criminalJobs.minVillagePopulationForFence (" + minVillagePopulationForFence
+                    + ") is larger than any MCA village, so no fence can ever be assigned.");
+        }
+        if (!enableThieves && !enableFences) {
+            problems.add("criminalJobs.enableThieves and enableFences are both off, so no villager will "
+                    + "ever take a criminal job; the mugging and fencing features are inert.");
+        }
+        return problems;
+    }
+
+    /**
+     * The {@code criminalJobs.thief} block and the two NPC-mug intervals beside it.
+     *
+     * <p>Ranges are already enforced by {@code defineInRange}; what is worth reporting is the pair
+     * that parses and then means something nobody intended — a hard-abort radius wider than the
+     * radius guards are looked for in at all, a threshold no risk score can reach, and a search
+     * radius further than a mugging can be held at.
+     */
+    public static List<String> validateThief(int mugDurationTicks, int mugCooldownTicks, int scanIntervalTicks,
+                                             double targetSearchRadius, double guardAvoidRadius,
+                                             double guardHardAbortRadius, double guardRiskAbortThreshold,
+                                             int hudUpdateIntervalTicks, int weaponCheckIntervalTicks) {
+        List<String> problems = new ArrayList<>();
+        if (mugDurationTicks < 1) {
+            problems.add("criminalJobs.thief.mugDurationTicks (" + mugDurationTicks
+                    + ") must be at least 1, or a mugging would complete before the victim saw it.");
+        }
+        if (mugCooldownTicks < 0) {
+            problems.add("criminalJobs.thief.mugCooldownTicks (" + mugCooldownTicks + ") cannot be negative.");
+        }
+        if (scanIntervalTicks < 1) {
+            problems.add("criminalJobs.thief.scanIntervalTicks (" + scanIntervalTicks + ") must be at least 1.");
+        }
+        if (guardRiskAbortThreshold < 0.0D || guardRiskAbortThreshold > 1.0D) {
+            problems.add("criminalJobs.thief.guardRiskAbortThreshold (" + guardRiskAbortThreshold
+                    + ") must be between 0.0 and 1.0.");
+        }
+        if (guardHardAbortRadius > guardAvoidRadius) {
+            problems.add("criminalJobs.thief.guardHardAbortRadius (" + guardHardAbortRadius
+                    + ") is larger than guardAvoidRadius (" + guardAvoidRadius
+                    + "), so the guards it describes are never looked for and it can never fire.");
+        }
+        if (guardRiskAbortThreshold <= 0.0D && guardAvoidRadius > 0.0D) {
+            problems.add("criminalJobs.thief.guardRiskAbortThreshold is 0, so any guard at all refuses "
+                    + "every target and no thief will ever mug anybody.");
+        }
+        if (targetSearchRadius > 0.0D && targetSearchRadius < 6.0D) {
+            problems.add("criminalJobs.thief.targetSearchRadius (" + targetSearchRadius
+                    + ") is smaller than the six blocks a mugging can be held at; thieves would only "
+                    + "ever pick victims already standing on top of them.");
+        }
+        if (hudUpdateIntervalTicks < 1) {
+            problems.add("npccrime.npcMugHudUpdateIntervalTicks (" + hudUpdateIntervalTicks
+                    + ") must be at least 1.");
+        }
+        if (weaponCheckIntervalTicks < 1) {
+            problems.add("npccrime.npcMugWeaponCheckIntervalTicks (" + weaponCheckIntervalTicks
+                    + ") must be at least 1, or drawing a weapon would never stop a mugging.");
+        }
+        return problems;
+    }
+
+    /**
+     * The {@code criminalJobs.thief} theft block.
+     *
+     * <p>Ranges are enforced by {@code defineInRange}; what is worth reporting is the pair that
+     * parses and then cannot mean what it says — a minimum above the maximum, and the combination
+     * that leaves a thief able to take nothing at all.
+     */
+    public static List<String> validateTheft(int minCurrencySteal, int maxCurrencySteal,
+                                             boolean stealAllIfBelowMinimum, boolean protectHotbar,
+                                             boolean protectArmor, boolean protectOffhand,
+                                             int stolenGoodsPersistenceDays) {
+        List<String> problems = new ArrayList<>();
+        if (minCurrencySteal < 0) {
+            problems.add("criminalJobs.thief.minCurrencySteal (" + minCurrencySteal + ") cannot be negative.");
+        }
+        if (maxCurrencySteal < 0) {
+            problems.add("criminalJobs.thief.maxCurrencySteal (" + maxCurrencySteal + ") cannot be negative.");
+        }
+        if (minCurrencySteal > maxCurrencySteal) {
+            problems.add("criminalJobs.thief.minCurrencySteal (" + minCurrencySteal
+                    + ") is larger than maxCurrencySteal (" + maxCurrencySteal
+                    + "); the minimum is clamped down to the maximum and never applies.");
+        }
+        if (maxCurrencySteal == 0 && protectHotbar && protectArmor && protectOffhand) {
+            // Slots 9-35 are still eligible, so this is not fatal -- but a pack that also empties the
+            // main inventory of every player has built a thief who can only ever fail.
+            problems.add("criminalJobs.thief.maxCurrencySteal is 0, so muggings can only ever take an "
+                    + "ordinary inventory item; a victim carrying nothing in slots 9-35 loses nothing.");
+        }
+        if (!stealAllIfBelowMinimum && minCurrencySteal > maxCurrencySteal) {
+            problems.add("criminalJobs.thief.stealAllIfBelowMinimum is off and the minimum exceeds the "
+                    + "maximum, so currency theft can never happen.");
+        }
+        if (stolenGoodsPersistenceDays < 0 || stolenGoodsPersistenceDays > 365) {
+            problems.add("criminalJobs.thief.stolenGoodsPersistenceDays (" + stolenGoodsPersistenceDays
+                    + ") must be between 0 and 365.");
+        }
+        return problems;
+    }
+
+    /**
+     * The {@code criminalJobs.fence} block.
+     *
+     * <p>Ranges are enforced by {@code defineInRange}; what is worth reporting is the pair that
+     * parses and then cannot mean what it says — a floor above the ceiling, which would clamp every
+     * price to a single value, and a buy ratio of 1 or more, which would let a player sell an item
+     * back for what they paid and print money out of one fence.
+     */
+    public static List<String> validateFence(double maxKarmaDiscount, double maxHeatMarkup,
+                                             double wantedMarkup, double minimumPriceMultiplier,
+                                             double maximumPriceMultiplier, double buyPriceRatio,
+                                             int defaultBasePrice, int offerCount, int restockIntervalDays) {
+        List<String> problems = new ArrayList<>();
+        problems.addAll(fraction("fence.maxKarmaDiscount", maxKarmaDiscount));
+        problems.addAll(fraction("fence.maxHeatMarkup", maxHeatMarkup));
+        problems.addAll(fraction("fence.wantedMarkup", wantedMarkup));
+        if (minimumPriceMultiplier <= 0.0D) {
+            problems.add("criminalJobs.fence.minimumPriceMultiplier (" + minimumPriceMultiplier
+                    + ") must be greater than 0, or a fence would give its stock away.");
+        }
+        if (minimumPriceMultiplier >= maximumPriceMultiplier) {
+            problems.add("criminalJobs.fence.minimumPriceMultiplier (" + minimumPriceMultiplier
+                    + ") must be below maximumPriceMultiplier (" + maximumPriceMultiplier
+                    + "), or every price is clamped to one value and Karma and Heat stop mattering.");
+        }
+        if (buyPriceRatio <= 0.0D || buyPriceRatio >= 1.0D) {
+            problems.add("criminalJobs.fence.buyPriceRatio (" + buyPriceRatio
+                    + ") must be between 0.0 and 1.0 exclusive; at 1.0 or above a fence pays what it "
+                    + "charges and buying then re-selling is free money.");
+        }
+        if (defaultBasePrice < 1) {
+            problems.add("criminalJobs.fence.defaultBasePrice (" + defaultBasePrice
+                    + ") must be at least 1.");
+        }
+        if (offerCount < 1) {
+            problems.add("criminalJobs.fence.offerCount (" + offerCount
+                    + ") must be at least 1, or a fence opens an empty screen.");
+        }
+        if (restockIntervalDays < 0) {
+            problems.add("criminalJobs.fence.restockIntervalDays (" + restockIntervalDays
+                    + ") cannot be negative.");
+        }
+        return problems;
+    }
+
+    /**
+     * The bounty block, as a pure function of the values.
+     *
+     * <p>A separate method for the reason every other block here is. {@code defineInRange} already
+     * guards each key on its own; what is worth reporting is the pair that parses cleanly and then
+     * quietly makes bounty hunting impossible or free — a floor above the ceiling, a price of nothing,
+     * or both payout routes switched off while the system is still nominally enabled.
+     */
+    public static List<String> validateBounty(boolean enabled, int baseBounty, int minBounty, int maxBounty,
+                                              double severityRewardScale, double fineRewardShare,
+                                              int repeatOffenderBonus, boolean payForKills,
+                                              boolean payForAliveCapture, double killMultiplier,
+                                              double aliveCaptureMultiplier, int karmaReward,
+                                              int claimRetentionDays, double deliveryRadius) {
+        List<String> problems = new ArrayList<>();
+        if (minBounty > maxBounty) {
+            problems.add("bounty.minBounty (" + minBounty + ") cannot exceed bounty.maxBounty (" + maxBounty
+                    + "); every price would clamp to the ceiling and the whole formula would stop mattering.");
+        }
+        if (severityRewardScale < 0.0D || severityRewardScale > 100.0D) {
+            problems.add("bounty.severityRewardScale (" + severityRewardScale + ") must be between 0.0 and 100.0.");
+        }
+        if (fineRewardShare < 0.0D || fineRewardShare > 1.0D) {
+            problems.add("bounty.fineRewardShare (" + fineRewardShare + ") must be between 0.0 and 1.0.");
+        }
+        if (repeatOffenderBonus < 0) {
+            problems.add("bounty.repeatOffenderBonus (" + repeatOffenderBonus + ") cannot be negative.");
+        }
+        if (killMultiplier < 0.0D || killMultiplier > 10.0D) {
+            problems.add("bounty.killMultiplier (" + killMultiplier + ") must be between 0.0 and 10.0.");
+        }
+        if (aliveCaptureMultiplier < 0.0D || aliveCaptureMultiplier > 10.0D) {
+            problems.add("bounty.aliveCaptureMultiplier (" + aliveCaptureMultiplier
+                    + ") must be between 0.0 and 10.0.");
+        }
+        if (karmaReward < 0 || karmaReward > 50) {
+            problems.add("bounty.karmaReward (" + karmaReward + ") must be between 0 and 50.");
+        }
+        if (claimRetentionDays < 1) {
+            problems.add("bounty.claimRetentionDays (" + claimRetentionDays
+                    + ") must be at least 1; a claim forgotten the same day it is paid can be paid again.");
+        }
+        if (deliveryRadius < 1.0D || deliveryRadius > 16.0D) {
+            problems.add("bounty.deliveryRadius (" + deliveryRadius + ") must be between 1.0 and 16.0.");
+        }
+        if (enabled && !payForKills && !payForAliveCapture) {
+            problems.add("bounty.enabled is on with both payForKills and payForAliveCapture off, so no "
+                    + "bounty can ever be collected by any route.");
+        }
+        if (enabled && maxBounty == 0) {
+            problems.add("bounty.maxBounty is 0, so every bounty pays nothing however bad the outlaw is.");
+        }
+        if (enabled && baseBounty == 0 && severityRewardScale == 0.0D && fineRewardShare == 0.0D
+                && repeatOffenderBonus == 0) {
+            problems.add("Every term of the bounty formula is 0, so every price collapses to minBounty "
+                    + "and a hunter is paid the same for a pickpocket as for a murderer.");
+        }
+        return problems;
+    }
+
+    private static List<String> fraction(String key, double value) {
+        return value < 0.0D || value > 1.0D
+                ? List.of("criminalJobs." + key + " (" + value + ") must be between 0.0 and 1.0.")
+                : List.of();
+    }
+
+    private static List<String> chance(String key, double value) {
+        return value < 0.0D || value > 1.0D
+                ? List.of("criminalJobs." + key + " (" + value + ") must be between 0.0 and 1.0.")
+                : List.of();
+    }
+
+    /**
+     * The threat-compliance block, as a pure function of the values.
+     *
+     * <p>A separate method for the reason every other block here is. The ranges are already enforced by
+     * {@code defineInRange}, so what is worth reporting is the combination that parses cleanly and then
+     * quietly does nothing: a freeze nobody can be held by, and a slowdown that does not slow.
+     */
+    public static List<String> validateCompliance(double speedMultiplier, boolean freezeComplyingVictims,
+                                                  boolean armedVillagersCanResist, double resistThreshold,
+                                                  double helpThreshold) {
+        List<String> problems = new ArrayList<>();
+        if (speedMultiplier <= 0.0 || speedMultiplier > 1.0) {
+            problems.add("reactions.civilianCrimeReactionSpeedMultiplier (" + speedMultiplier
+                    + ") must be above 0.0 and at most 1.0.");
+        }
+        if (resistThreshold < 0.0 || resistThreshold > 1.0) {
+            problems.add("reactions.complianceResistThreshold (" + resistThreshold
+                    + ") must be between 0.0 and 1.0.");
+        }
+        if (helpThreshold < 0.0 || helpThreshold > 1.0) {
+            problems.add("reactions.complianceHelpThreshold (" + helpThreshold
+                    + ") must be between 0.0 and 1.0.");
+        }
+        if (resistThreshold <= 0.0 && !armedVillagersCanResist) {
+            problems.add("reactions.complianceResistThreshold is 0 with armedVillagersCanResist off, so "
+                    + "every villager resists every threat and nobody can ever be mugged.");
+        }
+        if (!freezeComplyingVictims && helpThreshold >= 1.0 && resistThreshold >= 1.0) {
+            problems.add("reactions.freezeComplyingVictims is off and both compliance thresholds are 1.0, "
+                    + "so every threatened villager can only ever run.");
+        }
+        return problems;
+    }
+
     public static List<String> validateIntegrations(int pumpIntervalTicks, int pumpBudgetPerTick,
                                                     int maxDeliveryAttempts, int retryBaseDelayTicks,
                                                     int retryMaxDelayTicks, int dedupeRetentionTicks,
@@ -304,6 +640,75 @@ public final class ConfigValidator {
                 c.dedupeRetentionTicks.get(),
                 c.fineResolutionStatus.get(),
                 c.servedResolutionStatus.get()));
+        problems.addAll(validateGuardIntervention(
+                c.guardThiefResponseRadius.get(),
+                c.guardThiefPursuitTimeoutTicks.get(),
+                c.guardAggroRadius.get(),
+                c.returnStolenGoodsOnArrest.get(),
+                c.stolenGoodsReturnRadius.get(),
+                c.arrestEscortTimeoutTicks.get(),
+                c.npcEscortOrphanTicks.get()));
+        problems.addAll(validateCurrency(c.currencyId.get()));
+        problems.addAll(validateCriminalJobs(
+                c.enableThieves.get(),
+                c.enableFences.get(),
+                c.villageThiefChance.get(),
+                c.villageFenceChance.get(),
+                c.wildThiefChance.get(),
+                c.minVillagePopulationForFence.get(),
+                c.criminalAssignmentCooldownDays.get(),
+                c.assignmentScanIntervalTicks.get(),
+                c.staleRecordGraceDays.get()));
+        problems.addAll(validateThief(
+                c.thiefMugDurationTicks.get(),
+                c.thiefMugCooldownTicks.get(),
+                c.thiefScanIntervalTicks.get(),
+                c.thiefTargetSearchRadius.get(),
+                c.thiefGuardAvoidRadius.get(),
+                c.thiefGuardHardAbortRadius.get(),
+                c.thiefGuardRiskAbortThreshold.get(),
+                c.npcMugHudUpdateIntervalTicks.get(),
+                c.npcMugWeaponCheckIntervalTicks.get()));
+        problems.addAll(validateTheft(
+                c.thiefMinCurrencySteal.get(),
+                c.thiefMaxCurrencySteal.get(),
+                c.thiefStealAllIfBelowMinimum.get(),
+                c.thiefProtectHotbar.get(),
+                c.thiefProtectArmor.get(),
+                c.thiefProtectOffhand.get(),
+                c.thiefStolenGoodsPersistenceDays.get()));
+        problems.addAll(validateFence(
+                c.fenceMaxKarmaDiscount.get(),
+                c.fenceMaxHeatMarkup.get(),
+                c.fenceWantedMarkup.get(),
+                c.fenceMinimumPriceMultiplier.get(),
+                c.fenceMaximumPriceMultiplier.get(),
+                c.fenceBuyPriceRatio.get(),
+                c.fenceDefaultBasePrice.get(),
+                c.fenceOfferCount.get(),
+                c.fenceRestockIntervalDays.get()));
+        problems.addAll(validateCompliance(
+                c.civilianCrimeReactionSpeedMultiplier.get(),
+                c.freezeComplyingVictims.get(),
+                c.armedVillagersCanResist.get(),
+                c.complianceResistThreshold.get(),
+                c.complianceHelpThreshold.get()));
+
+        problems.addAll(validateBounty(
+                c.bountyEnabled.get(),
+                c.baseBounty.get(),
+                c.minBounty.get(),
+                c.maxBounty.get(),
+                c.severityRewardScale.get(),
+                c.fineRewardShare.get(),
+                c.repeatOffenderBonus.get(),
+                c.payForKills.get(),
+                c.payForAliveCapture.get(),
+                c.killMultiplier.get(),
+                c.aliveCaptureMultiplier.get(),
+                c.bountyKarmaReward.get(),
+                c.claimRetentionDays.get(),
+                c.bountyDeliveryRadius.get()));
 
         problems.addAll(validateBehaviour(
                 c.enableObservations.get(),

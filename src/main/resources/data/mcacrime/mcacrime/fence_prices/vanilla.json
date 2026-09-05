@@ -1,0 +1,14 @@
+[
+  { "item": "minecraft:tnt", "base": 24 },
+  { "item": "minecraft:fire_charge", "base": 10 },
+  { "item": "minecraft:gunpowder", "base": 4 },
+  { "item": "minecraft:wither_skeleton_skull", "base": 40 },
+  { "item": "minecraft:spyglass", "base": 14 },
+  { "item": "minecraft:tripwire_hook", "base": 6 },
+  { "item": "minecraft:ender_pearl", "base": 12 },
+  { "item": "minecraft:golden_apple", "base": 20 },
+  { "item": "minecraft:name_tag", "base": 16 },
+  { "item": "mcacrime:restraint_rope", "base": 6 },
+  { "item": "mcacrime:restraint_cuffs", "base": 12 },
+  { "item": "mcacrime:restraint_locked_cuffs", "base": 12 }
+]

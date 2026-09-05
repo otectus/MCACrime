@@ -1,0 +1,12 @@
+{
+  "event": "mcacrime:fence_greet_affinity",
+  "fallback": "dialogue.mcacrime.fence_greet_affinity.generic",
+  "variants": [
+    {
+      "priority": 0,
+      "lines": [
+        "dialogue.mcacrime.fence_greet_affinity.generic"
+      ]
+    }
+  ]
+}

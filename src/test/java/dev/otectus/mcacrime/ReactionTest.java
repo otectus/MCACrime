@@ -183,6 +183,15 @@ class ReactionTest {
     }
 
     @Test
+    void complyingHoldsTheVillagerWithoutClaimingNavigation() {
+        // A frozen victim is driven by this mod (MCA must not walk them off mid-mugging) but issues no
+        // path of its own -- the freeze is a navigation stop, not a destination.
+        assertTrue(VictimReactionState.COMPLYING.ownsBehaviour());
+        assertFalse(VictimReactionState.COMPLYING.ownsNavigation(),
+                "a villager holding still must never be given a path to walk");
+    }
+
+    @Test
     void carryingAReportIsOnlyTheTwoDeliveryStates() {
         assertTrue(VictimReactionState.SEEKING_HELP.carryingReport());
         assertTrue(VictimReactionState.REPORTING.carryingReport());

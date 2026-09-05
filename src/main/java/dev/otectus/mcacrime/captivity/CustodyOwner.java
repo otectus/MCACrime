@@ -45,6 +45,17 @@ public final class CustodyOwner {
         return new CustodyOwner(CustodyOwnerType.GUARD, uuid, -1, null, null);
     }
 
+    /**
+     * A bounty hunter holding an outlaw they intend to deliver (0.5.1).
+     *
+     * <p>Shaped exactly like {@link #guard}, because the payload a holder needs is the same either
+     * way; what differs is the type, and the type is what stops the capture being logged as a
+     * kidnapping and what tells {@code ArrestService} there is somebody to pay on delivery.
+     */
+    public static CustodyOwner bountyHunter(UUID uuid) {
+        return new CustodyOwner(CustodyOwnerType.BOUNTY_HUNTER, uuid, -1, null, null);
+    }
+
     public static CustodyOwner jail(int villageId, @Nullable BlockPos pos, @Nullable ResourceLocation dim) {
         return new CustodyOwner(CustodyOwnerType.JAIL, null, villageId, pos, dim);
     }
@@ -61,7 +72,7 @@ public final class CustodyOwner {
         return type;
     }
 
-    /** The holder's entity UUID for KIDNAPPER/GUARD owners; empty otherwise. */
+    /** The holder's entity UUID for KIDNAPPER/GUARD/BOUNTY_HUNTER owners; empty otherwise. */
     public Optional<UUID> ownerUuid() {
         return Optional.ofNullable(ownerUuid);
     }

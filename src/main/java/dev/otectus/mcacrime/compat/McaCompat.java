@@ -138,6 +138,44 @@ public final class McaCompat {
         }
     }
 
+    /**
+     * Sets a villager's <em>visible</em> profession by registry id, through MCA's own setter.
+     *
+     * <p>Used for criminal-job presentation (0.5.1): the id may be one of this mod's own professions
+     * or the one a villager had before it became a fence. False when the id is not registered, when
+     * the entity is not an MCA villager, or when MCA's setter is not bound -- and false means "the
+     * villager still has whatever profession it had", never a half-applied state, because the crime
+     * side reads {@code CrimeWorldData.criminalVillagers} and not this.
+     */
+    public static boolean setVillagerProfession(Entity villager, ResourceLocation professionId) {
+        if (villager == null || professionId == null || !isMcaVillager(villager)) {
+            return false;
+        }
+        VillagerProfession profession = BuiltInRegistries.VILLAGER_PROFESSION.get(professionId);
+        if (profession == null) {
+            return false;
+        }
+        try {
+            return McaHandles.setProfession(villager, profession);
+        } catch (Throwable t) {
+            McaCrime.LOGGER.debug("MCA setVillagerProfession failed; ignoring", t);
+            return false;
+        }
+    }
+
+    /**
+     * True for MCA's archer profession.
+     *
+     * <p>Separate from {@link #isGuard} because MCA's two law roles are separate professions and only
+     * one of them matches "guard". Both are law for the purpose of never being recruited as a
+     * criminal, which is the question this exists to answer.
+     */
+    public static boolean isArcher(Entity entity) {
+        return getProfessionId(entity)
+                .map(id -> ProfessionMatcher.matches(id, "archer"))
+                .orElse(false);
+    }
+
     public static boolean isGuard(Entity entity) {
         return getProfessionId(entity)
                 .map(id -> dev.otectus.mcacrime.compat.ProfessionMatcher.matches(id, "guard"))
@@ -235,7 +273,7 @@ public final class McaCompat {
      *
      * @return true when a lever actually took effect, so a caller can tell aggro from silence
      */
-    public static boolean setGuardTarget(Entity guard, ServerPlayer target) {
+    public static boolean setGuardTarget(Entity guard, LivingEntity target) {
         if (!(guard instanceof Mob mob) || target == null) {
             return false;
         }
@@ -257,6 +295,14 @@ public final class McaCompat {
         return applied;
     }
 
+    /**
+     * The player-typed overload the enforcement layer has always called. Kept so widening the target
+     * type to {@link LivingEntity} (NPC offenders exist as of 0.5.1) is not a call-site migration.
+     */
+    public static boolean setGuardTarget(Entity guard, ServerPlayer target) {
+        return setGuardTarget(guard, (LivingEntity) target);
+    }
+
     /** Clears a responder's target if it has one. Best-effort, server side only. */
     public static void clearGuardTarget(Entity guard) {
         clearGuardTarget(guard, null);
@@ -269,7 +315,7 @@ public final class McaCompat {
      * fighting a zombie is not disarmed by a pardon issued to somebody else. Both levers are cleared
      * together: leaving the brain memory set while nulling the field would leave the guard swinging.
      */
-    public static void clearGuardTarget(Entity guard, @Nullable ServerPlayer formerTarget) {
+    public static void clearGuardTarget(Entity guard, @Nullable LivingEntity formerTarget) {
         if (!(guard instanceof Mob mob)) {
             return;
         }
@@ -289,6 +335,11 @@ public final class McaCompat {
         } catch (Throwable t) {
             McaCrime.LOGGER.debug("MCA clearGuardTarget failed; ignoring", t);
         }
+    }
+
+    /** The player-typed overload, for the same reason {@link #setGuardTarget(Entity, ServerPlayer)} is. */
+    public static void clearGuardTarget(Entity guard, @Nullable ServerPlayer formerTarget) {
+        clearGuardTarget(guard, (LivingEntity) formerTarget);
     }
 
     /**
@@ -359,12 +410,62 @@ public final class McaCompat {
      * A reaction ending is a reason to stop walking somewhere, not a reason to stop an arrest.
      */
     public static void stopModNavigation(Entity villager) {
-        if (villager instanceof PathfinderMob mob) {
-            try {
-                mob.getNavigation().stop();
-            } catch (Throwable t) {
-                McaCrime.LOGGER.debug("MCA stopModNavigation failed; ignoring", t);
-            }
+        clearWalkTargets(villager);
+    }
+
+    /**
+     * Stops a mob walking and erases the brain memories that would start it walking again.
+     *
+     * <p>{@code getNavigation().stop()} alone is not enough for an MCA villager. They are vanilla
+     * {@link net.minecraft.world.entity.npc.Villager}s underneath, so they are brain-driven: the path
+     * belongs to {@code MoveToTargetSink}, which re-issues {@code moveTo} from
+     * {@link MemoryModuleType#WALK_TARGET} on the very next tick. Stopping the navigator without
+     * erasing the memory means the villager keeps walking away between reassertions, one step at a
+     * time — which is exactly what let a mugging victim wander out of the mugging.
+     *
+     * <p>{@code LOOK_TARGET} is deliberately left alone: where a villager is looking is not what moves
+     * them, and callers that want a specific gaze use {@link #faceEntity}.
+     */
+    private static void clearWalkTargets(Entity villager) {
+        if (!(villager instanceof Mob mob)) {
+            return;
+        }
+        try {
+            var brain = mob.getBrain();
+            brain.eraseMemory(MemoryModuleType.WALK_TARGET);
+            brain.eraseMemory(MemoryModuleType.PATH);
+            brain.eraseMemory(MemoryModuleType.CANT_REACH_WALK_TARGET_SINCE);
+        } catch (Throwable t) {
+            // A mob whose brain has no such memory, or no brain worth the name, is not an error.
+            McaCrime.LOGGER.debug("MCA clearWalkTargets brain erase failed; ignoring", t);
+        }
+        try {
+            mob.getNavigation().stop();
+        } catch (Throwable t) {
+            McaCrime.LOGGER.debug("MCA stopModNavigation failed; ignoring", t);
+        }
+    }
+
+    /**
+     * Pins a villager where it stands: walk memories erased, navigation stopped and horizontal momentum
+     * cancelled, with the vertical component left alone so gravity still applies and a villager frozen
+     * mid-air still falls.
+     *
+     * <p>Deliberately not done with a movement-speed modifier. A zero-speed attribute would also stop
+     * knockback, water flow and every other thing that moves an entity for reasons that have nothing to
+     * do with this mod, and it would leave a very visible mess behind if it were ever orphaned. Zeroing
+     * the delta each think is reversible by simply not doing it again.
+     */
+    public static void holdPosition(Entity villager) {
+        if (villager == null) {
+            return;
+        }
+        stopModNavigation(villager);
+        try {
+            Vec3 motion = villager.getDeltaMovement();
+            villager.setDeltaMovement(0.0D, motion.y, 0.0D);
+        } catch (Throwable t) {
+            McaCrime.LOGGER.debug("MCA holdPosition failed; ignoring", t);
         }
     }
 

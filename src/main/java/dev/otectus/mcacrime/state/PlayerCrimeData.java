@@ -54,6 +54,16 @@ public final class PlayerCrimeData {
      */
     private long resistingArrestUntilTick;
 
+    /**
+     * How many warrants this player has had closed against them (0.5.1). The repeat-offender term in
+     * the bounty price.
+     *
+     * <p>Bumped once per warrant, on close, by {@code WarrantService} — never on open, or a player who
+     * is Wanted right now would be priced as though they had already served for it. Absent in every
+     * pre-0.5.1 save, where {@code getInt} yields 0 and reads correctly as "no history". No migration.
+     */
+    private int priorWarrants;
+
     private final DailyKarmaCounters dailyKarmaCounters = new DailyKarmaCounters();
 
     /** Reserved (Phase 4): the captive this player is currently holding. */
@@ -160,6 +170,19 @@ public final class PlayerCrimeData {
         this.lastSurrenderTick = lastSurrenderTick;
     }
 
+    public int getPriorWarrants() {
+        return priorWarrants;
+    }
+
+    public void setPriorWarrants(int priorWarrants) {
+        this.priorWarrants = Math.max(0, priorWarrants);
+    }
+
+    /** One more closed warrant on the record. */
+    public void incrementPriorWarrants() {
+        priorWarrants++;
+    }
+
     public DailyKarmaCounters dailyKarmaCounters() {
         return dailyKarmaCounters;
     }
@@ -219,6 +242,7 @@ public final class PlayerCrimeData {
         this.lastHeatDecayTick = other.lastHeatDecayTick;
         this.lastSurrenderTick = other.lastSurrenderTick;
         this.resistingArrestUntilTick = other.resistingArrestUntilTick;
+        this.priorWarrants = other.priorWarrants;
         this.dailyKarmaCounters.copyFrom(other.dailyKarmaCounters);
         this.heldCaptiveRef = other.heldCaptiveRef;
         this.heldByRef = other.heldByRef;
@@ -237,6 +261,7 @@ public final class PlayerCrimeData {
         tag.putLong("lastHeatDecayTick", lastHeatDecayTick);
         tag.putLong("lastSurrenderTick", lastSurrenderTick);
         tag.putLong("resistingArrestUntilTick", resistingArrestUntilTick);
+        tag.putInt("priorWarrants", priorWarrants);
         tag.put("dailyKarma", dailyKarmaCounters.save());
         if (heldCaptiveRef != null) {
             tag.putUUID("heldCaptiveRef", heldCaptiveRef);
@@ -263,6 +288,8 @@ public final class PlayerCrimeData {
         lastSurrenderTick = tag.getLong("lastSurrenderTick");
         // Absent in pre-0.4.0 saves; getLong yields 0, which reads as "not resisting". No migration needed.
         resistingArrestUntilTick = tag.getLong("resistingArrestUntilTick");
+        // Absent in pre-0.5.1 saves; getInt yields 0, which reads as a clean record. No migration.
+        priorWarrants = Math.max(0, tag.getInt("priorWarrants"));
         dailyKarmaCounters.load(tag.getCompound("dailyKarma"));
         // Band is stored, but derive it from karma when the key is absent (old saves / hand-edits).
         if (tag.contains("band")) {

@@ -65,7 +65,7 @@ public final class CrimeReactionTicker {
     /** Drops every controller on shutdown, so a restart never inherits a stale reaction. */
     @SubscribeEvent
     public static void onServerStopping(ServerStoppingEvent event) {
-        CrimeReactionService.clearAll();
+        CrimeReactionService.clearAll(event.getServer());
         // The two memory-only enforcement caches ride along here for the same reason: an enforcement
         // hold and an escort both describe the current few seconds, and a restart has no business
         // inheriting either.

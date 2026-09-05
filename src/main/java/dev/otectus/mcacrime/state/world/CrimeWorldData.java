@@ -9,6 +9,7 @@ import dev.otectus.mcacrime.jail.HoldingCell;
 import dev.otectus.mcacrime.jail.JailAnchor;
 import dev.otectus.mcacrime.ledger.CrimeContext;
 import dev.otectus.mcacrime.ledger.CrimeRecord;
+import dev.otectus.mcacrime.ledger.Warrant;
 import dev.otectus.mcacrime.memory.CrimeObservation;
 import dev.otectus.mcacrime.memory.CrimeReport;
 import dev.otectus.mcacrime.memory.ReportState;
@@ -88,6 +89,13 @@ public final class CrimeWorldData extends SavedData {
     private static final int MAX_OBSERVATIONS = 4096;
     /** Global ceiling on stored reports. */
     private static final int MAX_REPORTS = 2048;
+    /** Ceilings on the 0.5.1 collections. A malformed or hostile file must not allocate without bound. */
+    private static final int MAX_CRIMINAL_VILLAGERS = 4096;
+    private static final int MAX_STOLEN_GOODS = 4096;
+    private static final int MAX_WARRANTS = 4096;
+    private static final int MAX_BOUNTY_CLAIMS = 8192;
+    private static final int MAX_BOUNTY_CONTRACTS = 1024;
+    private static final int MAX_FENCE_RESTOCK_DAYS = 4096;
 
     /** community -> (playerUuid -> standing delta). LinkedHashMap for stable save ordering. */
     private final Map<CrimeCommunityKey, Map<UUID, Integer>> villageReputation = new LinkedHashMap<>();
@@ -127,6 +135,20 @@ public final class CrimeWorldData extends SavedData {
     private final List<CrimeIntegrationOperation> deadLetters = new ArrayList<>();
     /** player -> (dedupe key -> remembered outcome). */
     private final Map<UUID, Map<String, DedupeEntry>> dedupe = new LinkedHashMap<>();
+    /** Criminal occupations (§"criminal jobs"), keyed by villager. Authoritative over MCA's profession. */
+    private final Map<UUID, CriminalVillagerRecord> criminalVillagers = new LinkedHashMap<>();
+    /** Stolen goods awaiting recovery, keyed by transaction id. */
+    private final Map<UUID, StolenGoodsRecord> stolenGoods = new LinkedHashMap<>();
+    /** thief -> transaction ids. Rebuilt on load; derivable, so never serialised. */
+    private final Map<UUID, List<UUID>> stolenByThief = new LinkedHashMap<>();
+    /** Open and recently-closed warrants, keyed by offender. One warrant per offender at a time. */
+    private final Map<UUID, Warrant> warrants = new LinkedHashMap<>();
+    /** Paid bounties, keyed by {@code target/warrantId/revision}. Append-only within the retention window. */
+    private final Map<String, BountyClaimRecord> bountyClaims = new LinkedHashMap<>();
+    /** Posted contracts, keyed by contract id. Survives the quest mod being uninstalled. */
+    private final Map<UUID, BountyContractRecord> bountyContracts = new LinkedHashMap<>();
+    /** fence -> the day its stock was last rolled. */
+    private final Map<UUID, Long> fenceRestockDay = new LinkedHashMap<>();
     /** Verbatim copy of any reserved later-phase tags found on disk, re-emitted untouched on save. */
     private final CompoundTag reserved = new CompoundTag();
 
@@ -407,6 +429,19 @@ public final class CrimeWorldData extends SavedData {
     }
 
     public long actionCounter(String key) { return Math.max(0L, actionCounters.getOrDefault(key, 0L)); }
+
+    /**
+     * Overwrites a counter rather than adding to it.
+     *
+     * <p>The counters started life as daily totals, which only ever grow. The criminal-job sweep
+     * stores a <em>day number</em> per village under the same map, and a day that only ever increased
+     * by addition would put a village on a cooldown that never ended.
+     */
+    public void setActionCounter(String key, long value) {
+        if (fromTheFuture || key == null) return;
+        actionCounters.put(key, Math.max(0L, value));
+        setDirty();
+    }
 
     public void addActionCounter(String key, long amount) {
         if (fromTheFuture || amount <= 0L) return;
@@ -762,6 +797,197 @@ public final class CrimeWorldData extends SavedData {
         return removed;
     }
 
+    // --- criminal jobs, stolen goods, warrants and bounties (0.5.1) ---
+
+    @Nullable
+    public CriminalVillagerRecord criminalVillager(UUID villager) {
+        return villager == null ? null : criminalVillagers.get(villager);
+    }
+
+    public void putCriminalVillager(CriminalVillagerRecord record) {
+        if (record == null || fromTheFuture) {
+            return;
+        }
+        criminalVillagers.put(record.villager(), record);
+        setDirty();
+    }
+
+    public void removeCriminalVillager(UUID villager) {
+        if (villager == null || fromTheFuture) {
+            return;
+        }
+        if (criminalVillagers.remove(villager) != null) {
+            setDirty();
+        }
+    }
+
+    /** Every criminal this world knows about. A copy: the sweep iterates it while assigning. */
+    public Collection<CriminalVillagerRecord> criminalVillagers() {
+        return List.copyOf(criminalVillagers.values());
+    }
+
+    @Nullable
+    public StolenGoodsRecord stolenGoods(UUID transactionId) {
+        return transactionId == null ? null : stolenGoods.get(transactionId);
+    }
+
+    public void putStolenGoods(StolenGoodsRecord record) {
+        if (record == null || fromTheFuture) {
+            return;
+        }
+        stolenGoods.put(record.transactionId(), record);
+        indexStolen(record);
+        setDirty();
+    }
+
+    /** Removes one record and keeps the by-thief index in step; returns what was removed. */
+    @Nullable
+    public StolenGoodsRecord removeStolenGoods(UUID transactionId) {
+        if (transactionId == null || fromTheFuture) {
+            return null;
+        }
+        StolenGoodsRecord removed = stolenGoods.remove(transactionId);
+        if (removed == null) {
+            return null;
+        }
+        List<UUID> ids = stolenByThief.get(removed.thief());
+        if (ids != null) {
+            ids.remove(transactionId);
+            if (ids.isEmpty()) {
+                stolenByThief.remove(removed.thief());
+            }
+        }
+        setDirty();
+        return removed;
+    }
+
+    /** Everything this thief is currently carrying the provenance of. Never null. */
+    public List<StolenGoodsRecord> stolenGoodsByThief(UUID thief) {
+        List<UUID> ids = thief == null ? null : stolenByThief.get(thief);
+        if (ids == null || ids.isEmpty()) {
+            return List.of();
+        }
+        List<StolenGoodsRecord> out = new ArrayList<>(ids.size());
+        for (UUID id : ids) {
+            StolenGoodsRecord record = stolenGoods.get(id);
+            if (record != null) {
+                out.add(record);
+            }
+        }
+        return out;
+    }
+
+    /** Every stolen-goods record in the world. A copy: expiry iterates it while removing from it. */
+    public Collection<StolenGoodsRecord> stolenGoods() {
+        return List.copyOf(stolenGoods.values());
+    }
+
+    @Nullable
+    public Warrant warrant(UUID offender) {
+        return offender == null ? null : warrants.get(offender);
+    }
+
+    public void putWarrant(Warrant warrant) {
+        if (warrant == null || fromTheFuture) {
+            return;
+        }
+        warrants.put(warrant.offender(), warrant);
+        setDirty();
+    }
+
+    @Nullable
+    public BountyClaimRecord bountyClaim(String claimKey) {
+        return claimKey == null ? null : bountyClaims.get(claimKey);
+    }
+
+    /**
+     * Records a claim only if that key has never been claimed. Returns whether it was recorded.
+     *
+     * <p>This is the whole anti-double-pay mechanism, so it is one operation rather than a
+     * check-then-put a caller could interleave: two kills resolving in the same tick must not both
+     * see an absent key and both pay.
+     */
+    public boolean putBountyClaimIfAbsent(String claimKey, BountyClaimRecord record) {
+        if (claimKey == null || record == null || fromTheFuture || bountyClaims.containsKey(claimKey)) {
+            return false;
+        }
+        bountyClaims.put(claimKey, record);
+        setDirty();
+        return true;
+    }
+
+    /** Every claim ever paid. A copy: retention expiry iterates it while removing from it. */
+    public Map<String, BountyClaimRecord> bountyClaims() {
+        return Map.copyOf(bountyClaims);
+    }
+
+    /** Forgets one claim. Only retention expiry does this; nothing else may un-pay a bounty. */
+    public void removeBountyClaim(String claimKey) {
+        if (claimKey == null || fromTheFuture) {
+            return;
+        }
+        if (bountyClaims.remove(claimKey) != null) {
+            setDirty();
+        }
+    }
+
+    /** Every posted contract. A copy: the board iterates it while invalidating. */
+    public Collection<BountyContractRecord> bountyContracts() {
+        return List.copyOf(bountyContracts.values());
+    }
+
+    public void putBountyContract(BountyContractRecord contract) {
+        if (contract == null || fromTheFuture) {
+            return;
+        }
+        bountyContracts.put(contract.contractId(), contract);
+        setDirty();
+    }
+
+    public void removeBountyContract(UUID contractId) {
+        if (contractId == null || fromTheFuture) {
+            return;
+        }
+        if (bountyContracts.remove(contractId) != null) {
+            setDirty();
+        }
+    }
+
+    /** The day this fence last restocked, or 0 for one that never has. */
+    public long fenceRestockDay(UUID fence) {
+        return fence == null ? 0L : fenceRestockDay.getOrDefault(fence, 0L);
+    }
+
+    /** Every fence's restock day. A copy: the maintenance sweep iterates it while removing from it. */
+    public Map<UUID, Long> fenceRestockDays() {
+        return Map.copyOf(fenceRestockDay);
+    }
+
+    /** Forgets one restock day. Only the maintenance sweep does this, for a villager who is no fence. */
+    public void removeFenceRestockDay(UUID fence) {
+        if (fence == null || fromTheFuture) {
+            return;
+        }
+        if (fenceRestockDay.remove(fence) != null) {
+            setDirty();
+        }
+    }
+
+    public void setFenceRestockDay(UUID fence, long day) {
+        if (fence == null || fromTheFuture) {
+            return;
+        }
+        fenceRestockDay.put(fence, day);
+        setDirty();
+    }
+
+    private void indexStolen(StolenGoodsRecord record) {
+        List<UUID> ids = stolenByThief.computeIfAbsent(record.thief(), k -> new ArrayList<>());
+        if (!ids.contains(record.transactionId())) {
+            ids.add(record.transactionId());
+        }
+    }
+
     // --- persistence ---
 
     @Override
@@ -854,6 +1080,29 @@ public final class CrimeWorldData extends SavedData {
             dedupeTag.put(player.toString(), perPlayer);
         });
         tag.put("dedupe", dedupeTag);
+
+        ListTag criminalList = new ListTag();
+        criminalVillagers.values().forEach(record -> criminalList.add(record.save()));
+        tag.put("criminalVillagers", criminalList);
+        ListTag stolenList = new ListTag();
+        stolenGoods.values().forEach(record -> stolenList.add(record.save()));
+        tag.put("stolenGoods", stolenList);
+        ListTag warrantList = new ListTag();
+        warrants.values().forEach(warrant -> warrantList.add(warrant.save()));
+        tag.put("warrants", warrantList);
+        ListTag claimList = new ListTag();
+        bountyClaims.forEach((key, record) -> {
+            CompoundTag entry = record.save();
+            entry.putString("claimKey", key);
+            claimList.add(entry);
+        });
+        tag.put("bountyClaims", claimList);
+        ListTag contractList = new ListTag();
+        bountyContracts.values().forEach(contract -> contractList.add(contract.save()));
+        tag.put("bountyContracts", contractList);
+        CompoundTag restockTag = new CompoundTag();
+        fenceRestockDay.forEach((fence, day) -> restockTag.putLong(fence.toString(), day));
+        tag.put("fenceRestockDay", restockTag);
 
         // Re-emit reserved later-phase slots untouched (bounties, plus any stashed-for-forward-compat tag).
         for (String key : reserved.getAllKeys()) {
@@ -1054,6 +1303,89 @@ public final class CrimeWorldData extends SavedData {
             }
         }
 
+        // 0.5.1 collections. Every one of them defaults to empty when absent -- a schema-6 world simply
+        // has no criminals, no warrants and no stolen goods, which is the truthful answer rather than
+        // something to synthesise. Each is capped, and each reports at most one line however many
+        // entries are bad: a corrupt file must not be able to write thousands of lines into a log.
+        ListTag criminalList = tag.getList("criminalVillagers", Tag.TAG_COMPOUND);
+        int badCriminals = 0;
+        for (int i = 0; i < criminalList.size() && data.criminalVillagers.size() < MAX_CRIMINAL_VILLAGERS; i++) {
+            try {
+                CriminalVillagerRecord record = CriminalVillagerRecord.load(criminalList.getCompound(i));
+                data.criminalVillagers.put(record.villager(), record);
+            } catch (RuntimeException e) {
+                badCriminals++;
+            }
+        }
+        warnSkipped("criminal villager record", badCriminals);
+
+        ListTag stolenList = tag.getList("stolenGoods", Tag.TAG_COMPOUND);
+        int badStolen = 0;
+        for (int i = 0; i < stolenList.size() && data.stolenGoods.size() < MAX_STOLEN_GOODS; i++) {
+            try {
+                StolenGoodsRecord record = StolenGoodsRecord.load(stolenList.getCompound(i));
+                data.stolenGoods.put(record.transactionId(), record);
+                data.indexStolen(record);
+            } catch (RuntimeException e) {
+                badStolen++;
+            }
+        }
+        warnSkipped("stolen goods record", badStolen);
+
+        ListTag warrantList = tag.getList("warrants", Tag.TAG_COMPOUND);
+        int badWarrants = 0;
+        for (int i = 0; i < warrantList.size() && data.warrants.size() < MAX_WARRANTS; i++) {
+            try {
+                Warrant warrant = Warrant.load(warrantList.getCompound(i));
+                data.warrants.put(warrant.offender(), warrant);
+            } catch (RuntimeException e) {
+                badWarrants++;
+            }
+        }
+        warnSkipped("warrant", badWarrants);
+
+        ListTag claimList = tag.getList("bountyClaims", Tag.TAG_COMPOUND);
+        int badClaims = 0;
+        for (int i = 0; i < claimList.size() && data.bountyClaims.size() < MAX_BOUNTY_CLAIMS; i++) {
+            try {
+                CompoundTag entry = claimList.getCompound(i);
+                BountyClaimRecord record = BountyClaimRecord.load(entry);
+                String key = entry.contains("claimKey")
+                        ? entry.getString("claimKey")
+                        : record.target() + "/" + record.warrantId() + "/" + record.revision();
+                data.bountyClaims.put(key, record);
+            } catch (RuntimeException e) {
+                badClaims++;
+            }
+        }
+        warnSkipped("bounty claim", badClaims);
+
+        ListTag contractList = tag.getList("bountyContracts", Tag.TAG_COMPOUND);
+        int badContracts = 0;
+        for (int i = 0; i < contractList.size() && data.bountyContracts.size() < MAX_BOUNTY_CONTRACTS; i++) {
+            try {
+                BountyContractRecord contract = BountyContractRecord.load(contractList.getCompound(i));
+                data.bountyContracts.put(contract.contractId(), contract);
+            } catch (RuntimeException e) {
+                badContracts++;
+            }
+        }
+        warnSkipped("bounty contract", badContracts);
+
+        CompoundTag restockTag = tag.getCompound("fenceRestockDay");
+        int badRestocks = 0;
+        for (String key : restockTag.getAllKeys()) {
+            if (data.fenceRestockDay.size() >= MAX_FENCE_RESTOCK_DAYS) {
+                break;
+            }
+            try {
+                data.fenceRestockDay.put(UUID.fromString(key), Math.max(0L, restockTag.getLong(key)));
+            } catch (IllegalArgumentException e) {
+                badRestocks++;
+            }
+        }
+        warnSkipped("fence restock stamp", badRestocks);
+
         // Capture reserved later-phase slots verbatim for forward compatibility.
         for (String key : RESERVED_KEYS) {
             if (tag.contains(key)) {
@@ -1061,6 +1393,14 @@ public final class CrimeWorldData extends SavedData {
             }
         }
         return data;
+    }
+
+    /** One aggregate line per collection, however many entries were bad. Silent when none were. */
+    private static void warnSkipped(String noun, int skipped) {
+        if (skipped > 0) {
+            McaCrime.LOGGER.warn("MCA: Crime skipped {} malformed {} entr(ies) while loading; the rest of the "
+                    + "store was read normally.", skipped, noun);
+        }
     }
 
     /**

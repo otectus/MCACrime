@@ -1,0 +1,45 @@
+{
+  "replace": false,
+  "values": [
+    "minecraft:tnt",
+    "minecraft:fire_charge",
+    "minecraft:ender_pearl",
+    "minecraft:spyglass",
+    {
+      "id": "locks:wood_lock_pick",
+      "required": false
+    },
+    {
+      "id": "locks:copper_lock_pick",
+      "required": false
+    },
+    {
+      "id": "locks:iron_lock_pick",
+      "required": false
+    },
+    {
+      "id": "locks:steel_lock_pick",
+      "required": false
+    },
+    {
+      "id": "locks:gold_lock_pick",
+      "required": false
+    },
+    {
+      "id": "locks:diamond_lock_pick",
+      "required": false
+    },
+    {
+      "id": "locks:netherite_lock_pick",
+      "required": false
+    },
+    {
+      "id": "locks:master_key",
+      "required": false
+    },
+    {
+      "id": "locks:key_blank",
+      "required": false
+    }
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  "event": "mcacrime:npc_mug_abort_armed",
+  "fallback": "dialogue.mcacrime.npc_mug_abort_armed.generic",
+  "variants": [
+    {
+      "priority": 70,
+      "lines": [
+        "dialogue.mcacrime.npc_mug_abort_armed.cautious.1"
+      ],
+      "when": {
+        "personality": "cautious"
+      }
+    },
+    {
+      "priority": 0,
+      "lines": [
+        "dialogue.mcacrime.npc_mug_abort_armed.generic"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,46 @@
+{
+  "replace": false,
+  "values": [
+    "minecraft:gunpowder",
+    "minecraft:wither_skeleton_skull",
+    "minecraft:golden_apple",
+    "minecraft:name_tag",
+    "minecraft:tripwire_hook",
+    {
+      "id": "locks:wood_lock",
+      "required": false
+    },
+    {
+      "id": "locks:copper_lock",
+      "required": false
+    },
+    {
+      "id": "locks:iron_lock",
+      "required": false
+    },
+    {
+      "id": "locks:steel_lock",
+      "required": false
+    },
+    {
+      "id": "locks:gold_lock",
+      "required": false
+    },
+    {
+      "id": "locks:diamond_lock",
+      "required": false
+    },
+    {
+      "id": "locks:netherite_lock",
+      "required": false
+    },
+    {
+      "id": "locks:key",
+      "required": false
+    },
+    {
+      "id": "locks:key_ring",
+      "required": false
+    }
+  ]
+}

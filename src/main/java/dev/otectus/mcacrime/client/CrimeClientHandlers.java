@@ -6,10 +6,13 @@ import dev.otectus.mcacrime.network.BandBulkSyncS2CPacket;
 import dev.otectus.mcacrime.network.BandSyncS2CPacket;
 import dev.otectus.mcacrime.network.CaptiveStatusS2CPacket;
 import dev.otectus.mcacrime.network.CaseLedgerS2CPacket;
+import dev.otectus.mcacrime.network.CriminalJobSyncS2CPacket;
 import dev.otectus.mcacrime.network.GuardChallengeS2CPacket;
 import dev.otectus.mcacrime.network.RestraintBulkSyncS2CPacket;
+import dev.otectus.mcacrime.enforcement.RestraintVisualState;
 import dev.otectus.mcacrime.network.RestraintSyncS2CPacket;
 import dev.otectus.mcacrime.network.SelfStatusS2CPacket;
+import dev.otectus.mcacrime.network.WeaponPolicyS2CPacket;
 import dev.otectus.mcacrime.network.ActionMenuS2CPacket;
 import dev.otectus.mcacrime.network.ActionProgressS2CPacket;
 import dev.otectus.mcacrime.client.screen.CaptiveActionScreen;
@@ -96,10 +99,20 @@ public final class CrimeClientHandlers {
     }
 
     public static void onRestraint(RestraintSyncS2CPacket msg) {
-        ClientRestraintData.put(msg.subject(), msg.restrained(), msg.guardEntityId());
+        ClientRestraintData.put(msg.subject(),
+                new RestraintVisualState(msg.restrained(), msg.type(), msg.guardEntityId()));
     }
 
     public static void onRestraintBulk(RestraintBulkSyncS2CPacket msg) {
         ClientRestraintData.putAll(msg.restrained());
+    }
+
+    /** The server's weapon rules, so the Crime button gates on the same lists the server does. */
+    public static void onWeaponPolicy(WeaponPolicyS2CPacket msg) {
+        ClientWeaponPolicy.set(msg.policy());
+    }
+
+    public static void onCriminalJob(CriminalJobSyncS2CPacket msg) {
+        ClientCriminalJobData.put(msg.villager(), msg.job());
     }
 }

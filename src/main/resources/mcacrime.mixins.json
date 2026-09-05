@@ -6,7 +6,7 @@
   "refmap": "mcacrime.refmap.json",
   "mixins": [],
   "client": [
-    "PlayerModelRestraintMixin"
+    "RestraintPoseMixin"
   ],
   "injectors": {
     "defaultRequire": 1

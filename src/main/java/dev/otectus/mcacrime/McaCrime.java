@@ -1,12 +1,17 @@
 package dev.otectus.mcacrime;
 
 import com.mojang.logging.LogUtils;
+import dev.otectus.mcacrime.compat.LocksReforgedBridge;
+import dev.otectus.mcacrime.compat.McaQuestsBridge;
 import dev.otectus.mcacrime.compat.ReputationBridge;
 import dev.otectus.mcacrime.action.CrimeActionService;
 import dev.otectus.mcacrime.compat.mca.McaBinding;
 import dev.otectus.mcacrime.config.ConfigValidator;
 import dev.otectus.mcacrime.crime.type.CrimeTypeRegistry;
+import dev.otectus.mcacrime.economy.Currencies;
 import dev.otectus.mcacrime.item.CrimeItems;
+import dev.otectus.mcacrime.job.CriminalProfessions;
+import dev.otectus.mcacrime.job.WorldCriminalJobService;
 import dev.otectus.mcacrime.network.CrimeNetwork;
 import dev.otectus.mcacrime.state.CrimeCapabilities;
 import net.minecraft.resources.ResourceLocation;
@@ -49,6 +54,7 @@ public final class McaCrime {
         modBus.addListener(this::onConfigReload);
         modBus.addListener(CrimeCapabilities::onRegisterCapabilities);
         CrimeItems.register(modBus); // restraints + creative tab (spec §8.3)
+        CriminalProfessions.register(modBus); // thief/fence, presentation only (0.5.1)
 
         LOGGER.info("MCA: Crime initialising (mod id '{}')", MOD_ID);
     }
@@ -57,6 +63,24 @@ public final class McaCrime {
         if (event.getConfig().getType() == ModConfig.Type.COMMON) {
             dev.otectus.mcacrime.detect.EntitySelectors.invalidate();
             dev.otectus.mcacrime.item.weapon.WeaponDetector.invalidate();
+            // The active currency is chosen by an id, so a reload that renames it must take effect
+            // before the next fine is charged rather than at the next restart.
+            dev.otectus.mcacrime.economy.Currencies.reload();
+            // Weapon lists are gated on server-side but shown client-side, so every connected client
+            // is told the new policy now rather than at their next login.
+            net.minecraft.server.MinecraftServer server =
+                    net.minecraftforge.server.ServerLifecycleHooks.getCurrentServer();
+            if (server != null) {
+                dev.otectus.mcacrime.network.CrimeNetwork.broadcastWeaponPolicy(server);
+                // Both criminal-job presentation keys are answered once per villager, so a reload that
+                // flips one has to revisit the criminals that already exist rather than only the next.
+                WorldCriminalJobService.of(server).refreshPresentation();
+                // Fence stock is priced from the config and assembled from tags, so a reload that
+                // retuned the default price has to reach the next screen that opens. Only with a
+                // server running: tags do not exist before one does, and rebuilding against none
+                // would empty every fence.
+                dev.otectus.mcacrime.economy.fence.FenceGoodsRegistry.rebuild();
+            }
         }
     }
 
@@ -69,6 +93,8 @@ public final class McaCrime {
             // Force the crime-type registry (and its built-in ids) to class-load before any datapack parse.
             CrimeTypeRegistry.bootstrap();
             CrimeActionService.bootstrap();
+            // Before anything can charge anybody: pick the currency named by integrations.currencyId.
+            Currencies.reload();
             // Load-time config validation: surface a broken config in the log (and /crime validate).
             try {
                 List<String> problems = ConfigValidator.validateCurrentConfig();
@@ -83,6 +109,13 @@ public final class McaCrime {
             // Last, and inside enqueueWork: every mod has finished loading by now, so ModList is
             // authoritative, and the bridge must not race our own registration.
             ReputationBridge.init();
+            // Same discipline, one optional mod later: a fence stocks locks and picks when Locks
+            // Reforged is installed, and stocks vanilla contraband only when it is not.
+            LocksReforgedBridge.init();
+            // And one more: open bounties are offered as contracts when MCA: Quests is installed.
+            // Inside enqueueWork because the adapter registers an objective type with it, which its
+            // own API asks add-ons to do here.
+            McaQuestsBridge.init();
         });
     }
 }

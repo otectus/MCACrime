@@ -54,5 +54,7 @@ public final class CrimeClientSetup {
         ClientChallengeData.clear();
         ClientCaseData.clear();
         ClientRestraintData.clear();
+        ClientWeaponPolicy.clear();
+        ClientCriminalJobData.clear();
     }
 }

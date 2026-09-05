@@ -1,6 +1,7 @@
 package dev.otectus.mcacrime.economy.account;
 
-import dev.otectus.mcacrime.economy.EmeraldCurrency;
+import dev.otectus.mcacrime.economy.Currencies;
+import dev.otectus.mcacrime.economy.TransactionReason;
 import dev.otectus.mcacrime.state.world.CrimeWorldData;
 import net.minecraft.server.level.ServerPlayer;
 
@@ -19,7 +20,7 @@ public final class EconomicTransactionService {
         // Claim before either side effect. A replay can never repeat the transfer.
         if (!world.recordTransactionReceipt(transactionId)) return 0;
         int debited = purse.withdraw(amount);
-        if (debited > 0) EmeraldCurrency.INSTANCE.grant(player, debited);
+        if (debited > 0) Currencies.active().credit(player, debited, TransactionReason.RESTITUTION);
         world.setDirty();
         return debited;
     }
@@ -31,7 +32,7 @@ public final class EconomicTransactionService {
         if (world.treasuryBalance(treasury, initialBalance) < amount) return false;
         if (!world.recordTransactionReceipt(transactionId)) return false;
         if (!world.withdrawTreasury(treasury, amount, initialBalance)) return false;
-        EmeraldCurrency.INSTANCE.grant(player, amount);
+        Currencies.active().credit(player, amount, TransactionReason.RESTITUTION);
         return true;
     }
 
@@ -39,10 +40,10 @@ public final class EconomicTransactionService {
                                                                ServerPlayer payer, ServerPlayer recipient,
                                                                long amount) {
         if (amount < 0L || world.hasTransactionReceipt(transactionId)) return false;
-        if (EmeraldCurrency.INSTANCE.balance(payer) < amount) return false;
+        if (Currencies.active().balance(payer) < amount) return false;
         if (!world.recordTransactionReceipt(transactionId)) return false;
-        if (!EmeraldCurrency.INSTANCE.tryCharge(payer, amount)) return false;
-        EmeraldCurrency.INSTANCE.grant(recipient, amount);
+        if (!Currencies.active().tryCharge(payer, amount, TransactionReason.RESTITUTION)) return false;
+        Currencies.active().credit(recipient, amount, TransactionReason.RESTITUTION);
         return true;
     }
 }

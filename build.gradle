@@ -154,6 +154,24 @@ dependencies {
                 "optional Reputation adapter. Build ../MCAReputation (./gradlew classes) to include it.")
     }
 
+    // MCA: Quests — OPTIONAL integration, compile-only, on exactly the same terms as MCA: Reputation
+    // above: dev-mapped class output of the sibling project, never bundled, and the adapter package
+    // excluded from compilation when the sibling is absent so a standalone clone still builds.
+    // McaQuestsBridge reaches compat/mcaquests by name, so a missing class is the
+    // ClassNotFoundException its catch block already handles and bounties are simply not offered as
+    // quests. CI that must include the adapter passes -PrequireQuests=true.
+    def mcaQuestsClasses = file("${projectDir}/../MCAQuests/build/classes/java/main")
+    if (mcaQuestsClasses.exists()) {
+        compileOnly files(mcaQuestsClasses)
+    } else if (project.hasProperty('requireQuests')) {
+        throw new GradleException("-PrequireQuests was set but ${mcaQuestsClasses} does not exist. " +
+                "Build it first: (cd ../MCAQuests && ./gradlew classes)")
+    } else {
+        sourceSets.main.java { exclude 'dev/otectus/mcacrime/compat/mcaquests/**' }
+        logger.warn("MCA: Quests classes not found at ${mcaQuestsClasses}; building WITHOUT the " +
+                "optional bounty-contract adapter. Build ../MCAQuests (./gradlew classes) to include it.")
+    }
+
     // Unit tests for the non-MCA karma/heat engine (spec section 18).
     // The mixin annotation processor generates the refmap that remaps `official` member names to SRG
     // for a production jar. Without it the mixin applies in dev and silently fails in the wild.
@@ -243,7 +261,8 @@ tasks.register('checkJarContents') {
         def forbidden = ['dev/otectus/mcareputation/', 'dev/otectus/mcaquests/',
                          'dev/otectus/mcaconversations/', 'dev/architectury/',
                          'me/shedaniel/', 'forge/net/mca/', 'net/mca/',
-                         'forge/net/conczin/mca/', 'net/conczin/mca/']
+                         'forge/net/conczin/mca/', 'net/conczin/mca/',
+                         'locks/']
         def jarFile = tasks.named('jar').get().archiveFile.get().asFile
         def offenders = []
         new java.util.zip.ZipFile(jarFile).withCloseable { zip ->

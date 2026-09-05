@@ -105,7 +105,7 @@ public final class CaptureTicker {
     private static void progressBar(ServerPlayer kidnapper, CaptureChannel channel) {
         CrimeNetwork.sendActionProgress(kidnapper, new ActionProgressS2CPacket(channelId(channel),
                 "mcacrime.capture.channeling", channel.elapsed(), channel.requiredTicks,
-                ActionProgressS2CPacket.Phase.PROGRESS, ""));
+                ActionProgressS2CPacket.Phase.PROGRESS, "", net.minecraft.network.chat.Component.empty()));
     }
 
     private static void endBar(ServerPlayer kidnapper, CaptureChannel channel, boolean succeeded, String key) {
