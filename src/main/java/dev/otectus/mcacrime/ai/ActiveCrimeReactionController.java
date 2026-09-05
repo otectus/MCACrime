@@ -36,6 +36,25 @@ public final class ActiveCrimeReactionController {
     private BlockPos destination;
     private int pathFailures;
     private boolean reported;
+    /** Unarmed by {@link ArmedResolver}: the only kind of villager that is slowed while reacting. */
+    private boolean civilian;
+    /** Frozen by an open coercive session rather than by a decision of their own. */
+    private boolean coerced;
+    @Nullable
+    private UUID coerciveSessionId;
+    @Nullable
+    private SessionOutcome lastSessionOutcome;
+
+    /**
+     * How the coercive session that was holding this villager still ended. Null until one does, so a
+     * villager still being robbed is distinguishable from one whose robbery is over.
+     */
+    public enum SessionOutcome {
+        /** The action ran to completion — they were robbed, and they recover. */
+        FINISHED,
+        /** The action broke off — nobody is holding them any more, and they react to that. */
+        CANCELLED
+    }
 
     public ActiveCrimeReactionController(UUID villagerId, ResourceLocation dimension,
                                          @Nullable UUID offenderId, @Nullable UUID observationId, long now) {
@@ -104,6 +123,41 @@ public final class ActiveCrimeReactionController {
 
     public void clearPathFailures() {
         pathFailures = 0;
+    }
+
+    public boolean civilian() {
+        return civilian;
+    }
+
+    public void setCivilian(boolean civilian) {
+        this.civilian = civilian;
+    }
+
+    public boolean coerced() {
+        return coerced;
+    }
+
+    @Nullable
+    public UUID coerciveSessionId() {
+        return coerciveSessionId;
+    }
+
+    /** Records the session that froze this villager, and clears any outcome the last one left behind. */
+    public void markCoerced(@Nullable UUID sessionId) {
+        this.coerced = true;
+        this.coerciveSessionId = sessionId;
+        this.lastSessionOutcome = null;
+    }
+
+    @Nullable
+    public SessionOutcome lastSessionOutcome() {
+        return lastSessionOutcome;
+    }
+
+    /** Set by the action layer's end listener, read by the next COMPLYING think. */
+    public void noteSessionEnded(SessionOutcome outcome) {
+        this.lastSessionOutcome = outcome;
+        this.coerced = false;
     }
 
     /** Retargets an existing reaction — a second offender takes over an already-panicking villager. */

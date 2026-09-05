@@ -1,0 +1,17 @@
+{
+  "replace": false,
+  "values": [
+    "minecraft:tnt",
+    "minecraft:fire_charge",
+    "minecraft:gunpowder",
+    "minecraft:wither_skeleton_skull",
+    "minecraft:spyglass",
+    "minecraft:tripwire_hook",
+    "minecraft:ender_pearl",
+    "minecraft:golden_apple",
+    "minecraft:name_tag",
+    "mcacrime:restraint_rope",
+    "mcacrime:restraint_cuffs",
+    "mcacrime:restraint_locked_cuffs"
+  ]
+}

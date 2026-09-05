@@ -36,8 +36,9 @@ public final class PayRansomActionHandler implements CrimeActionHandler {
             return ActionResult.rejected("mcacrime.action.invalid_target");
         }
         ServerPlayer player = actor.asPlayer();
-        return RansomService.pay(player) == 1
-                ? ActionResult.accepted("mcacrime.ransom.paid")
+        RansomService.Outcome result = RansomService.payOutcome(player);
+        return result.status() == 1
+                ? ActionResult.accepted("mcacrime.ransom.paid", result.amount())
                 : ActionResult.rejected("mcacrime.action.feedback_sent");
     }
 

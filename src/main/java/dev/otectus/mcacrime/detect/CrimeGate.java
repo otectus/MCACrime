@@ -2,7 +2,8 @@ package dev.otectus.mcacrime.detect;
 
 import dev.otectus.mcacrime.McaCrimeConfig;
 import dev.otectus.mcacrime.compat.McaCompat;
-import dev.otectus.mcacrime.enforcement.LegalTarget;
+import dev.otectus.mcacrime.enforcement.OutlawResolver;
+import dev.otectus.mcacrime.enforcement.OutlawStatus;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.damagesource.DamageSource;
@@ -75,8 +76,8 @@ public final class CrimeGate {
         //    them" are different grants and a server should be able to give the first without the second.
         if (playerVictim) {
             ServerPlayer victimPlayer = (ServerPlayer) victim;
-            if (LegalTarget.isLegalTarget(victimPlayer)
-                    && (!lethal || LegalTarget.isLethalForceLawful(victimPlayer))) {
+            OutlawStatus status = OutlawResolver.resolve(victimPlayer);
+            if (status.lawfulCombatTarget() && (!lethal || status.lethalForceLawful())) {
                 return Optional.empty();
             }
         }

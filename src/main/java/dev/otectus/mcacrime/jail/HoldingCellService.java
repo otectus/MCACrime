@@ -8,6 +8,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.entity.Entity;
 
 import org.jetbrains.annotations.Nullable;
 import java.util.List;
@@ -90,10 +91,24 @@ public final class HoldingCellService {
      * standing rather than dropped on them, and the expiry sweep will clear it later.
      */
     public static void releaseAndDismantle(MinecraftServer server, ServerPlayer player) {
-        if (server == null || player == null) {
+        if (player != null) {
+            releaseAndDismantle(server, player.getUUID());
+        }
+    }
+
+    /**
+     * The same, for any prisoner -- a player or an arrested villager (0.5.1).
+     *
+     * <p>An NPC prisoner is moved with {@code teleportTo} in its own level rather than the player
+     * overload's cross-dimension form, because a villager in a cell is by construction in the cell's
+     * dimension. A prisoner that is not loaded at all is not moved and the cell still comes down:
+     * there is nobody standing in it to suffocate.
+     */
+    public static void releaseAndDismantle(MinecraftServer server, UUID prisoner) {
+        if (server == null || prisoner == null) {
             return;
         }
-        HoldingCell cell = CrimeWorldData.get(server).holdingCellFor(player.getUUID());
+        HoldingCell cell = CrimeWorldData.get(server).holdingCellFor(prisoner);
         if (cell == null) {
             return;
         }
@@ -105,10 +120,18 @@ public final class HoldingCellService {
                 McaCrime.LOGGER.debug("MCA: Crime found nowhere safe outside a cell; leaving it standing");
                 return;
             }
-            player.teleportTo(level, outside.getX() + 0.5, outside.getY(), outside.getZ() + 0.5,
-                    player.getYRot(), player.getXRot());
+            ServerPlayer player = server.getPlayerList().getPlayer(prisoner);
+            if (player != null) {
+                player.teleportTo(level, outside.getX() + 0.5, outside.getY(), outside.getZ() + 0.5,
+                        player.getYRot(), player.getXRot());
+            } else {
+                Entity npc = level.getEntity(prisoner);
+                if (npc != null) {
+                    npc.teleportTo(outside.getX() + 0.5, outside.getY(), outside.getZ() + 0.5);
+                }
+            }
         }
-        dismantle(server, player.getUUID());
+        dismantle(server, prisoner);
     }
 
     /**

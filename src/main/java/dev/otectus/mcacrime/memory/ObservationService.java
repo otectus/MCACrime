@@ -12,7 +12,6 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
-import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.phys.AABB;
@@ -57,11 +56,15 @@ public final class ObservationService {
     /**
      * Records what everybody nearby knows about one incident and starts the reactions that follow.
      *
+     * <p>{@code offender} is a {@code LivingEntity} rather than a player because 0.5.1 has villager
+     * offenders too: a thief's mugging is observed, reported and reacted to by exactly the same
+     * machinery. Nothing here ever needed the player half of the type.
+     *
      * @param incidentId the crime record this belongs to; observations are addressable by it
      * @param witnesses  the already-computed line-of-sight result, reused rather than rescanned
      * @return the stored observations, newest first, or empty when observations are disabled
      */
-    public static List<CrimeObservation> record(ServerLevel level, ServerPlayer offender,
+    public static List<CrimeObservation> record(ServerLevel level, LivingEntity offender,
                                                 @Nullable LivingEntity victim, ResourceLocation crimeId,
                                                 UUID incidentId, WitnessResult witnesses) {
         MinecraftServer server = level == null ? null : level.getServer();
@@ -201,7 +204,7 @@ public final class ObservationService {
      * to do about it — running, resisting, or fetching a guard is the state machine's call, made from
      * personality and history, not this service's.
      */
-    private static void startReaction(ServerLevel level, LivingEntity observer, ServerPlayer offender,
+    private static void startReaction(ServerLevel level, LivingEntity observer, LivingEntity offender,
                                       CrimeObservation observation) {
         if (!observation.pending()) {
             return;

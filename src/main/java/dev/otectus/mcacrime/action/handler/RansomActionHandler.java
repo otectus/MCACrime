@@ -34,9 +34,10 @@ public final class RansomActionHandler implements CrimeActionHandler {
         }
         ServerPlayer player = actor.asPlayer();
         if (player == null) return ActionResult.rejected("mcacrime.ransom.notholding");
-        int result = RansomService.demandFor(player, target.getUUID());
+        RansomService.Outcome result = RansomService.demandOutcome(player, target.getUUID());
         // RansomService reports its own refusal reason; suppress the generic follow-up in that case.
-        return result == 1 ? ActionResult.accepted("mcacrime.ransom.demanded")
+        return result.status() == 1
+                ? ActionResult.accepted("mcacrime.ransom.demanded", result.amount())
                 : ActionResult.rejected("mcacrime.action.feedback_sent");
     }
 

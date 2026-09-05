@@ -2,6 +2,7 @@ package dev.otectus.mcacrime.action;
 
 import dev.otectus.mcacrime.network.ActionProgressS2CPacket;
 import dev.otectus.mcacrime.network.CrimeNetwork;
+import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 import net.neoforged.neoforge.server.ServerLifecycleHooks;
@@ -49,20 +50,25 @@ public final class ActionFeedback {
         if (player == null) return;
         CrimeNetwork.sendActionProgress(player, new ActionProgressS2CPacket(session.sessionId(),
                 labelFor(session), session.progress(), session.requiredTicks(),
-                ActionProgressS2CPacket.Phase.PROGRESS, ""));
+                ActionProgressS2CPacket.Phase.PROGRESS, "", Component.empty()));
     }
 
     /**
-     * The action ended. {@code outcomeKey} is shown for a few seconds and then fades.
+     * The action ended. The outcome is shown for a few seconds and then fades.
+     *
+     * <p>{@code outcomeText} is the key with its arguments already filled in, since only this side
+     * knows what the fine or the ransom was; {@code outcomeKey} still travels because it is the
+     * outcome's identity rather than its wording.
      *
      * <p>For a cancellation this is the first time in the mod's history that the reason reaches the
      * player: the nine {@link CancelReason} values were recorded into a replay result that nothing
      * read, so an interrupted action simply stopped with no explanation.
      */
-    public static void ended(ActionSession session, ActionProgressS2CPacket.Phase phase, String outcomeKey) {
+    public static void ended(ActionSession session, ActionProgressS2CPacket.Phase phase,
+                             String outcomeKey, Component outcomeText) {
         ServerPlayer player = actor(session.actorId());
         if (player == null) return;
         CrimeNetwork.sendActionProgress(player, ActionProgressS2CPacket.ended(
-                session.sessionId(), labelFor(session), phase, outcomeKey));
+                session.sessionId(), labelFor(session), phase, outcomeKey, outcomeText));
     }
 }

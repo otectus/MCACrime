@@ -18,6 +18,14 @@ public final class CrimeIds {
     public static final ResourceLocation MUGGING_MURDER = ResourceLocation.fromNamespaceAndPath(McaCrime.MOD_ID, "mugging_murder");
     /** A ransom demand/settlement linked to an existing kidnapping, not a duplicate kidnapping. */
     public static final ResourceLocation EXTORTION = ResourceLocation.fromNamespaceAndPath(McaCrime.MOD_ID, "extortion");
+    /**
+     * 0.5.1: a thief robbing a player. Distinct from {@link #THEFT}, which is a player stealing from a
+     * villager, because the offender is an NPC and the two are read by different subsystems.
+     */
+    public static final ResourceLocation MUGGING = ResourceLocation.fromNamespaceAndPath(McaCrime.MOD_ID, "mugging");
+    /** 0.5.1: a mugging a guard, a drawn weapon or a dead thief stopped before any property moved. */
+    public static final ResourceLocation ATTEMPTED_MUGGING =
+            ResourceLocation.fromNamespaceAndPath(McaCrime.MOD_ID, "attempted_mugging");
     /** Harming another player, recorded only when {@code pvpCountsAsCrime} is enabled. */
     public static final ResourceLocation ASSAULT_PLAYER = ResourceLocation.fromNamespaceAndPath(McaCrime.MOD_ID, "assault_player");
     /** Killing another player, recorded only when {@code pvpCountsAsCrime} is enabled. */

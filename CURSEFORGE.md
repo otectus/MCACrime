@@ -218,6 +218,13 @@ MCA: Crime exposes a read-only, server-authoritative Java API and NeoForge event
 
 ---
 
+## Credits
+
+**Restraint item artwork:** TheWiggleDuck designed and provided custom textures for the three
+restraint items (open cuffs, locked cuffs, and rope).
+
+---
+
 ## Current status
 
 MCA: Crime 0.5.0 is an **alpha release**. Back up important worlds and report problems with the MCA, NeoForge, and MCA: Crime versions you are using. **/crime debug integrations** and **/crime debug custody** provide useful diagnostic summaries.
@@ -225,6 +232,5 @@ MCA: Crime 0.5.0 is an **alpha release**. Back up important worlds and report pr
 Current presentation limitations:
 
 - English localization only.
-- The three restraint items currently use placeholder vanilla-derived item textures.
 
 Licensed **GPL-3.0-only**, matching MCA Reborn.

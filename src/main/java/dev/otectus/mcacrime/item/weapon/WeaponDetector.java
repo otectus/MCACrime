@@ -5,10 +5,11 @@ import dev.otectus.mcacrime.captivity.RestraintType;
 import dev.otectus.mcacrime.item.CrimeItems;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.tags.TagKey;
+import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.EquipmentSlot;
+import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.ai.attributes.AttributeModifier;
 import net.minecraft.world.entity.ai.attributes.Attributes;
-import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.AxeItem;
 import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.DiggerItem;
@@ -21,6 +22,7 @@ import net.neoforged.neoforge.common.ModConfigSpec;
 import net.minecraft.core.registries.BuiltInRegistries;
 
 import java.util.List;
+import java.util.Optional;
 
 /**
  * The game-facing half of weapon classification (0.5.0): turns an {@link ItemStack} into a
@@ -56,9 +58,49 @@ public final class WeaponDetector {
         return classify(stack).isWeapon();
     }
 
-    /** Whether either of the player's hands holds a weapon. */
-    public static boolean isArmed(Player player) {
-        return player != null && (isWeapon(player.getMainHandItem()) || isWeapon(player.getOffhandItem()));
+    /** What the stack is under an explicitly supplied rule set — the client's path, off a synced snapshot. */
+    public static WeaponMatch classify(ItemStack stack, WeaponRules rules) {
+        if (stack == null || stack.isEmpty()) {
+            return WeaponMatch.none("empty hand");
+        }
+        return rules.classify(probe(stack));
+    }
+
+    /**
+     * The weapon this entity is holding, if any — the single canonical definition of "drawn" (0.5.1).
+     *
+     * <p>Main hand first and always, because that is the hand the threat is being made with; the
+     * off-hand is only consulted when {@code allowOffHand} says so, and then it loses ties. Every
+     * gate in the mod — the crime menu, the mug tick, villager resistance, the client button — asks
+     * this one method, so there is no way for two of them to disagree about what counts.
+     */
+    public static Optional<DrawnWeapon> drawnWeapon(LivingEntity entity, boolean allowOffHand) {
+        if (entity == null) {
+            return Optional.empty();
+        }
+        ItemStack main = entity.getItemInHand(InteractionHand.MAIN_HAND);
+        WeaponMatch mainMatch = classify(main);
+        if (mainMatch.isWeapon()) {
+            return Optional.of(new DrawnWeapon(InteractionHand.MAIN_HAND, main, mainMatch));
+        }
+        if (!allowOffHand) {
+            return Optional.empty();
+        }
+        ItemStack off = entity.getItemInHand(InteractionHand.OFF_HAND);
+        WeaponMatch offMatch = classify(off);
+        return offMatch.isWeapon()
+                ? Optional.of(new DrawnWeapon(InteractionHand.OFF_HAND, off, offMatch))
+                : Optional.empty();
+    }
+
+    /** {@link #drawnWeapon(LivingEntity, boolean)} honouring {@code weaponTrigger.allowOffHand}. */
+    public static Optional<DrawnWeapon> drawnWeapon(LivingEntity entity) {
+        return drawnWeapon(entity, safeBoolean(McaCrimeConfig.COMMON.weaponTriggerAllowOffHand, true));
+    }
+
+    /** Whether this entity has a weapon drawn, per the configured off-hand policy. */
+    public static boolean isArmed(LivingEntity entity) {
+        return drawnWeapon(entity).isPresent();
     }
 
     /** The threshold currently in force, for {@code /crime debug weapon}. */

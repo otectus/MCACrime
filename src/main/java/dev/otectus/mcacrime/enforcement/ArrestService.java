@@ -1,7 +1,9 @@
 package dev.otectus.mcacrime.enforcement;
 
 import dev.otectus.mcacrime.McaCrimeConfig;
+import dev.otectus.mcacrime.bounty.BountyService;
 import dev.otectus.mcacrime.captivity.CustodyOwner;
+import dev.otectus.mcacrime.captivity.CustodyOwnerType;
 import dev.otectus.mcacrime.captivity.CustodyRecord;
 import dev.otectus.mcacrime.captivity.CustodyRegistry;
 import dev.otectus.mcacrime.captivity.CustodyService;
@@ -46,7 +48,16 @@ public final class ArrestService {
         /** The player asked. No warrant required: turning yourself in is always allowed. */
         VOLUNTARY_SURRENDER,
         /** A guard took them. Requires a basis, because taking somebody's liberty is the higher bar. */
-        GUARD_INITIATED
+        GUARD_INITIATED,
+        /**
+         * A bounty hunter brought them in (0.5.1).
+         *
+         * <p>No fresh basis is demanded, for the same reason a surrender does not need one: the
+         * hunter already established it when they took the outlaw into custody, and re-deriving it at
+         * the guard's feet would let an outlaw whose Heat decayed during the walk simply be let go
+         * with the hunter unpaid.
+         */
+        DELIVERED
     }
 
     /** What came of it. Every value is a thing the caller can say out loud. */
@@ -88,6 +99,12 @@ public final class ArrestService {
         if (cause == Cause.GUARD_INITIATED && !hasBasis(server, level, player, arrestingResponder, charges)) {
             return abort(player, Outcome.REFUSED, null);
         }
+        // Who, if anybody, is owed a bounty for this arrest -- read before anything below can rewrite
+        // the custody record out from under the answer.
+        UUID hunter = held != null && held.getOwner() != null
+                && held.getOwner().type() == CustodyOwnerType.BOUNTY_HUNTER
+                ? held.getOwner().ownerUuid().orElse(null)
+                : null;
 
         McaCrimeConfig.Common c = McaCrimeConfig.COMMON;
         long sentence = SentenceCalculator.sentenceFor(CrimeState.getHeat(player), CrimeState.getBand(player),
@@ -120,8 +137,14 @@ public final class ArrestService {
         }
 
         UUID custodian = arrestingResponder == null ? player.getUUID() : arrestingResponder.getUUID();
-        CustodyService.captureLawful(server, player, CustodyOwner.guard(custodian),
-                player.blockPosition(), level.dimension().location());
+        if (hunter != null) {
+            // Already in lawful custody, so captureLawful would refuse. Custody passes from the hunter
+            // to the law in place, exactly as it does at the end of an escort.
+            CustodyService.transferLawfulCustody(server, player.getUUID(), CustodyOwner.guard(custodian));
+        } else {
+            CustodyService.captureLawful(server, player, CustodyOwner.guard(custodian),
+                    player.blockPosition(), level.dimension().location());
+        }
         // Surrendering ends the resistance. Whatever the player did a moment ago, they are complying now.
         CrimeState.setResistingArrest(player, false);
 
@@ -130,6 +153,11 @@ public final class ArrestService {
 
         EscortService.begin(player, arrestingResponder, destination, sentence);
         player.sendSystemMessage(Component.translatable("mcacrime.arrest.taken"));
+        if (hunter != null) {
+            // The delivery is only real once the arrest is: a hunter who walks an outlaw past a guard
+            // and keeps going has delivered nothing.
+            BountyService.resolveCapture(server, hunter, player);
+        }
         return Outcome.ARRESTED;
     }
 

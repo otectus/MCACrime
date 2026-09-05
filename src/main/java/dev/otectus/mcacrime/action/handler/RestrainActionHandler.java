@@ -23,6 +23,11 @@ public final class RestrainActionHandler implements CrimeActionHandler {
     }
 
     @Override
+    public boolean coercive() {
+        return true;
+    }
+
+    @Override
     public ActionAvailability evaluate(CrimeActor actor, LivingEntity target, ServerLevel level, long now) {
         ServerPlayer player = actor.asPlayer();
         if (player == null) return ActionAvailability.hidden("mcacrime.capture.invalid");

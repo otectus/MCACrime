@@ -2,10 +2,12 @@ package dev.otectus.mcacrime.enforcement;
 
 import dev.otectus.mcacrime.McaCrime;
 import dev.otectus.mcacrime.McaCrimeConfig;
+import dev.otectus.mcacrime.bounty.BountyService;
 import dev.otectus.mcacrime.compat.McaCompat;
 import dev.otectus.mcacrime.detect.EntitySelectors;
 import dev.otectus.mcacrime.event.AmbientMessages;
 import dev.otectus.mcacrime.jail.HoldingCellService;
+import dev.otectus.mcacrime.state.world.CrimeMaintenanceSweep;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
@@ -14,6 +16,8 @@ import net.minecraft.world.phys.AABB;
 import net.neoforged.neoforge.event.tick.ServerTickEvent;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
+import net.neoforged.neoforge.event.server.ServerStartedEvent;
+import net.neoforged.neoforge.event.server.ServerStoppingEvent;
 import net.neoforged.neoforge.server.ServerLifecycleHooks;
 
 import org.jetbrains.annotations.Nullable;
@@ -71,6 +75,17 @@ public final class GuardEnforcement {
         // holds the server, and a fifth ticker for a pass that examines one village a minute would be
         // four more than the work needs.
         GuardPopulationService.tick(server);
+        // Criminal villagers: the chase, the escort and the sentence all ride this same scan. A
+        // world with no arrested thieves pays two empty-map checks for them.
+        NpcCriminalPursuit.tick(server);
+        NpcCustodyService.tick(server, interval);
+        // Bounty delivery rides the same scan for the same reason: it needs a guard near an outlaw,
+        // which is precisely the thing this pass is already about (0.5.1).
+        BountyService.tick(server);
+        // Housekeeping rides the same scan, throttled again on top of it to once every five in-game
+        // minutes: nothing it drops is urgent, and a pass that walks every loaded entity is not free.
+        CrimeMaintenanceSweep.tick(server);
+        respondToIncidents(server);
 
         long serverTime = server.overworld().getGameTime();
         LawHold.prune(serverTime);
@@ -83,7 +98,7 @@ public final class GuardEnforcement {
                     continue;
                 }
                 Alert alert = ALERTS.get(player.getUUID());
-                boolean legalTarget = LegalTarget.isLegalTarget(player);
+                boolean legalTarget = OutlawResolver.resolve(player).lawfulCombatTarget();
                 if (ArrestPhases.inProgress(ArrestStates.phaseOf(player))) {
                     // An arrest already owns this player, and both branches below would fight it.
                     //
@@ -223,6 +238,71 @@ public final class GuardEnforcement {
             }
         }
         return best;
+    }
+
+    /**
+     * Guards react to the muggings happening right now, not only to the ones that get reported.
+     *
+     * <p>Two conditions, and the second is the one the spec is emphatic about: the incident has to be
+     * at {@link ActiveIncidentRegistry.Phase#THREAT} or later, and a guard has to actually be able to
+     * see the offender. A thief that is scouting or approaching has committed nothing observable and
+     * opens no incident at all, so it is invisible here -- spec §"Guard intervention" ends on exactly
+     * that test, because guard-avoidance AI is worthless against psychic guards.
+     */
+    private static void respondToIncidents(MinecraftServer server) {
+        java.util.Collection<ActiveIncidentRegistry.ActiveIncident> incidents = ActiveIncidentRegistry.all();
+        if (incidents.isEmpty()) {
+            return;
+        }
+        double radius = McaCrimeConfig.COMMON.guardThiefResponseRadius.get();
+        for (ActiveIncidentRegistry.ActiveIncident incident : incidents) {
+            if (!ActiveIncidentRegistry.visibleToGuards(incident.phase())
+                    || NpcCriminalPursuit.isPursued(incident.offenderId())) {
+                continue;
+            }
+            ServerLevel level = server.getLevel(incident.dimension());
+            if (level == null || !(level.getEntity(incident.offenderId()) instanceof LivingEntity offender)
+                    || !offender.isAlive()) {
+                continue;
+            }
+            LivingEntity witness = nearestWitness(level, offender, radius);
+            if (witness != null) {
+                NpcCriminalPursuit.engage(level, witness, incident);
+            }
+        }
+    }
+
+    /** The closest responder that can see this offender, or null when none can. */
+    @Nullable
+    private static LivingEntity nearestWitness(ServerLevel level, LivingEntity offender, double radius) {
+        AABB box = offender.getBoundingBox().inflate(radius);
+        LivingEntity best = null;
+        double bestDistance = Double.MAX_VALUE;
+        for (LivingEntity guard : level.getEntitiesOfClass(LivingEntity.class, box,
+                entity -> entity != offender && entity.isAlive() && EntitySelectors.isResponder(entity))) {
+            double distance = guard.distanceToSqr(offender);
+            if (distance < bestDistance && guard.hasLineOfSight(offender)) {
+                bestDistance = distance;
+                best = guard;
+            }
+        }
+        return best;
+    }
+
+    /**
+     * Drops every chase and every escort's bookkeeping on shutdown, and rebuilds the latter on start.
+     * Custody itself is in world data and needs neither.
+     */
+    @SubscribeEvent
+    public static void onServerStarted(ServerStartedEvent event) {
+        NpcCustodyService.reconcile(event.getServer());
+    }
+
+    @SubscribeEvent
+    public static void onServerStopping(ServerStoppingEvent event) {
+        NpcCriminalPursuit.clearAll();
+        NpcCustodyService.clearAll();
+        BountyService.clearAll();
     }
 
     /** A direct victim/witness report gives nearby guards a bounded basis to challenge this player. */

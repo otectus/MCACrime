@@ -56,6 +56,9 @@ public final class CrimeReconciler {
         dev.otectus.mcacrime.enforcement.RestraintSync.syncOnLogin(player);
         dev.otectus.mcacrime.enforcement.RestraintSync.broadcast(player);
         CrimeNetwork.sendSelfStatus(player);
+        // The weapon gate the Crime button greys itself out on is the server's, not the client's own
+        // config file, so the client is told it rather than left to guess.
+        CrimeNetwork.sendWeaponPolicy(player);
         CrimeNetwork.sendCaptiveStatus(player); // restore the captive screen/indicator on re-login
         CrimeBandSync.syncOnLogin(player);
     }

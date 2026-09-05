@@ -11,6 +11,7 @@ import dev.otectus.mcacrime.captivity.CustodyReleaseReason;
 import dev.otectus.mcacrime.captivity.CustodyService;
 import dev.otectus.mcacrime.mug.MuggingService;
 import net.minecraft.server.level.ServerLevel;
+import net.neoforged.neoforge.event.entity.EntityLeaveLevelEvent;
 import net.neoforged.neoforge.event.entity.living.LivingDeathEvent;
 import net.neoforged.neoforge.event.entity.living.LivingDamageEvent;
 import net.neoforged.neoforge.event.entity.player.PlayerEvent;
@@ -87,6 +88,18 @@ public final class CrimeDetectionHandlers {
         }
         if (event.getEntity().level() instanceof ServerLevel level) {
             guarded("kill detection", () -> CrimeDetector.onKill(event.getEntity(), event.getSource(), level));
+        }
+    }
+
+    /**
+     * An entity that leaves the level takes its reaction with it. Without this a villager unloaded
+     * mid-flee keeps a controller until the next tick notices it is gone, and — far worse — keeps the
+     * transient movement-speed modifier the reaction applied, which nothing else would ever take off.
+     */
+    @SubscribeEvent
+    public static void onEntityLeaveLevel(EntityLeaveLevelEvent event) {
+        if (event.getLevel() instanceof ServerLevel level) {
+            dev.otectus.mcacrime.ai.CrimeReactionService.clear(level, event.getEntity().getUUID());
         }
     }
 

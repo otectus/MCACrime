@@ -81,6 +81,13 @@ and member is resolved by name at runtime, against whichever package root the in
 actually uses. Anything MCA has removed degrades to "absent" per member rather than throwing, so a
 future MCA that drops one method loses one feature instead of crashing a server.
 
+---
+
+## Credits
+
+**Restraint item artwork:** TheWiggleDuck designed and provided custom textures for the three
+restraint items (open cuffs, locked cuffs, and rope) used in this release.
+
 ## With the rest of the suite
 
 Each add-on works alone, and any combination works.

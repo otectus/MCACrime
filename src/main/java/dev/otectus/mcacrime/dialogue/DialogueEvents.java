@@ -43,6 +43,17 @@ public final class DialogueEvents {
     public static final ResourceLocation GUARD_STAND_DOWN = McaCrime.id("guard_stand_down");
     public static final ResourceLocation REPORT_FILED = McaCrime.id("report_filed");
 
+    // --- NPC thieves (0.5.1 §"Player mugging interaction") ---
+    public static final ResourceLocation NPC_MUG_START = McaCrime.id("npc_mug_start");
+    public static final ResourceLocation NPC_MUG_ABORT_ARMED = McaCrime.id("npc_mug_abort_armed");
+    public static final ResourceLocation NPC_MUG_SUCCESS = McaCrime.id("npc_mug_success");
+
+    // --- fences (0.5.1 §"Fence prices: karma versus Heat") ---
+    public static final ResourceLocation FENCE_GREET_AFFINITY = McaCrime.id("fence_greet_affinity");
+    public static final ResourceLocation FENCE_GREET_OUTSIDER = McaCrime.id("fence_greet_outsider");
+    public static final ResourceLocation FENCE_GREET_HOT = McaCrime.id("fence_greet_hot");
+    public static final ResourceLocation FENCE_GREET_WANTED = McaCrime.id("fence_greet_wanted");
+
     // --- restorative (§10.2) ---
     public static final ResourceLocation APOLOGY_ACCEPTED = McaCrime.id("apology_accepted");
 
@@ -53,6 +64,8 @@ public final class DialogueEvents {
             RANSOM_DEMAND, RANSOM_REFUSE, RANSOM_COUNTER, RANSOM_PAID,
             CAPTIVE_TAKEN, CAPTIVE_RELEASED, CAPTIVE_RESCUED,
             GUARD_CHALLENGE, GUARD_STAND_DOWN, REPORT_FILED,
+            NPC_MUG_START, NPC_MUG_ABORT_ARMED, NPC_MUG_SUCCESS,
+            FENCE_GREET_AFFINITY, FENCE_GREET_OUTSIDER, FENCE_GREET_HOT, FENCE_GREET_WANTED,
             APOLOGY_ACCEPTED);
 
     private DialogueEvents() {

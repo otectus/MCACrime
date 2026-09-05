@@ -8,10 +8,12 @@ import dev.otectus.mcacrime.network.BandSyncS2CPacket;
 import dev.otectus.mcacrime.network.CaptiveStatusS2CPacket;
 import dev.otectus.mcacrime.network.CaseLedgerS2CPacket;
 import dev.otectus.mcacrime.network.CrimeClientPayloadRouter;
+import dev.otectus.mcacrime.network.CriminalJobSyncS2CPacket;
 import dev.otectus.mcacrime.network.GuardChallengeS2CPacket;
 import dev.otectus.mcacrime.network.RestraintBulkSyncS2CPacket;
 import dev.otectus.mcacrime.network.RestraintSyncS2CPacket;
 import dev.otectus.mcacrime.network.SelfStatusS2CPacket;
+import dev.otectus.mcacrime.network.WeaponPolicyS2CPacket;
 
 /**
  * The client half of the payload seam (spec §9.4): installed by {@code McaCrimeClient}, and the only
@@ -71,5 +73,15 @@ public final class CrimeClientPayloadHandler implements CrimeClientPayloadRouter
     @Override
     public void onRestraintBulkSync(RestraintBulkSyncS2CPacket payload) {
         CrimeClientHandlers.onRestraintBulk(payload);
+    }
+
+    @Override
+    public void onWeaponPolicy(WeaponPolicyS2CPacket payload) {
+        CrimeClientHandlers.onWeaponPolicy(payload);
+    }
+
+    @Override
+    public void onCriminalJob(CriminalJobSyncS2CPacket payload) {
+        CrimeClientHandlers.onCriminalJob(payload);
     }
 }

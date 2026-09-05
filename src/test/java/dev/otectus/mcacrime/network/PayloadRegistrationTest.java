@@ -39,11 +39,13 @@ class PayloadRegistrationTest {
         EXPECTED.put(CaseLedgerS2CPacket.TYPE, "case_ledger");
         EXPECTED.put(RestraintSyncS2CPacket.TYPE, "restraint_sync");
         EXPECTED.put(RestraintBulkSyncS2CPacket.TYPE, "restraint_bulk_sync");
+        EXPECTED.put(WeaponPolicyS2CPacket.TYPE, "weapon_policy");
+        EXPECTED.put(CriminalJobSyncS2CPacket.TYPE, "criminal_job_sync");
     }
 
     @Test
-    void thereAreFifteenPayloads() {
-        assertEquals(15, EXPECTED.size());
+    void thereAreSeventeenPayloads() {
+        assertEquals(17, EXPECTED.size());
     }
 
     @Test

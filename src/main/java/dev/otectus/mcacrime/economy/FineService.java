@@ -87,7 +87,7 @@ public final class FineService {
         if (cost <= 0L) {
             return refused(player, heat, "mcacrime.fine.nothing");
         }
-        if (!EmeraldCurrency.INSTANCE.tryCharge(player, cost)) {
+        if (!Currencies.active().tryCharge(player, cost, TransactionReason.FINE)) {
             player.sendSystemMessage(Component.translatable("mcacrime.fine.need", cost));
             return new Payment(false, null, List.of(), cost, heat, heat, "mcacrime.fine.need");
         }

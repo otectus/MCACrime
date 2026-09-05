@@ -5,6 +5,113 @@ All notable changes to MCA: Crime.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); this project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.1] — unreleased
+
+Criminal NPCs and their social ecology. Restrained villagers render with arms behind their back
+and wrist restraints on every tracking client. Civilians freeze when threatened; armed villagers
+resist. Thieves scout, mug, and flee autonomously; fences trade contraband with pricing that
+reflects community standing and police attention. A unified outlaw authority governs guard
+hostility, assault legality, and bounty eligibility. Bounties for killing or delivering escaped
+prisoners reward players without gaming through repeated suicide.
+
+### Added
+
+- **Restraint artwork.** The three restraint items (open cuffs, locked cuffs, rope) now use custom
+  icons by TheWiggleDuck instead of placeholder textures.
+- **Restrained villager pose and wrist visuals.** Restrained MCA villagers hold both arms behind
+  their back on all tracking clients, including those joining after the restraint was applied.
+  Cuffed and rope-bound wrists render with distinct visuals.
+- **Weapon-point compliance.** Unarmed civilian MCA villagers freeze in place and move more slowly
+  during an active coercive crime. Armed villagers (guards, archers, weapon-holders, tagged combat
+  NPCs) resist instead. Cancelling the coercive action restores full movement.
+- **Criminal occupation system.** Thief and Fence are persisted criminal jobs, assigned to
+  villagers through an optional sweep and shown as vanilla professions when enabled by config.
+- **Autonomous thieves.** Thieves scout for targets, approach and threaten players, mug them for
+  currency and one eligible inventory item (with protection for hotbar, armor, and off-hand by
+  config), and flee. Mugging displays a timed HUD channel. Drawing a weapon or guard intervention
+  aborts the mug before any theft occurs. Stolen goods are persisted by thief and owner, recovered
+  on the thief's death or arrest, and protected from duplication on save/reload cycles.
+- **Contraband trading.** Fences trade tag-driven illicit goods with pricing that adjusts for the
+  buyer's karma, Heat, and Wanted status: discounts for ally NPCs and surcharges for criminals and
+  fugitives, with Locks Reforged lock/pick support (optional, degrades gracefully). Fence stock
+  cycles on a configurable day interval. Fences accept trade unarmed when opened from the Crime
+  menu.
+- **Guard intervention in NPC crime.** Guards pursue thieves, arrest them, apply restraints, escort
+  them to jail, and release them after a sentence. Caught-in-the-act mugging creates mandatory
+  custody that cannot be paid off with a fine.
+- **Unified outlaw authority.** A single `OutlawResolver` now governs guard hostility, whether
+  force is lawful, and bounty eligibility, so no player gains crime liability for force the law
+  itself permits against an outlaw.
+- **Bounty system.** Qualified kills of eligible outlaws can result in configurable bounty rewards
+  (enabled by default). Bounty claims are keyed on warrant id + revision to prevent double-payment
+  across respawns and failed arrests. Alive captures pay a multiplier of the kill reward. Optional
+  MCA: Quests integration publishes bounties as guard-given contracts that never double-pay.
+- **Crime button at bottom of MCA screen.** The Crime button now sits at the bottom of MCA's
+  villager interaction screen (configurable position), is disabled without a drawn weapon, and
+  shows a tooltip explaining why.
+- **Crime button server validation.** The server re-validates the weapon requirement when the menu
+  packet arrives, so client and server always agree on what is permitted.
+- **Weapon policy sync.** The server sends the exact weapon classification policy to every client on
+  login and `/crime reload`, so the Crime button state matches the server's rules.
+- **Fence unarmed access.** Fences can be traded with unarmed through the Crime menu, bypassing the
+  weapon requirement gate only for fence-specific trades.
+- **Thief command suite.** `/crime job assign thief` and `/crime job clear` manage criminal
+  assignments; `/crime job list` and `/crime debug thieves` report state.
+- **Warrant system.** Warrants track open bounties per outlaw with revisions bumped on each new
+  qualifying crime, preventing bounty claims from one warrant across multiple versions.
+- **Bounty command suite.** `/crime warrant <player>` and `/crime bounty <player>` query outlaw
+  status and bounty quotes; `/crime debug bounty` reports active bounties.
+- **New config sections.** `criminalJobs`, `criminalJobs.thief`, `criminalJobs.fence`, and
+  `bounty` sections added with every tuning value. All numeric keys are validated by
+  `/crime validate`.
+- **New entity tags.** `mcacrime:always_resists_weapon_threats`, `mcacrime:never_resists_weapon_threats`,
+  and `mcacrime:armed_villager_roles` allow datapacks to customize threat compliance per entity type.
+- **New item tags.** `mcacrime:illicit_goods`, `mcacrime:fence_sells`, `mcacrime:fence_buys`,
+  `mcacrime:fence_blacklist`, and `mcacrime:thief_theft_immune` allow datapacks to drive fence
+  pricing and thief targeting.
+- **New API event classes.** `BountyResolvedEvent`, `CrimeAttemptEvent`, `CrimeIntentEvent`,
+  `CriminalJobChangedEvent`, `FenceTradeEvent`, `NpcCrimeCommittedEvent`, and `WarrantChangedEvent`
+  fire on bounty claims, crime attempts, crime intents, criminal job changes, fence transactions,
+  NPC crime commission, and warrant changes respectively.
+- **New commands.** `/crime job`, `/crime warrant`, `/crime bounty`, `/crime debug thieves`,
+  `/crime debug bounty`, and `/crime debug jobs` for criminal management and bounty queries.
+
+### Changed
+
+- **World data schema 6 → 7.** Adds six new collections — criminal villagers, stolen goods,
+  warrants, bounty claims, bounty contracts, and fence restock stamps. All new collections default
+  to empty; absent entries read as empty everywhere, so existing worlds load without size increase.
+- **Network protocol 7 → 8.** New S2C payloads for weapon policy sync and criminal job sync. Two
+  new payload types; 17 total.
+- **Restrained pose mixin target clarified.** The mixin injects at AFTER `EntityModel.setupAnim`
+  call within `LivingEntityRenderer.render`, executed on clients that track the restrained entity,
+  so late-joining clients see the pose immediately on entity spawn.
+- **HUD outcome text now pre-formatted.** `ActionProgressS2CPacket` carries `outcomeText` as a
+  pre-formatted `Component` rather than a bare key, so outcomes with dynamic content (fine amounts,
+  stolen item names, ransom fees) render correctly without client-side re-translation.
+
+### Fixed
+
+- **HUD outcome line showed literal `%s` placeholder.** Pre-existing issue: outcome keys carried
+  arguments but were re-translated clientside without the argument values. The server now sends both
+  the identity key and a pre-formatted `Component` with arguments substituted, eliminating the
+  placeholder visibility and the need for client-side translation logic.
+
+### Notes
+
+- Locks Reforged integration (optional) supports registry-based lock/pick lookups for fence pricing
+  tiers. No 1.21.1 port of Locks Reforged exists at this time, so the integration cannot be tested
+  but degrades gracefully if the mod is absent.
+- MCA: Quests integration (optional) publishes bounties as guard-given bounty-board quests that
+  never double-pay the principal. Compiled only when `../MCAQuests_1.21.1/build/classes/java/main`
+  exists; `-PrequireQuests` forces the build to fail if absent.
+- `CrimeDebug` now supports live toggling of debug logging via config reloads.
+
+---
+
+Compatibility: Minecraft 1.21.1 on NeoForge; requires the MCA Reborn version pinned in
+`gradle.properties`. Optional: MCA: Reputation, MCA: Quests, NeoForge 1.21.1 builds.
+
 ## [0.5.0] — NeoForge 1.21.1 port
 
 The maintainer deliberately kept the same version number across the loader change. The Minecraft/NeoForge

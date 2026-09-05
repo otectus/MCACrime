@@ -12,6 +12,8 @@ import dev.otectus.mcacrime.ai.VictimReactionState;
 import dev.otectus.mcacrime.crime.Band;
 import dev.otectus.mcacrime.crime.type.CrimeIds;
 import dev.otectus.mcacrime.enforcement.ChallengeResponse;
+import dev.otectus.mcacrime.job.CriminalJob;
+import dev.otectus.mcacrime.job.CriminalProfessions;
 import dev.otectus.mcacrime.ledger.Resolution;
 import dev.otectus.mcacrime.memory.ObserverRole;
 import dev.otectus.mcacrime.memory.ReportState;
@@ -195,6 +197,25 @@ class LangCoverageTest {
         }
         assertTrue(missing.isEmpty(),
                 "Every action on the menu needs a name and a one-line explanation:\n  "
+                        + String.join("\n  ", missing));
+    }
+
+    /**
+     * The two criminal professions are named by vanilla, not by a {@code Component.translatable} call,
+     * so neither the literal scan nor the concatenated list above can see them. Without this a fence
+     * shows up in game as {@code entity.minecraft.villager.mcacrime.fence}.
+     */
+    @Test
+    void everyCriminalProfessionHasAVillagerName() {
+        JsonObject lang = lang();
+        Set<String> missing = new TreeSet<>();
+        for (CriminalJob job : CriminalJob.values()) {
+            ResourceLocation id = CriminalProfessions.professionIdFor(job);
+            if (id == null) continue;
+            require(lang, missing, "entity.minecraft.villager." + id.getNamespace() + "." + id.getPath());
+        }
+        assertTrue(missing.isEmpty(),
+                "A registered villager profession with no name renders as its own key:\n  "
                         + String.join("\n  ", missing));
     }
 

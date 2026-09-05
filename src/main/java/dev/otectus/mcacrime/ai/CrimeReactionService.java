@@ -1,6 +1,8 @@
 package dev.otectus.mcacrime.ai;
 
 import dev.otectus.mcacrime.McaCrimeConfig;
+import dev.otectus.mcacrime.action.ActionSession;
+import dev.otectus.mcacrime.action.ActionSessionManager;
 import dev.otectus.mcacrime.api.event.WitnessReactionChangedEvent;
 import dev.otectus.mcacrime.compat.McaCompat;
 import dev.otectus.mcacrime.enforcement.LawHold;
@@ -29,6 +31,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -59,6 +62,27 @@ public final class CrimeReactionService {
     private static final int MAX_PATH_FAILURES = 3;
     /** Beat before a THREATENED villager commits to a response, so the decision is legible. */
     private static final int DECISION_DELAY_TICKS = 10;
+    /**
+     * Think cadence for a frozen victim. Every tick, and deliberately so: MCA's brain re-paths on its
+     * own schedule, so anything slower let a mugged villager drift a step at a time out of the mugging
+     * between reassertions. The cost is one villager per live coercive session, which is nothing.
+     */
+    private static final int COMPLYING_THINK_TICKS = 1;
+
+    static {
+        // The only way this layer learns how a coercive session ended. Registered at class init, which
+        // is reached long before any session can exist: a reaction has to be triggered before there is
+        // anything for a listener to say.
+        ActionSessionManager.addEndListener((session, reason) -> {
+            ActiveCrimeReactionController controller = ACTIVE.get(session.targetId());
+            if (controller == null || !session.sessionId().equals(controller.coerciveSessionId())) {
+                return;
+            }
+            controller.noteSessionEnded(reason == null
+                    ? ActiveCrimeReactionController.SessionOutcome.FINISHED
+                    : ActiveCrimeReactionController.SessionOutcome.CANCELLED);
+        });
+    }
 
     private CrimeReactionService() {
     }
@@ -139,6 +163,24 @@ public final class CrimeReactionService {
 
     /** Drops every reaction. Called on server stop so a restart never inherits stale controllers. */
     public static void clearAll() {
+        clearAll(null);
+    }
+
+    /**
+     * As {@link #clearAll()}, but with the server available so every controlled villager also gets its
+     * speed modifier taken off. The modifier is transient and cannot be saved, so this only matters for
+     * a server that keeps running (a single-player world being left, an integrated server restarting);
+     * with no server there is nothing to release and the map is simply dropped.
+     */
+    public static void clearAll(@Nullable MinecraftServer server) {
+        if (server != null) {
+            for (ActiveCrimeReactionController controller : ACTIVE.values()) {
+                ServerLevel level = levelOf(server, controller.dimension());
+                if (level != null) {
+                    release(level, controller.villagerId());
+                }
+            }
+        }
         ACTIVE.clear();
     }
 
@@ -166,7 +208,9 @@ public final class CrimeReactionService {
             if (!controller.shouldThink(now)) {
                 continue;
             }
-            controller.scheduleThink(now, thinkInterval);
+            controller.scheduleThink(now, controller.state() == VictimReactionState.COMPLYING
+                    ? Math.min(thinkInterval, COMPLYING_THINK_TICKS)
+                    : thinkInterval);
 
             Entity entity = level.getEntity(controller.villagerId());
             if (!(entity instanceof LivingEntity villager) || !villager.isAlive()) {
@@ -199,8 +243,7 @@ public final class CrimeReactionService {
         ServerPlayer offender = offenderOf(level, controller);
         return switch (controller.state()) {
             case THREATENED -> tickThreatened(level, controller, villager, offender, now);
-            case COMPLYING -> !controller.timedOut(now) || transition(level, controller,
-                    VictimReactionState.RECOVERING, durationOf(VictimReactionState.RECOVERING));
+            case COMPLYING -> tickComplying(level, controller, villager, offender, now);
             case RESISTING -> tickResisting(level, controller, villager, offender, now);
             case FLEEING -> tickFleeing(level, controller, villager, offender, now);
             case SEEKING_HELP -> tickSeekingHelp(level, controller, villager, offender, now);
@@ -220,25 +263,126 @@ public final class CrimeReactionService {
                     durationOf(VictimReactionState.RECOVERING));
         }
         McaCompat.faceEntity(villager, offender);
-        if (controller.ticksInState(now) < DECISION_DELAY_TICKS && !controller.timedOut(now)) {
+
+        // Freezing is a reaction to being robbed, not to being near somebody armed: it takes a live
+        // coercive session naming this villager as its target, which is what this lookup is. It is read
+        // before the deliberation beat because it is also what removes the beat.
+        Optional<ActionSession> coercive = ActionSessionManager.activeCoerciveAgainst(controller.villagerId());
+        if (controller.ticksInState(now) < decisionDelayFor(coercive.isPresent()) && !controller.timedOut(now)) {
             return true;
         }
+        McaCrimeConfig.Common c = McaCrimeConfig.COMMON;
         ReactionFactors factors = factorsFor(level, villager, offender);
         boolean helpNearby = nearestResponder(level, villager, controller.offenderId()) != null;
+        ArmedResolver.ArmedStatus armed = ArmedResolver.classify(villager);
+        // Only an unarmed villager is ever slowed. A guard who is about to swing does not shuffle.
+        controller.setCivilian(!armed.armed());
 
         // Order matters: fighting is a choice about this moment, fetching a guard is a choice about
         // what happens next, and running is what is left. Checking them the other way round would make
         // every brave villager walk off to find help mid-robbery.
-        if (factors.resistanceScore() >= 0.6F) {
-            return transition(level, controller, VictimReactionState.RESISTING,
-                    durationOf(VictimReactionState.RESISTING));
+        ThreatComplianceDecider.Decision decision = ThreatComplianceDecider.decide(armed, coercive.isPresent(),
+                factors.resistanceScore(), factors.helpSeekingScore(), helpNearby,
+                c.armedVillagersCanResist.get(), c.freezeComplyingVictims.get(),
+                c.complianceResistThreshold.get(), c.complianceHelpThreshold.get());
+
+        switch (decision) {
+            case RESIST -> {
+                // A guard resisting is an arrest starting, so the enforcement lever goes on too. A
+                // civilian resisting is a shove, and tickResisting is all that one needs.
+                if (McaCompat.isGuard(villager)) {
+                    McaCompat.setGuardTarget(villager, offender);
+                }
+                return transition(level, controller, VictimReactionState.RESISTING,
+                        durationOf(VictimReactionState.RESISTING));
+            }
+            case COMPLY -> {
+                controller.markCoerced(coercive.map(ActionSession::sessionId).orElse(null));
+                boolean alive = transition(level, controller, VictimReactionState.COMPLYING,
+                        durationOf(VictimReactionState.COMPLYING));
+                // The hold goes on during the same think the decision is made. Waiting for the first
+                // COMPLYING think would leave the victim free to take another step first, which is the
+                // whole complaint.
+                holdComplying(villager, offender);
+                return alive;
+            }
+            case SEEK_HELP -> {
+                return transition(level, controller, VictimReactionState.SEEKING_HELP,
+                        durationOf(VictimReactionState.SEEKING_HELP));
+            }
+            default -> {
+                return transition(level, controller, VictimReactionState.FLEEING,
+                        durationOf(VictimReactionState.FLEEING));
+            }
         }
-        if (helpNearby && factors.helpSeekingScore() >= 0.5F) {
+    }
+
+    /**
+     * Holds a complying villager still for as long as the session that froze them lives, then routes
+     * them out by how it ended.
+     *
+     * <p>Both levers are re-applied every think rather than once on entry. MCA's brain re-paths on its
+     * own schedule and would walk the villager out of the mugging within a second of a single stop;
+     * re-asserting is cheaper than fighting the result.
+     */
+    private static boolean tickComplying(ServerLevel level, ActiveCrimeReactionController controller,
+                                         LivingEntity villager, @Nullable ServerPlayer offender, long now) {
+        Optional<ActionSession> coercive = ActionSessionManager.activeCoerciveAgainst(controller.villagerId());
+        if (coercive.isPresent()) {
+            holdComplying(villager, offender);
+            // No timeout while somebody is still holding them: the session owns this state's lifetime.
+            return true;
+        }
+        if (controller.lastSessionOutcome() == ActiveCrimeReactionController.SessionOutcome.CANCELLED) {
+            // Broken off rather than completed. Whoever was frozen a tick ago is now free, and the
+            // nearest guard is about to hear about it.
+            LivingEntity responder = nearestResponder(level, villager, controller.offenderId());
+            if (responder == null) {
+                return transition(level, controller, VictimReactionState.FLEEING,
+                        durationOf(VictimReactionState.FLEEING));
+            }
+            if (villager.distanceToSqr(responder) <= REPORT_REACH * REPORT_REACH) {
+                return transition(level, controller, VictimReactionState.REPORTING, REPORT_DELIVERY_TICKS);
+            }
             return transition(level, controller, VictimReactionState.SEEKING_HELP,
                     durationOf(VictimReactionState.SEEKING_HELP));
         }
-        return transition(level, controller, VictimReactionState.FLEEING,
-                durationOf(VictimReactionState.FLEEING));
+        // Finished, or frozen by something that is no longer there. Either way it is over.
+        return transition(level, controller, VictimReactionState.RECOVERING,
+                durationOf(VictimReactionState.RECOVERING));
+    }
+
+    /**
+     * How long a THREATENED villager deliberates before committing (pure, so it can be asserted).
+     *
+     * <p>The beat exists to make an ambiguous observation legible: somebody saw something, hesitated,
+     * then reacted. A live coercive session is not ambiguous — it is a named offender with an open
+     * action against this exact villager — and ten ticks of hesitation there is half a second of the
+     * victim walking out of their own mugging before anything holds them.
+     */
+    public static int decisionDelayFor(boolean coerciveSessionActive) {
+        return coerciveSessionActive ? 0 : DECISION_DELAY_TICKS;
+    }
+
+    /**
+     * Everything that keeps a complying victim where they are, applied together so the decision think
+     * and the COMPLYING think cannot drift apart.
+     *
+     * <p>Three levers, because each covers what the others miss: {@link McaCompat#holdPosition} erases
+     * the brain's walk memories and kills momentum, the speed modifier makes any movement that is
+     * nonetheless issued cover no ground, and looking at the offender keeps the freeze legible rather
+     * than reading as a bugged villager staring at a wall. The modifier is the transient, fixed-id one
+     * every exit path already removes, so it cannot outlive the hold.
+     */
+    private static void holdComplying(LivingEntity villager, @Nullable ServerPlayer offender) {
+        if (offender != null) {
+            McaCompat.faceEntity(villager, offender);
+        }
+        McaCompat.stopModNavigation(villager);
+        if (McaCrimeConfig.COMMON.freezeComplyingVictims.get()) {
+            McaCompat.holdPosition(villager);
+            ReactionSpeedModifier.apply(villager, 0.0D);
+        }
     }
 
     private static boolean tickResisting(ServerLevel level, ActiveCrimeReactionController controller,
@@ -444,6 +588,17 @@ public final class CrimeReactionService {
         }
         ServerPlayer offender = offenderOf(level, controller);
         Entity entity = level.getEntity(controller.villagerId());
+        if (entity instanceof LivingEntity subject) {
+            // Applied on entry to the states that steer, taken off on entry to every other state. Doing
+            // it here rather than at each call site is what makes "no state can leak the modifier" a
+            // property of the transition rather than a rule every future state has to remember.
+            if (next.ownsNavigation() && controller.civilian()) {
+                ReactionSpeedModifier.apply(subject,
+                        McaCrimeConfig.COMMON.civilianCrimeReactionSpeedMultiplier.get());
+            } else {
+                ReactionSpeedModifier.remove(subject);
+            }
+        }
         if (offender != null && entity instanceof LivingEntity villager) {
             speakFor(level, villager, offender, controller, next);
         }
@@ -481,6 +636,11 @@ public final class CrimeReactionService {
         Entity entity = level.getEntity(villagerId);
         if (entity == null) {
             return;
+        }
+        if (entity instanceof LivingEntity living) {
+            // Unconditional: the modifier is invisible and permanent if it is ever left behind, so this
+            // never asks whether one was applied.
+            ReactionSpeedModifier.remove(living);
         }
         if (LawHold.isHeld(villagerId, level.getGameTime())) {
             McaCompat.stopModNavigation(entity);

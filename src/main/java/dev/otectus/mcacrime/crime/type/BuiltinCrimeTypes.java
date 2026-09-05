@@ -24,6 +24,11 @@ public final class BuiltinCrimeTypes {
         put(new CrimeType(CrimeIds.THEFT, -8L, 12L, 1.0, "villager"));
         put(new CrimeType(CrimeIds.MUGGING_MURDER, -70L, 55L, 1.0, "villager"));
         put(new CrimeType(CrimeIds.EXTORTION, -12L, 10L, 1.0, "villager"));
+        // NPC offenders (0.5.1). Karma and Heat are zero deliberately: both are player-side scores
+        // kept in a player attachment, and a villager has neither. The record exists so the crime is
+        // reportable, chargeable and visible in the ledger, not to move a number nobody owns.
+        put(new CrimeType(CrimeIds.MUGGING, 0L, 0L, 1.0, "player"));
+        put(new CrimeType(CrimeIds.ATTEMPTED_MUGGING, 0L, 0L, 1.0, "player"));
         // Player-on-player, and only ever reached with pvpCountsAsCrime on. Weighted close to the
         // villager equivalents so a server that enables it does not get a second, harsher legal system.
         put(new CrimeType(CrimeIds.ASSAULT_PLAYER, -10L, 15L, 1.0, "player"));

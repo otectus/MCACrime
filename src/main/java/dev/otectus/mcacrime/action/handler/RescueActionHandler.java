@@ -165,7 +165,8 @@ public final class RescueActionHandler implements CrimeActionHandler {
                                 DialogueEvents.CAPTIVE_RESCUED));
             }
         }
-        ActionSessionManager.finish(session, ActionResult.accepted("mcacrime.rescue.done"));
+        ActionSessionManager.finish(session, ActionResult.accepted("mcacrime.rescue.done",
+                McaCompat.getVillagerDisplayName(target)));
     }
 
     /**

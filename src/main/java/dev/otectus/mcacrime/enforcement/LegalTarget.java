@@ -103,25 +103,44 @@ public final class LegalTarget {
         return server != null && CustodyRegistry.isActiveKidnapper(server, player.getUUID());
     }
 
+    /**
+     * Pure: which of several simultaneously-true reasons is <em>the</em> reason (0.5.1).
+     *
+     * <p>Extracted from {@link #primaryReasonKey} rather than duplicated, because {@code OutlawResolver}
+     * needs the same ordering and a second copy of it is a second thing to keep in step. Resisting comes
+     * first because it is the most recent thing the player actually did: being told "you are Wanted"
+     * after refusing a guard to their face explains the wrong half of the encounter.
+     *
+     * <p>{@code redBand} means "Red <em>and</em> redIsLegalTarget", not merely Red — carrying a
+     * reputation is only a basis for force when the server has said it is.
+     */
+    public static LegalBasis basisOf(boolean wanted, boolean redBand, boolean escaped,
+                                     boolean holdingCaptive, boolean resisting) {
+        if (resisting) {
+            return LegalBasis.RESISTING_ARREST;
+        }
+        if (holdingCaptive) {
+            return LegalBasis.HOLDING_CAPTIVE;
+        }
+        if (wanted) {
+            return LegalBasis.WANTED;
+        }
+        if (escaped) {
+            return LegalBasis.ESCAPED_PRISONER;
+        }
+        if (redBand) {
+            return LegalBasis.RED_BAND;
+        }
+        return LegalBasis.NONE;
+    }
+
     /** The lang key explaining the primary reason a player is a Legal Target — for the §10.3 "why a guard attacks" message. */
     public static String primaryReasonKey(ServerPlayer player) {
-        // Resisting comes first because it is the most recent thing the player actually did. Being told
-        // "you are Wanted" after refusing a guard to their face explains the wrong half of the encounter.
-        if (isResistingArrest(player)) {
-            return "mcacrime.msg.guardaggro.resisting";
-        }
-        if (isHoldingCaptive(player)) {
-            return "mcacrime.msg.guardaggro.captor";
-        }
-        if (CrimeState.isWanted(player)) {
-            return "mcacrime.msg.guardaggro.wanted";
-        }
-        if (isEscapedPrisoner(player)) {
-            return "mcacrime.msg.guardaggro.escaped";
-        }
-        if (CrimeState.getBand(player) == Band.RED && McaCrimeConfig.COMMON.redIsLegalTarget.get()) {
-            return "mcacrime.msg.guardaggro.red";
-        }
-        return "mcacrime.msg.guardaggro.generic";
+        return basisOf(
+                CrimeState.isWanted(player),
+                CrimeState.getBand(player) == Band.RED && McaCrimeConfig.COMMON.redIsLegalTarget.get(),
+                isEscapedPrisoner(player),
+                isHoldingCaptive(player),
+                isResistingArrest(player)).reasonKey();
     }
 }

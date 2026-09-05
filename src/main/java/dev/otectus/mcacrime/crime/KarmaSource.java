@@ -22,5 +22,7 @@ public enum KarmaSource {
     /** Reserved (Phase 7): an MCA: Quests outcome. */
     QUEST,
     /** A ransom extorted by a kidnapper (Phase 4, spec §8.5). */
-    RANSOM
+    RANSOM,
+    /** A bounty collected on an outlaw (0.5.1). Standing that the law itself handed out. */
+    BOUNTY
 }

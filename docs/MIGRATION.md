@@ -35,7 +35,7 @@ Player data from Forge 1.20.1 player files is imported once on load:
 
 ### What Does Not Migrate
 
-- **1.20.1 Forge clients cannot join a NeoForge 1.21.1 server.** The network protocol is incompatible (changed to version 7). Clients must update to NeoForge 1.21.1.
+- **1.20.1 Forge clients cannot join a NeoForge 1.21.1 server.** The network protocol is incompatible (changed to protocol 8). Clients must update to NeoForge 1.21.1.
 - World files (block data, entity data) are compatible; only the network protocol differs.
 - Config files (keys and TOML structure) remain identical across both versions.
 
@@ -74,7 +74,7 @@ If the upgrade fails or data is corrupt, restore the backup and downgrade to For
 
 ### Known Differences
 
-- World file (`world/data/mcacrime.dat`) schema is unchanged (version 6).
+- World file (`world/data/mcacrime.dat`) schema is updated to version 7.
 - All configuration keys remain the same; the TOML structure is identical.
 - Client resource packs and datapacks work the same.
 - Block positions and memory data in the world file keep their 1.20.1 structure.
@@ -82,7 +82,7 @@ If the upgrade fails or data is corrupt, restore the backup and downgrade to For
 ## What happens on load
 
 `mcacrime.dat` carries a `schema` integer. On load, every step needed to bring it to the current
-schema runs in order, and the result is stamped. This build writes **schema 3**.
+schema runs in order, and the result is stamped. This build writes **schema 7**.
 
 The migration is deliberately **pure tag-to-tag work**. It does not consult the server, the config,
 the world, or where any player happens to be standing — a migration that read live state would
@@ -90,6 +90,15 @@ produce different results depending on who logged in first. A tag already at or 
 schema is returned untouched.
 
 A missing `schema` key means the original, unversioned format, which is treated as schema 0.
+
+### 0.5.1 — Schema 6 → 7
+
+This release adds criminal job assignments, stolen-goods ledgers, warrant tracking, bounty claims,
+fence pricing history, and contract board state. All new collections default to empty when absent,
+so no data is synthesised and a 0.5.0 world loads at schema 6 and is rewritten at schema 7 on
+first save. The maintenance sweep expires old stolen-goods records after their grace period
+(`criminalJobs.thief.stolenGoodsPersistenceDays`), stale job assignments after theirs
+(`criminalJobs.staleRecordGraceDays`), and bounty claims from expired warrants.
 
 ### 0 → 1 — dimension-aware village identity
 

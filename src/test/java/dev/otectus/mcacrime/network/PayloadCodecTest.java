@@ -6,6 +6,10 @@ import dev.otectus.mcacrime.action.ActionLegality;
 import dev.otectus.mcacrime.action.ActionMenuKind;
 import dev.otectus.mcacrime.crime.Band;
 import dev.otectus.mcacrime.enforcement.ChallengeResponse;
+import dev.otectus.mcacrime.enforcement.RestraintVisualState;
+import dev.otectus.mcacrime.enforcement.RestraintVisualType;
+import dev.otectus.mcacrime.item.weapon.WeaponPolicySnapshot;
+import dev.otectus.mcacrime.job.CriminalJob;
 import dev.otectus.mcacrime.ledger.Resolution;
 import io.netty.buffer.Unpooled;
 import net.minecraft.core.RegistryAccess;
@@ -97,7 +101,7 @@ class PayloadCodecTest {
         assertEquals(new RequestCaseLedgerC2SPacket(), RequestCaseLedgerC2SPacket.STREAM_CODEC.decode(buf));
     }
 
-    // --- the ten client-bound payloads ------------------------------------------------------------
+    // --- the twelve client-bound payloads ------------------------------------------------------------
 
     @Test
     void selfStatusRoundTripsEveryBand() {
@@ -171,11 +175,18 @@ class PayloadCodecTest {
         for (ActionProgressS2CPacket.Phase phase : ActionProgressS2CPacket.Phase.values()) {
             ActionProgressS2CPacket packet = new ActionProgressS2CPacket(UUID.randomUUID(),
                     repeat(ActionProgressS2CPacket.MAX_LABEL_LENGTH), 3, 20, phase,
-                    repeat(ActionProgressS2CPacket.MAX_OUTCOME_LENGTH));
+                    repeat(ActionProgressS2CPacket.MAX_OUTCOME_LENGTH),
+                    Component.translatable("mcacrime.mug.success", 7));
             assertEquals(packet, roundTrip(ActionProgressS2CPacket.STREAM_CODEC, packet));
         }
-        ActionProgressS2CPacket bare = new ActionProgressS2CPacket(UUID.randomUUID(), "", 0, 1, null, "");
+        ActionProgressS2CPacket bare = new ActionProgressS2CPacket(UUID.randomUUID(), "", 0, 1, null, "",
+                Component.empty());
         assertEquals(bare, roundTrip(ActionProgressS2CPacket.STREAM_CODEC, bare));
+
+        // A null outcome text is normalised rather than written, so an older caller cannot NPE the encode.
+        ActionProgressS2CPacket nullText = new ActionProgressS2CPacket(UUID.randomUUID(), "label", 1, 1,
+                ActionProgressS2CPacket.Phase.FINISHED, "mcacrime.mug.empty", null);
+        assertEquals(nullText, roundTrip(ActionProgressS2CPacket.STREAM_CODEC, nullText));
     }
 
     @Test
@@ -206,8 +217,11 @@ class PayloadCodecTest {
 
     @Test
     void restraintSyncRoundTrips() {
-        RestraintSyncS2CPacket packet = new RestraintSyncS2CPacket(UUID.randomUUID(), true, 4711);
-        assertEquals(packet, roundTrip(RestraintSyncS2CPacket.STREAM_CODEC, packet));
+        for (RestraintVisualType visual : RestraintVisualType.values()) {
+            RestraintSyncS2CPacket packet =
+                    new RestraintSyncS2CPacket(UUID.randomUUID(), true, visual, 4711);
+            assertEquals(packet, roundTrip(RestraintSyncS2CPacket.STREAM_CODEC, packet));
+        }
     }
 
     @Test
@@ -215,12 +229,29 @@ class PayloadCodecTest {
         assertEquals(Map.of(), roundTrip(RestraintBulkSyncS2CPacket.STREAM_CODEC,
                 new RestraintBulkSyncS2CPacket(Map.of())).restrained());
 
-        Map<UUID, Integer> full = new HashMap<>();
-        for (int i = 0; i < RestraintBulkSyncS2CPacket.MAX_PLAYERS; i++) {
-            full.put(UUID.randomUUID(), i);
+        Map<UUID, RestraintVisualState> full = new HashMap<>();
+        for (int i = 0; i < RestraintBulkSyncS2CPacket.MAX_SUBJECTS; i++) {
+            full.put(UUID.randomUUID(), new RestraintVisualState(true,
+                    RestraintVisualType.values()[i % RestraintVisualType.values().length], i));
         }
         assertEquals(full, roundTrip(RestraintBulkSyncS2CPacket.STREAM_CODEC,
                 new RestraintBulkSyncS2CPacket(full)).restrained());
+    }
+
+    @Test
+    void weaponPolicyRoundTrips() {
+        WeaponPolicySnapshot policy = new WeaponPolicySnapshot(true, List.of("minecraft:stick"),
+                List.of("minecraft:feather"), false, 4.5D, List.of("rifle"), List.of("tacz"), false);
+        WeaponPolicyS2CPacket packet = new WeaponPolicyS2CPacket(policy);
+        assertEquals(packet, roundTrip(WeaponPolicyS2CPacket.STREAM_CODEC, packet));
+    }
+
+    @Test
+    void criminalJobSyncRoundTripsEveryJob() {
+        for (CriminalJob job : CriminalJob.values()) {
+            CriminalJobSyncS2CPacket packet = new CriminalJobSyncS2CPacket(UUID.randomUUID(), job);
+            assertEquals(packet, roundTrip(CriminalJobSyncS2CPacket.STREAM_CODEC, packet));
+        }
     }
 
     // --- hostile input ----------------------------------------------------------------------------
@@ -235,7 +266,7 @@ class PayloadCodecTest {
     @Test
     void anOversizedRestraintMapIsRefused() {
         RegistryFriendlyByteBuf buf = buffer();
-        buf.writeVarInt(RestraintBulkSyncS2CPacket.MAX_PLAYERS + 1);
+        buf.writeVarInt(RestraintBulkSyncS2CPacket.MAX_SUBJECTS + 1);
         assertThrows(RuntimeException.class, () -> RestraintBulkSyncS2CPacket.STREAM_CODEC.decode(buf));
     }
 
@@ -286,6 +317,14 @@ class PayloadCodecTest {
         buf.writeLong(0L);
         buf.writeVarInt(Band.values().length);
         assertThrows(RuntimeException.class, () -> SelfStatusS2CPacket.STREAM_CODEC.decode(buf));
+    }
+
+    @Test
+    void aCriminalJobOrdinalNoBuildEverWroteIsRefused() {
+        RegistryFriendlyByteBuf buf = buffer();
+        buf.writeUUID(UUID.randomUUID());
+        buf.writeVarInt(CriminalJob.values().length);
+        assertThrows(RuntimeException.class, () -> CriminalJobSyncS2CPacket.STREAM_CODEC.decode(buf));
     }
 
     @Test

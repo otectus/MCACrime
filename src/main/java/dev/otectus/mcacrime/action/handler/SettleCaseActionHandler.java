@@ -6,6 +6,7 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.LivingEntity;
 
+import java.util.List;
 import java.util.UUID;
 
 /**
@@ -43,8 +44,11 @@ public final class SettleCaseActionHandler implements CrimeActionHandler {
         ActionAvailability availability = evaluate(actor, target, level, level.getGameTime());
         if (!availability.isAvailable()) return ActionResult.rejected(availability.reason());
         ServerPlayer player = actor.asPlayer();
-        return FineService.payFine(player) == 1
-                ? ActionResult.accepted("mcacrime.fine.paid")
+        // pay(...) is exactly what payFine wraps; called directly only because the amount it settled
+        // is what the outcome line has to name.
+        FineService.Payment payment = FineService.pay(player, List.of(), true);
+        return payment.paid()
+                ? ActionResult.accepted("mcacrime.fine.paid", payment.amount())
                 : ActionResult.rejected("mcacrime.action.feedback_sent");
     }
 

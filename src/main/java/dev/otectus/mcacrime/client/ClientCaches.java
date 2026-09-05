@@ -26,7 +26,9 @@ public final class ClientCaches {
             ClientActionData::clear,
             ClientChallengeData::clear,
             ClientCaseData::clear,
-            ClientRestraintData::clear);
+            ClientRestraintData::clear,
+            ClientWeaponPolicy::clear,
+            ClientCriminalJobData::clear);
 
     private ClientCaches() {
     }

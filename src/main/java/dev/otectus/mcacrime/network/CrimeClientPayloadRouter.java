@@ -70,6 +70,14 @@ public final class CrimeClientPayloadRouter {
         handler.onRestraintBulkSync(payload);
     }
 
+    public static void handleWeaponPolicy(WeaponPolicyS2CPacket payload, IPayloadContext context) {
+        handler.onWeaponPolicy(payload);
+    }
+
+    public static void handleCriminalJob(CriminalJobSyncS2CPacket payload, IPayloadContext context) {
+        handler.onCriminalJob(payload);
+    }
+
     /** What the client side supplies. Every method defaults to doing nothing, which is what a server does. */
     public interface Handler {
 
@@ -104,6 +112,12 @@ public final class CrimeClientPayloadRouter {
         }
 
         default void onRestraintBulkSync(RestraintBulkSyncS2CPacket payload) {
+        }
+
+        default void onWeaponPolicy(WeaponPolicyS2CPacket payload) {
+        }
+
+        default void onCriminalJob(CriminalJobSyncS2CPacket payload) {
         }
     }
 }

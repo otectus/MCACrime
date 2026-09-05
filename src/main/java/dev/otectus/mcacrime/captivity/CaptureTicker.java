@@ -102,14 +102,14 @@ public final class CaptureTicker {
     private static void progressBar(ServerPlayer kidnapper, CaptureChannel channel) {
         CrimeNetwork.sendActionProgress(kidnapper, new ActionProgressS2CPacket(channelId(channel),
                 "mcacrime.capture.channeling", channel.elapsed(), channel.requiredTicks,
-                ActionProgressS2CPacket.Phase.PROGRESS, ""));
+                ActionProgressS2CPacket.Phase.PROGRESS, "", Component.empty()));
     }
 
     private static void endBar(ServerPlayer kidnapper, CaptureChannel channel, boolean succeeded, String key) {
         CrimeNetwork.sendActionProgress(kidnapper, ActionProgressS2CPacket.ended(channelId(channel),
                 "mcacrime.capture.channeling",
                 succeeded ? ActionProgressS2CPacket.Phase.FINISHED : ActionProgressS2CPacket.Phase.CANCELLED,
-                key));
+                key, Component.empty()));
     }
 
     /** A stable id for one channel, derived from the pair it binds rather than minted per tick. */

@@ -6,12 +6,16 @@ import dev.otectus.mcacrime.captivity.CustodyRecord;
 import dev.otectus.mcacrime.crime.Band;
 import dev.otectus.mcacrime.engine.CrimeState;
 import dev.otectus.mcacrime.enforcement.GuardChallengeService;
-import dev.otectus.mcacrime.enforcement.LegalTarget;
+import dev.otectus.mcacrime.enforcement.OutlawResolver;
+import dev.otectus.mcacrime.enforcement.RestraintVisualState;
+import dev.otectus.mcacrime.item.weapon.WeaponPolicySnapshot;
 import dev.otectus.mcacrime.jail.JailService;
+import dev.otectus.mcacrime.job.CriminalJob;
 import dev.otectus.mcacrime.state.world.CrimeWorldData;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.entity.Entity;
 import net.neoforged.neoforge.network.PacketDistributor;
 import net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
@@ -30,7 +34,7 @@ import java.util.UUID;
  * builds silently misread each other. Under the payload API each message carries its own namespaced
  * id, and this list is just a list.
  *
- * <p>Registration happens from common code, so nothing here may name a client class; the ten S2C
+ * <p>Registration happens from common code, so nothing here may name a client class; the twelve S2C
  * handlers go through {@link CrimeClientPayloadRouter}, whose implementation the client entrypoint
  * installs (spec §9.4).
  */
@@ -39,8 +43,12 @@ public final class CrimeNetwork {
     /**
      * Bumped from the Forge channel's {@code "6"}: named payloads, a different framing and a different
      * component encoding. Nothing on protocol 6 could talk to this, so it does not claim to.
+     *
+     * <p>7 to 8 in 0.5.1: both restraint payloads changed shape, and the added field sits between two
+     * that were already on the wire. A reader and a writer that disagree there do not throw, they
+     * produce a plausible wrong answer, so the mismatch is refused at handshake instead.
      */
-    private static final String PROTOCOL_VERSION = "7";
+    private static final String PROTOCOL_VERSION = "8";
 
     private CrimeNetwork() {
     }
@@ -80,6 +88,10 @@ public final class CrimeNetwork {
                 CrimeClientPayloadRouter::handleRestraintSync);
         registrar.playToClient(RestraintBulkSyncS2CPacket.TYPE, RestraintBulkSyncS2CPacket.STREAM_CODEC,
                 CrimeClientPayloadRouter::handleRestraintBulkSync);
+        registrar.playToClient(WeaponPolicyS2CPacket.TYPE, WeaponPolicyS2CPacket.STREAM_CODEC,
+                CrimeClientPayloadRouter::handleWeaponPolicy);
+        registrar.playToClient(CriminalJobSyncS2CPacket.TYPE, CriminalJobSyncS2CPacket.STREAM_CODEC,
+                CrimeClientPayloadRouter::handleCriminalJob);
     }
 
     // The registrar runs the server-bound handlers on the main thread, which is the same guarantee the
@@ -143,7 +155,7 @@ public final class CrimeNetwork {
                 CrimeState.getBand(player),
                 CrimeState.isWanted(player),
                 JailService.remainingTicks(player),
-                LegalTarget.isLegalTarget(player)));
+                OutlawResolver.resolve(player).lawfulCombatTarget()));
     }
 
     /** Pushes the player's own captivity status (held? lawful? captor? cap remaining?) to their client. */
@@ -182,18 +194,63 @@ public final class CrimeNetwork {
     }
 
     /**
-     * Broadcasts one player's restraint state, so everybody who can see the arrest draws it.
+     * Broadcasts one subject's restraint state, so everybody who can see the arrest draws it.
      *
      * <p>Broadcast rather than sent to the subject, because cuffs and a lead are things other people
      * look at. Display-only, like every other sync on this channel.
      */
-    public static void broadcastRestraint(UUID subject, boolean restrained, int guardEntityId) {
-        PacketDistributor.sendToAllPlayers(
-                new RestraintSyncS2CPacket(subject, restrained, guardEntityId));
+    public static void broadcastRestraint(UUID subject, RestraintVisualState state) {
+        PacketDistributor.sendToAllPlayers(RestraintSyncS2CPacket.of(subject, state));
     }
 
-    /** Sends every currently restrained player to one joining client. */
-    public static void sendRestraintBulk(ServerPlayer to, Map<UUID, Integer> restrained) {
+    /**
+     * Tells one client about one subject: the answer to "you just started tracking somebody, are they
+     * in cuffs?", which is a question only that client asked.
+     */
+    public static void sendRestraintTo(ServerPlayer to, UUID subject, RestraintVisualState state) {
+        PacketDistributor.sendToPlayer(to, RestraintSyncS2CPacket.of(subject, state));
+    }
+
+    /** Sends every currently restrained subject to one joining client. */
+    public static void sendRestraintBulk(ServerPlayer to, Map<UUID, RestraintVisualState> restrained) {
         PacketDistributor.sendToPlayer(to, new RestraintBulkSyncS2CPacket(restrained));
+    }
+
+    /**
+     * Tells one client what the server's weapon rules actually are, on login.
+     *
+     * <p>The client has a COMMON config file of its own, and on a multiplayer server it is not the one
+     * the gate is evaluated against. Sending the policy is what keeps a greyed-out Crime button and a
+     * refused menu request meaning the same thing.
+     */
+    public static void sendWeaponPolicy(ServerPlayer player) {
+        PacketDistributor.sendToPlayer(player, new WeaponPolicyS2CPacket(WeaponPolicySnapshot.fromConfig()));
+    }
+
+    /** Re-sends the policy to everybody after a config reload, rather than at their next login. */
+    public static void broadcastWeaponPolicy(MinecraftServer server) {
+        if (server == null) {
+            return;
+        }
+        PacketDistributor.sendToAllPlayers(new WeaponPolicyS2CPacket(WeaponPolicySnapshot.fromConfig()));
+    }
+
+    /** Tells one client about one villager's criminal job, when that client starts tracking them. */
+    public static void sendCriminalJob(ServerPlayer to, UUID villager, CriminalJob job) {
+        PacketDistributor.sendToPlayer(to, new CriminalJobSyncS2CPacket(villager, job));
+    }
+
+    /**
+     * Tells everybody who can see this villager that their job changed.
+     *
+     * <p>To the trackers rather than to all players: a job is only ever read to decide what a button
+     * does about the villager in front of you, so a client that cannot see them has no use for it.
+     */
+    public static void broadcastCriminalJob(Entity villager, CriminalJob job) {
+        if (villager == null) {
+            return;
+        }
+        PacketDistributor.sendToPlayersTrackingEntity(villager,
+                new CriminalJobSyncS2CPacket(villager.getUUID(), job));
     }
 }

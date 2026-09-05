@@ -52,7 +52,7 @@ public final class EscortRopeRenderer {
                 || !McaCrimeConfig.CLIENT.renderEscortRope.get()) {
             return;
         }
-        Map<UUID, Integer> restrained = ClientRestraintData.all();
+        Map<UUID, ClientRestraintData.ClientRestraintEntry> restrained = ClientRestraintData.all();
         if (restrained.isEmpty()) {
             return;
         }
@@ -67,11 +67,13 @@ public final class EscortRopeRenderer {
         float partialTick = event.getPartialTick().getGameTimeDeltaPartialTick(false);
         PoseStack pose = event.getPoseStack();
 
-        for (Map.Entry<UUID, Integer> entry : restrained.entrySet()) {
+        for (Map.Entry<UUID, ClientRestraintData.ClientRestraintEntry> entry : restrained.entrySet()) {
+            int guardId = entry.getValue() == null ? -1 : entry.getValue().guardEntityId();
+            if (guardId < 0) {
+                continue; // nobody is escorting them, or the captive is on a real vanilla leash
+            }
             Player prisoner = level.getPlayerByUUID(entry.getKey());
-            Entity guard = entry.getValue() == null || entry.getValue() < 0
-                    ? null
-                    : level.getEntity(entry.getValue());
+            Entity guard = level.getEntity(guardId);
             // Entity ids are per level, so a prisoner or guard in another dimension simply does not
             // resolve. Requiring both is what stops a stale id pairing the rope with the wrong entity.
             if (prisoner == null || guard == null || prisoner.isInvisible()) {

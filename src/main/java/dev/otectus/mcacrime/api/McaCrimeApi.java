@@ -8,10 +8,13 @@ import dev.otectus.mcacrime.api.model.CrimeRecordSelector;
 import dev.otectus.mcacrime.api.model.CrimeRecordView;
 import dev.otectus.mcacrime.api.model.CustodyView;
 import dev.otectus.mcacrime.api.model.JailSentenceView;
+import dev.otectus.mcacrime.api.model.OutlawStatusView;
 import dev.otectus.mcacrime.captivity.CustodyRecord;
 import dev.otectus.mcacrime.captivity.CustodyService;
 import dev.otectus.mcacrime.crime.Band;
 import dev.otectus.mcacrime.enforcement.LegalTarget;
+import dev.otectus.mcacrime.enforcement.OutlawResolver;
+import dev.otectus.mcacrime.enforcement.OutlawStatus;
 import dev.otectus.mcacrime.engine.CrimeState;
 import dev.otectus.mcacrime.jail.JailService;
 import dev.otectus.mcacrime.jail.JailState;
@@ -112,7 +115,7 @@ public final class McaCrimeApi {
                     CrimeState.getHeat(player),
                     CrimeState.getBand(player),
                     CrimeState.isWanted(player),
-                    LegalTarget.isLegalTarget(player),
+                    OutlawResolver.resolve(player).lawfulCombatTarget(),
                     JailService.isJailed(player),
                     JailService.remainingTicks(player),
                     CustodyService.isCaptive(player),
@@ -121,6 +124,33 @@ public final class McaCrimeApi {
                     outstandingFines));
         } catch (Throwable t) {
             McaCrime.LOGGER.debug("MCA: Crime — snapshot failed; returning empty", t);
+            return Optional.empty();
+        }
+    }
+
+    /**
+     * Whether force against this player is lawful right now, and why (0.5.1).
+     *
+     * <p>Separate from {@link #snapshot} rather than folded into it: a companion that only wants to
+     * know whether its own NPC may attack somebody should not have to pay for a ledger walk, and
+     * {@code CrimePlayerSnapshot} is a published shape that widening would break.
+     */
+    public static Optional<OutlawStatusView> outlawStatus(ServerPlayer player) {
+        if (player == null) {
+            return Optional.empty();
+        }
+        try {
+            OutlawStatus status = OutlawResolver.resolve(player);
+            return Optional.of(new OutlawStatusView(
+                    status.lawfulCombatTarget(),
+                    status.lethalForceLawful(),
+                    status.bountyEligible(),
+                    status.basis().reasonKey(),
+                    status.heat(),
+                    status.karma(),
+                    status.band()));
+        } catch (Throwable t) {
+            McaCrime.LOGGER.debug("MCA: Crime — outlaw status failed; returning empty", t);
             return Optional.empty();
         }
     }

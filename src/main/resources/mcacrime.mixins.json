@@ -5,7 +5,7 @@
   "compatibilityLevel": "JAVA_21",
   "mixins": [],
   "client": [
-    "PlayerModelRestraintMixin"
+    "RestraintPoseMixin"
   ],
   "injectors": {
     "defaultRequire": 1

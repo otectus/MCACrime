@@ -166,6 +166,23 @@ dependencies {
                 "optional Reputation adapter. Build ../MCAReputation_1.21.1 (./gradlew classes) to include it.")
     }
 
+    // MCA: Quests - OPTIONAL integration, compile-only, on exactly the same terms as Reputation above:
+    // the sibling is not published to a Maven, the classes are never bundled, and McaQuestsBridge
+    // reaches the adapter by name after a ModList check. Absent sibling means the adapter package is
+    // dropped from compilation and bounties are simply never offered as quests; -PrequireQuests makes
+    // that a build failure instead, for CI that must ship the adapter.
+    def mcaQuestsClasses = file("${projectDir}/../MCAQuests_1.21.1/build/classes/java/main")
+    if (mcaQuestsClasses.exists()) {
+        compileOnly files(mcaQuestsClasses)
+    } else if (project.hasProperty('requireQuests')) {
+        throw new GradleException("-PrequireQuests was set but ${mcaQuestsClasses} does not exist. " +
+                "Build it first: (cd ../MCAQuests_1.21.1 && ./gradlew classes)")
+    } else {
+        sourceSets.main.java { exclude 'dev/otectus/mcacrime/compat/mcaquests/**' }
+        logger.warn("MCA: Quests classes not found at ${mcaQuestsClasses}; building WITHOUT the " +
+                "optional bounty-contract adapter. Build ../MCAQuests_1.21.1 (./gradlew classes) to include it.")
+    }
+
     // Unit tests for the non-MCA karma/heat engine (spec section 18).
     //
     // NOTE: no mixin annotation processor and no refmap, deliberately. NeoForge 1.21.1 production
@@ -384,16 +401,17 @@ tasks.register('checkJarContents') {
                 problems << "${shaded.size()} shaded class(es) under ${prefix}, e.g. ${shaded.first()}"
             }
         }
-        // Two package roots are legitimately named, each by exactly one compat package: the reflective
+        // Some package roots are legitimately named, each by exactly one compat package: the reflective
         // MCA binding names every MCA root (that is the whole point of compat/mca), and the optional
-        // Reputation adapter names the companion mod it is compiled against and only ever class-loaded
-        // beside. Nothing outside those packages may name either.
+        // Reputation and MCA: Quests adapters name the companion mod each is compiled against and only
+        // ever class-loaded beside. Nothing outside those packages may name any of them.
         def allowedIn = [
                 'net/conczin/mca/'          : 'dev/otectus/mcacrime/compat/mca/',
                 'forge/net/conczin/mca/'    : 'dev/otectus/mcacrime/compat/mca/',
                 'forge/net/mca/'            : 'dev/otectus/mcacrime/compat/mca/',
                 'net/mca/'                  : 'dev/otectus/mcacrime/compat/mca/',
-                'dev/otectus/mcareputation/': 'dev/otectus/mcacrime/compat/reputation/']
+                'dev/otectus/mcareputation/': 'dev/otectus/mcacrime/compat/reputation/',
+                'dev/otectus/mcaquests/'    : 'dev/otectus/mcacrime/compat/mcaquests/']
         bytecodeHits.each { prefix, hits ->
             def owner = allowedIn[prefix]
             def offenders = owner == null ? hits : hits.findAll { !it.startsWith(owner) }

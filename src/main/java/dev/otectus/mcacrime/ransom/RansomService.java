@@ -6,7 +6,7 @@ import dev.otectus.mcacrime.captivity.CustodyReleaseReason;
 import dev.otectus.mcacrime.captivity.CustodyService;
 import dev.otectus.mcacrime.compat.McaCompat;
 import dev.otectus.mcacrime.crime.type.CrimeIds;
-import dev.otectus.mcacrime.economy.EmeraldCurrency;
+import dev.otectus.mcacrime.economy.Currencies;
 import dev.otectus.mcacrime.economy.account.EconomicTransactionService;
 import dev.otectus.mcacrime.jail.JailService;
 import dev.otectus.mcacrime.ledger.CrimeLedger;
@@ -33,11 +33,24 @@ import java.util.UUID;
  * paid after the victim died, escaped, was rescued, or was jailed — those flip it to the matching failure.
  * Family payers must be reachable (online) players; when none exist it downgrades to a lower-value
  * village-authority settlement (or is refused if that fallback is disabled). The only writer of {@link
- * RansomState}; amounts charge atomically via {@link EmeraldCurrency}.
+ * RansomState}; amounts charge atomically via {@link Currencies#active()}.
  */
 public final class RansomService {
 
     private RansomService() {
+    }
+
+    /**
+     * A demand or payment, as both its callers need it: the {@code 1}/{@code 0} status every existing
+     * caller compares on, and the emerald amount involved.
+     *
+     * <p>The amount travels because the action HUD shows the outcome line, and the amount is known
+     * only in here — the handler used to hand the client a bare key and the player was shown the
+     * literal {@code %s}. It cannot be recovered afterwards either: a village-authority demand settles
+     * on the spot and leaves no {@link RansomState} to read it back from.
+     */
+    public record Outcome(int status, long amount) {
+        static Outcome refused(int status) { return new Outcome(status, 0L); }
     }
 
     // ------------------------------------------------------------------ demand
@@ -57,34 +70,39 @@ public final class RansomService {
         return refuse(captor, "mcacrime.ransom.notholding");
     }
 
-    /** Exact-target form used by the interaction menu; the custody table, not a cached capability, is authoritative. */
+    /** Exact-target form, keeping the plain 1/0 contract its older callers expect. */
     public static int demandFor(ServerPlayer captor, UUID victimId) {
+        return demandOutcome(captor, victimId).status();
+    }
+
+    /** Exact-target form used by the interaction menu; the custody table, not a cached capability, is authoritative. */
+    public static Outcome demandOutcome(ServerPlayer captor, UUID victimId) {
         MinecraftServer server = captor.getServer();
-        if (server == null) return 0;
+        if (server == null) return Outcome.refused(0);
         McaCrimeConfig.Common c = McaCrimeConfig.COMMON;
         CrimeWorldData world = CrimeWorldData.get(server);
         CustodyRecord record = world.getCustody(victimId);
         if (record == null || record.isLawful() || !record.getOwner().isKidnapper(captor.getUUID())) {
-            return refuse(captor, "mcacrime.ransom.notholding");
+            return Outcome.refused(refuse(captor, "mcacrime.ransom.notholding"));
         }
         if (world.getRansomForVictim(victimId) != null) {
-            return refuse(captor, "mcacrime.ransom.open");
+            return Outcome.refused(refuse(captor, "mcacrime.ransom.open"));
         }
         LivingEntity victim = resolveVictim(server, record);
         if (victim == null || !victim.isAlive()) {
-            return refuse(captor, "mcacrime.ransom.victimgone");
+            return Outcome.refused(refuse(captor, "mcacrime.ransom.victimgone"));
         }
         long now = victim.level().getGameTime();
         OptionalInt villageId = McaCompat.getHomeVillageId(victim);
         Optional<PayerResolver.Candidate> payerOpt = PayerResolver.resolve(
                 gatherCandidates(server, victim, captor), c.enableVillageRansomFallback.get());
         if (payerOpt.isEmpty()) {
-            return refuse(captor, "mcacrime.ransom.nopayer");
+            return Outcome.refused(refuse(captor, "mcacrime.ransom.nopayer"));
         }
         PayerResolver.Candidate payer = payerOpt.get();
         long amount = RansomCalculator.amount(c.ransomBaseAmount.get(), tierMultiplier(payer.tier()));
         if (!cooldownsReady(world, victimId, payer.uuid(), villageId, now)) {
-            return refuse(captor, "mcacrime.ransom.cooldown");
+            return Outcome.refused(refuse(captor, "mcacrime.ransom.cooldown"));
         }
         UUID demandId = UUID.randomUUID();
 
@@ -92,12 +110,12 @@ public final class RansomService {
             String treasury = treasuryKey(record, villageId);
             if (!EconomicTransactionService.transferTreasuryToPlayer(world, demandId, treasury,
                     c.villageTreasuryInitialBalance.get(), captor, amount)) {
-                return refuse(captor, "mcacrime.ransom.treasury_empty");
+                return Outcome.refused(refuse(captor, "mcacrime.ransom.treasury_empty"));
             }
             settle(server, record, captor, amount, villageId, now);
             stampCooldowns(world, victimId, null, villageId, now);
             captor.sendSystemMessage(Component.translatable("mcacrime.ransom.village", amount));
-            return 1;
+            return new Outcome(1, amount);
         }
 
         long ttl = c.ransomDemandTtlTicks.get();
@@ -111,43 +129,48 @@ public final class RansomService {
         if (payerPlayer != null) {
             payerPlayer.sendSystemMessage(Component.translatable("mcacrime.ransom.notice", amount));
         }
-        return 1;
+        return new Outcome(1, amount);
     }
 
     // ------------------------------------------------------------------ pay (idempotent, atomic)
 
-    /** The resolved payer pays their open demand, freeing the captive. Returns 1 on success, 0 on a refusal. */
+    /** The plain 1/0 form of {@link #payOutcome}. */
     public static int pay(ServerPlayer payer) {
+        return payOutcome(payer).status();
+    }
+
+    /** The resolved payer pays their open demand, freeing the captive. Returns 1 on success, 0 on a refusal. */
+    public static Outcome payOutcome(ServerPlayer payer) {
         MinecraftServer server = payer.getServer();
         if (server == null) {
-            return 0;
+            return Outcome.refused(0);
         }
         CrimeWorldData world = CrimeWorldData.get(server);
         RansomState state = findOpenDemandForPayer(world, payer.getUUID());
         if (state == null) {
-            return refuse(payer, "mcacrime.ransom.none");
+            return Outcome.refused(refuse(payer, "mcacrime.ransom.none"));
         }
         CustodyRecord record = world.getCustody(state.getVictim());
         if (record == null) {
-            return failDemand(world, state, RansomStatus.FAILED_RESCUED, payer);
+            return Outcome.refused(failDemand(world, state, RansomStatus.FAILED_RESCUED, payer));
         }
         if (record.isLawful()) {
-            return failDemand(world, state, RansomStatus.FAILED_JAILED, payer);
+            return Outcome.refused(failDemand(world, state, RansomStatus.FAILED_JAILED, payer));
         }
         LivingEntity victim = resolveVictim(server, record);
         if (victim == null || !victim.isAlive()) {
-            return failDemand(world, state, RansomStatus.FAILED_VICTIM_GONE, payer);
+            return Outcome.refused(failDemand(world, state, RansomStatus.FAILED_VICTIM_GONE, payer));
         }
         ServerPlayer captor = server.getPlayerList().getPlayer(state.getCaptor());
         if (captor == null) {
-            return refuse(payer, "mcacrime.ransom.captoraway"); // hold the demand until the captor returns
+            return Outcome.refused(refuse(payer, "mcacrime.ransom.captoraway")); // hold the demand until the captor returns
         }
-        if (EmeraldCurrency.INSTANCE.balance(payer) < state.getAmount()) {
-            return refuse(payer, "mcacrime.ransom.need");
+        if (Currencies.active().balance(payer) < state.getAmount()) {
+            return Outcome.refused(refuse(payer, "mcacrime.ransom.need"));
         }
         if (!EconomicTransactionService.transferPlayerToPlayer(world, state.getDemandId(), payer, captor,
                 state.getAmount())) {
-            return refuse(payer, "mcacrime.ransom.need");
+            return Outcome.refused(refuse(payer, "mcacrime.ransom.need"));
         }
         state.setStatus(RansomStatus.PAID);
         settle(server, record, captor, state.getAmount(), McaCompat.getHomeVillageId(victim),
@@ -155,7 +178,7 @@ public final class RansomService {
         world.removeRansom(state.getVictim());
         payer.sendSystemMessage(Component.translatable("mcacrime.ransom.paid", state.getAmount()));
         captor.sendSystemMessage(Component.translatable("mcacrime.ransom.received", state.getAmount()));
-        return 1;
+        return new Outcome(1, state.getAmount());
     }
 
     // ------------------------------------------------------------------ tick re-validation (from RansomTickHandler)
@@ -296,7 +319,7 @@ public final class RansomService {
         ServerPlayer player = server.getPlayerList().getPlayer(uuid);
         long required = RansomCalculator.amount(McaCrimeConfig.COMMON.ransomBaseAmount.get(), tierMultiplier(tier));
         out.add(new PayerResolver.Candidate(uuid, tier, true,
-                player != null && EmeraldCurrency.INSTANCE.balance(player) >= required));
+                player != null && Currencies.active().balance(player) >= required));
     }
 
     private static boolean cooldownsReady(CrimeWorldData world, UUID victim, @Nullable UUID payer,

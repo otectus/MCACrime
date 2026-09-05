@@ -33,4 +33,17 @@ public interface CrimeActionHandler {
 
     /** Cleanup when a session ends early. Consequences stamped at the point of no return must stand. */
     default void cancel(ActionSession session, CancelReason reason) {}
+
+    /**
+     * Whether this action coerces its target — a threat the target is expected to comply with rather
+     * than an interaction they consent to.
+     *
+     * <p>This is what {@code ThreatComplianceDecider} means by a live threat: an unarmed villager
+     * freezes because a coercive session names them as its target, and for no other reason. Declaring
+     * it on the handler rather than deriving it from {@link ActionCategory} keeps the two independent —
+     * a category is presentation, this is a behaviour contract the reaction layer depends on.
+     */
+    default boolean coercive() {
+        return false;
+    }
 }

@@ -3,7 +3,8 @@ package dev.otectus.mcacrime.action.handler;
 import dev.otectus.mcacrime.McaCrimeConfig;
 import dev.otectus.mcacrime.action.*;
 import dev.otectus.mcacrime.audio.CrimeSounds;
-import dev.otectus.mcacrime.economy.EmeraldCurrency;
+import dev.otectus.mcacrime.economy.Currencies;
+import dev.otectus.mcacrime.economy.TransactionReason;
 import dev.otectus.mcacrime.jail.JailService;
 import dev.otectus.mcacrime.jail.JailState;
 import dev.otectus.mcacrime.jail.ReleaseReason;
@@ -61,7 +62,7 @@ public final class BailActionHandler implements CrimeActionHandler {
             return ActionAvailability.blocked("mcacrime.bail.too_soon");
         }
         long cost = cost(jail);
-        if (EmeraldCurrency.INSTANCE.balance(player) < cost) {
+        if (Currencies.active().balance(player) < cost) {
             return ActionAvailability.blocked("mcacrime.bail.cannot_afford");
         }
         return ActionAvailability.available();
@@ -82,7 +83,7 @@ public final class BailActionHandler implements CrimeActionHandler {
         long cost = cost(jail);
         // Charge before releasing. The other order would free the player and then discover they could
         // not pay, and there is no way back into a sentence that has already ended.
-        if (!EmeraldCurrency.INSTANCE.tryCharge(player, cost)) {
+        if (!Currencies.active().tryCharge(player, cost, TransactionReason.BAIL)) {
             return ActionResult.rejected("mcacrime.bail.cannot_afford");
         }
         UUID sentenceId = jail.getSentenceId();
@@ -90,7 +91,7 @@ public final class BailActionHandler implements CrimeActionHandler {
         SentenceResolutionService.markBailed(server, player.getUUID(), sentenceId);
         CrimeSounds.paid(player);
         player.sendSystemMessage(Component.translatable("mcacrime.bail.paid", cost));
-        return ActionResult.accepted("mcacrime.bail.paid");
+        return ActionResult.accepted("mcacrime.bail.paid", cost);
     }
 
     @Override
