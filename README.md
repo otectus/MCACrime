@@ -61,11 +61,13 @@ what the **law** does about you, on two separate axes that never read each other
 
 ## What it deliberately does not do
 
-No hearts replacement. No bounties, no trials, no bail. No NPC-authored crime — villagers do not
-commit crimes against each other. No positive karma for trading, gifting, or clicking through
-dialogue; those are farmable and belong to systems that already own them. No mixins anywhere, no
-per-tick village scans, no AI text generation, no telemetry, no network calls. Turning a subsystem
-off changes behaviour only — nothing in this mod deletes a saved record.
+No hearts replacement. No trials. No NPC-on-NPC crime — a villager thief steals only from players,
+never from another villager. No positive karma for trading, gifting, or clicking through dialogue;
+those are farmable and belong to systems that already own them. One client-only mixin, for
+restraint pose rendering, and no others. No per-tick village scans, no AI text generation, no
+telemetry, no outbound network calls. Turning a subsystem off changes behaviour only, and deletes
+nothing — but time-based retention does: stale criminal-villager records, expired bounty contracts,
+and claims past their retention window are dropped on a timer.
 
 ## Installing
 
