@@ -44,14 +44,22 @@ public final class SentenceResolutionService {
     public static List<UUID> markServed(MinecraftServer server, UUID offender, UUID sentenceId) {
         return server == null ? List.of()
                 : markServed(CrimeWorldData.get(server), server.overworld().getGameTime(), offender, sentenceId,
-                        CrimeCaseService.ResolutionGate.ALLOW_ALL);
+                        CrimeCaseService.ResolutionGate.ALLOW_ALL,
+                        CrimeCaseService.ResolutionSink.forServer(server));
     }
 
     /** {@link #markServed(MinecraftServer, UUID, UUID)} against a ledger, with the clock passed in. */
     public static List<UUID> markServed(CrimeWorldData data, long now, UUID offender, UUID sentenceId,
                                         CrimeCaseService.ResolutionGate gate) {
+        return markServed(data, now, offender, sentenceId, gate, CrimeCaseService.ResolutionSink.NONE);
+    }
+
+    /** The same, announcing every case it moves through {@code sink}. */
+    public static List<UUID> markServed(CrimeWorldData data, long now, UUID offender, UUID sentenceId,
+                                        CrimeCaseService.ResolutionGate gate,
+                                        CrimeCaseService.ResolutionSink sink) {
         return resolveActionable(data, now, offender, Resolution.SERVED, "served:" + sentenceId,
-                CrimeContext.SENTENCE_ID, sentenceId, gate);
+                CrimeContext.SENTENCE_ID, sentenceId, gate, sink);
     }
 
     /**
@@ -67,14 +75,22 @@ public final class SentenceResolutionService {
     public static List<UUID> markBailed(MinecraftServer server, UUID offender, UUID sentenceId) {
         return server == null ? List.of()
                 : markBailed(CrimeWorldData.get(server), server.overworld().getGameTime(), offender, sentenceId,
-                        CrimeCaseService.ResolutionGate.ALLOW_ALL);
+                        CrimeCaseService.ResolutionGate.ALLOW_ALL,
+                        CrimeCaseService.ResolutionSink.forServer(server));
     }
 
     /** {@link #markBailed(MinecraftServer, UUID, UUID)} against a ledger, with the clock passed in. */
     public static List<UUID> markBailed(CrimeWorldData data, long now, UUID offender, UUID sentenceId,
                                         CrimeCaseService.ResolutionGate gate) {
+        return markBailed(data, now, offender, sentenceId, gate, CrimeCaseService.ResolutionSink.NONE);
+    }
+
+    /** The same, announcing every case it moves through {@code sink}. */
+    public static List<UUID> markBailed(CrimeWorldData data, long now, UUID offender, UUID sentenceId,
+                                        CrimeCaseService.ResolutionGate gate,
+                                        CrimeCaseService.ResolutionSink sink) {
         return resolveActionable(data, now, offender, Resolution.FINED, "bail:" + sentenceId,
-                CrimeContext.SENTENCE_ID, sentenceId, gate);
+                CrimeContext.SENTENCE_ID, sentenceId, gate, sink);
     }
 
     /**
@@ -87,19 +103,28 @@ public final class SentenceResolutionService {
     public static List<UUID> markEscaped(MinecraftServer server, UUID offender, UUID sentenceId) {
         return server == null ? List.of()
                 : markEscaped(CrimeWorldData.get(server), server.overworld().getGameTime(), offender, sentenceId,
-                        CrimeCaseService.ResolutionGate.ALLOW_ALL);
+                        CrimeCaseService.ResolutionGate.ALLOW_ALL,
+                        CrimeCaseService.ResolutionSink.forServer(server));
     }
 
     /** {@link #markEscaped(MinecraftServer, UUID, UUID)} against a ledger, with the clock passed in. */
     public static List<UUID> markEscaped(CrimeWorldData data, long now, UUID offender, UUID sentenceId,
                                          CrimeCaseService.ResolutionGate gate) {
+        return markEscaped(data, now, offender, sentenceId, gate, CrimeCaseService.ResolutionSink.NONE);
+    }
+
+    /** The same, announcing every case it moves through {@code sink}. */
+    public static List<UUID> markEscaped(CrimeWorldData data, long now, UUID offender, UUID sentenceId,
+                                         CrimeCaseService.ResolutionGate gate,
+                                         CrimeCaseService.ResolutionSink sink) {
         return resolveActionable(data, now, offender, Resolution.ESCAPED, "escaped:" + sentenceId,
-                CrimeContext.SENTENCE_ID, sentenceId, gate);
+                CrimeContext.SENTENCE_ID, sentenceId, gate, sink);
     }
 
     private static List<UUID> resolveActionable(CrimeWorldData data, long now, UUID offender, Resolution target,
                                                 String dedupeKey, String contextKey, UUID transactionId,
-                                                CrimeCaseService.ResolutionGate gate) {
+                                                CrimeCaseService.ResolutionGate gate,
+                                                CrimeCaseService.ResolutionSink sink) {
         if (data == null || offender == null || transactionId == null) {
             return List.of();
         }
@@ -126,7 +151,7 @@ public final class SentenceResolutionService {
                         case FINED -> "bail";
                         default -> "jailbreak";
                     }),
-                    dedupeKey, offender, context, false, gate);
+                    dedupeKey, offender, context, false, gate, sink);
             if (result.successful()) {
                 moved.add(record.id());
             }

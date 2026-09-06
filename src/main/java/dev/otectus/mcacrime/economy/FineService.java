@@ -72,7 +72,8 @@ public final class FineService {
                 SettlementPolicy.quote(data, player.getUUID(), CrimeState.getHeat(player),
                         CrimeState.getBand(player), requestedCaseIds, payAll, now),
                 amount -> charge(data, transactionId, player, amount, now),
-                CrimeCaseService.ResolutionGate.ALLOW_ALL, transactionId);
+                CrimeCaseService.ResolutionGate.ALLOW_ALL, transactionId,
+                CrimeCaseService.ResolutionSink.forServer(server));
         if (!payment.paid()) {
             // The amount is only interesting on the one refusal that quotes a price back at the player.
             player.sendSystemMessage("mcacrime.fine.need".equals(payment.messageKey())
@@ -142,6 +143,20 @@ public final class FineService {
     /** The same, under an id the caller has already minted so a receipt can name it. */
     public static Payment pay(CrimeWorldData data, long now, SettlementQuote quote, Purse purse,
                               CrimeCaseService.ResolutionGate gate, UUID transactionId) {
+        return pay(data, now, quote, purse, gate, transactionId, CrimeCaseService.ResolutionSink.NONE);
+    }
+
+    /**
+     * The same again, announcing each case the payment settles through {@code sink}.
+     *
+     * <p>Settling a case is not only a write. It queues the companion mod's incident update and posts
+     * {@code CrimeRecordResolvedEvent}, which is what makes paying a fine read publicly as making good
+     * — and for one release, routing the payment through the ledger overload dropped both on the floor
+     * without dropping the settlement, so the cases closed and nobody was told.
+     */
+    public static Payment pay(CrimeWorldData data, long now, SettlementQuote quote, Purse purse,
+                              CrimeCaseService.ResolutionGate gate, UUID transactionId,
+                              CrimeCaseService.ResolutionSink sink) {
         if (quote == null) {
             return refused(0L, SettlementQuote.RejectReason.NOTHING_OWED.messageKey());
         }
@@ -165,7 +180,7 @@ public final class FineService {
         }
 
         // Charged exactly once, above. Everything below is bookkeeping on state we now own.
-        List<UUID> settled = settleCases(data, now, quote.caseIds(), transactionId, gate);
+        List<UUID> settled = settleCases(data, now, quote.caseIds(), transactionId, gate, sink);
 
         long newHeat = Math.max(0L, quote.heat() - quote.heatCleared());
         return new Payment(true, transactionId, settled, quote.amount(), quote.heat(), newHeat,
@@ -235,7 +250,8 @@ public final class FineService {
 
     /** Marks each allocated case {@code FINED} and stamps the payment that settled it. */
     private static List<UUID> settleCases(CrimeWorldData data, long now, List<UUID> caseIds,
-                                          UUID transactionId, CrimeCaseService.ResolutionGate gate) {
+                                          UUID transactionId, CrimeCaseService.ResolutionGate gate,
+                                          CrimeCaseService.ResolutionSink sink) {
         if (data == null || caseIds.isEmpty()) {
             return List.of();
         }
@@ -243,7 +259,7 @@ public final class FineService {
         for (UUID caseId : caseIds) {
             CrimeCaseService.Result result = CrimeCaseService.resolve(data, now, caseId, Resolution.FINED,
                     McaCrime.id("fine"), "fine:" + transactionId, null,
-                    Map.of(CrimeContext.FINE_TRANSACTION, transactionId.toString()), false, gate);
+                    Map.of(CrimeContext.FINE_TRANSACTION, transactionId.toString()), false, gate, sink);
             if (result.successful()) {
                 settled.add(caseId);
             }

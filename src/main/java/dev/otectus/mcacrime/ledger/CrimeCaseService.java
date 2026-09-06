@@ -68,6 +68,48 @@ public final class CrimeCaseService {
         boolean allow(CrimeRecord record, Resolution target);
     }
 
+    /** One accepted disposition change, as everything outside the ledger needs to see it. */
+    public record Resolved(CrimeRecordView before, CrimeRecordView after, CrimeResolutionEntry entry) {
+    }
+
+    /**
+     * Where a case that genuinely moved is announced.
+     *
+     * <p>The companion outbox and the public event are the two things a settled case owes the world,
+     * and neither can run against a ledger with no server behind it. Passing them in as a sink rather
+     * than reaching for {@link MinecraftForge#EVENT_BUS} inside the write is what lets a caller that
+     * only has a {@link CrimeWorldData} still be the one that decides they happen — and what lets a
+     * test count them, which is the difference between "the fine settled the case" and "the fine
+     * settled the case and said so".
+     */
+    @FunctionalInterface
+    public interface ResolutionSink {
+
+        /** Announces nothing: the right sink for a ledger with no server behind it. */
+        ResolutionSink NONE = resolved -> {
+        };
+
+        void announce(Resolved resolved);
+
+        /** The live sink: the integration outbox, then the event, in that order. */
+        static ResolutionSink forServer(@Nullable MinecraftServer server) {
+            if (server == null) {
+                return NONE;
+            }
+            return resolved -> {
+                // Queued before the event is posted, so the authoritative change and the work it owes
+                // the companion mod land in the same dirty cycle.
+                CrimeIntegrationHooks.onResolved(server, resolved.after(), resolved.entry());
+
+                ServerPlayer offender = server.getPlayerList().getPlayer(resolved.after().offenderId());
+                if (offender != null) {
+                    MinecraftForge.EVENT_BUS.post(new CrimeRecordResolvedEvent(offender,
+                            resolved.before(), resolved.after(), resolved.entry()));
+                }
+            };
+        }
+    }
+
     /**
      * Moves one case to a new disposition.
      *
@@ -81,21 +123,9 @@ public final class CrimeCaseService {
         if (server == null || recordId == null || target == null) {
             return Result.of(CrimeMutationStatus.NO_MATCH);
         }
-        Applied applied = apply(CrimeWorldData.get(server), server.overworld().getGameTime(), recordId,
-                target, source, dedupeKey, actorId, context, privileged, ResolutionGate.ALLOW_ALL);
-        if (applied.entry() == null) {
-            return applied.result();
-        }
-        // Queued before the event is posted, so the authoritative change and the work it owes the
-        // companion mod land in the same dirty cycle.
-        CrimeIntegrationHooks.onResolved(server, applied.after().view(), applied.entry());
-
-        ServerPlayer offender = server.getPlayerList().getPlayer(applied.after().offender());
-        if (offender != null) {
-            MinecraftForge.EVENT_BUS.post(new CrimeRecordResolvedEvent(offender, applied.before().view(),
-                    applied.after().view(), applied.entry()));
-        }
-        return applied.result();
+        return resolve(CrimeWorldData.get(server), server.overworld().getGameTime(), recordId, target,
+                source, dedupeKey, actorId, context, privileged, ResolutionGate.ALLOW_ALL,
+                ResolutionSink.forServer(server));
     }
 
     /**
@@ -112,8 +142,32 @@ public final class CrimeCaseService {
                                  ResourceLocation source, String dedupeKey,
                                  @Nullable UUID actorId, Map<String, String> context,
                                  boolean privileged, ResolutionGate gate) {
-        return apply(data, gameTime, recordId, target, source, dedupeKey, actorId, context, privileged,
-                gate).result();
+        return resolve(data, gameTime, recordId, target, source, dedupeKey, actorId, context, privileged,
+                gate, ResolutionSink.NONE);
+    }
+
+    /**
+     * The same transition, announcing itself through {@code sink} when it actually moved.
+     *
+     * <p>A server-bound caller passes {@link ResolutionSink#forServer}; the ledger-only overload above
+     * passes {@link ResolutionSink#NONE}. The distinction is not decoration. Both {@code FineService}
+     * and {@code SentenceResolutionService} settle cases through the ledger overload, and for one
+     * release that silently meant a paid fine and a served sentence notified nobody — no outbox entry
+     * for the companion mod, no {@link CrimeRecordResolvedEvent} for anyone listening.
+     *
+     * @param sink consulted once per case that genuinely changed disposition, never for a duplicate,
+     *             a refusal, or a failed write
+     */
+    public static Result resolve(CrimeWorldData data, long gameTime, UUID recordId, Resolution target,
+                                 ResourceLocation source, String dedupeKey,
+                                 @Nullable UUID actorId, Map<String, String> context,
+                                 boolean privileged, ResolutionGate gate, ResolutionSink sink) {
+        Applied applied = apply(data, gameTime, recordId, target, source, dedupeKey, actorId, context,
+                privileged, gate);
+        if (applied.entry() != null && sink != null) {
+            sink.announce(new Resolved(applied.before().view(), applied.after().view(), applied.entry()));
+        }
+        return applied.result();
     }
 
     /**
