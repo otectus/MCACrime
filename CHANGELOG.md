@@ -5,6 +5,135 @@ All notable changes to MCA: Crime.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); this project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] — unreleased
+
+Maintenance and integrity release, bringing this port to behavioural parity with the Forge 1.20.1
+baseline's 0.6.0. Fines now quote and settle the same per-case total everywhere they are shown or
+charged, and refuse outright when a case requires custody. Surrender no longer pays out before an
+arrest actually lands. Sentences settle only the cases they were bound for. A restraint is spent
+only once custody is actually committed, and who is restrained is now decided by custody state
+rather than arrest phase alone. Fence stock, pricing, and every client-to-server request are
+hardened against the arbitrage, reset, and replay problems the 0.5.1 port shipped with; world data
+recovers from malformed records instead of losing them, and a save written by a newer schema opens
+read-only instead of being silently reinterpreted.
+
+### Added
+
+- **New config option `criminalJobs.fence.offerMaxUses`.** How many times each fence trade may be
+  repeated before that offer runs out. Uses are tracked per fence in `FenceStockRecord` and persist
+  across closing the screen, relogging, and a restart; they reset on restock (default `8`, range
+  `1-4096`).
+- **Fence stock persistence.** Trade uses used to live on the `MerchantOffer` objects built for the
+  screen, so closing and reopening it handed the player a fresh set of uses; stock now lives in
+  world data keyed by the fence's UUID (`FenceStockRecord`).
+- **Five new lang keys**: `mcacrime.readonly`, `mcacrime.escrow.delivered`,
+  `mcacrime.surrender.already_serving`, `mcacrime.surrender.failed`, and `mcacrime.arrest.no_custody`.
+- **Transaction receipts** (`TransactionReceipt`) track payment state (`PREPARED`,
+  `SOURCE_DEBITED`, `DELIVERY_PENDING`, `DELIVERED`, `REJECTED`, `NEEDS_RECONCILIATION`), so a
+  credit that fails after a successful debit is left for reconciliation rather than retried.
+- **Property escrow.** Stolen goods that cannot be handed to their owner become a `PropertyLot` and
+  are delivered on that player's next login.
+- **Restored-cell journal.** A holding cell that cannot finish restoring its blocks when it comes
+  down keeps the remaining positions in a pending-restoration list and retries them on a later
+  sweep, instead of leaving them unrestored.
+- **Safe-destination validation** (`SafeCustodyDestination`) before a jail or custody teleport:
+  checks the chunk is loaded, the destination is passable, supported, free of hazards, inside the
+  world border, and not already occupied.
+- **Legacy sentence binding.** A jail sentence loaded from a save that predates sentence identity
+  has its outstanding cases bound to it once, on the prisoner's first login after the upgrade
+  (`JailService.inferLegacySentenceMembership`), and is stamped so the guess never runs twice.
+- **Bounty claim payment tracking.** Claims now record how much was actually paid
+  (`BountyClaimLedger`), so a warrant revision or an expired claim cannot reopen a reward that was
+  already collected.
+- **Read-only mode.** A world data store that is from a newer schema, or that failed to load, opens
+  read-only (`ServerMutationGate`); Crime mutations are refused until the mismatch is resolved.
+- **Per-player request budget.** All five client-to-server payloads (`RequestActionMenuC2SPacket`,
+  `StartActionC2SPacket`, `RequestSelfMenuC2SPacket`, `GuardChallengeResponseC2SPacket`,
+  `RequestCaseLedgerC2SPacket`) now spend a token from a per-category `RequestBudget` before doing
+  any work.
+- **19 new test classes** exercising fence pricing/stock, bounty no-repay, capture-commit outcomes,
+  settlement policy, surrender, sentence-case binding, world-data capacity and quarantine,
+  saturating arithmetic, and safe-destination validation.
+
+### Changed
+
+- **World data schema 7 → 8.** Adds only optional fields and empty collections for sentence
+  identity, bounty claim payment tracking, transaction receipts, property escrow, the restored-cell
+  journal, and fence stock. `v7to8` stamps the schema and writes nothing else, so an existing save
+  is not rewritten by the migration itself.
+- **Action menus only honour an action they were actually offered.** `ActionMenuSession` carries
+  the set of actions shown; `CrimeActionService.startFromMenu` refuses anything not in that set.
+  The request nonce is hashed together with the action id, target, and menu revision
+  (`ActionSessionManager.payloadHash`), and an `ActionSession` can be settled exactly once
+  (`ActionSession.settle`, a compare-and-set).
+- **Fines quote and settle the same per-case total everywhere.** `SettlementPolicy.quote` computes
+  the exact amount before any charge; `FineService.pay` charges that same quote. A case flagged
+  `MANDATORY_CUSTODY` is refused rather than priced.
+- **Surrender defers its reward.** Heat reduction and the surrender discount are written only after
+  `SurrenderService.commit` confirms the arrest succeeded; repeating surrender while a sentence is
+  active is refused with `mcacrime.surrender.already_serving`, and a custody failure is refused with
+  `mcacrime.surrender.failed`.
+- **Sentences bind their own cases.** `SentenceResolutionService` settles only the cases charged
+  under the sentence id it was given, via `JailService.bindSentence`; an escort or a `/crime jail`
+  extension binds newly-added charges to the sentence already running rather than shadowing it.
+- **Restraint consumption moved to custody commit.** `RestraintReservation` records which inventory
+  slot will pay before a capture is attempted; the item is spent only once `CaptureTicker`'s commit
+  succeeds, not when the capture channel starts.
+- **Custody, not arrest phase alone, decides who is restrained.** `RestraintPolicy.effective` reads
+  both `ArrestStates` and `CustodyRegistry`, so a kidnapping victim or a bounty hunter's live
+  capture is posed and restricted exactly as a lawfully arrested player is.
+- **Fence buy price no longer derives from the marked-up sell price.** `FencePricing.buyPrice`
+  computes from the base price independently, applying `buyPriceRatio` and risk only as a
+  reduction, so Heat can never raise what a fence pays. `buyPriceRatio` itself is clamped to at most
+  `minimumPriceMultiplier` in `FencePolicy`'s compact constructor — `ConfigValidator` only warns
+  about the same condition and reports that the clamp already applied.
+- **Bounty revisions pay only the unpaid delta.** `BountyService.pay` subtracts what
+  `BountyClaimLedger.alreadyPaid` reports was already paid against the warrant, across every
+  revision.
+- **Capacity enforced at insertion, with three exceptions.** Most `CrimeWorldData.putX` methods now
+  return a `CapacityResult` and refuse past their table's limit, instead of accepting everything and
+  truncating on load. `putRansom` and `putPendingCellRestoration` stay void and apply no cap of
+  their own; `putBountyClaimIfAbsent` enforces its table's cap but reports the outcome as a plain
+  `boolean` — whether the claim was recorded — rather than a `CapacityResult`.
+- **Malformed records are quarantined, not dropped.** Rows that fail to deserialize are kept in a
+  bounded quarantine list rather than discarded during load.
+
+### Fixed
+
+- **Payment no longer risks double-crediting.** `EconomicTransactionService` writes
+  `SOURCE_DEBITED` and dirties the store before attempting the credit; a credit that fails or
+  throws leaves the receipt `NEEDS_RECONCILIATION` instead of being retried.
+- **Cell removal restores blocks before its restoration record is cleared.**
+  `HoldingCellService.dismantle` demolishes the cell and only clears the pending-restoration
+  journal entry once every block position came back; unresolved positions stay journaled for a
+  later sweep instead of being silently abandoned.
+- **Jail and custody teleports validate their destination.** `SafeCustodyDestination.validate` is
+  checked before `JailService` and `HoldingCellService` move a player, instead of assuming a loaded
+  chunk or three air blocks is safe.
+
+### Notes
+
+- **Three baseline defects were deliberately not ported:**
+  - The baseline's `ServerPacketGuard` was not ported. NeoForge's payload registrar already runs
+    every server-bound handler on the main thread, and each handler in `CrimeNetwork` already
+    checks for a `ServerPlayer` before doing anything.
+  - The baseline's `PacketBounds` was not ported. This port's payloads already bound every string,
+    list, and map they carry, and an unknown enum ordinal already throws at decode — which is the
+    whole of that policy.
+  - The baseline's packet protocol bump was not carried over. No encoded payload shape changed in
+    this release, so `CrimeNetwork`'s protocol version stays at `8` and the compatibility invariant
+    is unchanged.
+- **B09 and B22 are partially addressed.** B09 (bounty revision) has a no-repay delta guard
+  (`BountyService.pay`, `BountyClaimLedger.alreadyPaid`) so a reopened warrant pays only the
+  difference, but there is no reward-lot redesign. B22 (cell removal reliability) journals
+  unresolved block positions for retry (`HoldingCellService`, `pendingCellRestorations`), but there
+  is no policy for a cell altered by pistons or explosions.
+
+---
+
+Compatibility: Minecraft 1.21.1 on NeoForge; requires the MCA Reborn version pinned in
+`gradle.properties`. Optional: MCA: Reputation, MCA: Quests, NeoForge 1.21.1 builds.
+
 ## [0.5.1] — unreleased
 
 Criminal NPCs and their social ecology. Restrained villagers render with arms behind their back

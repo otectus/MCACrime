@@ -75,7 +75,7 @@ class FencePricingTest {
     @Test
     void boundaryValuesClampRatherThanRunAway() {
         // A pack that turned both modifiers up past the clamps: neither runs away with the price.
-        FencePolicy extreme = new FencePolicy(0.9D, 5.0D, 1.0D, 0.55D, 2.50D, 0.5D, 8L, 6, 1);
+        FencePolicy extreme = new FencePolicy(0.9D, 5.0D, 1.0D, 0.55D, 2.50D, 0.5D, 8L, 6, 8, 1);
         assertEquals(0.55D, FencePricing.sellMultiplier(inputs(-1_000_000L, 0L, false), extreme), 1.0E-9);
         assertEquals(2.50D, FencePricing.sellMultiplier(inputs(-10L, 1_000_000L, true), extreme), 1.0E-9);
     }

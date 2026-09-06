@@ -90,6 +90,9 @@ public final class JailService {
             JailState existing = data.getJail();
             existing.setRemainingOnlineTicks(
                     mergeSentence(existing.getRemainingOnlineTicks(), clamped, allowReduce));
+            // An extension is time added for charges that were not part of the original term, so those
+            // charges join it. Without this they would be served alongside it and settled by nothing.
+            bindSentence(player, existing.getSentenceId());
             CrimeNetwork.sendSelfStatus(player);
             return true; // sentence update; no duplicate PlayerJailedEvent
         }
@@ -101,17 +104,37 @@ public final class JailService {
         JailContainmentMode mode = McaCrimeConfig.COMMON.jailContainmentMode.get();
         JailState jail = new JailState(clamped, anchor.pos(), anchor.dim(), anchor.radius(), mode);
         jail.setSentenceId(sentenceId); // no-op when null; the field initialiser already minted one
+        // The move happens before the sentence is written, and a refusal ends the whole thing. A
+        // sentence persisted around a prisoner still standing where they were arrested is a player
+        // marked as jailed and confined to a jail they are not in -- which is worse than not jailing
+        // them, because every containment rule then fires on somebody standing in a field.
+        if (!teleportToAnchor(player, jail)) {
+            return false;
+        }
         data.setJail(jail);
+        // The sentence is charged with what is standing against the player at this moment, and release
+        // settles exactly that set. Deciding it at release instead is how a sentence came to forgive
+        // crimes committed after it started.
+        bindSentence(player, jail.getSentenceId());
         // Also true for a sentence handed down by /crime jail with no arrest behind it: a prisoner is a
         // prisoner, and a guard has no business opening a confrontation screen through the bars.
         dev.otectus.mcacrime.enforcement.ArrestStates.transition(
                 player, dev.otectus.mcacrime.enforcement.ArrestPhase.JAILED);
-        teleportToAnchor(player, jail); // best-effort; soft-confine fixes an unsafe/unloaded landing later
         dev.otectus.mcacrime.audio.CrimeSounds.jailed(player);
         NeoForge.EVENT_BUS.post(new PlayerJailedEvent(player, clamped, anchor.pos()));
         CrimeNetwork.sendSelfStatus(player);
         player.sendSystemMessage(Component.translatable("mcacrime.jail.jailed", TickFormat.compact(clamped)));
         return true;
+    }
+
+    /** Charges every unbound actionable case against this player under {@code sentenceId}. */
+    private static void bindSentence(ServerPlayer player, UUID sentenceId) {
+        MinecraftServer server = player.getServer();
+        if (server == null) {
+            return;
+        }
+        dev.otectus.mcacrime.state.world.CrimeWorldData.get(server)
+                .bindSentence(player.getUUID(), sentenceId, server.overworld().getGameTime());
     }
 
     private static Optional<JailAnchor> resolveAnchor(ServerPlayer player, @Nullable JailAnchor explicit) {
@@ -202,6 +225,42 @@ public final class JailService {
                 && resolveLevel(player.getServer(), jail.getJailDim()) == null
                 && configFallbackAnchor().isEmpty()) {
             release(player, ReleaseReason.INVALID_JAIL);
+            return;
+        }
+        inferLegacySentenceMembership(player, jail);
+    }
+
+    /**
+     * Adopts the charges of a sentence handed down before cases could name one.
+     *
+     * <p>{@code JailState} has never persisted a start tick, so there is nothing in a 0.5.1 save that
+     * says which cases a running sentence was for. The choices were to settle nothing on release —
+     * which turns every in-flight sentence into time served for no reason — or to assume it covers
+     * what is standing against the prisoner. This takes the second, once, at the first login after the
+     * upgrade, and stamps {@link dev.otectus.mcacrime.ledger.CrimeContext#LEGACY_SENTENCE_INFERRED} on
+     * every case it takes so the ledger never claims the binding was a fact.
+     *
+     * <p>A sentence that already binds cases is left alone, which is what makes this run once.
+     */
+    private static void inferLegacySentenceMembership(ServerPlayer player, JailState jail) {
+        MinecraftServer server = player.getServer();
+        if (server == null || jail.isLegacyBound()) {
+            return;
+        }
+        dev.otectus.mcacrime.state.world.CrimeWorldData world =
+                dev.otectus.mcacrime.state.world.CrimeWorldData.get(server);
+        if (!world.casesForSentence(player.getUUID(), jail.getSentenceId()).isEmpty()) {
+            return;
+        }
+        long now = server.overworld().getGameTime();
+        List<UUID> bound = world.bindLegacySentence(player.getUUID(), jail.getSentenceId(), now);
+        // Stamped whether or not anything was bound. A legacy sentence with nothing left standing
+        // against it looks identical to one that has never been inferred, and re-running the guess on
+        // every login would keep adopting crimes committed since.
+        jail.setLegacyBound(true);
+        if (!bound.isEmpty()) {
+            McaCrime.LOGGER.info("Bound {} pre-0.6.0 case(s) to the sentence {} is serving", bound.size(),
+                    player.getGameProfile().getName());
         }
     }
 
@@ -279,18 +338,19 @@ public final class JailService {
         if (level == null) {
             return false;
         }
-        BlockPos anchor = jail.getJailAnchor();
-        BlockPos target = anchor.above(); // default: one above the anchor block (likely floor)
-        if (level.isLoaded(anchor)) {
-            BlockPos safe = findSafeStand(level, anchor, Math.max(2, jail.getJailRadius()));
-            if (safe == null) {
-                return false; // no safe spot in a loaded region -> caller retries / falls back
-            }
-            target = safe;
+        // No anchor.above() fallback any more. That branch ran precisely when the chunk was not
+        // loaded -- when the server knew least about what was there -- and put prisoners inside walls,
+        // in lava and in the void. An unknown destination is now a refusal.
+        BlockPos target = SafeCustodyDestination.validate(level, jail.getJailAnchor(),
+                Math.max(2, jail.getJailRadius())).orElse(null);
+        if (target == null) {
+            return false;
         }
-        player.teleportTo(level, target.getX() + 0.5, target.getY(), target.getZ() + 0.5,
-                player.getYRot(), player.getXRot());
-        return true;
+        // The overload taking a relative-movement set returns whether the move happened; the one
+        // without it is void and cannot report a refusal, which is why a failed teleport used to look
+        // like a success.
+        return player.teleportTo(level, target.getX() + 0.5, target.getY(), target.getZ() + 0.5,
+                java.util.Set.of(), player.getYRot(), player.getXRot());
     }
 
     /**
@@ -303,33 +363,11 @@ public final class JailService {
      */
     @Nullable
     public static BlockPos findSafeStand(ServerLevel level, BlockPos anchor, int range) {
-        if (isSafeStand(level, anchor)) {
-            return anchor;
-        }
-        for (int dy = 1; dy <= range; dy++) {
-            BlockPos up = anchor.above(dy);
-            if (isSafeStand(level, up)) {
-                return up;
-            }
-            BlockPos down = anchor.below(dy);
-            if (isSafeStand(level, down)) {
-                return down;
-            }
-        }
-        return null;
+        return SafeCustodyDestination.validate(level, anchor, range).orElse(null);
     }
 
-    private static boolean isSafeStand(ServerLevel level, BlockPos feet) {
-        if (level.isOutsideBuildHeight(feet) || level.isOutsideBuildHeight(feet.above()) || level.isOutsideBuildHeight(feet.below())) {
-            return false;
-        }
-        try {
-            return level.getBlockState(feet).isAir()
-                    && level.getBlockState(feet.above()).isAir()
-                    && !level.getBlockState(feet.below()).isAir(); // some footing below
-        } catch (Throwable t) {
-            McaCrime.LOGGER.debug("jail safe-stand probe failed; treating as unsafe", t);
-            return false;
-        }
+    /** Whether one position is safe to put somebody in. Delegates to the shared rules. */
+    public static boolean isSafeStand(ServerLevel level, BlockPos feet) {
+        return SafeCustodyDestination.isSafeStand(level, feet);
     }
 }

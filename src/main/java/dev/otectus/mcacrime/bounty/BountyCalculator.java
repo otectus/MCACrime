@@ -1,5 +1,7 @@
 package dev.otectus.mcacrime.bounty;
 
+import dev.otectus.mcacrime.util.SafeMath;
+
 /**
  * What an outlaw is worth (0.5.1). Pure arithmetic over facts the ledger already holds.
  *
@@ -44,7 +46,7 @@ public final class BountyCalculator {
         // a worse outstanding record than one robbery of twice the value, and Heat alone cannot say so.
         double count = (double) Math.max(0, unresolvedCount - 1) * Math.max(0L, baseBounty);
 
-        double total = Math.max(0L, baseBounty) + severity + fines + repeats + count;
+        double total = SafeMath.finiteOr(Math.max(0L, baseBounty) + severity + fines + repeats + count, 0.0D);
         long floor = Math.max(0L, min);
         long ceiling = Math.max(floor, max);
         if (total <= floor) {
@@ -53,11 +55,11 @@ public final class BountyCalculator {
         if (total >= ceiling) {
             return ceiling;
         }
-        return Math.round(total);
+        return SafeMath.clampLong(Math.round(total), floor, ceiling);
     }
 
-    /** Zero for anything negative or not a number, so a hand-edited config cannot poison the sum. */
+    /** Zero for anything negative, infinite or not a number, so a hand-edited config cannot poison the sum. */
     private static double nonNegative(double value) {
-        return Double.isNaN(value) || value <= 0.0D ? 0.0D : value;
+        return !Double.isFinite(value) || value <= 0.0D ? 0.0D : value;
     }
 }

@@ -1,5 +1,7 @@
 package dev.otectus.mcacrime.economy;
 
+import dev.otectus.mcacrime.util.SafeMath;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -70,12 +72,12 @@ public final class FineAllocation {
         for (int i = 0; i < limit; i++) {
             FineCase settled = actionable.get(i);
             chosen.add(settled.id());
-            attributableHeat += Math.max(0L, settled.heatGenerated());
+            attributableHeat = SafeMath.addSat(attributableHeat, Math.max(0L, settled.heatGenerated()));
             // An assessed fine on the record wins over the computed price: a sentence or a quest may
             // have set a specific figure, and recomputing it would quietly discard that decision.
-            cost += settled.fineAmount() > 0L
+            cost = SafeMath.addSat(cost, settled.fineAmount() > 0L
                     ? settled.fineAmount()
-                    : price(settled.heatGenerated(), fineBase, finePerHeat, bandMultiplier);
+                    : price(settled.heatGenerated(), fineBase, finePerHeat, bandMultiplier));
         }
 
         boolean coversAll = payAll || chosen.size() == actionable.size();
@@ -90,8 +92,8 @@ public final class FineAllocation {
 
     /** The cost of answering for a given amount of Heat, rounded up so it is never free. */
     public static long price(long heat, long fineBase, long finePerHeat, double bandMultiplier) {
-        long raw = fineBase + Math.max(0L, heat) * finePerHeat;
-        long scaled = Math.round(raw * Math.max(0.0D, bandMultiplier));
+        long raw = SafeMath.addSat(fineBase, SafeMath.mulSat(Math.max(0L, heat), finePerHeat));
+        long scaled = SafeMath.mulSat(raw, Math.max(0.0D, SafeMath.finiteOr(bandMultiplier, 0.0D)));
         return raw > 0L ? Math.max(1L, scaled) : Math.max(0L, scaled);
     }
 }

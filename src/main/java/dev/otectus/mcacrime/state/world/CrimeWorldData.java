@@ -3,6 +3,8 @@ package dev.otectus.mcacrime.state.world;
 import dev.otectus.mcacrime.McaCrime;
 import dev.otectus.mcacrime.api.model.CrimeCommunityKey;
 import dev.otectus.mcacrime.captivity.CustodyRecord;
+import dev.otectus.mcacrime.economy.account.TransactionReceipt;
+import dev.otectus.mcacrime.economy.fence.FenceStockRecord;
 import dev.otectus.mcacrime.integration.CrimeIntegrationOperation;
 import dev.otectus.mcacrime.integration.DedupeEntry;
 import dev.otectus.mcacrime.jail.HoldingCell;
@@ -97,6 +99,22 @@ public final class CrimeWorldData extends SavedData {
     private static final int MAX_BOUNTY_CLAIMS = 8192;
     private static final int MAX_BOUNTY_CONTRACTS = 1024;
     private static final int MAX_FENCE_RESTOCK_DAYS = 4096;
+    private static final int MAX_FENCE_STOCK = 4096;
+    /** Ceilings on the 0.6.0 collections. */
+    private static final int MAX_CUSTODY = 4096;
+    private static final int MAX_HOLDING_CELLS = 1024;
+    private static final int MAX_TRANSACTIONS = 4096;
+    private static final int MAX_PROPERTY_ESCROW = 4096;
+    /**
+     * How many unreadable rows are kept for an operator to look at. Small on purpose: quarantine is a
+     * diagnostic, not a second copy of the store, and a systematically corrupt file would otherwise
+     * make the save file grow every time it was loaded.
+     */
+    private static final int MAX_QUARANTINE = 256;
+    /** Ticks in a Minecraft day, the unit terminal-receipt retention is expressed in. */
+    private static final long TICKS_PER_DAY = 24000L;
+    /** How long a finished receipt is kept before the maintenance sweep forgets it. */
+    private static final long TRANSACTION_RETENTION_DAYS = 30L;
 
     /** community -> (playerUuid -> standing delta). LinkedHashMap for stable save ordering. */
     private final Map<CrimeCommunityKey, Map<UUID, Integer>> villageReputation = new LinkedHashMap<>();
@@ -150,11 +168,47 @@ public final class CrimeWorldData extends SavedData {
     private final Map<UUID, BountyContractRecord> bountyContracts = new LinkedHashMap<>();
     /** fence -> the day its stock was last rolled. */
     private final Map<UUID, Long> fenceRestockDay = new LinkedHashMap<>();
+    /** fence -> how much of its current stocking it has already sold (0.6.0). */
+    private final Map<UUID, FenceStockRecord> fenceStock = new LinkedHashMap<>();
+    /** Tables that have already said they are full. One line per table per session, not per refusal. */
+    private final Set<String> capacityReported = new LinkedHashSet<>();
+    /** Money that moved, and how far it got (0.6.0, spec §4.5). Keyed by transaction id. */
+    private final Map<UUID, TransactionReceipt> transactions = new LinkedHashMap<>();
+    /** Property owed to a player who could not take delivery of it (0.6.0). Keyed by lot id. */
+    private final Map<UUID, PropertyLot> propertyEscrow = new LinkedHashMap<>();
+    /**
+     * Cells whose blocks were not all put back, keyed by prisoner (0.6.0).
+     *
+     * <p>Each entry is the original cell narrowed to the positions still standing, so the retry needs
+     * nothing but the entry itself. A cell only lands here when demolition ran and part of it was out
+     * of reach — an unloaded chunk, almost always — and it leaves again the moment a retry restores
+     * the rest.
+     */
+    private final Map<UUID, HoldingCell> pendingCellRestorations = new LinkedHashMap<>();
+    /**
+     * Rows that could not be read, kept verbatim beside the reason (0.6.0).
+     *
+     * <p>"Skip the malformed entry" was always half a policy: it kept the store loadable and threw the
+     * evidence away, so a player whose case vanished had nothing to appeal to and nobody could tell a
+     * corrupt file from a bug in the loader. The row is now written back out untouched.
+     */
+    private final List<CompoundTag> quarantine = new ArrayList<>();
+    /** Quarantine rows dropped because the list was full. Reported once per load. */
+    private int quarantineDropped;
     /** Verbatim copy of any reserved later-phase tags found on disk, re-emitted untouched on save. */
     private final CompoundTag reserved = new CompoundTag();
 
     /** True when the file came from a newer jar and nothing was parsed. */
     private boolean fromTheFuture;
+
+    /**
+     * True when reading the file threw and what is in memory is not what is on disk.
+     *
+     * <p>Treated exactly like a from-the-future store, because the consequence is the same: saving
+     * would replace a file whose contents this build failed to understand with a partial reading of
+     * it. The difference is only in what to tell the operator.
+     */
+    private boolean loadFailed;
 
     /** The 1.21.1 constructor/deserialiser pair the data storage builds this store from. */
     public static final SavedData.Factory<CrimeWorldData> FACTORY =
@@ -177,6 +231,39 @@ public final class CrimeWorldData extends SavedData {
         return fromTheFuture;
     }
 
+    /** True when this store could not be read and is being carried through untouched. */
+    public boolean isLoadFailed() {
+        return loadFailed;
+    }
+
+    /**
+     * Whether this store refuses every write. The backstop under {@link ServerMutationGate}: callers
+     * are expected to ask the gate before they begin, and this is what makes forgetting to harmless.
+     */
+    private boolean frozen() {
+        return fromTheFuture || loadFailed;
+    }
+
+    /**
+     * Whether one more entry would put {@code table} over its ceiling.
+     *
+     * <p>Replacing a key already present is always allowed: a full table has to stop new entries
+     * arriving, not stop the ones already in it from being updated. Evicting to make room is
+     * deliberately not an option — the entries here are custody records, cells and stock counts, and
+     * silently forgetting one is how a prisoner ends up held by nothing or a fence ends up with
+     * infinite goods.
+     */
+    private <K, V> boolean atCapacity(Map<K, V> table, K key, int max, String noun) {
+        if (table.containsKey(key) || table.size() < max) {
+            return false;
+        }
+        if (capacityReported.add(noun)) {
+            McaCrime.LOGGER.warn("MCA: Crime is holding the maximum of {} {} record(s); further ones are "
+                    + "being refused rather than evicting an existing entry.", max, noun);
+        }
+        return true;
+    }
+
     // --- per-community standing (§2.5) ---
 
     public int reputation(CrimeCommunityKey community, UUID player) {
@@ -185,7 +272,7 @@ public final class CrimeWorldData extends SavedData {
     }
 
     public void addReputation(CrimeCommunityKey community, UUID player, int delta) {
-        if (community == null || delta == 0 || fromTheFuture) {
+        if (community == null || delta == 0 || frozen()) {
             return;
         }
         villageReputation.computeIfAbsent(community, k -> new LinkedHashMap<>())
@@ -204,7 +291,7 @@ public final class CrimeWorldData extends SavedData {
 
     /** Overwrites rather than accumulates — used to mirror a companion mod's canonical score. */
     public void setReputation(CrimeCommunityKey community, UUID player, int value) {
-        if (community == null || fromTheFuture) {
+        if (community == null || frozen()) {
             return;
         }
         villageReputation.computeIfAbsent(community, k -> new LinkedHashMap<>()).put(player, value);
@@ -235,7 +322,7 @@ public final class CrimeWorldData extends SavedData {
 
     /** Appends a record. Idempotent: a record whose id is already present is ignored (replay-safe). */
     public void addRecord(CrimeRecord record) {
-        if (record == null || fromTheFuture || ledger.containsKey(record.id())) {
+        if (record == null || frozen() || ledger.containsKey(record.id())) {
             return;
         }
         ledger.put(record.id(), record);
@@ -248,7 +335,7 @@ public final class CrimeWorldData extends SavedData {
      * unknown id — a lifecycle change must never silently create the case it thought it was updating.
      */
     public boolean replaceRecord(CrimeRecord record) {
-        if (record == null || fromTheFuture || !ledger.containsKey(record.id())) {
+        if (record == null || frozen() || !ledger.containsKey(record.id())) {
             return false;
         }
         ledger.put(record.id(), record);
@@ -296,6 +383,70 @@ public final class CrimeWorldData extends SavedData {
         return out;
     }
 
+    /**
+     * The still-actionable cases charged under {@code sentenceId}, oldest first.
+     *
+     * <p>This is the selection a release settles. It is deliberately narrower than
+     * {@link #actionableFor(UUID)}: a case committed after the sentence began — by an escapee, or by
+     * a prisoner released and re-arrested — was never part of what was being served, and closing it
+     * with the term would hand out an amnesty nobody sentenced.
+     */
+    public List<CrimeRecord> casesForSentence(UUID offender, UUID sentenceId) {
+        if (offender == null || sentenceId == null) {
+            return new ArrayList<>();
+        }
+        List<CrimeRecord> out = new ArrayList<>();
+        for (CrimeRecord record : actionableFor(offender)) {
+            if (sentenceId.equals(record.sentenceId())) {
+                out.add(record);
+            }
+        }
+        return out;
+    }
+
+    /**
+     * Charges every currently actionable, unbound case against {@code offender} under
+     * {@code sentenceId}. Cases already bound to a sentence — including this one — are left alone,
+     * so a re-jailing cannot steal another sentence's charges.
+     *
+     * @return the ids actually bound
+     */
+    public List<UUID> bindSentence(UUID offender, UUID sentenceId, long now) {
+        return bind(offender, sentenceId, now, false);
+    }
+
+    /**
+     * The same binding, marked as an inference rather than a fact (0.6.0).
+     *
+     * <p>A sentence handed down before cases could name one has no record of what it was for, and
+     * nothing in a saved world can reconstruct it. Assuming it covers the charges standing against the
+     * prisoner is the only reading that lets an in-flight sentence still mean something on release;
+     * {@link CrimeContext#LEGACY_SENTENCE_INFERRED} is how the ledger admits that is what happened.
+     */
+    public List<UUID> bindLegacySentence(UUID offender, UUID sentenceId, long now) {
+        return bind(offender, sentenceId, now, true);
+    }
+
+    private List<UUID> bind(UUID offender, UUID sentenceId, long now, boolean inferred) {
+        if (offender == null || sentenceId == null || frozen()) {
+            return new ArrayList<>();
+        }
+        List<UUID> bound = new ArrayList<>();
+        for (CrimeRecord record : actionableFor(offender)) {
+            if (record.sentenceId() != null) {
+                continue;
+            }
+            CrimeRecord charged = record.withSentence(sentenceId);
+            if (inferred) {
+                charged = charged.withContext(CrimeContext.LEGACY_SENTENCE_INFERRED, Long.toString(now));
+            }
+            if (replaceRecord(charged)) {
+                bound.add(record.id());
+            }
+        }
+        return bound;
+    }
+
     public int ledgerSize() {
         return ledger.size();
     }
@@ -303,7 +454,7 @@ public final class CrimeWorldData extends SavedData {
     // --- jail anchors (§7.4) ---
 
     public void addJailAnchor(JailAnchor anchor) {
-        if (fromTheFuture) {
+        if (frozen()) {
             return;
         }
         jailAnchors.add(anchor);
@@ -320,12 +471,16 @@ public final class CrimeWorldData extends SavedData {
      * Records a cell this mod built. Keyed by prisoner, so re-arresting somebody who already has a
      * cell standing replaces the record rather than accumulating cages.
      */
-    public void putHoldingCell(HoldingCell cell) {
-        if (cell == null || cell.prisoner() == null || fromTheFuture) {
-            return;
+    public CapacityResult putHoldingCell(HoldingCell cell) {
+        if (cell == null || cell.prisoner() == null || frozen()) {
+            return CapacityResult.FULL;
+        }
+        if (atCapacity(holdingCells, cell.prisoner(), MAX_HOLDING_CELLS, "holding cell")) {
+            return CapacityResult.FULL;
         }
         holdingCells.put(cell.prisoner(), cell);
         setDirty();
+        return CapacityResult.OK;
     }
 
     @Nullable
@@ -335,7 +490,7 @@ public final class CrimeWorldData extends SavedData {
 
     @Nullable
     public HoldingCell removeHoldingCell(UUID prisoner) {
-        if (prisoner == null || fromTheFuture) {
+        if (prisoner == null || frozen()) {
             return null;
         }
         HoldingCell removed = holdingCells.remove(prisoner);
@@ -353,12 +508,16 @@ public final class CrimeWorldData extends SavedData {
     // --- custody table (§2.3) ---
 
     /** Inserts/replaces the record for its captive. Idempotent by captive UUID (replay-safe). */
-    public void putCustody(CustodyRecord record) {
-        if (record == null || record.getCaptive() == null || fromTheFuture) {
-            return;
+    public CapacityResult putCustody(CustodyRecord record) {
+        if (record == null || record.getCaptive() == null || frozen()) {
+            return CapacityResult.FULL;
+        }
+        if (atCapacity(custody, record.getCaptive(), MAX_CUSTODY, "custody")) {
+            return CapacityResult.FULL;
         }
         custody.put(record.getCaptive(), record);
         setDirty();
+        return CapacityResult.OK;
     }
 
     /** The active custody for {@code captive}, or null if not held. */
@@ -384,7 +543,7 @@ public final class CrimeWorldData extends SavedData {
 
     /** Inserts/replaces the demand for its victim. Idempotent by victim UUID (one open demand per victim). */
     public void putRansom(RansomState state) {
-        if (state == null || state.getVictim() == null || fromTheFuture) {
+        if (state == null || state.getVictim() == null || frozen()) {
             return;
         }
         ransoms.put(state.getVictim(), state);
@@ -410,7 +569,7 @@ public final class CrimeWorldData extends SavedData {
     }
 
     public void stampRansomCooldown(String key, long gameTime) {
-        if (fromTheFuture) {
+        if (frozen()) {
             return;
         }
         ransomCooldowns.put(key, gameTime);
@@ -421,7 +580,7 @@ public final class CrimeWorldData extends SavedData {
 
     public VillagerCrimeProfile villagerProfile(UUID villager, Supplier<VillagerCrimeProfile> factory) {
         VillagerCrimeProfile profile = villagerProfiles.get(villager);
-        if (profile == null && !fromTheFuture) {
+        if (profile == null && !frozen()) {
             profile = factory.get();
             villagerProfiles.put(villager, profile);
             setDirty();
@@ -443,19 +602,19 @@ public final class CrimeWorldData extends SavedData {
      * by addition would put a village on a cooldown that never ended.
      */
     public void setActionCounter(String key, long value) {
-        if (fromTheFuture || key == null) return;
+        if (frozen() || key == null) return;
         actionCounters.put(key, Math.max(0L, value));
         setDirty();
     }
 
     public void addActionCounter(String key, long amount) {
-        if (fromTheFuture || amount <= 0L) return;
+        if (frozen() || amount <= 0L) return;
         actionCounters.merge(key, amount, (a, b) -> Math.max(0L, a + b));
         setDirty();
     }
 
     public long treasuryBalance(String key, long initialBalance) {
-        if (!villageTreasuries.containsKey(key) && !fromTheFuture) {
+        if (!villageTreasuries.containsKey(key) && !frozen()) {
             villageTreasuries.put(key, Math.max(0L, initialBalance));
             setDirty();
         }
@@ -463,7 +622,7 @@ public final class CrimeWorldData extends SavedData {
     }
 
     public boolean withdrawTreasury(String key, long amount, long initialBalance) {
-        if (fromTheFuture || amount < 0L) return false;
+        if (frozen() || amount < 0L) return false;
         long balance = treasuryBalance(key, initialBalance);
         if (balance < amount) return false;
         villageTreasuries.put(key, balance - amount);
@@ -474,7 +633,7 @@ public final class CrimeWorldData extends SavedData {
     public boolean hasTransactionReceipt(UUID id) { return transactionReceipts.contains(id); }
 
     public boolean recordTransactionReceipt(UUID id) {
-        if (id == null || fromTheFuture || !transactionReceipts.add(id)) return false;
+        if (id == null || frozen() || !transactionReceipts.add(id)) return false;
         while (transactionReceipts.size() > 4096) {
             transactionReceipts.remove(transactionReceipts.iterator().next());
         }
@@ -505,7 +664,7 @@ public final class CrimeWorldData extends SavedData {
      *         villager may still be walking to a guard about.
      */
     public boolean addObservation(CrimeObservation observation) {
-        if (observation == null || fromTheFuture || observations.containsKey(observation.observationId())) {
+        if (observation == null || frozen() || observations.containsKey(observation.observationId())) {
             return false;
         }
         if (observation.pending() && pendingObservationCount(observation.observerId())
@@ -522,7 +681,7 @@ public final class CrimeWorldData extends SavedData {
 
     /** Replaces an observation in place. Does nothing for an unknown id. */
     public boolean replaceObservation(CrimeObservation observation) {
-        if (observation == null || fromTheFuture || !observations.containsKey(observation.observationId())) {
+        if (observation == null || frozen() || !observations.containsKey(observation.observationId())) {
             return false;
         }
         observations.put(observation.observationId(), observation);
@@ -571,7 +730,7 @@ public final class CrimeWorldData extends SavedData {
 
     /** Files a report. Idempotent by report id. */
     public boolean addReport(CrimeReport report) {
-        if (report == null || fromTheFuture || reports.containsKey(report.reportId())) {
+        if (report == null || frozen() || reports.containsKey(report.reportId())) {
             return false;
         }
         reports.put(report.reportId(), report);
@@ -682,7 +841,7 @@ public final class CrimeWorldData extends SavedData {
      *         change. Refusing the queue entry is always preferable to refusing the crime.
      */
     public boolean enqueueOperation(CrimeIntegrationOperation operation) {
-        if (operation == null || fromTheFuture || outbox.containsKey(operation.operationId())) {
+        if (operation == null || frozen() || outbox.containsKey(operation.operationId())) {
             return operation != null && outbox.containsKey(operation.operationId());
         }
         if (outbox.size() >= MAX_PENDING_OPERATIONS) {
@@ -694,7 +853,7 @@ public final class CrimeWorldData extends SavedData {
     }
 
     public void updateOperation(CrimeIntegrationOperation operation) {
-        if (operation == null || fromTheFuture) {
+        if (operation == null || frozen()) {
             return;
         }
         if (operation.status() == CrimeIntegrationOperation.Status.DEAD_LETTER) {
@@ -737,7 +896,7 @@ public final class CrimeWorldData extends SavedData {
 
     /** Moves a dead letter back to pending, for {@code /crime outbox retry}. */
     public boolean reviveDeadLetter(UUID operationId, long gameTime) {
-        if (fromTheFuture) {
+        if (frozen()) {
             return false;
         }
         for (int i = 0; i < deadLetters.size(); i++) {
@@ -771,7 +930,7 @@ public final class CrimeWorldData extends SavedData {
 
     /** Remembers an applied mutation so a replay returns this answer instead of applying it again. */
     public void rememberDedupe(UUID player, DedupeEntry entry) {
-        if (player == null || entry == null || entry.key().isEmpty() || fromTheFuture) {
+        if (player == null || entry == null || entry.key().isEmpty() || frozen()) {
             return;
         }
         Map<String, DedupeEntry> perPlayer = dedupe.computeIfAbsent(player, k -> new LinkedHashMap<>());
@@ -809,16 +968,20 @@ public final class CrimeWorldData extends SavedData {
         return villager == null ? null : criminalVillagers.get(villager);
     }
 
-    public void putCriminalVillager(CriminalVillagerRecord record) {
-        if (record == null || fromTheFuture) {
-            return;
+    public CapacityResult putCriminalVillager(CriminalVillagerRecord record) {
+        if (record == null || frozen()) {
+            return CapacityResult.FULL;
+        }
+        if (atCapacity(criminalVillagers, record.villager(), MAX_CRIMINAL_VILLAGERS, "criminal villager")) {
+            return CapacityResult.FULL;
         }
         criminalVillagers.put(record.villager(), record);
         setDirty();
+        return CapacityResult.OK;
     }
 
     public void removeCriminalVillager(UUID villager) {
-        if (villager == null || fromTheFuture) {
+        if (villager == null || frozen()) {
             return;
         }
         if (criminalVillagers.remove(villager) != null) {
@@ -836,19 +999,23 @@ public final class CrimeWorldData extends SavedData {
         return transactionId == null ? null : stolenGoods.get(transactionId);
     }
 
-    public void putStolenGoods(StolenGoodsRecord record) {
-        if (record == null || fromTheFuture) {
-            return;
+    public CapacityResult putStolenGoods(StolenGoodsRecord record) {
+        if (record == null || frozen()) {
+            return CapacityResult.FULL;
+        }
+        if (atCapacity(stolenGoods, record.transactionId(), MAX_STOLEN_GOODS, "stolen goods")) {
+            return CapacityResult.FULL;
         }
         stolenGoods.put(record.transactionId(), record);
         indexStolen(record);
         setDirty();
+        return CapacityResult.OK;
     }
 
     /** Removes one record and keeps the by-thief index in step; returns what was removed. */
     @Nullable
     public StolenGoodsRecord removeStolenGoods(UUID transactionId) {
-        if (transactionId == null || fromTheFuture) {
+        if (transactionId == null || frozen()) {
             return null;
         }
         StolenGoodsRecord removed = stolenGoods.remove(transactionId);
@@ -892,12 +1059,16 @@ public final class CrimeWorldData extends SavedData {
         return offender == null ? null : warrants.get(offender);
     }
 
-    public void putWarrant(Warrant warrant) {
-        if (warrant == null || fromTheFuture) {
-            return;
+    public CapacityResult putWarrant(Warrant warrant) {
+        if (warrant == null || frozen()) {
+            return CapacityResult.FULL;
+        }
+        if (atCapacity(warrants, warrant.offender(), MAX_WARRANTS, "warrant")) {
+            return CapacityResult.FULL;
         }
         warrants.put(warrant.offender(), warrant);
         setDirty();
+        return CapacityResult.OK;
     }
 
     @Nullable
@@ -913,8 +1084,11 @@ public final class CrimeWorldData extends SavedData {
      * see an absent key and both pay.
      */
     public boolean putBountyClaimIfAbsent(String claimKey, BountyClaimRecord record) {
-        if (claimKey == null || record == null || fromTheFuture || bountyClaims.containsKey(claimKey)) {
+        if (claimKey == null || record == null || frozen() || bountyClaims.containsKey(claimKey)) {
             return false;
+        }
+        if (atCapacity(bountyClaims, claimKey, MAX_BOUNTY_CLAIMS, "bounty claim")) {
+            return false; // refusing to record the claim is refusing to pay it, which is the safe half
         }
         bountyClaims.put(claimKey, record);
         setDirty();
@@ -928,7 +1102,7 @@ public final class CrimeWorldData extends SavedData {
 
     /** Forgets one claim. Only retention expiry does this; nothing else may un-pay a bounty. */
     public void removeBountyClaim(String claimKey) {
-        if (claimKey == null || fromTheFuture) {
+        if (claimKey == null || frozen()) {
             return;
         }
         if (bountyClaims.remove(claimKey) != null) {
@@ -941,16 +1115,20 @@ public final class CrimeWorldData extends SavedData {
         return List.copyOf(bountyContracts.values());
     }
 
-    public void putBountyContract(BountyContractRecord contract) {
-        if (contract == null || fromTheFuture) {
-            return;
+    public CapacityResult putBountyContract(BountyContractRecord contract) {
+        if (contract == null || frozen()) {
+            return CapacityResult.FULL;
+        }
+        if (atCapacity(bountyContracts, contract.contractId(), MAX_BOUNTY_CONTRACTS, "bounty contract")) {
+            return CapacityResult.FULL;
         }
         bountyContracts.put(contract.contractId(), contract);
         setDirty();
+        return CapacityResult.OK;
     }
 
     public void removeBountyContract(UUID contractId) {
-        if (contractId == null || fromTheFuture) {
+        if (contractId == null || frozen()) {
             return;
         }
         if (bountyContracts.remove(contractId) != null) {
@@ -970,7 +1148,7 @@ public final class CrimeWorldData extends SavedData {
 
     /** Forgets one restock day. Only the maintenance sweep does this, for a villager who is no fence. */
     public void removeFenceRestockDay(UUID fence) {
-        if (fence == null || fromTheFuture) {
+        if (fence == null || frozen()) {
             return;
         }
         if (fenceRestockDay.remove(fence) != null) {
@@ -979,11 +1157,54 @@ public final class CrimeWorldData extends SavedData {
     }
 
     public void setFenceRestockDay(UUID fence, long day) {
-        if (fence == null || fromTheFuture) {
+        if (fence == null || frozen()) {
             return;
         }
         fenceRestockDay.put(fence, day);
         setDirty();
+    }
+
+    /** This fence's persisted stock for the current stocking, or null for one that has never opened. */
+    @Nullable
+    public FenceStockRecord getFenceStock(UUID fence) {
+        return fence == null ? null : fenceStock.get(fence);
+    }
+
+    /**
+     * Inserts or replaces one fence's stock, and says whether it was kept.
+     *
+     * <p>Bounded at {@value #MAX_FENCE_STOCK} fences, refusing the insert rather than evicting an
+     * existing one: a fence whose counts were dropped would be a fence with infinite stock again,
+     * which is the bug this table exists to close. Updating a fence already in the table is always
+     * allowed, so a full table stops new fences from opening rather than breaking the ones trading.
+     *
+     * @return {@link CapacityResult#FULL} when the table is full and this fence is not already in it
+     */
+    public CapacityResult putFenceStock(FenceStockRecord record) {
+        if (record == null || record.fence() == null || frozen()) {
+            return CapacityResult.FULL;
+        }
+        if (atCapacity(fenceStock, record.fence(), MAX_FENCE_STOCK, "fence stock")) {
+            return CapacityResult.FULL;
+        }
+        fenceStock.put(record.fence(), record);
+        setDirty();
+        return CapacityResult.OK;
+    }
+
+    /** Every fence being tracked. A copy: the maintenance sweep iterates it while removing from it. */
+    public Set<UUID> fenceStockIds() {
+        return Set.copyOf(fenceStock.keySet());
+    }
+
+    /** Forgets one fence's stock. The maintenance sweep does this for a villager who is no fence. */
+    public void removeFenceStock(UUID fence) {
+        if (fence == null || frozen()) {
+            return;
+        }
+        if (fenceStock.remove(fence) != null) {
+            setDirty();
+        }
     }
 
     private void indexStolen(StolenGoodsRecord record) {
@@ -993,13 +1214,178 @@ public final class CrimeWorldData extends SavedData {
         }
     }
 
+    // --- transactions, property escrow, cell journal and quarantine (0.6.0) ---
+
+    /** The receipt for {@code transactionId}, or null when this transfer has never been attempted. */
+    @Nullable
+    public TransactionReceipt transaction(UUID transactionId) {
+        return transactionId == null ? null : transactions.get(transactionId);
+    }
+
+    /**
+     * Inserts or replaces one receipt.
+     *
+     * <p>Replacing is the normal case rather than the exception: a transfer writes itself twice, once
+     * when the source is debited and once when the outcome is known, and the second write is the whole
+     * point of the first.
+     */
+    public CapacityResult putTransaction(TransactionReceipt receipt) {
+        if (receipt == null || receipt.id() == null || frozen()) {
+            return CapacityResult.FULL;
+        }
+        if (atCapacity(transactions, receipt.id(), MAX_TRANSACTIONS, "transaction receipt")) {
+            return CapacityResult.FULL;
+        }
+        transactions.put(receipt.id(), receipt);
+        setDirty();
+        return CapacityResult.OK;
+    }
+
+    /** Every receipt, oldest first. A copy: pruning iterates it while removing from it. */
+    public List<TransactionReceipt> transactions() {
+        return new ArrayList<>(transactions.values());
+    }
+
+    /**
+     * Forgets finished receipts older than the retention window.
+     *
+     * <p>Only {@link TransactionReceipt.State#terminal()} receipts are eligible. A
+     * {@code NEEDS_RECONCILIATION} row is money this mod took and did not deliver, and pruning it
+     * would turn a repairable debt into a silent theft however old it got.
+     *
+     * @return how many were dropped
+     */
+    public int pruneTransactions(long gameTime) {
+        if (frozen()) {
+            return 0;
+        }
+        long horizon = TRANSACTION_RETENTION_DAYS * TICKS_PER_DAY;
+        int before = transactions.size();
+        transactions.values().removeIf(receipt ->
+                receipt.state().terminal() && gameTime - receipt.stamp() >= horizon);
+        int removed = before - transactions.size();
+        if (removed > 0) {
+            setDirty();
+        }
+        return removed;
+    }
+
+    /** Everything still owed to {@code owner}, oldest first. Never null. */
+    public List<PropertyLot> propertyEscrowFor(UUID owner) {
+        List<PropertyLot> out = new ArrayList<>();
+        if (owner == null) {
+            return out;
+        }
+        for (PropertyLot lot : propertyEscrow.values()) {
+            if (owner.equals(lot.owner())) {
+                out.add(lot);
+            }
+        }
+        return out;
+    }
+
+    /** Every lot in the world. A copy: delivery iterates it while removing from it. */
+    public List<PropertyLot> propertyEscrow() {
+        return new ArrayList<>(propertyEscrow.values());
+    }
+
+    /** Inserts or replaces one lot. A full escrow refuses, so the caller keeps the ledger row instead. */
+    public CapacityResult putPropertyLot(PropertyLot lot) {
+        if (lot == null || lot.lotId() == null || frozen()) {
+            return CapacityResult.FULL;
+        }
+        if (atCapacity(propertyEscrow, lot.lotId(), MAX_PROPERTY_ESCROW, "property escrow")) {
+            return CapacityResult.FULL;
+        }
+        propertyEscrow.put(lot.lotId(), lot);
+        setDirty();
+        return CapacityResult.OK;
+    }
+
+    /** Forgets one lot. Only a completed delivery does this. */
+    public boolean removePropertyLot(UUID lotId) {
+        if (lotId == null || frozen()) {
+            return false;
+        }
+        if (propertyEscrow.remove(lotId) != null) {
+            setDirty();
+            return true;
+        }
+        return false;
+    }
+
+    /** Cells with blocks still standing, in the order they failed. A copy: the retry removes from it. */
+    public List<HoldingCell> pendingCellRestorations() {
+        return new ArrayList<>(pendingCellRestorations.values());
+    }
+
+    /** The unfinished restoration for {@code prisoner}, or null when nothing is outstanding. */
+    @Nullable
+    public HoldingCell pendingCellRestoration(UUID prisoner) {
+        return prisoner == null ? null : pendingCellRestorations.get(prisoner);
+    }
+
+    /**
+     * Records that part of a cell could not be put back.
+     *
+     * <p>Not capacity-checked against a ceiling of its own: an entry here is always the remains of a
+     * cell that was already in {@code holdingCells}, so the roster cap has already bounded it.
+     */
+    public void putPendingCellRestoration(HoldingCell remains) {
+        if (remains == null || remains.prisoner() == null || frozen()) {
+            return;
+        }
+        pendingCellRestorations.put(remains.prisoner(), remains);
+        setDirty();
+    }
+
+    public void removePendingCellRestoration(UUID prisoner) {
+        if (prisoner == null || frozen()) {
+            return;
+        }
+        if (pendingCellRestorations.remove(prisoner) != null) {
+            setDirty();
+        }
+    }
+
+    /**
+     * Sets a row aside instead of discarding it.
+     *
+     * <p>Called from the load path, before {@code frozen()} could mean anything, so it deliberately
+     * does not consult it. Oldest-first eviction past the ceiling: the first bad rows in a file are
+     * the ones that say most about how it went wrong.
+     */
+    public void quarantine(String reason, @Nullable CompoundTag original) {
+        CompoundTag entry = new CompoundTag();
+        entry.putString("reason", reason == null ? "unknown" : reason);
+        if (original != null) {
+            entry.put("tag", original.copy());
+        }
+        quarantine.add(entry);
+        while (quarantine.size() > MAX_QUARANTINE) {
+            quarantine.remove(0);
+            quarantineDropped++;
+        }
+    }
+
+    /** Every quarantined row, each a {@code {reason, tag}} compound. A copy. */
+    public List<CompoundTag> quarantined() {
+        List<CompoundTag> out = new ArrayList<>(quarantine.size());
+        quarantine.forEach(entry -> out.add(entry.copy()));
+        return out;
+    }
+
+    public int quarantineCount() {
+        return quarantine.size();
+    }
+
     // --- persistence ---
 
     @Override
     public CompoundTag save(CompoundTag tag, HolderLookup.Provider provider) {
         // A store from a newer jar was never parsed; hand it back exactly as found rather than
         // overwriting it with what this build happens to understand.
-        if (fromTheFuture && reserved.contains(FUTURE_KEY, Tag.TAG_COMPOUND)) {
+        if (frozen() && reserved.contains(FUTURE_KEY, Tag.TAG_COMPOUND)) {
             return reserved.getCompound(FUTURE_KEY).copy();
         }
 
@@ -1110,6 +1496,27 @@ public final class CrimeWorldData extends SavedData {
         CompoundTag restockTag = new CompoundTag();
         fenceRestockDay.forEach((fence, day) -> restockTag.putLong(fence.toString(), day));
         tag.put("fenceRestockDay", restockTag);
+        ListTag stockList = new ListTag();
+        fenceStock.values().forEach(record -> stockList.add(record.save()));
+        tag.put("fenceStock", stockList);
+
+        // 0.6.0 collections. Each is absent rather than empty in a world that has never needed one.
+        ListTag transactionList = new ListTag();
+        transactions.values().forEach(receipt -> transactionList.add(receipt.save()));
+        tag.put("transactions", transactionList);
+        // The provider goes through to the lot exactly as it does to a stolen-goods row: a lot holds a
+        // full ItemStack, and in 1.21 an item's components cannot be written without the registries.
+        ListTag escrowList = new ListTag();
+        propertyEscrow.values().forEach(lot -> escrowList.add(lot.save(provider)));
+        tag.put("propertyEscrow", escrowList);
+        ListTag pendingCellList = new ListTag();
+        pendingCellRestorations.values().forEach(cell -> pendingCellList.add(cell.save()));
+        tag.put("pendingCellRestorations", pendingCellList);
+        // Written back exactly as it was read. A row nobody can parse is still a row somebody's
+        // history is in, and the one thing worse than not loading it is losing it.
+        ListTag quarantineList = new ListTag();
+        quarantine.forEach(entry -> quarantineList.add(entry.copy()));
+        tag.put("quarantine", quarantineList);
 
         // Re-emit reserved later-phase slots untouched (bounties, plus any stashed-for-forward-compat tag).
         for (String key : reserved.getAllKeys()) {
@@ -1134,8 +1541,22 @@ public final class CrimeWorldData extends SavedData {
             return data;
         }
 
-        CompoundTag tag = CrimeDataMigrations.migrate(raw);
+        try {
+            readInto(data, CrimeDataMigrations.migrate(raw), provider);
+        } catch (Throwable t) {
+            // Not the per-row skip below: this is the migration or the outer shape failing, which
+            // means what is in memory bears no relation to what is on disk. Park the file verbatim and
+            // run the session read-only rather than saving a partial reading over the real thing.
+            data.loadFailed = true;
+            data.reserved.put(FUTURE_KEY, raw.copy());
+            McaCrime.LOGGER.error("MCA: Crime could not read its world data. The file has been left "
+                    + "untouched and no crime state will be written this session.", t);
+        }
+        return data;
+    }
 
+    /** Everything that can be read row by row. Throwing here fails the whole load; skipping does not. */
+    private static void readInto(CrimeWorldData data, CompoundTag tag, HolderLookup.Provider provider) {
         CompoundTag villages = tag.getCompound("villageReputation");
         for (String communityKey : villages.getAllKeys()) {
             Optional<CrimeCommunityKey> community = CrimeCommunityKey.tryParse(communityKey);
@@ -1163,7 +1584,9 @@ public final class CrimeWorldData extends SavedData {
             try {
                 record = CrimeRecord.load(ledgerList.getCompound(i));
             } catch (RuntimeException e) {
-                continue; // skip a malformed ledger entry rather than dropping the whole store
+                // Set aside rather than dropped: a case nobody can parse is still a case.
+                data.quarantine("ledger: " + e.getMessage(), ledgerList.getCompound(i));
+                continue;
             }
             if (data.ledger.containsKey(record.id())) {
                 // Two rows claiming one id: keep the first as canonical and give the later one a
@@ -1206,7 +1629,7 @@ public final class CrimeWorldData extends SavedData {
                 try {
                     data.custody.put(UUID.fromString(key), CustodyRecord.load(custodyTag.getCompound(key)));
                 } catch (RuntimeException e) {
-                    // skip a malformed custody entry rather than dropping the whole store
+                    data.quarantine("custody: " + e.getMessage(), custodyTag.getCompound(key));
                 }
             }
         } else if (tag.contains("custody")) {
@@ -1218,7 +1641,7 @@ public final class CrimeWorldData extends SavedData {
             try {
                 data.ransoms.put(UUID.fromString(key), RansomState.load(ransomTag.getCompound(key)));
             } catch (RuntimeException e) {
-                // skip a malformed ransom entry
+                data.quarantine("ransom: " + e.getMessage(), ransomTag.getCompound(key));
             }
         }
         CompoundTag cooldownTag = tag.getCompound("ransomCooldowns");
@@ -1231,8 +1654,8 @@ public final class CrimeWorldData extends SavedData {
             try {
                 VillagerCrimeProfile profile = VillagerCrimeProfile.load(profileTag.getCompound(key));
                 if (profile != null) data.villagerProfiles.put(UUID.fromString(key), profile);
-            } catch (RuntimeException ignored) {
-                // Skip one malformed profile without losing unrelated economy state.
+            } catch (RuntimeException e) {
+                data.quarantine("villager profile: " + e.getMessage(), profileTag.getCompound(key));
             }
         }
         CompoundTag counterTag = tag.getCompound("actionCounters");
@@ -1256,7 +1679,7 @@ public final class CrimeWorldData extends SavedData {
                             .add(observation.observationId());
                 }
             } catch (RuntimeException e) {
-                // Skip one malformed observation; the rest of the village's memory is still valid.
+                data.quarantine("observation: " + e.getMessage(), observationList.getCompound(i));
             }
         }
         ListTag reportList = tag.getList("reports", Tag.TAG_COMPOUND);
@@ -1269,7 +1692,7 @@ public final class CrimeWorldData extends SavedData {
                             .add(report.reportId());
                 }
             } catch (RuntimeException e) {
-                // Skip one malformed report rather than dropping every warrant in the world.
+                data.quarantine("report: " + e.getMessage(), reportList.getCompound(i));
             }
         }
 
@@ -1302,7 +1725,7 @@ public final class CrimeWorldData extends SavedData {
                 try {
                     entries.put(key, DedupeEntry.load(perPlayer.getCompound(key)));
                 } catch (RuntimeException e) {
-                    // skip a malformed dedupe entry
+                    data.quarantine("dedupe: " + e.getMessage(), perPlayer.getCompound(key));
                 }
             }
             if (!entries.isEmpty()) {
@@ -1316,44 +1739,50 @@ public final class CrimeWorldData extends SavedData {
         // entries are bad: a corrupt file must not be able to write thousands of lines into a log.
         ListTag criminalList = tag.getList("criminalVillagers", Tag.TAG_COMPOUND);
         int badCriminals = 0;
-        for (int i = 0; i < criminalList.size() && data.criminalVillagers.size() < MAX_CRIMINAL_VILLAGERS; i++) {
+        for (int i = 0; i < criminalList.size(); i++) {
             try {
                 CriminalVillagerRecord record = CriminalVillagerRecord.load(criminalList.getCompound(i));
                 data.criminalVillagers.put(record.villager(), record);
             } catch (RuntimeException e) {
                 badCriminals++;
+                data.quarantine("criminal villager: " + e.getMessage(), criminalList.getCompound(i));
             }
         }
         warnSkipped("criminal villager record", badCriminals);
+        warnOverflow("criminal villager", data.criminalVillagers.size(), MAX_CRIMINAL_VILLAGERS);
 
         ListTag stolenList = tag.getList("stolenGoods", Tag.TAG_COMPOUND);
         int badStolen = 0;
-        for (int i = 0; i < stolenList.size() && data.stolenGoods.size() < MAX_STOLEN_GOODS; i++) {
+        for (int i = 0; i < stolenList.size(); i++) {
             try {
                 StolenGoodsRecord record = StolenGoodsRecord.load(provider, stolenList.getCompound(i));
                 data.stolenGoods.put(record.transactionId(), record);
                 data.indexStolen(record);
             } catch (RuntimeException e) {
                 badStolen++;
+                data.quarantine("stolen goods: " + e.getMessage(), stolenList.getCompound(i));
             }
         }
         warnSkipped("stolen goods record", badStolen);
+        warnOverflow("stolen goods", data.stolenGoods.size(), MAX_STOLEN_GOODS);
 
         ListTag warrantList = tag.getList("warrants", Tag.TAG_COMPOUND);
         int badWarrants = 0;
-        for (int i = 0; i < warrantList.size() && data.warrants.size() < MAX_WARRANTS; i++) {
+        for (int i = 0; i < warrantList.size(); i++) {
             try {
                 Warrant warrant = Warrant.load(warrantList.getCompound(i));
                 data.warrants.put(warrant.offender(), warrant);
             } catch (RuntimeException e) {
                 badWarrants++;
+                data.quarantine("warrant: " + e.getMessage(), warrantList.getCompound(i));
             }
         }
         warnSkipped("warrant", badWarrants);
+        warnOverflow("warrant", data.warrants.size(), MAX_WARRANTS);
 
         ListTag claimList = tag.getList("bountyClaims", Tag.TAG_COMPOUND);
         int badClaims = 0;
-        for (int i = 0; i < claimList.size() && data.bountyClaims.size() < MAX_BOUNTY_CLAIMS; i++) {
+        for (int i = 0; i < claimList.size(); i++) {
             try {
                 CompoundTag entry = claimList.getCompound(i);
                 BountyClaimRecord record = BountyClaimRecord.load(entry);
@@ -1363,35 +1792,96 @@ public final class CrimeWorldData extends SavedData {
                 data.bountyClaims.put(key, record);
             } catch (RuntimeException e) {
                 badClaims++;
+                data.quarantine("bounty claim: " + e.getMessage(), claimList.getCompound(i));
             }
         }
         warnSkipped("bounty claim", badClaims);
+        warnOverflow("bounty claim", data.bountyClaims.size(), MAX_BOUNTY_CLAIMS);
 
         ListTag contractList = tag.getList("bountyContracts", Tag.TAG_COMPOUND);
         int badContracts = 0;
-        for (int i = 0; i < contractList.size() && data.bountyContracts.size() < MAX_BOUNTY_CONTRACTS; i++) {
+        for (int i = 0; i < contractList.size(); i++) {
             try {
                 BountyContractRecord contract = BountyContractRecord.load(contractList.getCompound(i));
                 data.bountyContracts.put(contract.contractId(), contract);
             } catch (RuntimeException e) {
                 badContracts++;
+                data.quarantine("bounty contract: " + e.getMessage(), contractList.getCompound(i));
             }
         }
         warnSkipped("bounty contract", badContracts);
+        warnOverflow("bounty contract", data.bountyContracts.size(), MAX_BOUNTY_CONTRACTS);
 
         CompoundTag restockTag = tag.getCompound("fenceRestockDay");
         int badRestocks = 0;
         for (String key : restockTag.getAllKeys()) {
-            if (data.fenceRestockDay.size() >= MAX_FENCE_RESTOCK_DAYS) {
-                break;
-            }
             try {
                 data.fenceRestockDay.put(UUID.fromString(key), Math.max(0L, restockTag.getLong(key)));
             } catch (IllegalArgumentException e) {
-                badRestocks++;
+                badRestocks++; // a bare key with no compound behind it; there is nothing to set aside
             }
         }
         warnSkipped("fence restock stamp", badRestocks);
+        warnOverflow("fence restock stamp", data.fenceRestockDay.size(), MAX_FENCE_RESTOCK_DAYS);
+
+        ListTag stockList = tag.getList("fenceStock", Tag.TAG_COMPOUND);
+        int badStock = 0;
+        for (int i = 0; i < stockList.size(); i++) {
+            try {
+                FenceStockRecord record = FenceStockRecord.load(stockList.getCompound(i));
+                data.fenceStock.put(record.fence(), record);
+            } catch (RuntimeException e) {
+                badStock++;
+                data.quarantine("fence stock: " + e.getMessage(), stockList.getCompound(i));
+            }
+        }
+        warnSkipped("fence stock record", badStock);
+        warnOverflow("fence stock", data.fenceStock.size(), MAX_FENCE_STOCK);
+
+        // 0.6.0 collections. Absent reads as empty on every world written before this release.
+        ListTag transactionList = tag.getList("transactions", Tag.TAG_COMPOUND);
+        int badTransactions = 0;
+        for (int i = 0; i < transactionList.size(); i++) {
+            try {
+                TransactionReceipt receipt = TransactionReceipt.load(transactionList.getCompound(i));
+                data.transactions.put(receipt.id(), receipt);
+            } catch (RuntimeException e) {
+                badTransactions++;
+                data.quarantine("transaction receipt: " + e.getMessage(), transactionList.getCompound(i));
+            }
+        }
+        warnSkipped("transaction receipt", badTransactions);
+        warnOverflow("transaction receipt", data.transactions.size(), MAX_TRANSACTIONS);
+
+        ListTag escrowList = tag.getList("propertyEscrow", Tag.TAG_COMPOUND);
+        int badLots = 0;
+        for (int i = 0; i < escrowList.size(); i++) {
+            try {
+                PropertyLot lot = PropertyLot.load(provider, escrowList.getCompound(i));
+                data.propertyEscrow.put(lot.lotId(), lot);
+            } catch (RuntimeException e) {
+                badLots++;
+                data.quarantine("property lot: " + e.getMessage(), escrowList.getCompound(i));
+            }
+        }
+        warnSkipped("property lot", badLots);
+        warnOverflow("property escrow", data.propertyEscrow.size(), MAX_PROPERTY_ESCROW);
+
+        ListTag pendingCellList = tag.getList("pendingCellRestorations", Tag.TAG_COMPOUND);
+        for (int i = 0; i < pendingCellList.size(); i++) {
+            HoldingCell remains = HoldingCell.load(pendingCellList.getCompound(i));
+            if (remains != null) {
+                data.pendingCellRestorations.put(remains.prisoner(), remains);
+            } else {
+                data.quarantine("pending cell restoration", pendingCellList.getCompound(i));
+            }
+        }
+
+        // Read straight back in, unexamined. Parsing a quarantined row is exactly what failed.
+        ListTag quarantineList = tag.getList("quarantine", Tag.TAG_COMPOUND);
+        for (int i = 0; i < quarantineList.size() && data.quarantine.size() < MAX_QUARANTINE; i++) {
+            data.quarantine.add(quarantineList.getCompound(i).copy());
+        }
 
         // Capture reserved later-phase slots verbatim for forward compatibility.
         for (String key : RESERVED_KEYS) {
@@ -1399,7 +1889,23 @@ public final class CrimeWorldData extends SavedData {
                 data.reserved.put(key, tag.get(key).copy());
             }
         }
-        return data;
+        if (data.quarantineDropped > 0) {
+            McaCrime.LOGGER.warn("MCA: Crime quarantined the first {} unreadable row(s) and dropped {} "
+                    + "further one(s); the file is systematically damaged.", MAX_QUARANTINE,
+                    data.quarantineDropped);
+        }
+    }
+
+    /**
+     * One line when a collection came back over its ceiling. Nothing is dropped: the load loops used to
+     * stop at the cap, which meant an oversized file silently lost its tail every time it was opened.
+     * Everything is read, and the insertion cap is what stops it growing any further.
+     */
+    private static void warnOverflow(String noun, int loaded, int max) {
+        if (loaded > max) {
+            McaCrime.LOGGER.warn("MCA: Crime loaded {} {} record(s), over the {} ceiling. All of them were "
+                    + "kept, but no further one can be added until the table shrinks.", loaded, noun, max);
+        }
     }
 
     /** One aggregate line per collection, however many entries were bad. Silent when none were. */

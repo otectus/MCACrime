@@ -103,6 +103,21 @@ public final class CrimeDetectionHandlers {
         }
     }
 
+    /**
+     * A player who changes dimension takes every in-flight interaction with them.
+     *
+     * <p>An action session and a capture channel are both bound to one dimension at their start and
+     * neither re-checks it every tick; a portal is the one way a target can leave the world an actor
+     * is standing in without dying, disconnecting or moving. Both parties are covered, because the
+     * session is just as broken when it is the victim who steps through.
+     */
+    @SubscribeEvent
+    public static void onChangedDimension(PlayerEvent.PlayerChangedDimensionEvent event) {
+        java.util.UUID mover = event.getEntity().getUUID();
+        ActionSessionManager.clearFor(mover, CancelReason.DIMENSION_CHANGED);
+        CaptureChannels.clearFor(mover);
+    }
+
     @SubscribeEvent
     public static void onLogout(PlayerEvent.PlayerLoggedOutEvent event) {
         CrimeDetector.clearAttacker(event.getEntity().getUUID());
@@ -113,15 +128,15 @@ public final class CrimeDetectionHandlers {
         // replay cache and any open menu, neither of which any other path ever removes.
         ActionSessionManager.forgetActor(event.getEntity().getUUID());
         dev.otectus.mcacrime.action.CrimeActionService.forgetMenu(event.getEntity().getUUID());
-        // Same class of leak, three more maps: a guard encounter, an enforcement alert, and a dossier
-        // cooldown stamp all keyed by player and all previously removed by nothing.
+        // Same class of leak, three more maps: a guard encounter, an enforcement alert, and this
+        // player's request buckets, all keyed by player and all previously removed by nothing.
         dev.otectus.mcacrime.enforcement.GuardChallengeService.forget(event.getEntity().getUUID());
         dev.otectus.mcacrime.enforcement.GuardEnforcement.forget(event.getEntity().getUUID());
         // An escort is a walk in progress, and there is nobody to walk any more. The lawful custody
         // record behind it persists, and ArrestService finishes the arrest on the next login.
         dev.otectus.mcacrime.enforcement.EscortService.forget(event.getEntity().getUUID());
         dev.otectus.mcacrime.enforcement.RestraintHandlers.forget(event.getEntity().getUUID());
-        dev.otectus.mcacrime.network.RequestCaseLedgerC2SPacket.forget(event.getEntity().getUUID());
+        dev.otectus.mcacrime.network.RequestBudget.forget(event.getEntity().getUUID());
         dev.otectus.mcacrime.dialogue.CrimeDialogueService.forget(event.getEntity().getUUID());
         if (event.getEntity().level() instanceof ServerLevel level) {
             dev.otectus.mcacrime.ai.CrimeReactionService.clear(level, event.getEntity().getUUID());

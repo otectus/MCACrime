@@ -2,6 +2,7 @@ package dev.otectus.mcacrime;
 
 import dev.otectus.mcacrime.api.model.CrimeCommunityKey;
 import dev.otectus.mcacrime.crime.type.CrimeIds;
+import dev.otectus.mcacrime.fixtures.Schema7Fixture;
 import dev.otectus.mcacrime.ledger.CrimeContext;
 import dev.otectus.mcacrime.ledger.CrimeRecord;
 import dev.otectus.mcacrime.ledger.Resolution;
@@ -341,7 +342,9 @@ class CrimeDataMigrationTest {
 
         CompoundTag migrated = CrimeDataMigrations.migrate(store);
 
-        assertEquals(CrimeDataMigrations.SCHEMA_0_5_1, migrated.getInt(CrimeDataMigrations.TAG_SCHEMA));
+        // migrate() runs every remaining step, so the stamp is whatever this build writes; what this
+        // test is about is that none of the six collections was synthesised on the way up.
+        assertEquals(CrimeDataMigrations.CURRENT_SCHEMA, migrated.getInt(CrimeDataMigrations.TAG_SCHEMA));
         assertFalse(migrated.contains("criminalVillagers"));
         assertFalse(migrated.contains("warrants"));
         assertFalse(migrated.contains("stolenGoods"));
@@ -409,8 +412,8 @@ class CrimeDataMigrationTest {
     }
 
     /**
-     * An over-long list is truncated at the cap rather than throwing, and a malformed entry is skipped
-     * rather than costing the world every other criminal in it.
+     * An over-long list loads in full rather than losing its tail, and a malformed entry is set aside
+     * rather than costing the world every other criminal in it (0.6.0).
      */
     @Test
     void overCapAndMalformedEntriesAreSurvivable() {
@@ -427,6 +430,59 @@ class CrimeDataMigrationTest {
 
         CrimeWorldData data = CrimeWorldData.load(store, RegistryAccess.EMPTY);
 
-        assertEquals(4096, data.criminalVillagers().size());
+        assertEquals(4200, data.criminalVillagers().size(), "the load loop deleted the tail of the file");
+        assertEquals(1, data.quarantineCount(), "the unreadable entry was dropped rather than set aside");
+    }
+
+    // ------------------------------------------------------------------ schema 8 (0.6.0)
+
+    /**
+     * The 0.6.0 step writes nothing. Every field the release adds is optional and reads its absence as
+     * the legacy answer, so a store that goes through {@code v7to8} must come out byte-identical apart
+     * from the stamp — and running it twice must change nothing at all.
+     */
+    @Test
+    void migratingToEightWritesNothingAndIsIdempotent() {
+        CompoundTag seven = Schema7Fixture.store();
+        CompoundTag expected = seven.copy();
+        expected.putInt(CrimeDataMigrations.TAG_SCHEMA, CrimeDataMigrations.SCHEMA_0_6_0);
+
+        CompoundTag once = CrimeDataMigrations.v7to8(seven);
+
+        assertEquals(CrimeDataMigrations.SCHEMA_0_6_0, once.getInt(CrimeDataMigrations.TAG_SCHEMA));
+        assertEquals(expected, once, "the 0.6.0 step adds no key and seeds no default");
+        assertEquals(once, CrimeDataMigrations.v7to8(once), "a replayed step is a no-op");
+        // The source tag is copied, never edited in place: a caller still holding the old store keeps it.
+        assertEquals(CrimeDataMigrations.SCHEMA_0_5_1, seven.getInt(CrimeDataMigrations.TAG_SCHEMA));
+    }
+
+    /**
+     * The whole chain, 0 to 8, on an unversioned store: every step runs in order, the result stamps 8,
+     * and the ledger row that went in is still there afterwards.
+     */
+    @Test
+    void anUnversionedStoreMigratesAllTheWayToEight() {
+        UUID caseId = UUID.randomUUID();
+        CompoundTag store = legacyStore(legacyRecord(caseId, 4, true));
+
+        CompoundTag migrated = CrimeDataMigrations.migrate(store);
+
+        assertEquals(8, CrimeDataMigrations.schemaOf(migrated));
+        assertEquals(CrimeDataMigrations.SCHEMA_0_6_0, CrimeDataMigrations.CURRENT_SCHEMA);
+        assertEquals(1, migrated.getList("ledger", Tag.TAG_COMPOUND).size());
+        // The dimension-aware key the very first step wrote is still intact eight steps later.
+        assertTrue(migrated.getList("ledger", Tag.TAG_COMPOUND).getCompound(0)
+                .contains("community", Tag.TAG_COMPOUND));
+    }
+
+    /** A schema-7 store loads under this build with nothing lost and nothing invented. */
+    @Test
+    void aSchemaSevenStoreLoadsUnderTheCurrentSchema() {
+        CrimeWorldData data = CrimeWorldData.load(Schema7Fixture.store(), RegistryAccess.EMPTY);
+
+        assertFalse(data.isReadOnlyFutureData());
+        assertNotNull(data.warrant(Schema7Fixture.OFFENDER));
+        assertNotNull(data.bountyClaim(Schema7Fixture.CLAIM_KEY));
+        assertEquals(9L, data.fenceRestockDay(Schema7Fixture.FENCE));
     }
 }

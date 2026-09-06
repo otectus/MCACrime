@@ -59,6 +59,34 @@ class JailStateNbtTest {
     }
 
     @Test
+    void theTwoZeroSixZeroFlagsRoundTripAndDefaultToFalse() {
+        JailState j = new JailState(1234L, new BlockPos(1, 2, 3), NETHER, 7, JailContainmentMode.PHYSICAL);
+        // Absent is the legacy answer for both: a 0.5.1 sentence has claimed no discount and has not
+        // been through the one-shot inference.
+        assertFalse(JailState.load(j.save()).isSurrenderCredited());
+        assertFalse(JailState.load(j.save()).isLegacyBound());
+
+        j.setSurrenderCredited(true);
+        j.setLegacyBound(true);
+        JailState loaded = JailState.load(j.save());
+        assertTrue(loaded.isSurrenderCredited());
+        assertTrue(loaded.isLegacyBound());
+    }
+
+    @Test
+    void copyCarriesTheTwoZeroSixZeroFlags() {
+        JailState j = new JailState(100L, new BlockPos(0, 64, 0), OVERWORLD, 5, JailContainmentMode.CONTAINMENT);
+        j.setSurrenderCredited(true);
+        j.setLegacyBound(true);
+
+        // copyOnDeath() runs this path, so dropping either flag here would hand a respawning prisoner
+        // a second surrender discount and re-run the upgrade inference on their next login.
+        JailState c = j.copy();
+        assertTrue(c.isSurrenderCredited());
+        assertTrue(c.isLegacyBound());
+    }
+
+    @Test
     void playerCrimeDataCarriesJailThroughSaveAndDeath() {
         PlayerCrimeData data = new PlayerCrimeData();
         data.setJail(new JailState(500L, new BlockPos(0, 64, 0), OVERWORLD, 5, JailContainmentMode.CONTAINMENT));

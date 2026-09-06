@@ -4,6 +4,7 @@ import dev.otectus.mcacrime.McaCrime;
 import dev.otectus.mcacrime.McaCrimeConfig;
 import dev.otectus.mcacrime.captivity.CustodyRecord;
 import dev.otectus.mcacrime.state.world.CrimeWorldData;
+import dev.otectus.mcacrime.state.world.ServerMutationGate;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
@@ -12,6 +13,7 @@ import net.minecraft.world.entity.Entity;
 
 import org.jetbrains.annotations.Nullable;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -49,9 +51,18 @@ public final class HoldingCellService {
         if (existing != null) {
             return existing;
         }
+        if (!ServerMutationGate.allows(server)) {
+            return null; // a read-only store cannot record a cell, so nothing may be built into one
+        }
         HoldingCell built = CellBuilder.build(level, near, prisoner, sentenceId);
-        if (built != null) {
-            CrimeWorldData.get(server).putHoldingCell(built);
+        if (built == null) {
+            return null;
+        }
+        if (!CrimeWorldData.get(server).putHoldingCell(built).stored()) {
+            // The roster is full. A cage nothing points at can never be taken down, so it comes back
+            // out immediately rather than becoming somebody's permanent garden feature.
+            CellBuilder.demolish(level, built);
+            return null;
         }
         return built;
     }
@@ -67,18 +78,95 @@ public final class HoldingCellService {
         if (server == null) {
             return;
         }
-        HoldingCell cell = CrimeWorldData.get(server).removeHoldingCell(prisoner);
+        dismantle(CrimeWorldData.get(server), prisoner, demolisher(server));
+    }
+
+    /** The live demolisher: resolve the cell's dimension, put the blocks back, report what is left. */
+    private static CellDemolisher demolisher(MinecraftServer server) {
+        return cell -> {
+            ServerLevel level = JailService.resolveLevel(server, cell.dim());
+            if (level == null) {
+                // The dimension is gone, so the blocks are unreachable and always will be. That counts
+                // as resolved rather than pending: retrying it every sweep for the rest of the save
+                // would put an entry in the journal that nothing could ever clear.
+                McaCrime.LOGGER.debug("MCA: Crime dropped a holding-cell record in a missing dimension {}",
+                        cell.dim());
+                return Set.of();
+            }
+            return CellBuilder.demolish(level, cell);
+        };
+    }
+
+    /**
+     * What actually puts the blocks back. The server overload resolves the cell's dimension and calls
+     * {@link CellBuilder#demolish}; a test records which cell it was handed, which is the only way to
+     * assert that a record is never dropped without its blocks being dealt with first.
+     */
+    @FunctionalInterface
+    public interface CellDemolisher {
+        /** @return the positions that still hold this cell's blocks; empty when it all came back */
+        Set<BlockPos> demolish(HoldingCell cell);
+    }
+
+    /**
+     * Demolishes first, and forgets the cell only when there is nothing of it left standing.
+     *
+     * <p>This used to run the other way round: remove the roster entry, then demolish, on the reasoning
+     * that a failed demolition must not leave a record pointing at a cell nobody would return to. It
+     * traded one leak for a worse one. Demolition genuinely fails whenever part of the cell sits in an
+     * unloaded chunk -- the common case, because a prisoner released on login is nowhere near the cage
+     * -- and dropping the record then left iron bars standing in a village with nothing anywhere that
+     * knew they were this mod's to remove.
+     *
+     * <p>So the leftovers are written down instead. The cell moves to
+     * {@code pendingCellRestorations} narrowed to the positions still standing, and the sweep finishes
+     * the job when those chunks come back. The roster entry still goes, because the sentence it belonged
+     * to is over either way.
+     *
+     * <p>Everything a {@link MinecraftServer} is needed for is in the demolisher, so what is left is
+     * the part worth asserting without a level to build a cage in.
+     */
+    public static void dismantle(CrimeWorldData data, UUID prisoner, CellDemolisher demolisher) {
+        if (data == null || prisoner == null || demolisher == null) {
+            return;
+        }
+        HoldingCell cell = data.removeHoldingCell(prisoner);
         if (cell == null) {
+            // Nothing on the roster, but there may still be an unfinished restoration to try again.
+            retryPending(data, prisoner, demolisher);
             return;
         }
-        ServerLevel level = JailService.resolveLevel(server, cell.dim());
-        if (level == null) {
-            // The dimension is gone, so the blocks are unreachable. Dropping the record is the only
-            // thing left to do, and keeping it would leak forever.
-            McaCrime.LOGGER.debug("MCA: Crime dropped a holding-cell record in a missing dimension {}", cell.dim());
+        Set<BlockPos> unresolved = demolisher.demolish(cell);
+        if (unresolved == null || unresolved.isEmpty()) {
+            data.removePendingCellRestoration(prisoner);
             return;
         }
-        CellBuilder.demolish(level, cell);
+        data.putPendingCellRestoration(cell.retaining(unresolved));
+    }
+
+    /**
+     * One more attempt at a restoration that did not finish.
+     *
+     * <p>The entry only clears when the retry reaches every remaining position, so a cell half of which
+     * is still unloaded shrinks rather than being declared done.
+     *
+     * @return true when the last of it came back
+     */
+    public static boolean retryPending(CrimeWorldData data, UUID prisoner, CellDemolisher demolisher) {
+        if (data == null || prisoner == null || demolisher == null) {
+            return false;
+        }
+        HoldingCell remains = data.pendingCellRestoration(prisoner);
+        if (remains == null) {
+            return false;
+        }
+        Set<BlockPos> unresolved = demolisher.demolish(remains);
+        if (unresolved == null || unresolved.isEmpty()) {
+            data.removePendingCellRestoration(prisoner);
+            return true;
+        }
+        data.putPendingCellRestoration(remains.retaining(unresolved));
+        return false;
     }
 
     /**
@@ -114,8 +202,8 @@ public final class HoldingCellService {
         }
         ServerLevel level = JailService.resolveLevel(server, cell.dim());
         if (level != null) {
-            BlockPos outside = JailService.findSafeStand(level,
-                    cell.anchor().offset(CellBlueprint.RADIUS + 2, 0, 0), 8);
+            BlockPos outside = SafeCustodyDestination.validate(level,
+                    cell.anchor().offset(CellBlueprint.RADIUS + 2, 0, 0), 8).orElse(null);
             if (outside == null) {
                 McaCrime.LOGGER.debug("MCA: Crime found nowhere safe outside a cell; leaving it standing");
                 return;
@@ -164,9 +252,13 @@ public final class HoldingCellService {
             if (cell.expired(now, lifetime)) {
                 // The cap fires regardless of who is where. It is the guard against the one leak this
                 // subsystem can have: a player arrested and never seen again.
-                ServerPlayer prisoner = server.getPlayerList().getPlayer(cell.prisoner());
-                if (prisoner != null) {
-                    releaseAndDismantle(server, prisoner);
+                //
+                // Occupancy, not presence, decides how it comes down. Dismantling an occupied cell
+                // restores the floor and roof courses into the space the prisoner is standing in, which
+                // is how a sweep came to suffocate the person it was tidying up after. The release path
+                // moves whoever is in there -- player or villager -- before a single block goes back.
+                if (occupied(server, cell)) {
+                    releaseAndDismantle(server, cell.prisoner());
                 } else {
                     dismantle(server, cell.prisoner());
                 }
@@ -182,6 +274,67 @@ public final class HoldingCellService {
                 budget--;
             }
         }
+        retrySweep(server, data);
+    }
+
+    /**
+     * Finishes restorations that could not complete when the cell came down.
+     *
+     * <p>Only attempted where the anchor is already loaded, so the sweep never forces a chunk in to put
+     * a block back. A cage nobody is standing near is nobody's problem this tick, and it will still be
+     * there the next time somebody walks past it.
+     */
+    private static void retrySweep(MinecraftServer server, CrimeWorldData data) {
+        List<HoldingCell> pending = data.pendingCellRestorations();
+        if (pending.isEmpty()) {
+            return;
+        }
+        int budget = 4;
+        for (HoldingCell remains : pending) {
+            if (budget <= 0) {
+                return;
+            }
+            ServerLevel level = JailService.resolveLevel(server, remains.dim());
+            if (level == null || !level.isLoaded(remains.anchor())) {
+                continue;
+            }
+            retryPending(data, remains.prisoner(), demolisher(server));
+            budget--;
+        }
+    }
+
+    /** Whether somebody is actually serving this cell's sentence inside it. */
+    private static boolean occupied(MinecraftServer server, HoldingCell cell) {
+        ServerPlayer prisoner = server.getPlayerList().getPlayer(cell.prisoner());
+        JailState jail = prisoner == null || !JailService.isJailed(prisoner) ? null
+                : dev.otectus.mcacrime.state.CrimeAttachments.get(prisoner).getJail();
+        return occupied(CrimeWorldData.get(server), cell, jail == null ? null : jail.getSentenceId());
+    }
+
+    /**
+     * The occupancy rule itself, over nothing but the store and an id.
+     *
+     * <p>Split out from the sweep because this is the decision that matters and the sweep is only the
+     * thing that acts on it: an occupied cell has to be released before it is taken apart, or the
+     * restoration puts the floor and roof courses back through whoever is standing between them.
+     *
+     * @param activeSentenceId the sentence the prisoner is currently serving, or null for a prisoner
+     *                         who is offline or not jailed at all
+     */
+    public static boolean occupied(CrimeWorldData data, HoldingCell cell,
+                                   @Nullable UUID activeSentenceId) {
+        if (cell == null) {
+            return false;
+        }
+        if (activeSentenceId != null) {
+            // A null id on the cell is a pre-0.4.0 record, which is given the benefit of the doubt:
+            // being wrong here means an unnecessary release, and being wrong the other way suffocates
+            // somebody.
+            return cell.sentenceId() == null || cell.sentenceId().equals(activeSentenceId);
+        }
+        // An offline or NPC prisoner has no sentence to read. A live custody record against a cell that
+        // names a sentence is what says somebody is still in there.
+        return cell.sentenceId() != null && data != null && data.getCustody(cell.prisoner()) != null;
     }
 
     /**

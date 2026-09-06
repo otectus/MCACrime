@@ -338,6 +338,19 @@ class PayloadCodecTest {
         assertThrows(RuntimeException.class, () -> ActionProgressS2CPacket.STREAM_CODEC.decode(buf));
     }
 
+    /**
+     * The Forge decoder clamped this ordinal to {@code REFUSE}, which turned a malformed payload into a
+     * refusal the player never gave. It must fail the payload instead.
+     */
+    @Test
+    void aChallengeResponseOrdinalNoBuildEverWroteIsRefusedNotReadAsRefuse() {
+        RegistryFriendlyByteBuf buf = buffer();
+        buf.writeUUID(UUID.randomUUID());
+        buf.writeVarInt(ChallengeResponse.values().length);
+        assertThrows(io.netty.handler.codec.DecoderException.class,
+                () -> GuardChallengeResponseC2SPacket.STREAM_CODEC.decode(buf));
+    }
+
     @Test
     void aMalformedCrimeTypeIdIsRefused() {
         RegistryFriendlyByteBuf buf = buffer();

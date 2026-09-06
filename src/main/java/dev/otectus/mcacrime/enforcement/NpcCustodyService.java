@@ -14,6 +14,7 @@ import dev.otectus.mcacrime.jail.HoldingCell;
 import dev.otectus.mcacrime.jail.HoldingCellService;
 import dev.otectus.mcacrime.jail.JailAnchor;
 import dev.otectus.mcacrime.jail.JailService;
+import dev.otectus.mcacrime.ledger.SentenceResolutionService;
 import dev.otectus.mcacrime.state.world.CrimeWorldData;
 import dev.otectus.mcacrime.util.CrimeDebug;
 import net.minecraft.core.BlockPos;
@@ -103,9 +104,39 @@ public final class NpcCustodyService {
             if (record.getOwner().type() == CustodyOwnerType.GUARD) {
                 ESCORTS.put(record.getCaptive(), new Escort(server.overworld().getGameTime()));
             }
+            inferLegacySentenceMembership(server, record.getCaptive());
         }
         if (found > 0) {
             CrimeDebug.crime("reconciled {} lawful NPC custody record(s) on server start", found);
+        }
+    }
+
+    /**
+     * The NPC half of the login-time inference {@code JailService} does for players.
+     *
+     * <p>A villager sentence handed down before 0.6.0 has a cell and a clock and nothing linking it to
+     * a case, so the release below would settle nothing at all. Binding what stands against the thief
+     * to the sentence it is already serving is the same assumption, made in the same words, and it runs
+     * here because a server start is the only moment an NPC sentence is looked at as a whole.
+     */
+    private static void inferLegacySentenceMembership(MinecraftServer server, UUID captiveId) {
+        HoldingCell cell = HoldingCellService.existingFor(server, captiveId);
+        if (cell == null || cell.sentenceId() == null || cell.isLegacyBound()) {
+            return; // an escort still on the road; the cell and its id are minted on arrival
+        }
+        CrimeWorldData data = CrimeWorldData.get(server);
+        if (!data.casesForSentence(captiveId, cell.sentenceId()).isEmpty()) {
+            return;
+        }
+        List<UUID> bound = data.bindLegacySentence(captiveId, cell.sentenceId(),
+                server.overworld().getGameTime());
+        // Stamped whether or not anything was bound, and stamped on the cell because a villager has no
+        // attachment of its own. Same rule as the player side: a one-time upgrade guess runs once.
+        cell.setLegacyBound(true);
+        data.putHoldingCell(cell);
+        if (!bound.isEmpty()) {
+            CrimeDebug.crime("bound {} pre-0.6.0 case(s) to the sentence {} is serving", bound.size(),
+                    captiveId);
         }
     }
 
@@ -230,8 +261,12 @@ public final class NpcCustodyService {
                                CustodyRecord record, LivingEntity thief, @Nullable LivingEntity guard,
                                BlockPos near) {
         UUID captiveId = record.getCaptive();
-        HoldingCell cell = HoldingCellService.provision(level, near, captiveId, UUID.randomUUID());
+        // The cell and the sentence share one id, so the cases charged under it can be found again at
+        // release from the only thing that persists about an NPC sentence: the cell it is served in.
+        UUID sentenceId = UUID.randomUUID();
+        HoldingCell cell = HoldingCellService.provision(level, near, captiveId, sentenceId);
         BlockPos hold = cell == null ? near : cell.anchor();
+        data.bindSentence(captiveId, sentenceId, level.getGameTime());
         OptionalInt village = guard == null ? McaCompat.getHomeVillageId(thief)
                 : McaCompat.getHomeVillageId(guard);
         CustodyService.transferLawfulCustody(server, captiveId,
@@ -256,6 +291,12 @@ public final class NpcCustodyService {
             return;
         }
         UUID captiveId = record.getCaptive();
+        // Read before the cell comes down: dismantling it is what destroys the only record of which
+        // sentence this thief was serving.
+        HoldingCell servedCell = HoldingCellService.existingFor(server, captiveId);
+        if (servedCell != null && servedCell.sentenceId() != null) {
+            SentenceResolutionService.markServed(server, captiveId, servedCell.sentenceId());
+        }
         CustodyService.release(server, captiveId, CustodyReleaseReason.SENTENCE_SERVED);
         HoldingCellService.releaseAndDismantle(server, captiveId);
         CrimeReactionService.endCaptive(level, captiveId);

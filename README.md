@@ -61,12 +61,13 @@ what the **law** does about you, on two separate axes that never read each other
 
 ## What it deliberately does not do
 
-No hearts replacement. No bounties, no trials, no bail. No NPC-authored crime — villagers do not
-commit crimes against each other. No positive karma for trading, gifting, or clicking through
-dialogue; those are farmable and belong to systems that already own them. No mixins anywhere except
-one client-side mixin that poses a restrained player's arms, no per-tick village scans, no AI text
-generation, no telemetry, no network calls. Turning a subsystem off changes behaviour only ,
-nothing in this mod deletes a saved record.
+No hearts replacement. No trials. No positive karma for trading, gifting, or clicking through
+dialogue; those are farmable and belong to systems that already own them. No crime between NPCs —
+a villager with the Thief occupation robs players, never another villager. No mixins anywhere except
+one client-side mixin, for restraint pose rendering, no per-tick village scans, no AI text
+generation, no telemetry, no outbound network calls. Turning a subsystem off changes behaviour only,
+and deletes nothing; time-based retention does — stale criminal-villager records, expired bounty
+contracts, and claims past their retention window are dropped on a timer.
 
 ## Installing
 
@@ -181,7 +182,7 @@ Mutation is never exposed — it stays behind the single state chokepoint on pur
 
 ## Upgrading an existing world
 
-Worlds upgraded from Forge 1.20.1 are migrated on load through schema 6 without a server or a
+Worlds upgraded from Forge 1.20.1 are migrated on load through schema 8 without a server or a
 config being consulted. The migration is **not reversible** — take a copy of your world first.
 Player data is read once from the legacy Forge capability format (`ForgeCaps`) under `player.dat`
 and lifted into the NeoForge data attachment format; new-format data always wins. The policy,

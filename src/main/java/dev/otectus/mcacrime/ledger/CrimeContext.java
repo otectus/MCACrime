@@ -37,6 +37,13 @@ public final class CrimeContext {
     public static final String LEGACY_MIGRATION = "legacy_migration";
     /** Stamped when a migrated record was witnessed but its witness identities were never stored. */
     public static final String LEGACY_WITNESS_IDENTITY_MISSING = "legacy_witness_identity_missing";
+    /**
+     * Stamped on a case bound to a sentence by inference rather than by the jailing that created it,
+     * with the tick the inference ran as its value. A case carrying it was never charged under that
+     * sentence by the code that jailed the player — it was assumed into it, once, and saying so in
+     * the record is the difference between a fact and a guess nobody can later tell apart.
+     */
+    public static final String LEGACY_SENTENCE_INFERRED = "legacy_sentence_inferred";
     /** Stamped when a duplicate record id was repaired on load; the value is the original id. */
     public static final String DUPLICATE_ID_REPAIRED = "duplicate_id_repaired";
     /** {@code npc} / {@code player} — what kind of offender the record names (0.5.1). */

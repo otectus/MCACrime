@@ -1,6 +1,7 @@
 package dev.otectus.mcacrime.economy;
 
 import dev.otectus.mcacrime.crime.Band;
+import dev.otectus.mcacrime.util.SafeMath;
 
 import java.util.OptionalLong;
 
@@ -25,9 +26,9 @@ public final class FineCalculator {
         if (band == Band.RED && !redCanPayFine) {
             return OptionalLong.empty(); // outlaws must surrender before paying
         }
-        long base = fineBase + heat * finePerHeat;
+        long base = SafeMath.addSat(fineBase, SafeMath.mulSat(heat, finePerHeat));
         if (band == Band.BLUE) {
-            base = Math.round(base * blueFineMultiplier);
+            base = SafeMath.mulSat(base, blueFineMultiplier);
         }
         return OptionalLong.of(Math.max(0L, base));
     }

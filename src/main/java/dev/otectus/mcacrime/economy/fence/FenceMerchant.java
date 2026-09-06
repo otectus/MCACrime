@@ -24,6 +24,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Consumer;
+import java.util.function.Predicate;
 
 /**
  * The trading side of a fence: a vanilla {@link Merchant} that is not an entity.
@@ -36,24 +38,49 @@ import java.util.UUID;
  * <p>Every offer is priced in the active {@code Currency}'s item form, which is why
  * {@code FenceTradeService} refuses to open at all for a currency that has none: the merchant screen
  * moves item stacks, and an abstract balance has nothing to put in the slot.
+ *
+ * <p>0.6.0 moves the uses off these objects and into {@link FenceStockRecord} (audit finding B07).
+ * The offers are still built per opening, but they are built <em>at</em> the persisted count, and a
+ * completed trade only completes once the record has been decremented — so closing the screen and
+ * opening it again is no longer how a player gets eight more of everything.
  */
 public final class FenceMerchant implements Merchant {
 
-    /** How many times one trade may be repeated before the fence is out of that stock for the day. */
-    private static final int MAX_USES = 8;
+    /** How far a player may wander from the counter before the screen closes itself. */
+    private static final double TRADE_RANGE = 8.0D;
 
     private final LivingEntity fence;
+    /** The persisted counts these offers were built from, and the one place a use is spent. */
+    private final FenceStockRecord stock;
+    /** Which stocking the open screen belongs to; a trade against any other epoch is stale. */
+    private final int epoch;
+    private final int maxUses;
+    /** Told whenever a use is spent, so the store is marked dirty by whoever owns it. */
+    private final Consumer<FenceStockRecord> onSpend;
     private final MerchantOffers offers = new MerchantOffers();
     /** Which of our offers a vanilla offer is, so a completed trade can be described without guessing. */
     private final Map<MerchantOffer, FenceOffer> origins = new IdentityHashMap<>();
+    /** Whether the fence is still somebody a player may trade with. Re-asked on every menu tick. */
+    private final Predicate<Player> counterOpen;
 
     @Nullable
     private Player tradingPlayer;
 
-    public FenceMerchant(LivingEntity fence, List<FenceOffer> planned, Currency currency) {
+    public FenceMerchant(LivingEntity fence, List<FenceOffer> planned, Currency currency,
+                         FenceStockRecord stock, int maxUses, Consumer<FenceStockRecord> onSpend,
+                         Predicate<Player> counterOpen) {
         this.fence = fence;
+        this.stock = stock;
+        this.epoch = stock.epoch();
+        this.maxUses = Math.max(1, maxUses);
+        this.onSpend = onSpend;
+        this.counterOpen = counterOpen;
         for (FenceOffer offer : planned) {
-            MerchantOffer built = toVanilla(offer, currency);
+            int used = stock.uses(FenceStockRecord.offerId(offer.item(), offer.playerSells()));
+            if (used >= this.maxUses) {
+                continue; // sold out this stocking; the row is simply not on the counter
+            }
+            MerchantOffer built = toVanilla(offer, currency, used, this.maxUses);
             if (built != null) {
                 offers.add(built);
                 origins.put(built, offer);
@@ -80,13 +107,20 @@ public final class FenceMerchant implements Merchant {
      * rather than quietly rounded down to something the player would notice was wrong.
      */
     @Nullable
-    private static MerchantOffer toVanilla(FenceOffer offer, Currency currency) {
+    private static MerchantOffer toVanilla(FenceOffer offer, Currency currency, int uses, int maxUses) {
         Item item = BuiltInRegistries.ITEM.getOptional(offer.item()).orElse(null);
         if (item == null) {
             return null;
         }
+        // Asked before the stacks are built, never after. A price of a hundred million emeralds is a
+        // list of a million stacks, and the offer is refused either way; counting first is what keeps
+        // an absurd base price in a datapack from being an allocation instead of a rejection.
+        long needed = currency.stacksNeeded(offer.price());
+        if (needed <= 0L || needed > (offer.playerSells() ? 1L : 2L)) {
+            return null;
+        }
         List<ItemStack> money = currency.toStacks(offer.price());
-        if (money.isEmpty()) {
+        if (money.isEmpty() || money.size() > 2) {
             return null;
         }
         ItemStack goods = new ItemStack(item, 1);
@@ -95,13 +129,36 @@ public final class FenceMerchant implements Merchant {
                 return null; // the payout is one slot; a price too large for it is not offered
             }
             return new MerchantOffer(new ItemCost(item, 1), Optional.empty(), money.get(0),
-                    0, MAX_USES, 0, 0.0F);
-        }
-        if (money.size() > 2) {
-            return null; // two cost slots, no more
+                    uses, maxUses, 0, 0.0F);
         }
         Optional<ItemCost> costB = money.size() > 1 ? Optional.of(cost(money.get(1))) : Optional.empty();
-        return new MerchantOffer(cost(money.get(0)), costB, goods, 0, MAX_USES, 0, 0.0F);
+        return new MerchantOffer(cost(money.get(0)), costB, goods, uses, maxUses, 0, 0.0F);
+    }
+
+    /**
+     * Whether the screen this merchant is behind may stay open (0.6.0, audit finding B07).
+     *
+     * <p>{@code MerchantMenu.stillValid} asks only whether the merchant is trading with this player,
+     * which a fence that has died, been arrested, stopped being a fence or been left half a village
+     * behind still answers yes to. Everything that can change underneath an open screen is re-asked
+     * here, the caller supplying the parts that need a server. The stocking is checked too: a screen
+     * built before a restock is looking at goods that no longer exist, and closes rather than
+     * spending the new ones.
+     */
+    public boolean stillValid(@Nullable Player player) {
+        if (!(player instanceof ServerPlayer) || player != tradingPlayer) {
+            return false;
+        }
+        if (!fence.isAlive() || fence.level() != player.level()) {
+            return false;
+        }
+        if (fence.distanceToSqr(player) > TRADE_RANGE * TRADE_RANGE) {
+            return false;
+        }
+        if (!stock.isCurrent(epoch)) {
+            return false;
+        }
+        return counterOpen.test(player);
     }
 
     /**
@@ -137,11 +194,22 @@ public final class FenceMerchant implements Merchant {
 
     @Override
     public void notifyTrade(MerchantOffer offer) {
-        offer.increaseUses();
         FenceOffer origin = origins.get(offer);
         if (!(tradingPlayer instanceof ServerPlayer player) || origin == null) {
             return;
         }
+        // The persisted count decides, and it decides before anything else happens. Vanilla has
+        // already refused an out-of-stock offer by the time it calls this, so a refusal here means the
+        // record and the screen disagree — a stale menu, or a restock mid-click — and the safe answer
+        // is to spend nothing and say nothing.
+        String offerId = FenceStockRecord.offerId(origin.item(), origin.playerSells());
+        if (!stock.isCurrent(epoch) || !stock.tryConsume(offerId, maxUses)) {
+            CrimeDebug.crime("fence {} refused a trade of {}: stock exhausted or the stocking changed",
+                    fenceId(), origin.item());
+            return;
+        }
+        offer.increaseUses();
+        onSpend.accept(stock);
         ItemStack goods = origin.playerSells() ? offer.getCostA() : offer.getResult();
         NeoForge.EVENT_BUS.post(new FenceTradeEvent(player, fenceId(), goods, origin.price(),
                 origin.playerSells()));

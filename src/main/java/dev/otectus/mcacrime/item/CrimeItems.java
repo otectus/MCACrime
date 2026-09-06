@@ -1,6 +1,7 @@
 package dev.otectus.mcacrime.item;
 
 import dev.otectus.mcacrime.McaCrime;
+import dev.otectus.mcacrime.captivity.RestraintReservation;
 import dev.otectus.mcacrime.captivity.RestraintType;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.network.chat.Component;
@@ -12,6 +13,8 @@ import net.neoforged.bus.api.IEventBus;
 import net.neoforged.neoforge.registries.DeferredHolder;
 import net.neoforged.neoforge.registries.DeferredItem;
 import net.neoforged.neoforge.registries.DeferredRegister;
+
+import java.util.Optional;
 
 /**
  * The mod's item registrations (spec §8.3) — its first items: the three restraints plus a creative tab.
@@ -66,17 +69,43 @@ public final class CrimeItems {
         return RestraintType.NONE;
     }
 
-    /** Consumes exactly one matching restraint when a capture commits. */
-    public static boolean consumeRestraint(ServerPlayer player, RestraintType type) {
+    /**
+     * Sets aside the restraint a capture is about to spend, without spending it.
+     *
+     * <p>The consumption used to happen first and the capture second, so every refusal the custody
+     * table could raise — already held, over the allowance — still cost the player their rope. Finding
+     * the stack and taking it are separated here so the taking can wait until the capture stands.
+     */
+    public static Optional<RestraintReservation> reserveRestraint(ServerPlayer player, RestraintType type) {
         for (int i = 0; i < player.getInventory().items.size(); i++) {
             ItemStack stack = player.getInventory().items.get(i);
-            if (restraintFor(stack) == type && !stack.isEmpty()) {
-                if (!player.getAbilities().instabuild) stack.shrink(1);
-                player.getInventory().setChanged();
-                return true;
+            if (!stack.isEmpty() && restraintFor(stack) == type) {
+                return Optional.of(new RestraintReservation(i, stack.copy()));
             }
         }
-        return false;
+        return Optional.empty();
+    }
+
+    /**
+     * Spends a reservation, if the slot still holds what was reserved.
+     *
+     * <p>The identity check is not paranoia: the commit runs on the server thread but not in the same
+     * instant the reservation was taken, and a player who swapped that slot in between must not have a
+     * different stack shrunk on their behalf. Components, not counts — a differently enchanted pair of
+     * cuffs is a different item however alike the two look in a slot.
+     */
+    public static boolean consumeReserved(ServerPlayer player, RestraintReservation reservation) {
+        if (reservation == null || reservation.slot() < 0
+                || reservation.slot() >= player.getInventory().items.size()) {
+            return false;
+        }
+        ItemStack stack = player.getInventory().items.get(reservation.slot());
+        if (stack.isEmpty() || !ItemStack.isSameItemSameComponents(stack, reservation.snapshot())) {
+            return false;
+        }
+        if (!player.getAbilities().instabuild) stack.shrink(1);
+        player.getInventory().setChanged();
+        return true;
     }
 
     /** Whether the player is carrying anything that can cut a rope. */

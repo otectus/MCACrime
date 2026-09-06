@@ -96,30 +96,37 @@ public final class CrimeNetwork {
 
     // The registrar runs the server-bound handlers on the main thread, which is the same guarantee the
     // old ctx.enqueueWork(...) provided, so none of them enqueues anything itself.
+    // What the registrar does not provide is a rate: every one of these does real work on request, so
+    // each spends a token from the sender's RequestBudget before doing any of it.
 
     private static void handleRequestActionMenu(RequestActionMenuC2SPacket payload, IPayloadContext context) {
         if (!(context.player() instanceof ServerPlayer sp)) return;
+        if (!RequestBudget.allow(sp.getUUID(), RequestBudget.Category.MENU)) return;
         CrimeActionService.openMenu(sp, payload.targetId());
     }
 
     private static void handleStartAction(StartActionC2SPacket payload, IPayloadContext context) {
         if (!(context.player() instanceof ServerPlayer sp)) return;
+        if (!RequestBudget.allow(sp.getUUID(), RequestBudget.Category.ACTION)) return;
         CrimeActionService.startFromMenu(sp, payload);
     }
 
     private static void handleRequestSelfMenu(RequestSelfMenuC2SPacket payload, IPayloadContext context) {
         if (!(context.player() instanceof ServerPlayer sp)) return;
+        if (!RequestBudget.allow(sp.getUUID(), RequestBudget.Category.MENU)) return;
         CrimeActionService.openSelfMenu(sp, payload.kind());
     }
 
     private static void handleGuardChallengeResponse(GuardChallengeResponseC2SPacket payload,
                                                      IPayloadContext context) {
         if (!(context.player() instanceof ServerPlayer sp)) return;
+        if (!RequestBudget.allow(sp.getUUID(), RequestBudget.Category.CHALLENGE)) return;
         GuardChallengeService.respond(sp, payload.encounterId(), payload.response());
     }
 
     private static void handleRequestCaseLedger(RequestCaseLedgerC2SPacket payload, IPayloadContext context) {
         if (!(context.player() instanceof ServerPlayer sp)) return;
+        if (!RequestBudget.allow(sp.getUUID(), RequestBudget.Category.DOSSIER)) return;
         RequestCaseLedgerC2SPacket.respond(sp);
     }
 

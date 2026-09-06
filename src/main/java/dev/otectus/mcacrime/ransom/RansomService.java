@@ -7,6 +7,7 @@ import dev.otectus.mcacrime.captivity.CustodyService;
 import dev.otectus.mcacrime.compat.McaCompat;
 import dev.otectus.mcacrime.crime.type.CrimeIds;
 import dev.otectus.mcacrime.economy.Currencies;
+import dev.otectus.mcacrime.economy.TransactionReason;
 import dev.otectus.mcacrime.economy.account.EconomicTransactionService;
 import dev.otectus.mcacrime.jail.JailService;
 import dev.otectus.mcacrime.ledger.CrimeLedger;
@@ -108,8 +109,9 @@ public final class RansomService {
 
         if (payer.tier() == PayerTier.VILLAGE_AUTHORITY) {
             String treasury = treasuryKey(record, villageId);
-            if (!EconomicTransactionService.transferTreasuryToPlayer(world, demandId, treasury,
-                    c.villageTreasuryInitialBalance.get(), captor, amount)) {
+            if (!EconomicTransactionService.transferTreasuryToPlayer(world, demandId,
+                    TransactionReason.RANSOM, treasury, c.villageTreasuryInitialBalance.get(), captor,
+                    amount, now)) {
                 return Outcome.refused(refuse(captor, "mcacrime.ransom.treasury_empty"));
             }
             settle(server, record, captor, amount, villageId, now);
@@ -168,8 +170,9 @@ public final class RansomService {
         if (Currencies.active().balance(payer) < state.getAmount()) {
             return Outcome.refused(refuse(payer, "mcacrime.ransom.need"));
         }
-        if (!EconomicTransactionService.transferPlayerToPlayer(world, state.getDemandId(), payer, captor,
-                state.getAmount())) {
+        if (!EconomicTransactionService.transferPlayerToPlayer(world, state.getDemandId(),
+                TransactionReason.RANSOM, payer, captor, state.getAmount(),
+                victim.level().getGameTime())) {
             return Outcome.refused(refuse(payer, "mcacrime.ransom.need"));
         }
         state.setStatus(RansomStatus.PAID);

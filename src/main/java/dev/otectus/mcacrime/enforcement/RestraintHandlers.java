@@ -30,7 +30,7 @@ import java.util.concurrent.ConcurrentHashMap;
 /**
  * What a restrained player cannot do, and how slowly they move while doing the rest.
  *
- * <p>Every handler opens with the same phase check, which short-circuits for essentially every event
+ * <p>Every handler opens with the same restraint check, which short-circuits for essentially every event
  * the game fires — the same shape as {@code ContainmentHandler}'s not-jailed test. Restraint is not a
  * separate flag anybody sets; it is read from {@link ArrestPhase} through {@link ArrestPhases}, so
  * there is no way for a player to be cuffed by one system and free according to another.
@@ -171,7 +171,7 @@ public final class RestraintHandlers {
         if (!(event.getEntity() instanceof ServerPlayer player)) {
             return;
         }
-        if (ArrestStates.isRestrained(player)) {
+        if (RestraintPolicy.effective(player).isPresent()) {
             applySpeedModifier(player);
         } else {
             removeSpeedModifier(player);
@@ -184,7 +184,7 @@ public final class RestraintHandlers {
     private static boolean restricted(Player player) {
         return player instanceof ServerPlayer server
                 && McaCrimeConfig.COMMON.restrainedPlayerRestrictions.get()
-                && ArrestStates.isRestrained(server);
+                && RestraintPolicy.effective(server).isPresent();
     }
 
     private static void deny(ICancellableEvent event, Player player) {

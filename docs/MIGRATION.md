@@ -74,7 +74,7 @@ If the upgrade fails or data is corrupt, restore the backup and downgrade to For
 
 ### Known Differences
 
-- World file (`world/data/mcacrime.dat`) schema is updated to version 7.
+- World file (`world/data/mcacrime.dat`) schema is updated to version 8.
 - All configuration keys remain the same; the TOML structure is identical.
 - Client resource packs and datapacks work the same.
 - Block positions and memory data in the world file keep their 1.20.1 structure.
@@ -82,7 +82,7 @@ If the upgrade fails or data is corrupt, restore the backup and downgrade to For
 ## What happens on load
 
 `mcacrime.dat` carries a `schema` integer. On load, every step needed to bring it to the current
-schema runs in order, and the result is stamped. This build writes **schema 7**.
+schema runs in order, and the result is stamped. This build writes **schema 8**.
 
 The migration is deliberately **pure tag-to-tag work**. It does not consult the server, the config,
 the world, or where any player happens to be standing — a migration that read live state would
@@ -99,6 +99,33 @@ so no data is synthesised and a 0.5.0 world loads at schema 6 and is rewritten a
 first save. The maintenance sweep expires old stolen-goods records after their grace period
 (`criminalJobs.thief.stolenGoodsPersistenceDays`), stale job assignments after theirs
 (`criminalJobs.staleRecordGraceDays`), and bounty claims from expired warrants.
+
+### 0.6.0 — Schema 7 → 8
+
+This release adds only optional fields and empty collections: sentence identity, bounty claim
+payment tracking, transaction receipts, property escrow, the restored-cell journal, and fence
+stock. The migration step itself (`v7to8`) stamps the schema number and writes nothing else, so a
+0.5.1 world's data is not rewritten by the upgrade — every added field simply reads as absent until
+something in the new logic writes to it.
+
+Two things follow from a field reading as absent rather than being backfilled:
+
+- **Legacy jail sentences bind their cases once, at the prisoner's first login after the upgrade.**
+  A sentence from before schema 8 has no record of which cases it covers, so on that first login the
+  cases still standing against the prisoner are adopted as what the sentence was for. The `JailState`
+  itself is then marked bound (`setLegacyBound(true)`), unconditionally, so the guess is never
+  repeated on a later login — a per-case stamp could not do this alone, since a legacy sentence with
+  nothing left standing against it would be indistinguishable from one that had never been inferred.
+- **Legacy bounty claims count as already paid in full.** A claim written before schema 8 has no
+  recorded payment amount, so a revision or expiry check against it takes the claim as having
+  consumed the warrant's current price rather than nothing — the conservative reading, which costs a
+  hunter a re-claim rather than risking paying an old warrant twice.
+
+This build also protects the other direction: if `mcacrime.dat` is ever stamped with a schema
+number higher than 8 — a save from a future version — this build does not attempt to read it as
+schema 8 or guess at fields it does not know. It loads the file, keeps it exactly as it was, and
+runs the session **read-only**: no crime is recorded and no Crime mutation is accepted until a build
+that understands the newer schema is installed.
 
 ### 0 → 1 — dimension-aware village identity
 

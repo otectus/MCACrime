@@ -20,7 +20,7 @@ import java.util.UUID;
  * three readings are three chances to disagree. A late-joining client seeing a different restraint
  * from everybody else is the exact bug this collapses.
  *
- * <p>Server-side and display-only. It reads authoritative state ({@link ArrestStates} for players,
+ * <p>Server-side and display-only. It reads authoritative state ({@link RestraintPolicy} for players,
  * the custody table for NPCs) and never writes any.
  */
 public final class RestraintVisualResolver {
@@ -47,18 +47,20 @@ public final class RestraintVisualResolver {
     }
 
     private static RestraintVisualState resolvePlayer(MinecraftServer server, ServerPlayer player) {
-        if (!ArrestStates.isRestrained(player)) {
+        // Both routes into chains, in one reading: the arrest phase and the custody record. Asking the
+        // phase alone is what left a kidnapping victim rendered upright and empty-handed while the
+        // record on them said "rope".
+        Optional<RestraintType> effective = RestraintPolicy.effective(player);
+        if (effective.isEmpty()) {
             return RestraintVisualState.none();
         }
-        // An arrest phase says "restrained" without saying with what, so the custody record is the only
-        // source of the restraint kind. A lawfully arrested player usually has one; when there is none
-        // -- the phase moved ahead of the record, or the arrest never created one -- cuffs are the
-        // correct default, because that is what an arrest applies.
-        RestraintVisualType type = CustodyRegistry.get(server, player.getUUID())
-                .map(CustodyRecord::getRestraint)
-                .map(RestraintVisualType::of)
-                .filter(visual -> visual != RestraintVisualType.NONE)
-                .orElse(RestraintVisualType.HANDCUFFS);
+        // The policy already resolved the kind, including the cuffs an arrest defaults to when the
+        // phase moved ahead of the record. NONE here would be a restraint nobody can see, which for
+        // rendering purposes is the same thing as not being restrained.
+        RestraintVisualType type = RestraintVisualType.of(effective.get());
+        if (type == RestraintVisualType.NONE) {
+            return RestraintVisualState.none();
+        }
         return new RestraintVisualState(true, type, escortEntityId(player));
     }
 

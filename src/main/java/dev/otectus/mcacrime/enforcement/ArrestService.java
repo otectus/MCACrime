@@ -24,6 +24,7 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.LivingEntity;
 
 import org.jetbrains.annotations.Nullable;
+import java.util.OptionalLong;
 import java.util.UUID;
 
 /**
@@ -69,6 +70,11 @@ public final class ArrestService {
         NO_CELL,
         /** Already serving; the sentence was extended instead. */
         ALREADY_SERVING,
+        /**
+         * Custody could not be installed — somebody else holds them, or the hand-over from the hunter
+         * found no record to hand over. Refused rather than arrested on paper only.
+         */
+        NO_CUSTODY,
         /** Being kidnapped, dead, spectating, or otherwise not arrestable right now. */
         REFUSED
     }
@@ -83,6 +89,22 @@ public final class ArrestService {
      * of authority, so "the client said surrender" still has to pass every check the command would.
      */
     public static Outcome arrest(ServerPlayer player, @Nullable LivingEntity arrestingResponder, Cause cause) {
+        return arrest(player, arrestingResponder, cause, OptionalLong.empty());
+    }
+
+    /**
+     * The same arrest, sentenced against a Heat figure the caller has decided but not yet written.
+     *
+     * <p>{@link Cause#VOLUNTARY_SURRENDER} is the reason this exists. A surrender only writes its Heat
+     * reduction once the arrest has succeeded, so by the time this runs the attachment still holds the
+     * pre-surrender number — and sentencing from that would quietly delete the entire mechanical
+     * payoff for giving yourself up. Passing the figure keeps the ordering safe and the sentence
+     * correct at the same time.
+     *
+     * @param sentencingHeat the Heat to sentence from, or empty to read the player's current Heat
+     */
+    public static Outcome arrest(ServerPlayer player, @Nullable LivingEntity arrestingResponder,
+                                 Cause cause, OptionalLong sentencingHeat) {
         MinecraftServer server = player == null ? null : player.getServer();
         if (server == null || !(player.level() instanceof ServerLevel level)
                 || !player.isAlive() || player.isSpectator()) {
@@ -107,7 +129,8 @@ public final class ArrestService {
                 : null;
 
         McaCrimeConfig.Common c = McaCrimeConfig.COMMON;
-        long sentence = SentenceCalculator.sentenceFor(CrimeState.getHeat(player), CrimeState.getBand(player),
+        long heat = sentencingHeat.orElseGet(() -> CrimeState.getHeat(player));
+        long sentence = SentenceCalculator.sentenceFor(heat, CrimeState.getBand(player),
                 charges, c.sentenceBaseTicks.get(), c.sentenceTicksPerHeat.get(),
                 c.sentenceTicksPerCharge.get(), c.blueFineMultiplier.get(), c.maxJailCommandTicks.get());
         boolean voluntary = cause == Cause.VOLUNTARY_SURRENDER;
@@ -115,12 +138,17 @@ public final class ArrestService {
             // The waiver belongs in the number, not in an edit applied to a sentence afterwards.
             sentence = SentenceCalculator.afterSurrender(sentence, c.surrenderSentenceReductionPct.get());
         }
-        if (charges <= 0 && CrimeState.getHeat(player) <= 0L) {
+        if (charges <= 0 && heat <= 0L) {
             return abort(player, Outcome.NO_SENTENCE, null);
         }
         if (JailService.isJailed(player)) {
             // Extend-only, except for a surrender, which is the one caller entitled to shorten a term.
-            JailService.jail(player, sentence, null, null, voluntary);
+            // The refusal is propagated rather than discarded: a sentence that could not be written is
+            // a surrender that must not report itself as accepted, or the caller banks the discount for
+            // a term nobody is serving.
+            if (!JailService.jail(player, sentence, null, null, voluntary)) {
+                return abort(player, Outcome.NO_CELL, "mcacrime.arrest.no_cell");
+            }
             return Outcome.ALREADY_SERVING;
         }
 
@@ -137,13 +165,21 @@ public final class ArrestService {
         }
 
         UUID custodian = arrestingResponder == null ? player.getUUID() : arrestingResponder.getUUID();
+        boolean inCustody;
         if (hunter != null) {
             // Already in lawful custody, so captureLawful would refuse. Custody passes from the hunter
             // to the law in place, exactly as it does at the end of an escort.
-            CustodyService.transferLawfulCustody(server, player.getUUID(), CustodyOwner.guard(custodian));
+            inCustody = CustodyService.transferLawfulCustody(server, player.getUUID(),
+                    CustodyOwner.guard(custodian));
         } else {
-            CustodyService.captureLawful(server, player, CustodyOwner.guard(custodian),
-                    player.blockPosition(), level.dimension().location());
+            inCustody = CustodyService.captureLawful(server, player, CustodyOwner.guard(custodian),
+                    player.blockPosition(), level.dimension().location()).ok();
+        }
+        if (!inCustody) {
+            // The custody record is what the sentence, the escort and the release all hang off. An
+            // arrest that carried on without one used to arm the escort anyway, and the discarded
+            // refusal became a player walking to a cell nothing believed they were being taken to.
+            return abort(player, Outcome.NO_CUSTODY, "mcacrime.arrest.no_custody");
         }
         // Surrendering ends the resistance. Whatever the player did a moment ago, they are complying now.
         CrimeState.setResistingArrest(player, false);

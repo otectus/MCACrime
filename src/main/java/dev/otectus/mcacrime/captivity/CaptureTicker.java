@@ -2,6 +2,9 @@ package dev.otectus.mcacrime.captivity;
 
 import dev.otectus.mcacrime.McaCrime;
 import dev.otectus.mcacrime.McaCrimeConfig;
+import dev.otectus.mcacrime.action.ActionResult;
+import dev.otectus.mcacrime.action.ActionSession;
+import dev.otectus.mcacrime.action.ActionSessionManager;
 import dev.otectus.mcacrime.item.CrimeItems;
 import dev.otectus.mcacrime.network.ActionProgressS2CPacket;
 import dev.otectus.mcacrime.network.CrimeNetwork;
@@ -17,7 +20,10 @@ import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.neoforge.server.ServerLifecycleHooks;
 
 import org.jetbrains.annotations.Nullable;
+import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Consumer;
+import java.util.function.Supplier;
 
 /**
  * Drives in-progress capture channels (spec §8.2): each server tick it advances every {@link CaptureChannel}
@@ -76,19 +82,104 @@ public final class CaptureTicker {
             }
             channel.tick();
             if (channel.isComplete()) {
-                CaptureChannels.cancel(kidnapperId);
-                if (target instanceof LivingEntity living) {
-                    if (CrimeItems.consumeRestraint(kidnapper, channel.restraint)) {
-                        CustodyService.capture(kidnapper, living, channel.restraint);
-                        endBar(kidnapper, channel, true, "mcacrime.capture.done");
-                    } else {
-                        endBar(kidnapper, channel, false, "mcacrime.capture.broken.restraint");
-                    }
+                // The lease is still held here, deliberately: the commit runs inside it, so nothing
+                // else can take the target between the last eligibility check and the record write.
+                CaptureCommitResult result = commitCapture(server, kidnapper, target, channel);
+                ActionSession session = channel.session();
+                if (session != null) {
+                    ActionSessionManager.finish(session, result.ok()
+                            ? ActionResult.accepted(outcomeKey(result))
+                            : ActionResult.rejected(outcomeKey(result)));
                 }
+                CaptureChannels.cancel(kidnapperId);
+                endBar(kidnapper, channel, result.ok(), outcomeKey(result));
             } else if (channel.elapsed() % PROGRESS_INTERVAL_TICKS == 0) {
                 progressBar(kidnapper, channel);
             }
         }
+    }
+
+    /**
+     * The commit sequence, with every side effect behind a seam.
+     *
+     * <p>The order is the fix. Consuming the restraint before the capture meant that "already held"
+     * and "over your allowance" — both of which the custody table only discovers at the moment of
+     * writing — cost the captor an item and gave them nothing, and the item was gone whether or not a
+     * record was ever written. Here nothing is spent unless {@code capture} says the record stands,
+     * and the reservation is simply dropped otherwise.
+     *
+     * <p>Pure, so the guarantee can be asserted rather than hoped for: on any non-ok result the
+     * consume seam is never invoked.
+     *
+     * @param eligibility the re-check, returning {@link CaptureCommitResult#CAPTURED} when it passes
+     */
+    public static CaptureCommitResult commit(Supplier<CaptureCommitResult> eligibility,
+                                             Supplier<Optional<RestraintReservation>> reserve,
+                                             Supplier<CaptureCommitResult> capture,
+                                             Consumer<RestraintReservation> consume) {
+        CaptureCommitResult gate = eligibility.get();
+        if (!gate.ok()) {
+            return gate;
+        }
+        Optional<RestraintReservation> reserved = reserve.get();
+        if (reserved.isEmpty()) {
+            return CaptureCommitResult.RESTRAINT_MISSING;
+        }
+        CaptureCommitResult committed = capture.get();
+        if (committed.ok()) {
+            consume.accept(reserved.get());
+        }
+        return committed;
+    }
+
+    /** {@link #commit} wired to the live server: re-check, reserve, capture, consume. */
+    private static CaptureCommitResult commitCapture(MinecraftServer server, ServerPlayer kidnapper,
+                                                     Entity target, CaptureChannel channel) {
+        return commit(() -> stillEligible(server, kidnapper, target, channel),
+                () -> CrimeItems.reserveRestraint(kidnapper, channel.restraint),
+                () -> target instanceof LivingEntity living
+                        ? CustodyService.capture(kidnapper, living, channel.restraint)
+                        : CaptureCommitResult.TARGET_INVALID,
+                reservation -> CrimeItems.consumeReserved(kidnapper, reservation));
+    }
+
+    /**
+     * Everything the start of the channel established that could have stopped being true during it.
+     *
+     * <p>Not the whole of {@link CaptureService#evaluate}: the vulnerability gate is a condition for
+     * beginning, not for finishing, and re-testing it here would mean a target who woke up or healed
+     * mid-channel could never be taken however long the captor held on.
+     */
+    private static CaptureCommitResult stillEligible(MinecraftServer server, ServerPlayer kidnapper,
+                                                     Entity target, CaptureChannel channel) {
+        if (!(target instanceof LivingEntity) || !target.isAlive() || target.level() != kidnapper.level()) {
+            return CaptureCommitResult.TARGET_INVALID;
+        }
+        if (target instanceof ServerPlayer victim && (victim.isSpectator() || victim.isCreative())) {
+            return CaptureCommitResult.TARGET_INVALID;
+        }
+        if (CustodyRegistry.isCaptive(server, target.getUUID())) {
+            return CaptureCommitResult.ALREADY_HELD;
+        }
+        ActionSession session = channel.session();
+        if (session != null && (session.terminal() != null
+                || ActionSessionManager.forActor(kidnapper.getUUID()).orElse(null) != session)) {
+            return CaptureCommitResult.SESSION_LOST;
+        }
+        return CaptureCommitResult.CAPTURED;
+    }
+
+    /** The line the captor is shown, one per reason the commit could produce. */
+    private static String outcomeKey(CaptureCommitResult result) {
+        return switch (result) {
+            case CAPTURED -> "mcacrime.capture.done";
+            case ALREADY_HELD -> "mcacrime.capture.already";
+            case QUOTA_FULL -> "mcacrime.capture.capacity";
+            case TARGET_INVALID -> "mcacrime.capture.broken.target_lost";
+            case RESTRAINT_MISSING -> "mcacrime.capture.broken.restraint";
+            case SESSION_LOST -> "mcacrime.action.conflict";
+            case GATED -> "mcacrime.capture.invalid";
+        };
     }
 
     /**
@@ -100,22 +191,16 @@ public final class CaptureTicker {
      * never resurrects the previous one's bar.
      */
     private static void progressBar(ServerPlayer kidnapper, CaptureChannel channel) {
-        CrimeNetwork.sendActionProgress(kidnapper, new ActionProgressS2CPacket(channelId(channel),
+        CrimeNetwork.sendActionProgress(kidnapper, new ActionProgressS2CPacket(channel.barId(),
                 "mcacrime.capture.channeling", channel.elapsed(), channel.requiredTicks,
                 ActionProgressS2CPacket.Phase.PROGRESS, "", Component.empty()));
     }
 
     private static void endBar(ServerPlayer kidnapper, CaptureChannel channel, boolean succeeded, String key) {
-        CrimeNetwork.sendActionProgress(kidnapper, ActionProgressS2CPacket.ended(channelId(channel),
+        CrimeNetwork.sendActionProgress(kidnapper, ActionProgressS2CPacket.ended(channel.barId(),
                 "mcacrime.capture.channeling",
                 succeeded ? ActionProgressS2CPacket.Phase.FINISHED : ActionProgressS2CPacket.Phase.CANCELLED,
                 key, Component.empty()));
-    }
-
-    /** A stable id for one channel, derived from the pair it binds rather than minted per tick. */
-    private static UUID channelId(CaptureChannel channel) {
-        return new UUID(channel.kidnapper.getMostSignificantBits() ^ channel.target.getLeastSignificantBits(),
-                channel.target.getMostSignificantBits() ^ channel.kidnapper.getLeastSignificantBits());
     }
 
     @Nullable

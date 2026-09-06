@@ -52,6 +52,18 @@ public interface Currency {
     }
 
     /**
+     * How many stacks {@link #toStacks} would produce for {@code amount}, <b>without producing them</b>.
+     *
+     * <p>Asked by anything that has a slot budget to spend — a merchant offer has two cost slots and
+     * one payout slot — so an amount too large to fit is refused before a list of a million stacks is
+     * built for it. The default assumes a 64-stack item form, which is what an item currency almost
+     * always has; anything that stacks differently, or does not stack at all, should say so here.
+     */
+    default long stacksNeeded(long amount) {
+        return amount <= 0L ? 0L : (amount + 63L) / 64L;
+    }
+
+    /**
      * Atomically removes {@code amount} if affordable; returns false (and changes nothing) otherwise.
      *
      * <p>Default rather than abstract so an implementer only has to get {@link #debit} right. The
@@ -59,6 +71,29 @@ public interface Currency {
      */
     default boolean tryCharge(ServerPlayer player, long amount) {
         return tryCharge(player, amount, TransactionReason.OTHER);
+    }
+
+    /**
+     * Credits {@code amount} and says whether it arrived (0.6.0).
+     *
+     * <p>{@link #credit} returns nothing, so a caller that had already taken the money off somebody
+     * else had no way to find out that it never landed. An implementation is third-party code — an
+     * economy mod bank, a bridge over a database — and third-party code throws. Catching that here is
+     * what turns an exception mid-transfer into a receipt somebody can repair rather than a stack
+     * trace and a quietly deleted balance.
+     *
+     * @return false when nothing arrived, in which case the caller still owes the amount
+     */
+    default boolean tryCredit(ServerPlayer player, long amount, TransactionReason reason) {
+        if (amount <= 0L) {
+            return true;
+        }
+        try {
+            credit(player, amount, reason);
+            return true;
+        } catch (RuntimeException e) {
+            return false;
+        }
     }
 
     /** {@link #tryCharge(ServerPlayer, long)} with a stated reason. */

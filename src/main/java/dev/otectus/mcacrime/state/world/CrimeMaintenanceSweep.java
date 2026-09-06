@@ -103,6 +103,9 @@ public final class CrimeMaintenanceSweep {
         int claims = BountyClaimLedger.expire(data, today, policy.claimRetentionDays());
         int contracts = expireContracts(data, gameTime);
         int restock = expireRestockDays(data);
+        // Finished receipts only, and only past the retention window. Not reported in the result: a
+        // receipt ageing out is bookkeeping, not something that happened in the world.
+        data.pruneTransactions(gameTime);
         return new Result(stolen, criminals, claims, contracts, restock);
     }
 
@@ -157,6 +160,16 @@ public final class CrimeMaintenanceSweep {
             CriminalVillagerRecord record = data.criminalVillager(entry.getKey());
             if (record == null || record.job() != CriminalJob.FENCE) {
                 data.removeFenceRestockDay(entry.getKey());
+                removed++;
+            }
+        }
+        // Stock counts belong to a fence for the same reason, and they are the table with a cap on it
+        // (0.6.0): a village whose fences keep changing job would otherwise fill it with the counts of
+        // villagers who no longer sell anything, and a full table is a fence that cannot open.
+        for (UUID fence : List.copyOf(data.fenceStockIds())) {
+            CriminalVillagerRecord record = data.criminalVillager(fence);
+            if (record == null || record.job() != CriminalJob.FENCE) {
+                data.removeFenceStock(fence);
                 removed++;
             }
         }

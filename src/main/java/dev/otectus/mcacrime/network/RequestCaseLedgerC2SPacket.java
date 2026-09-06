@@ -1,8 +1,8 @@
 package dev.otectus.mcacrime.network;
 
 import dev.otectus.mcacrime.McaCrime;
-import dev.otectus.mcacrime.McaCrimeConfig;
-import dev.otectus.mcacrime.economy.FineCalculator;
+import dev.otectus.mcacrime.economy.SettlementPolicy;
+import dev.otectus.mcacrime.economy.SettlementQuote;
 import dev.otectus.mcacrime.engine.CrimeState;
 import dev.otectus.mcacrime.ledger.CrimeRecord;
 import dev.otectus.mcacrime.state.world.CrimeWorldData;
@@ -14,7 +14,6 @@ import net.minecraft.server.level.ServerPlayer;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.OptionalLong;
 
 /**
  * "Show me my record." Carries no arguments on purpose.
@@ -23,8 +22,9 @@ import java.util.OptionalLong;
  * is no version of that which is not eventually used to read somebody else's record. The server
  * answers about the sender and only the sender, so there is nothing to validate and nothing to forge.
  *
- * <p>Rate limiting is by cooldown rather than by refusal: spamming the key rebuilds a bounded list
- * from an in-memory index, which is cheap, but there is no reason to do it sixty times a second.
+ * <p>Rate limiting lives in {@link RequestBudget}, whose DOSSIER category is one request per ten
+ * ticks with no burst. That is the cooldown this payload used to keep for itself, in the one place
+ * that is emptied when a player logs out.
  */
 public record RequestCaseLedgerC2SPacket() implements CustomPacketPayload {
 
@@ -35,24 +35,13 @@ public record RequestCaseLedgerC2SPacket() implements CustomPacketPayload {
     public static final StreamCodec<RegistryFriendlyByteBuf, RequestCaseLedgerC2SPacket> STREAM_CODEC =
             StreamCodec.unit(new RequestCaseLedgerC2SPacket());
 
-    /** Minimum ticks between one player's dossier builds. */
-    private static final long COOLDOWN_TICKS = 10L;
-
-    private static final java.util.Map<java.util.UUID, Long> LAST_REQUEST = new java.util.concurrent.ConcurrentHashMap<>();
-
     @Override
     public Type<? extends CustomPacketPayload> type() {
         return TYPE;
     }
 
-    /** Answers one request, subject to the per-player cooldown. Called from {@link CrimeNetwork}. */
+    /** Answers one request. The rate is {@link CrimeNetwork}'s budget check, not this method's. */
     static void respond(ServerPlayer sender) {
-        long now = sender.level().getGameTime();
-        Long last = LAST_REQUEST.get(sender.getUUID());
-        if (last != null && now - last < COOLDOWN_TICKS) {
-            return;
-        }
-        LAST_REQUEST.put(sender.getUUID(), now);
         CrimeNetwork.sendCaseLedger(sender, build(sender));
     }
 
@@ -76,15 +65,10 @@ public record RequestCaseLedgerC2SPacket() implements CustomPacketPayload {
                         record.communityKey().map(key -> key.asString()).orElse("")));
             }
         }
-        OptionalLong due = FineCalculator.fineFor(CrimeState.getHeat(player), CrimeState.getBand(player),
-                McaCrimeConfig.COMMON.fineBase.get(), McaCrimeConfig.COMMON.finePerHeat.get(),
-                McaCrimeConfig.COMMON.jailableHeatThreshold.get(),
-                McaCrimeConfig.COMMON.blueFineMultiplier.get(), McaCrimeConfig.COMMON.redCanPayFine.get());
-        return new CaseLedgerS2CPacket(rows, open, due.orElse(0L));
-    }
-
-    /** Drops a player's cooldown stamp on logout, so the map cannot grow for the life of the server. */
-    public static void forget(java.util.UUID player) {
-        LAST_REQUEST.remove(player);
+        // The same quote the guard screen shows and the payment charges. The dossier used to print
+        // FineCalculator's whole-Heat figure, which was not what /crime payfine took off the player.
+        SettlementQuote quote = SettlementPolicy.quote(data, player.getUUID(), CrimeState.getHeat(player),
+                CrimeState.getBand(player), server.overworld().getGameTime());
+        return new CaseLedgerS2CPacket(rows, open, quote.amount());
     }
 }

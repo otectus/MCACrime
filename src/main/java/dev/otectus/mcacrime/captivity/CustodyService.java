@@ -11,6 +11,8 @@ import dev.otectus.mcacrime.crime.type.CrimeIds;
 import dev.otectus.mcacrime.detect.CrimeDetector;
 import dev.otectus.mcacrime.detect.WitnessChecker;
 import dev.otectus.mcacrime.enforcement.OutlawResolver;
+import dev.otectus.mcacrime.enforcement.RestraintHandlers;
+import dev.otectus.mcacrime.enforcement.RestraintPolicy;
 import dev.otectus.mcacrime.enforcement.RestraintSync;
 import dev.otectus.mcacrime.jail.JailService;
 import dev.otectus.mcacrime.network.ActionProgressS2CPacket;
@@ -18,6 +20,7 @@ import dev.otectus.mcacrime.network.CrimeNetwork;
 import dev.otectus.mcacrime.state.CrimeAttachments;
 import dev.otectus.mcacrime.state.PlayerCrimeData;
 import dev.otectus.mcacrime.state.world.CrimeWorldData;
+import dev.otectus.mcacrime.state.world.ServerMutationGate;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
@@ -79,24 +82,28 @@ public final class CustodyService {
     // ------------------------------------------------------------------ capture
 
     /**
-     * Takes {@code captiveEntity} into unlawful captivity by {@code captor}. Idempotent: a no-op (false) if
-     * the target is already held or is the captor. Commits the {@code kidnap} crime against the captor (the
-     * victim is never penalised), sets the held refs, secures an NPC via leash, fires {@link
+     * Takes {@code captiveEntity} into unlawful captivity by {@code captor}. Idempotent: a named refusal
+     * if the target is already held or is the captor. Commits the {@code kidnap} crime against the captor
+     * (the victim is never penalised), sets the held refs, secures an NPC via leash, fires {@link
      * EntityKidnappedEvent}, and syncs. <b>Server side only.</b>
      */
-    public static boolean capture(ServerPlayer captor, LivingEntity captiveEntity, RestraintType restraint) {
+    public static CaptureCommitResult capture(ServerPlayer captor, LivingEntity captiveEntity,
+                                              RestraintType restraint) {
         MinecraftServer server = captor.getServer();
         if (server == null || !(captiveEntity.level() instanceof ServerLevel level)) {
-            return false;
+            return CaptureCommitResult.TARGET_INVALID;
         }
         UUID captiveUuid = captiveEntity.getUUID();
-        if (captiveUuid.equals(captor.getUUID()) || CustodyRegistry.isCaptive(server, captiveUuid)) {
-            return false; // no self-capture, no double-capture
+        if (captiveUuid.equals(captor.getUUID())) {
+            return CaptureCommitResult.TARGET_INVALID; // no self-capture
+        }
+        if (CustodyRegistry.isCaptive(server, captiveUuid)) {
+            return CaptureCommitResult.ALREADY_HELD; // no double-capture
         }
         long alreadyHeld = CustodyRegistry.byOwner(server, captor.getUUID()).stream()
                 .filter(existing -> !existing.isLawful()).count();
         if (alreadyHeld >= McaCrimeConfig.COMMON.maxUnlawfulCaptivesPerCaptor.get()) {
-            return false; // commit-time invariant: a race cannot bypass the start check
+            return CaptureCommitResult.QUOTA_FULL; // commit-time invariant: a race cannot bypass the start check
         }
         boolean captiveIsPlayer = captiveEntity instanceof ServerPlayer;
 
@@ -108,10 +115,10 @@ public final class CustodyService {
         // not count against the captor's unlawful-captive allowance.
         if (captiveIsPlayer && McaCrimeConfig.COMMON.payForAliveCapture.get()
                 && OutlawResolver.resolve((ServerPlayer) captiveEntity).bountyEligible()) {
-            boolean taken = captureLawful(server, (ServerPlayer) captiveEntity,
+            CaptureCommitResult taken = captureLawful(server, (ServerPlayer) captiveEntity,
                     CustodyOwner.bountyHunter(captor.getUUID()), captiveEntity.blockPosition(),
                     level.dimension().location());
-            if (taken) {
+            if (taken.ok()) {
                 // captureLawful writes RestraintType.NONE, which is right for a guard's arrest and
                 // wrong here: the hunter did put cuffs or rope on them, and the client draws what the
                 // record says.
@@ -120,6 +127,8 @@ public final class CustodyService {
                     lawful.setRestraint(restraint);
                     CrimeWorldData.get(server).putCustody(lawful);
                 }
+                // A hunter's rope restrains exactly as much as a guard's cuffs do.
+                RestraintHandlers.onRestrained((ServerPlayer) captiveEntity);
                 RestraintSync.broadcast(captiveEntity);
                 CrimeSounds.restrainApplied(captiveEntity);
                 captor.sendSystemMessage(Component.translatable("mcacrime.bounty.citizens_arrest"));
@@ -128,15 +137,20 @@ public final class CustodyService {
         }
 
         long start = CrimeAttachments.get(captor).getOnlineTicksLived();
-        CustodyRecord record = new CustodyRecord(captiveUuid, captiveIsPlayer, false,
-                CustodyOwner.kidnapper(captor.getUUID()), restraint, start,
-                captiveEntity.blockPosition(), level.dimension().location());
-        CrimeWorldData.get(server).putCustody(record);
+        CaptureCommitResult committed = capture(CrimeWorldData.get(server), captor.getUUID(), captiveUuid,
+                captiveIsPlayer, restraint, start, captiveEntity.blockPosition(),
+                level.dimension().location(), McaCrimeConfig.COMMON.maxUnlawfulCaptivesPerCaptor.get());
+        if (!committed.ok()) {
+            return committed;
+        }
 
         CrimeAttachments.get(captor).setHeldCaptiveRef(captiveUuid);
         ServerPlayer captivePlayer = captiveIsPlayer ? (ServerPlayer) captiveEntity : null;
         if (captivePlayer != null) {
             CrimeAttachments.get(captivePlayer).setHeldByRef(captor.getUUID());
+            // Being tied up is being tied up. The movement penalty and the suppressed interactions
+            // belong to the restraint, not to the paperwork that put it there.
+            RestraintHandlers.onRestrained(captivePlayer);
         } else {
             McaCompat.leashTo(captiveEntity, captor); // best-effort physical hold for an NPC
         }
@@ -160,7 +174,74 @@ public final class CustodyService {
             CrimeNetwork.sendCaptiveStatus(captivePlayer);
             captivePlayer.sendSystemMessage(Component.translatable("mcacrime.kidnap.taken", captor.getDisplayName()));
         }
-        return true;
+        return CaptureCommitResult.CAPTURED;
+    }
+
+    /**
+     * Writes the unlawful custody record itself, against a ledger rather than a server.
+     *
+     * <p>This is the part of {@link #capture(ServerPlayer, LivingEntity, RestraintType)} that decides
+     * whether a capture may stand: not the captor, not already held, not over the captor's allowance.
+     * Everything the server overload does around it — the kidnap charge, the leash, the events, the
+     * messages — is consequence, and none of it is safe to run when this returns false. Splitting
+     * them means the invariant can be asserted against two captors racing for one victim without a
+     * level to hold either of them.
+     *
+     * @param maxUnlawfulPerCaptor the captor's allowance, read from config by the caller
+     * @return why the capture may not stand, in which case nothing was written, or {@link
+     *         CaptureCommitResult#CAPTURED}
+     */
+    public static CaptureCommitResult capture(CrimeWorldData data, UUID captorUuid, UUID captiveUuid,
+                                              boolean captiveIsPlayer, RestraintType restraint,
+                                              long startTick, BlockPos holdPos, ResourceLocation holdDim,
+                                              int maxUnlawfulPerCaptor) {
+        if (data == null || captorUuid == null || captiveUuid == null || captorUuid.equals(captiveUuid)) {
+            return CaptureCommitResult.TARGET_INVALID; // no self-capture
+        }
+        if (!ServerMutationGate.allows(data)) {
+            return CaptureCommitResult.GATED;
+        }
+        if (data.isCaptive(captiveUuid)) {
+            return CaptureCommitResult.ALREADY_HELD; // no double-capture
+        }
+        long alreadyHeld = data.custodyRecords().stream()
+                .filter(existing -> !existing.isLawful())
+                .filter(existing -> existing.getOwner().isKidnapper(captorUuid))
+                .count();
+        if (alreadyHeld >= maxUnlawfulPerCaptor) {
+            return CaptureCommitResult.QUOTA_FULL; // commit-time invariant: a race cannot bypass the start check
+        }
+        data.putCustody(new CustodyRecord(captiveUuid, captiveIsPlayer, false,
+                CustodyOwner.kidnapper(captorUuid), restraint == null ? RestraintType.NONE : restraint,
+                startTick, holdPos, holdDim));
+        return CaptureCommitResult.CAPTURED;
+    }
+
+    /**
+     * The lawful twin of {@link #capture(CrimeWorldData, UUID, UUID, boolean, RestraintType, long,
+     * BlockPos, ResourceLocation, int)}: the record write and the one check that guards it, with no
+     * attachment, packet or sound attached.
+     *
+     * @return {@link CaptureCommitResult#ALREADY_HELD} when the captive is already held by anybody,
+     *         lawfully or not
+     */
+    public static CaptureCommitResult captureLawful(CrimeWorldData data, UUID captiveUuid,
+                                                    boolean captiveIsPlayer, CustodyOwner owner,
+                                                    RestraintType restraint, long startTick,
+                                                    @Nullable BlockPos holdPos,
+                                                    @Nullable ResourceLocation holdDim) {
+        if (data == null || captiveUuid == null || owner == null) {
+            return CaptureCommitResult.TARGET_INVALID;
+        }
+        if (!ServerMutationGate.allows(data)) {
+            return CaptureCommitResult.GATED;
+        }
+        if (data.isCaptive(captiveUuid)) {
+            return CaptureCommitResult.ALREADY_HELD;
+        }
+        data.putCustody(new CustodyRecord(captiveUuid, captiveIsPlayer, true, owner,
+                restraint == null ? RestraintType.NONE : restraint, startTick, holdPos, holdDim));
+        return CaptureCommitResult.CAPTURED;
     }
 
     /**
@@ -183,25 +264,29 @@ public final class CustodyService {
      * and must not be subject to the escape work, the tether, or the real-time captivity cap; their
      * clock is the sentence.
      *
-     * @return false when the player is already held by anybody, lawfully or not
+     * @return {@link CaptureCommitResult#ALREADY_HELD} when the player is already held by anybody,
+     *         lawfully or not
      */
-    public static boolean captureLawful(MinecraftServer server, ServerPlayer captive, CustodyOwner owner,
-                                        BlockPos holdPos, ResourceLocation holdDim) {
+    public static CaptureCommitResult captureLawful(MinecraftServer server, ServerPlayer captive,
+                                                    CustodyOwner owner, BlockPos holdPos,
+                                                    ResourceLocation holdDim) {
         if (server == null || captive == null || owner == null) {
-            return false;
+            return CaptureCommitResult.TARGET_INVALID;
         }
         UUID captiveUuid = captive.getUUID();
-        if (CustodyRegistry.isCaptive(server, captiveUuid)) {
-            return false;
-        }
         long start = CrimeAttachments.get(captive).getOnlineTicksLived();
-        CustodyRecord record = new CustodyRecord(captiveUuid, true, true, owner, RestraintType.NONE,
-                start, holdPos, holdDim);
-        CrimeWorldData.get(server).putCustody(record);
+        CaptureCommitResult committed = captureLawful(CrimeWorldData.get(server), captiveUuid, true, owner,
+                RestraintType.NONE, start, holdPos, holdDim);
+        if (!committed.ok()) {
+            return committed;
+        }
         CrimeAttachments.get(captive).setHeldByRef(owner.ownerUuid().orElse(captiveUuid));
+        // The record carries no restraint of its own, so what the client draws is still whatever the
+        // arrest phase says -- but it has to be told the record exists at all.
+        RestraintSync.broadcast(captive);
         CrimeNetwork.sendSelfStatus(captive);
         CrimeNetwork.sendCaptiveStatus(captive);
-        return true;
+        return CaptureCommitResult.CAPTURED;
     }
 
     /**
@@ -217,25 +302,26 @@ public final class CustodyService {
      * unlawful captivity, and an arrest firing it would tell every listener -- including any companion
      * mod reading it as evidence of a crime -- that the guard had just kidnapped somebody.
      *
-     * @return false when the villager is already held by anybody, lawfully or not
+     * @return {@link CaptureCommitResult#ALREADY_HELD} when the villager is already held by anybody,
+     *         lawfully or not
      */
-    public static boolean captureNpcLawful(MinecraftServer server, LivingEntity captive, CustodyOwner owner,
-                                           RestraintType restraint, @Nullable BlockPos holdPos,
-                                           @Nullable ResourceLocation holdDim) {
+    public static CaptureCommitResult captureNpcLawful(MinecraftServer server, LivingEntity captive,
+                                                       CustodyOwner owner, RestraintType restraint,
+                                                       @Nullable BlockPos holdPos,
+                                                       @Nullable ResourceLocation holdDim) {
         if (server == null || captive == null || owner == null || captive instanceof ServerPlayer) {
-            return false;
+            return CaptureCommitResult.TARGET_INVALID;
         }
         UUID captiveUuid = captive.getUUID();
-        if (CustodyRegistry.isCaptive(server, captiveUuid)) {
-            return false;
+        CaptureCommitResult committed = captureLawful(CrimeWorldData.get(server), captiveUuid, false, owner,
+                restraint, 0L, holdPos, holdDim);
+        if (!committed.ok()) {
+            return committed;
         }
-        CustodyRecord record = new CustodyRecord(captiveUuid, false, true, owner,
-                restraint == null ? RestraintType.NONE : restraint, 0L, holdPos, holdDim);
-        CrimeWorldData.get(server).putCustody(record);
         // Same reason as the kidnapping path: cuffs are drawn from a client cache that only learns
         // about a villager when somebody tells it.
         RestraintSync.broadcast(captive);
-        return true;
+        return CaptureCommitResult.CAPTURED;
     }
 
     /**
@@ -285,6 +371,13 @@ public final class CustodyService {
         ServerPlayer captivePlayer = record.isCaptivePlayer() ? server.getPlayerList().getPlayer(captiveUuid) : null;
         if (captivePlayer != null) {
             CrimeAttachments.get(captivePlayer).setHeldByRef(null);
+            // Re-derived rather than simply lifted: a player released from a kidnapper's rope straight
+            // into an arrest is still restrained, and taking the penalty off here would hand them a
+            // free sprint the moment a guard reached them.
+            if (RestraintPolicy.effective(captivePlayer).isEmpty()) {
+                RestraintHandlers.onReleased(captivePlayer);
+            }
+            RestraintSync.broadcast(captivePlayer);
             CrimeNetwork.sendSelfStatus(captivePlayer);
             CrimeNetwork.sendCaptiveStatus(captivePlayer); // record already removed -> clears the client
             captivePlayer.sendSystemMessage(Component.translatable(releaseKey(reason)));
@@ -386,8 +479,12 @@ public final class CustodyService {
         }
         CrimeWorldData world = CrimeWorldData.get(server);
         CustodyRecord record = world.getCustody(captive.getUUID());
-        if (record == null || record.isLawful()) {
-            return; // lawful jail cap is JailService's job
+        if (record == null || (record.isLawful() && record.getOwner() != null
+                && record.getOwner().type() == CustodyOwnerType.JAIL)) {
+            // A jail's clock is the sentence, and that is JailService's job. A hunter's is not: nobody
+            // else measures how long a player has been sitting in a bounty hunter's rope, so the
+            // real-time cap has to, or the hold is unbounded.
+            return;
         }
         UUID captorId = record.getOwner().ownerUuid().orElse(null);
         if (record.isCaptivePlayer() && captorId != null) {

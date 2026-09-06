@@ -6,6 +6,7 @@ import dev.otectus.mcacrime.compat.McaCompat;
 import dev.otectus.mcacrime.network.CrimeNetwork;
 import dev.otectus.mcacrime.state.world.CriminalVillagerRecord;
 import dev.otectus.mcacrime.state.world.CrimeWorldData;
+import dev.otectus.mcacrime.state.world.ServerMutationGate;
 import dev.otectus.mcacrime.util.CrimeDebug;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.MinecraftServer;
@@ -79,7 +80,7 @@ public final class WorldCriminalJobService implements CriminalJobService {
      * changing trade.
      */
     public void assign(UUID villager, CriminalJob job, boolean wildOrigin) {
-        if (server == null || villager == null || job == null) {
+        if (server == null || villager == null || job == null || !ServerMutationGate.allows(server)) {
             return;
         }
         CrimeWorldData world = CrimeWorldData.get(server);

@@ -50,6 +50,67 @@ public final class CrimeCaseService {
     }
 
     /**
+     * A veto consulted after the transition table has accepted a change and before anything is
+     * written.
+     *
+     * <p>It exists because the only refusal this service could express was structural — the table
+     * says that disposition cannot follow this one — and callers increasingly need a second kind: a
+     * policy refusal that must happen <em>before</em> money moves or a record is rewritten. Passing it
+     * in rather than hard-coding it also means the seam is a lambda in a test, which is the difference
+     * between an assertion about resolution ordering and a running server.
+     */
+    @FunctionalInterface
+    public interface ResolutionGate {
+
+        /** Allows every transition the table already permits: the behaviour before the gate existed. */
+        ResolutionGate ALLOW_ALL = (record, target) -> true;
+
+        boolean allow(CrimeRecord record, Resolution target);
+    }
+
+    /** One accepted disposition change, as everything outside the ledger needs to see it. */
+    public record Resolved(CrimeRecordView before, CrimeRecordView after, CrimeResolutionEntry entry) {
+    }
+
+    /**
+     * Where a case that genuinely moved is announced.
+     *
+     * <p>The companion outbox and the public event are the two things a settled case owes the world,
+     * and neither can run against a ledger with no server behind it. Passing them in as a sink rather
+     * than reaching for {@link NeoForge#EVENT_BUS} inside the write is what lets a caller that only
+     * has a {@link CrimeWorldData} still be the one that decides they happen — and what lets a test
+     * count them, which is the difference between "the fine settled the case" and "the fine settled
+     * the case and said so".
+     */
+    @FunctionalInterface
+    public interface ResolutionSink {
+
+        /** Announces nothing: the right sink for a ledger with no server behind it. */
+        ResolutionSink NONE = resolved -> {
+        };
+
+        void announce(Resolved resolved);
+
+        /** The live sink: the integration outbox, then the event, in that order. */
+        static ResolutionSink forServer(@Nullable MinecraftServer server) {
+            if (server == null) {
+                return NONE;
+            }
+            return resolved -> {
+                // Queued before the event is posted, so the authoritative change and the work it owes
+                // the companion mod land in the same dirty cycle.
+                CrimeIntegrationHooks.onResolved(server, resolved.after(), resolved.entry());
+
+                ServerPlayer offender = server.getPlayerList().getPlayer(resolved.after().offenderId());
+                if (offender != null) {
+                    NeoForge.EVENT_BUS.post(new CrimeRecordResolvedEvent(offender,
+                            resolved.before(), resolved.after(), resolved.entry()));
+                }
+            };
+        }
+    }
+
+    /**
      * Moves one case to a new disposition.
      *
      * @param privileged true only for an explicit administrative or pardon transaction; ordinary
@@ -62,10 +123,75 @@ public final class CrimeCaseService {
         if (server == null || recordId == null || target == null) {
             return Result.of(CrimeMutationStatus.NO_MATCH);
         }
-        CrimeWorldData data = CrimeWorldData.get(server);
+        return resolve(CrimeWorldData.get(server), server.overworld().getGameTime(), recordId, target,
+                source, dedupeKey, actorId, context, privileged, ResolutionGate.ALLOW_ALL,
+                ResolutionSink.forServer(server));
+    }
+
+    /**
+     * The same transition against a ledger, with no server behind it.
+     *
+     * <p>What the server overload adds is exactly what only a server can do: read the world clock,
+     * queue the integration outbox entry, and post the resolved event. The decision — table, gate,
+     * revision, history — is all here, so it is testable without one.
+     *
+     * @param gameTime the tick stamped on the resolution entry; the caller owns the clock
+     * @param gate     consulted after the table and before the write
+     */
+    public static Result resolve(CrimeWorldData data, long gameTime, UUID recordId, Resolution target,
+                                 ResourceLocation source, String dedupeKey,
+                                 @Nullable UUID actorId, Map<String, String> context,
+                                 boolean privileged, ResolutionGate gate) {
+        return resolve(data, gameTime, recordId, target, source, dedupeKey, actorId, context, privileged,
+                gate, ResolutionSink.NONE);
+    }
+
+    /**
+     * The same transition, announcing itself through {@code sink} when it actually moved.
+     *
+     * <p>A server-bound caller passes {@link ResolutionSink#forServer}; the ledger-only overload above
+     * passes {@link ResolutionSink#NONE}. The distinction is not decoration. Both {@code FineService}
+     * and {@code SentenceResolutionService} settle cases through the ledger overload, and for one
+     * release that silently meant a paid fine and a served sentence notified nobody — no outbox entry
+     * for the companion mod, no {@link CrimeRecordResolvedEvent} for anyone listening.
+     *
+     * @param sink consulted once per case that genuinely changed disposition, never for a duplicate,
+     *             a refusal, or a failed write
+     */
+    public static Result resolve(CrimeWorldData data, long gameTime, UUID recordId, Resolution target,
+                                 ResourceLocation source, String dedupeKey,
+                                 @Nullable UUID actorId, Map<String, String> context,
+                                 boolean privileged, ResolutionGate gate, ResolutionSink sink) {
+        Applied applied = apply(data, gameTime, recordId, target, source, dedupeKey, actorId, context,
+                privileged, gate);
+        if (applied.entry() != null && sink != null) {
+            sink.announce(new Resolved(applied.before().view(), applied.after().view(), applied.entry()));
+        }
+        return applied.result();
+    }
+
+    /**
+     * The applied change, or just its refusal. {@code entry} is null for every outcome that wrote
+     * nothing, which is what tells the server overload whether there is anything to announce.
+     */
+    private record Applied(Result result, @Nullable CrimeRecord before, @Nullable CrimeRecord after,
+                           @Nullable CrimeResolutionEntry entry) {
+
+        static Applied refused(Result result) {
+            return new Applied(result, null, null, null);
+        }
+    }
+
+    private static Applied apply(CrimeWorldData data, long gameTime, UUID recordId, Resolution target,
+                                 ResourceLocation source, String dedupeKey,
+                                 @Nullable UUID actorId, Map<String, String> context,
+                                 boolean privileged, ResolutionGate gate) {
+        if (data == null || recordId == null || target == null) {
+            return Applied.refused(Result.of(CrimeMutationStatus.NO_MATCH));
+        }
         Optional<CrimeRecord> existing = data.recordById(recordId);
         if (existing.isEmpty()) {
-            return Result.of(CrimeMutationStatus.NO_MATCH);
+            return Applied.refused(Result.of(CrimeMutationStatus.NO_MATCH));
         }
         CrimeRecord before = existing.get();
 
@@ -74,31 +200,25 @@ public final class CrimeCaseService {
         if (outcome == CaseTransitions.Outcome.DUPLICATE) {
             // Already there. A replayed transaction must read as success, or a retrying outbox turns
             // one settled case into a stream of errors.
-            return Result.of(CrimeMutationStatus.DUPLICATE, before.view());
+            return Applied.refused(Result.of(CrimeMutationStatus.DUPLICATE, before.view()));
         }
         if (outcome == CaseTransitions.Outcome.REJECTED) {
-            return Result.of(privileged ? CrimeMutationStatus.INVALID_STATE : CrimeMutationStatus.NOT_ALLOWED,
-                    before.view());
+            return Applied.refused(Result.of(
+                    privileged ? CrimeMutationStatus.INVALID_STATE : CrimeMutationStatus.NOT_ALLOWED,
+                    before.view()));
+        }
+        if (gate != null && !gate.allow(before, target)) {
+            return Applied.refused(Result.of(CrimeMutationStatus.NOT_ALLOWED, before.view()));
         }
 
-        long gameTime = server.overworld().getGameTime();
         CrimeResolutionEntry entry = new CrimeResolutionEntry(before.resolutionRevision() + 1L, target,
                 source, dedupeKey, gameTime, actorId, context);
         CrimeRecord after = before.withResolution(target, entry);
 
         if (!data.replaceRecord(after)) {
-            return Result.of(CrimeMutationStatus.ERROR, before.view());
+            return Applied.refused(Result.of(CrimeMutationStatus.ERROR, before.view()));
         }
-        // Queued before the event is posted, so the authoritative change and the work it owes the
-        // companion mod land in the same dirty cycle.
-        CrimeIntegrationHooks.onResolved(server, after.view(), entry);
-
-        ServerPlayer offender = server.getPlayerList().getPlayer(after.offender());
-        if (offender != null) {
-            NeoForge.EVENT_BUS.post(
-                    new CrimeRecordResolvedEvent(offender, before.view(), after.view(), entry));
-        }
-        return Result.of(CrimeMutationStatus.APPLIED, after.view());
+        return new Applied(Result.of(CrimeMutationStatus.APPLIED, after.view()), before, after, entry);
     }
 
     /**

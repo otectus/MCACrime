@@ -2,12 +2,15 @@ package dev.otectus.mcacrime.mug.npc;
 
 import dev.otectus.mcacrime.McaCrimeConfig;
 import dev.otectus.mcacrime.state.world.CrimeWorldData;
+import dev.otectus.mcacrime.state.world.PropertyLot;
+import dev.otectus.mcacrime.state.world.ServerMutationGate;
 import dev.otectus.mcacrime.state.world.StolenGoodsRecord;
 import dev.otectus.mcacrime.util.CrimeDebug;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.server.MinecraftServer;
 
 import org.jetbrains.annotations.Nullable;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
@@ -64,20 +67,54 @@ public final class StolenGoodsLedger {
                 || result == null || !result.tookSomething()) {
             return null;
         }
-        data.putStolenGoods(StolenGoodsRecord.ofStack(provider, transactionId, thief, owner, result.stack(),
-                result.currency(), now));
+        if (!ServerMutationGate.allows(data)) {
+            return null;
+        }
+        // The provenance row is what makes the theft recoverable, so a table with no room for it is a
+        // theft that must not happen. Refusing here is refusing before anything leaves an inventory.
+        if (!data.putStolenGoods(StolenGoodsRecord.ofStack(provider, transactionId, thief, owner,
+                result.stack(), result.currency(), now)).stored()) {
+            return null;
+        }
         return transactionId;
     }
 
     // ------------------------------------------------------------------ claiming
+
+    /**
+     * Where a claimed record actually goes.
+     *
+     * <p>A claim used to be a removal and nothing else: the caller was handed the records and was
+     * trusted to get them to somebody. When it could not -- the owner offline, out of slots, in another
+     * dimension -- the row was gone and so was the property. This says whether delivery happened, and
+     * the answer decides between forgetting the row and turning it into a {@link PropertyLot}.
+     */
+    @FunctionalInterface
+    public interface Delivery {
+        /** @return true only when the whole record reached somebody who can keep it */
+        boolean deliver(StolenGoodsRecord record);
+    }
 
     /** Everything this thief is holding, removed from the ledger in the same call. */
     public static List<StolenGoodsRecord> claimAll(MinecraftServer server, UUID thief) {
         return server == null ? List.of() : claimAll(CrimeWorldData.get(server), thief);
     }
 
+    /**
+     * The caller takes responsibility for delivery.
+     *
+     * <p>Kept for the paths that hand records straight into something that cannot fail to accept them
+     * -- a drop list on a corpse, most of all. Anything that gives to a player should use the
+     * {@link Delivery} overload, so an owner who cannot take it now still gets it later.
+     */
     public static List<StolenGoodsRecord> claimAll(CrimeWorldData data, UUID thief) {
-        return claim(data, thief, null);
+        return claim(data, thief, null, record -> true, 0L);
+    }
+
+    /** Everything this thief is holding, delivered through {@code delivery} and escrowed if it fails. */
+    public static List<StolenGoodsRecord> claimAll(CrimeWorldData data, UUID thief, Delivery delivery,
+                                                   long now) {
+        return claim(data, thief, null, delivery, now);
     }
 
     /** The subset of this thief's holdings that belong to one owner, removed as it is returned. */
@@ -86,7 +123,13 @@ public final class StolenGoodsLedger {
     }
 
     public static List<StolenGoodsRecord> claimForOwner(CrimeWorldData data, UUID thief, UUID owner) {
-        return owner == null ? List.of() : claim(data, thief, owner);
+        return owner == null ? List.of() : claim(data, thief, owner, record -> true, 0L);
+    }
+
+    /** One owner's property, delivered through {@code delivery} and escrowed if it fails. */
+    public static List<StolenGoodsRecord> claimForOwner(CrimeWorldData data, UUID thief, UUID owner,
+                                                        Delivery delivery, long now) {
+        return owner == null ? List.of() : claim(data, thief, owner, delivery, now);
     }
 
     /**
@@ -96,8 +139,9 @@ public final class StolenGoodsLedger {
      * index in step and sets the data dirty; only entries that were genuinely removed are returned, so
      * two callers racing each get a disjoint half of the loot rather than a copy of all of it.
      */
-    private static List<StolenGoodsRecord> claim(CrimeWorldData data, UUID thief, @Nullable UUID owner) {
-        if (data == null || thief == null) {
+    private static List<StolenGoodsRecord> claim(CrimeWorldData data, UUID thief, @Nullable UUID owner,
+                                                 Delivery delivery, long now) {
+        if (data == null || thief == null || delivery == null || !ServerMutationGate.allows(data)) {
             return List.of();
         }
         List<StolenGoodsRecord> held = data.stolenGoodsByThief(thief);
@@ -109,12 +153,36 @@ public final class StolenGoodsLedger {
             if (owner != null && !owner.equals(record.owner())) {
                 continue;
             }
-            StolenGoodsRecord removed = data.removeStolenGoods(record.transactionId());
-            if (removed != null) {
-                claimed.add(removed);
+            if (delivery.deliver(record)) {
+                StolenGoodsRecord removed = data.removeStolenGoods(record.transactionId());
+                if (removed != null) {
+                    claimed.add(removed);
+                }
+                continue;
+            }
+            // Undeliverable. The row still leaves the ledger -- the thief is not holding it any more --
+            // but only because it becomes a lot that says the same thing and can be handed over later.
+            // If the escrow will not take it either, the row stays exactly where it is: nothing is
+            // allowed to remove the last record of somebody's property.
+            if (escrow(data, record, now)) {
+                data.removeStolenGoods(record.transactionId());
             }
         }
         return List.copyOf(claimed);
+    }
+
+    /** Turns one record into a lot owed to its owner. False when the escrow had no room. */
+    private static boolean escrow(CrimeWorldData data, StolenGoodsRecord record, long now) {
+        // Derived from the transaction id rather than random, so replaying the same claim twice
+        // produces the same lot id and cannot mint a second copy of the property.
+        UUID lotId = UUID.nameUUIDFromBytes(("lot:" + record.transactionId())
+                .getBytes(StandardCharsets.UTF_8));
+        // The stack tag is carried across verbatim, so no registry lookup is needed here: what the
+        // theft encoded is exactly what the lot owes.
+        PropertyLot lot = new PropertyLot(lotId, record.owner(),
+                record.hasStack() ? record.stackTag() : null, record.currency(), "",
+                record.transactionId(), PropertyLot.DeliveryState.PENDING, now);
+        return data.putPropertyLot(lot).stored();
     }
 
     // ------------------------------------------------------------------ expiry
@@ -147,12 +215,19 @@ public final class StolenGoodsLedger {
             if (today - record.stolenAt() / TICKS_PER_DAY < persistenceDays) {
                 continue;
             }
+            // "Laundered" is investigation metadata, not a licence to delete. The trail goes cold --
+            // nobody is coming to reclaim this at the scene any more -- but the property itself is still
+            // somebody's, so it moves to escrow rather than out of existence.
+            if (!escrow(data, record, today * TICKS_PER_DAY)) {
+                continue;
+            }
             if (data.removeStolenGoods(record.transactionId()) != null) {
                 expired++;
             }
         }
         if (expired > 0) {
-            CrimeDebug.crime("stolen goods laundered: {} record(s) older than {} day(s)", expired, persistenceDays);
+            CrimeDebug.crime("stolen goods laundered: {} record(s) older than {} day(s) moved to escrow",
+                    expired, persistenceDays);
         }
         return expired;
     }

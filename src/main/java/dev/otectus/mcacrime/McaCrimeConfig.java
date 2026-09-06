@@ -131,6 +131,7 @@ public final class McaCrimeConfig {
         public final ModConfigSpec.DoubleValue fenceBuyPriceRatio;
         public final ModConfigSpec.IntValue fenceDefaultBasePrice;
         public final ModConfigSpec.IntValue fenceOfferCount;
+        public final ModConfigSpec.IntValue fenceOfferMaxUses;
         public final ModConfigSpec.IntValue fenceRestockIntervalDays;
 
         // bounty (0.5.1) -- read by the bounty package
@@ -783,6 +784,11 @@ public final class McaCrimeConfig {
                     .defineInRange("defaultBasePrice", 8, 1, 100000);
             fenceOfferCount = b.comment("How many trades one fence offers at a time.")
                     .defineInRange("offerCount", 6, 1, 12);
+            fenceOfferMaxUses = b.comment(
+                    "How many times one of a fence's trades may be repeated before that stock runs out.",
+                    "Uses are persisted per fence and survive closing the screen, relogging and a",
+                    "restart; they reset when the fence restocks.")
+                    .defineInRange("offerMaxUses", 8, 1, 4096);
             fenceRestockIntervalDays = b.comment(
                     "In-game days a fence keeps the same stock. 0 re-rolls it every time it is opened.")
                     .defineInRange("restockIntervalDays", 1, 0, 30);

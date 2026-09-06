@@ -71,7 +71,7 @@ From spec §2.1, these must never change:
 - Mod ID: `mcacrime`
 - Data attachment ID: `mcacrime:player_crime`
 - SavedData name: `mcacrime` (world-level data file key)
-- World file schema version: 7 (allows schema migrations, not rewrites)
+- World file schema version: 8 (allows schema migrations, not rewrites)
 - Config keys: common and client sections, exact keys stable across patches
 - Packet protocol version: 8 (1.20.1 clients cannot join)
 

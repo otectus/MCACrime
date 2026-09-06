@@ -219,6 +219,25 @@ re-evaluation is bounded by the per-village cooldown rather than by a margin on 
 | `captiveCanEscapeByDistance` | `true` | — | A kidnapping captive who strays past the tether escapes — and escaping kidnapping is never a crime. Set false and they are pulled back instead. |
 | `npcCaptiveVirtualizeWhenUnloaded` | `true` | — | An NPC captive in an unloaded chunk is virtually contained rather than force-loading the chunk. Turning this off makes every captive a permanently loaded chunk. |
 
+## `[criminalJobs.fence]`
+
+| Option | Default | Range | What it does |
+|---|---|---|---|
+| `maxKarmaDiscount` | `0.25` | `0.0 … 1.0` | Largest discount criminal standing earns, at the Red band threshold. `0.25` = 25% off. |
+| `maxHeatMarkup` | `0.35` | `0.0 … 1.0` | Largest surcharge Heat adds, at the Wanted threshold. Stacks with the discount above. |
+| `wantedMarkup` | `0.20` | `0.0 … 1.0` | Flat surcharge added on top while the player is Wanted. |
+| `minimumPriceMultiplier` | `0.55` | `0.05 … 1.0` | Floor on the combined sell-side multiplier. Must be below `maximumPriceMultiplier`. |
+| `maximumPriceMultiplier` | `2.50` | `1.0 … 10.0` | Ceiling on the combined sell-side multiplier. |
+| `buyPriceRatio` | `0.5` | `0.05 … 0.95` | What a fence pays for goods, as a fraction of the base price. **`FencePolicy`'s compact constructor clamps this to at most `minimumPriceMultiplier` on load** (not `ConfigValidator`, which only warns that the clamp will apply): the buy price is computed independently from the base price rather than from the marked-up sell price, so it can never rise with Heat, and the ratio can never let a player buy and resell the same item at a profit. |
+| `defaultBasePrice` | `8` | `1 … 100000` | Price used for contraband that a tag names but no `fence_prices` file gives a value. |
+| `offerCount` | `6` | `1 … 12` | How many trades one fence offers at a time. |
+| `offerMaxUses` | `8` | `1 … 4096` | How many times one of a fence's trades may be repeated before that stock runs out. Uses are tracked per fence in `FenceStockRecord` and persist across closing the screen, relogging, and a restart; they reset when the fence restocks. |
+| `restockIntervalDays` | `1` | `0 … 30` | In-game days a fence keeps the same stock. `0` re-rolls it every time it is opened. |
+
+The fence occupation's own master switch, `enableFences` (`true`), is not a key of this table: it is
+declared one level up, under `[criminalJobs]`, alongside `enableThieves`. Off, `FenceTradeActionHandler`
+refuses fence trades and the criminal-job sweep never assigns a fence.
+
 ## `[npccrime]` — declared, not yet wired
 
 | Option | Default | Range |

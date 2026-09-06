@@ -1,7 +1,9 @@
 package dev.otectus.mcacrime.captivity;
 
+import dev.otectus.mcacrime.action.ActionSession;
 import net.minecraft.world.phys.Vec3;
 
+import org.jetbrains.annotations.Nullable;
 import java.util.UUID;
 
 /**
@@ -23,6 +25,8 @@ public final class CaptureChannel {
 
     private int elapsed;
     private boolean broken;
+    @Nullable
+    private ActionSession session;
 
     public CaptureChannel(UUID kidnapper, UUID target, boolean targetIsPlayer, RestraintType restraint,
                           Vec3 startPos, int requiredTicks) {
@@ -32,6 +36,35 @@ public final class CaptureChannel {
         this.restraint = restraint;
         this.startPos = startPos;
         this.requiredTicks = requiredTicks;
+    }
+
+    /**
+     * The actor/target lease this channel holds, or null for a channel that never took one.
+     *
+     * <p>A capture and an action session are the same claim on the same two entities, so they are one
+     * lock rather than two that have to agree: whoever holds the session holds the channel, and a
+     * channel whose session was ended underneath it has lost the right to commit.
+     */
+    @Nullable
+    public ActionSession session() {
+        return session;
+    }
+
+    public void attach(ActionSession session) {
+        this.session = session;
+    }
+
+    /**
+     * A stable id for one channel, derived from the pair it binds rather than minted per tick, so a
+     * restart or a second channel never resurrects the previous one's progress bar.
+     */
+    public UUID barId() {
+        return barId(kidnapper, target);
+    }
+
+    public static UUID barId(UUID kidnapper, UUID target) {
+        return new UUID(kidnapper.getMostSignificantBits() ^ target.getLeastSignificantBits(),
+                target.getMostSignificantBits() ^ kidnapper.getLeastSignificantBits());
     }
 
     public void tick() {

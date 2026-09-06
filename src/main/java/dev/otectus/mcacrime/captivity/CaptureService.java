@@ -1,8 +1,12 @@
 package dev.otectus.mcacrime.captivity;
 
 import dev.otectus.mcacrime.McaCrimeConfig;
+import dev.otectus.mcacrime.state.world.ServerMutationGate;
 import dev.otectus.mcacrime.action.ActionAvailability;
+import dev.otectus.mcacrime.action.ActionSession;
 import dev.otectus.mcacrime.action.ActionSessionManager;
+import dev.otectus.mcacrime.action.CancelReason;
+import dev.otectus.mcacrime.action.CrimeActionIds;
 import dev.otectus.mcacrime.compat.McaCompat;
 import dev.otectus.mcacrime.state.CrimeAttachments;
 import dev.otectus.mcacrime.state.PlayerCrimeData;
@@ -10,6 +14,8 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.LivingEntity;
+
+import java.util.UUID;
 
 /**
  * Orchestrates the start of a capture (spec §8.2): toggles → eligibility → guard/combat gate → vulnerability
@@ -26,16 +32,42 @@ public final class CaptureService {
     }
 
     public static boolean tryBeginCapture(ServerPlayer kidnapper, LivingEntity target, RestraintType restraint) {
+        return tryBeginCapture(kidnapper, target, restraint, UUID.randomUUID());
+    }
+
+    /**
+     * Begins a capture channel under {@code nonce}'s authority.
+     *
+     * <p>The channel takes an {@link ActionSession} lease before it exists, which is the whole point:
+     * a capture and an action are two names for the same claim on the same two entities, and while
+     * they held separate locks a player could be mugged and restrained at once, or restrained by two
+     * captors whose eligibility checks both passed a tick apart. {@link ActionSessionManager#begin} is
+     * the atomic version of the conflict test {@link #evaluate} performs, so it is the one that decides.
+     */
+    public static boolean tryBeginCapture(ServerPlayer kidnapper, LivingEntity target, RestraintType restraint,
+                                          UUID nonce) {
         ActionAvailability availability = evaluate(kidnapper, target, restraint);
         if (!availability.isAvailable()) return fail(kidnapper, availability.reason());
+        // Asked before the channel starts rather than at the commit: a progress bar that always ends
+        // in a refusal is a worse answer than the refusal on its own.
+        if (!ServerMutationGate.allows(kidnapper.getServer())) return fail(kidnapper, "mcacrime.readonly");
         McaCrimeConfig.Common c = McaCrimeConfig.COMMON;
         boolean targetIsPlayer = target instanceof ServerPlayer;
 
         int required = Math.max(1, (int) Math.round(c.captureChannelTicks.get() * channelMultiplier(restraint)));
-        if (!CaptureChannels.beginIfFree(new CaptureChannel(kidnapper.getUUID(), target.getUUID(), targetIsPlayer,
-                restraint, kidnapper.position(), required))) return fail(kidnapper, "mcacrime.action.conflict");
-        // No start message: CaptureTicker opens the HUD channel bar on its first tick, and the bar's
-        // own label already reads "Restraining...". Two of them said the same thing twice.
+        CaptureChannel channel = new CaptureChannel(kidnapper.getUUID(), target.getUUID(), targetIsPlayer,
+                restraint, kidnapper.position(), required);
+        ActionSession session = new ActionSession(channel.barId(), nonce, CrimeActionIds.RESTRAIN,
+                kidnapper.getUUID(), target.getUUID(), kidnapper.level().dimension().location(),
+                kidnapper.position(), kidnapper.level().getGameTime(), required);
+        if (!ActionSessionManager.begin(session)) return fail(kidnapper, "mcacrime.action.conflict");
+        channel.attach(session);
+        if (!CaptureChannels.beginIfFree(channel)) {
+            ActionSessionManager.cancel(session, CancelReason.CONFLICT);
+            return fail(kidnapper, "mcacrime.action.conflict");
+        }
+        // No start message: the session opens the HUD channel bar under the channel's own id, and the
+        // bar's label already reads "Restraining...". Two of them said the same thing twice.
         return true;
     }
 

@@ -77,7 +77,8 @@ public final class FenceGoodsRegistry {
         blacklistTag(built, CrimeItemTags.FENCE_BLACKLIST);
 
         for (FencePriceLoader.FencePrice price : FencePriceLoader.prices()) {
-            built.contribute(price.item(), price.base(), price.sells(), price.buys());
+            built.contribute(price.item(), price.base(), price.sells(), price.buys(),
+                    price.sellsStated(), price.buysStated());
         }
         for (IllicitGoodsProvider provider : PROVIDERS) {
             try {
@@ -97,11 +98,24 @@ public final class FenceGoodsRegistry {
      * and the directions accumulate, so a price file may retune what a tag introduced.
      */
     public void contribute(ResourceLocation item, long basePrice, boolean sells, boolean buys) {
+        contribute(item, basePrice, sells, buys, false, false);
+    }
+
+    /**
+     * Records one item, saying which of the two directions the source stated outright.
+     *
+     * <p>A stated direction replaces what an earlier source contributed; an unstated one merges as
+     * before. Only the price file states them, which is what gives a pack the last word over a tag
+     * without having to remove the item from the tag as well.
+     */
+    public void contribute(ResourceLocation item, long basePrice, boolean sells, boolean buys,
+                           boolean sellsStated, boolean buysStated) {
         if (item == null) {
             return;
         }
         FenceGood incoming = new FenceGood(item, basePrice, sells, buys);
-        goods.merge(item, incoming, FenceGood::mergedWith);
+        goods.merge(item, incoming, (existing, added) -> existing.mergedWith(added)
+                .withDirections(sellsStated ? sells : null, buysStated ? buys : null));
     }
 
     /** Bans an item from the criminal economy however it was contributed. */

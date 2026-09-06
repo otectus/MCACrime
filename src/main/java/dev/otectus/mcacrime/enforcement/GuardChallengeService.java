@@ -8,12 +8,11 @@ import dev.otectus.mcacrime.crime.Band;
 import dev.otectus.mcacrime.detect.EntitySelectors;
 import dev.otectus.mcacrime.dialogue.CrimeDialogueService;
 import dev.otectus.mcacrime.dialogue.DialogueEvents;
-import dev.otectus.mcacrime.economy.FineCalculator;
+import dev.otectus.mcacrime.economy.SettlementPolicy;
+import dev.otectus.mcacrime.economy.SettlementQuote;
 import dev.otectus.mcacrime.economy.FineService;
 import dev.otectus.mcacrime.economy.SurrenderService;
 import dev.otectus.mcacrime.engine.CrimeState;
-import dev.otectus.mcacrime.ledger.CrimeContext;
-import dev.otectus.mcacrime.ledger.CrimeFlag;
 import dev.otectus.mcacrime.ledger.CrimeRecord;
 import dev.otectus.mcacrime.memory.ReportService;
 import dev.otectus.mcacrime.network.CrimeNetwork;
@@ -26,11 +25,8 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.LivingEntity;
 
 import org.jetbrains.annotations.Nullable;
-import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
-import java.util.OptionalLong;
-import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -134,14 +130,14 @@ public final class GuardChallengeService {
                 LegalTarget.isEscapedPrisoner(player), LegalTarget.isHoldingCaptive(player))) {
             return false;
         }
-        OptionalLong fine = FineCalculator.fineFor(CrimeState.getHeat(player), CrimeState.getBand(player),
-                McaCrimeConfig.COMMON.fineBase.get(), McaCrimeConfig.COMMON.finePerHeat.get(),
-                McaCrimeConfig.COMMON.jailableHeatThreshold.get(),
-                McaCrimeConfig.COMMON.blueFineMultiplier.get(), McaCrimeConfig.COMMON.redCanPayFine.get());
-        boolean finable = finable(McaCrimeConfig.COMMON.enableFines.get(), fine, mandatoryFlagsOf(open));
+        // The screen quotes the settlement rather than the whole-Heat price. They are not the same
+        // number: the price is the sum of the cases the payment would actually close, and offering one
+        // figure while charging the other is how a guard came to offer a murder for pocket change.
+        SettlementQuote quote = SettlementPolicy.quote(CrimeWorldData.get(server), player.getUUID(),
+                CrimeState.getHeat(player), CrimeState.getBand(player), now);
 
         GuardChallenge challenge = new GuardChallenge(UUID.randomUUID(), guard.getUUID(), player.getUUID(),
-                jurisdiction, open.size(), fine.orElse(0L), finable, now,
+                jurisdiction, open.size(), quote.amount(), quote.ok(), now,
                 now + McaCrimeConfig.COMMON.guardChallengeWindowTicks.get());
         OPEN.put(player.getUUID(), challenge);
         ArrestStates.begin(player, guard.getUUID(), challenge.encounterId());
@@ -371,28 +367,4 @@ public final class GuardChallengeService {
         return CrimeState.getBand(player);
     }
 
-    /**
-     * Whether this encounter may be settled with money (0.5.1).
-     *
-     * <p>Pure, and extracted from the challenge for one reason: spec §"Guards and thief arrests" says
-     * a caught-in-the-act offender is <em>always</em> jail-eligible, which means the fine branch has to
-     * be closed by a fact about the record rather than by the amount. Folding that into the boolean
-     * expression it used to be would have left the rule true only for as long as nobody moved the
-     * line.
-     *
-     * @param flags the union of the flags on every unresolved record the offender carries
-     */
-    public static boolean finable(boolean finesEnabled, OptionalLong fine, Set<CrimeFlag> flags) {
-        return finesEnabled && fine.isPresent()
-                && (flags == null || !flags.contains(CrimeFlag.MANDATORY_CUSTODY));
-    }
-
-    /** The flags carried by every still-actionable record, collapsed into one set. */
-    private static Set<CrimeFlag> mandatoryFlagsOf(List<CrimeRecord> open) {
-        EnumSet<CrimeFlag> flags = EnumSet.noneOf(CrimeFlag.class);
-        for (CrimeRecord record : open) {
-            flags.addAll(CrimeFlag.decode(record.context().get(CrimeContext.FLAGS)));
-        }
-        return flags;
-    }
 }

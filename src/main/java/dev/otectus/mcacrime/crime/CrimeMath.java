@@ -1,5 +1,7 @@
 package dev.otectus.mcacrime.crime;
 
+import dev.otectus.mcacrime.util.SafeMath;
+
 /**
  * Pure karma/heat arithmetic — clamping, online-tick decay accounting, and the Wanted test. Kept free
  * of any Minecraft/Forge dependency so the rules in spec §3 are unit-testable without a running game
@@ -13,11 +15,8 @@ public final class CrimeMath {
 
     /** Saturating clamp of {@code value} to {@code [min, max]} (spec §20 "clamp deltas"). */
     public static long clamp(long value, long min, long max) {
-        if (min > max) {
-            // Defensive: a mis-ordered range collapses to the lower bound rather than throwing.
-            return min;
-        }
-        return Math.max(min, Math.min(max, value));
+        // Defensive: a mis-ordered range collapses to the lower bound rather than throwing.
+        return SafeMath.clampLong(value, min, max);
     }
 
     /** True when {@code heat} has reached the Wanted threshold (spec §1.2). */
@@ -51,7 +50,7 @@ public final class CrimeMath {
         if (value == 0L || amountPerStep <= 0L || steps <= 0L) {
             return value;
         }
-        long magnitude = Math.abs(amountPerStep) * steps;
+        long magnitude = SafeMath.mulSat(Math.abs(amountPerStep), steps);
         if (value > 0L) {
             return Math.max(0L, value - magnitude);
         }
