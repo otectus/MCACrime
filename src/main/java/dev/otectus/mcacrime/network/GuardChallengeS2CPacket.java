@@ -81,8 +81,11 @@ public record GuardChallengeS2CPacket(boolean open, UUID encounterId, Component 
 
     public static void handle(GuardChallengeS2CPacket msg, Supplier<NetworkEvent.Context> ctx) {
         NetworkEvent.Context context = ctx.get();
+        context.setPacketHandled(true);
+        if (!context.getDirection().getReceptionSide().isClient()) {
+            return;
+        }
         context.enqueueWork(() -> DistExecutor.unsafeRunWhenOn(Dist.CLIENT,
                 () -> () -> CrimeClientHandlers.onGuardChallenge(msg)));
-        context.setPacketHandled(true);
     }
 }

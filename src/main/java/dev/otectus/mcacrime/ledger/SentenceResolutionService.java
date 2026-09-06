@@ -20,8 +20,9 @@ import java.util.UUID;
  *
  * <p>Serving is not the same as paying, and the two must not be collapsed. A fine settles the cases
  * the money covered, oldest-first and bounded by what was paid. A served sentence settles the cases
- * the sentence was <em>for</em> — which, absent per-charge sentencing (spec §13.4, deferred), is
- * every case actionable against that player at the moment the sentence ends.
+ * the sentence was <em>for</em> — the ones bound to it when the prisoner was jailed, and only those
+ * (0.6.0). Until membership existed this was "everything actionable at the moment of release", which
+ * quietly forgave anything the prisoner did after the cell door closed.
  */
 public final class SentenceResolutionService {
 
@@ -29,7 +30,7 @@ public final class SentenceResolutionService {
     }
 
     /**
-     * Marks every case still actionable against {@code offender} as {@link Resolution#SERVED}.
+     * Marks every case charged under {@code sentenceId} as {@link Resolution#SERVED}.
      *
      * <p>{@code ESCAPED} cases are included on purpose. Escaping is not forgiveness, but neither is it
      * a permanent bar: a prisoner who broke out, was caught, and then served the sentence has answered
@@ -41,12 +42,20 @@ public final class SentenceResolutionService {
      * @return the ids actually moved, which is empty when there was nothing open
      */
     public static List<UUID> markServed(MinecraftServer server, UUID offender, UUID sentenceId) {
-        return resolveActionable(server, offender, Resolution.SERVED, "served:" + sentenceId,
-                CrimeContext.SENTENCE_ID, sentenceId);
+        return server == null ? List.of()
+                : markServed(CrimeWorldData.get(server), server.overworld().getGameTime(), offender, sentenceId,
+                        CrimeCaseService.ResolutionGate.ALLOW_ALL);
+    }
+
+    /** {@link #markServed(MinecraftServer, UUID, UUID)} against a ledger, with the clock passed in. */
+    public static List<UUID> markServed(CrimeWorldData data, long now, UUID offender, UUID sentenceId,
+                                        CrimeCaseService.ResolutionGate gate) {
+        return resolveActionable(data, now, offender, Resolution.SERVED, "served:" + sentenceId,
+                CrimeContext.SENTENCE_ID, sentenceId, gate);
     }
 
     /**
-     * Marks every case still actionable against {@code offender} as {@link Resolution#FINED} because
+     * Marks every case charged under {@code sentenceId} as {@link Resolution#FINED} because
      * the remainder of the sentence was bought out.
      *
      * <p>Bail settles rather than merely ending the sentence, and it has to. A player released with
@@ -56,29 +65,54 @@ public final class SentenceResolutionService {
      * the ledger keeps them apart.
      */
     public static List<UUID> markBailed(MinecraftServer server, UUID offender, UUID sentenceId) {
-        return resolveActionable(server, offender, Resolution.FINED, "bail:" + sentenceId,
-                CrimeContext.SENTENCE_ID, sentenceId);
+        return server == null ? List.of()
+                : markBailed(CrimeWorldData.get(server), server.overworld().getGameTime(), offender, sentenceId,
+                        CrimeCaseService.ResolutionGate.ALLOW_ALL);
+    }
+
+    /** {@link #markBailed(MinecraftServer, UUID, UUID)} against a ledger, with the clock passed in. */
+    public static List<UUID> markBailed(CrimeWorldData data, long now, UUID offender, UUID sentenceId,
+                                        CrimeCaseService.ResolutionGate gate) {
+        return resolveActionable(data, now, offender, Resolution.FINED, "bail:" + sentenceId,
+                CrimeContext.SENTENCE_ID, sentenceId, gate);
     }
 
     /**
-     * Marks every case still open against {@code offender} as {@link Resolution#ESCAPED}.
+     * Marks every case charged under {@code sentenceId} as {@link Resolution#ESCAPED}.
      *
      * <p>Called when a prisoner breaks physical containment. This is a status change, not a
      * resolution: an escaped case stays actionable, keeps its Heat, and can still be fined, served, or
      * pardoned later. What it adds is that the ledger can now say <em>why</em> the case is still open.
      */
     public static List<UUID> markEscaped(MinecraftServer server, UUID offender, UUID sentenceId) {
-        return resolveActionable(server, offender, Resolution.ESCAPED, "escaped:" + sentenceId,
-                CrimeContext.SENTENCE_ID, sentenceId);
+        return server == null ? List.of()
+                : markEscaped(CrimeWorldData.get(server), server.overworld().getGameTime(), offender, sentenceId,
+                        CrimeCaseService.ResolutionGate.ALLOW_ALL);
     }
 
-    private static List<UUID> resolveActionable(MinecraftServer server, UUID offender, Resolution target,
-                                                String dedupeKey, String contextKey, UUID transactionId) {
-        if (server == null || offender == null || transactionId == null) {
+    /** {@link #markEscaped(MinecraftServer, UUID, UUID)} against a ledger, with the clock passed in. */
+    public static List<UUID> markEscaped(CrimeWorldData data, long now, UUID offender, UUID sentenceId,
+                                         CrimeCaseService.ResolutionGate gate) {
+        return resolveActionable(data, now, offender, Resolution.ESCAPED, "escaped:" + sentenceId,
+                CrimeContext.SENTENCE_ID, sentenceId, gate);
+    }
+
+    private static List<UUID> resolveActionable(CrimeWorldData data, long now, UUID offender, Resolution target,
+                                                String dedupeKey, String contextKey, UUID transactionId,
+                                                CrimeCaseService.ResolutionGate gate) {
+        if (data == null || offender == null || transactionId == null) {
             return List.of();
         }
-        List<CrimeRecord> open = CrimeWorldData.get(server).actionableFor(offender);
+        // Only the cases charged under this sentence. Selecting every actionable case instead -- which
+        // is what this did before membership existed -- meant a release settled crimes committed after
+        // the prisoner was jailed, including the ones an escapee committed on the run.
+        List<CrimeRecord> open = data.casesForSentence(offender, transactionId);
         if (open.isEmpty()) {
+            // Either the sentence genuinely covered nothing, or it predates sentence membership and no
+            // login-time inference has bound it yet. Settling the whole ledger to cover that gap would
+            // be a general amnesty issued by a missing field (spec 9.2), so nothing moves.
+            McaCrime.LOGGER.debug("Sentence {} for {} binds no cases; nothing to mark {}",
+                    transactionId, offender, target);
             return List.of();
         }
         Map<String, String> context = Map.of(contextKey, transactionId.toString());
@@ -86,13 +120,13 @@ public final class SentenceResolutionService {
         for (CrimeRecord record : open) {
             // Not privileged: serving a sentence and breaking out are both ordinary gameplay. Only a
             // pardon needs the privileged flag, and neither of these is one.
-            CrimeCaseService.Result result = CrimeCaseService.resolve(server, record.id(), target,
+            CrimeCaseService.Result result = CrimeCaseService.resolve(data, now, record.id(), target,
                     McaCrime.id(switch (target) {
                         case SERVED -> "sentence";
                         case FINED -> "bail";
                         default -> "jailbreak";
                     }),
-                    dedupeKey, offender, context, false);
+                    dedupeKey, offender, context, false, gate);
             if (result.successful()) {
                 moved.add(record.id());
             }

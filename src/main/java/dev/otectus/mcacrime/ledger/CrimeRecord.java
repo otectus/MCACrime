@@ -48,6 +48,7 @@ public record CrimeRecord(UUID id, UUID offender, @Nullable UUID victim, Resourc
                           Resolution resolution, long resolutionRevision,
                           List<CrimeResolutionEntry> resolutionHistory,
                           @Nullable UUID linkedReputationIncidentId,
+                          @Nullable UUID sentenceId,
                           Map<String, String> context) {
 
     /** How many resolution steps are kept. A case that moved eight times has bigger problems. */
@@ -78,8 +79,27 @@ public record CrimeRecord(UUID id, UUID offender, @Nullable UUID victim, Resourc
                        long heatGenerated, long karmaDelta, long fineAmount, long jailTicks,
                        Resolution resolution) {
         this(id, offender, victim, type, villageId, null, witnessed, Set.of(), timeCommitted,
-                heatGenerated, karmaDelta, fineAmount, jailTicks, resolution, 0L, List.of(), null,
+                heatGenerated, karmaDelta, fineAmount, jailTicks, resolution, 0L, List.of(), null, null,
                 Map.of());
+    }
+
+    /**
+     * The pre-sentence-membership constructor, kept for the same reason as the one above: a case is
+     * created belonging to no sentence, and only a jailing binds it to one. Arity again keeps the two
+     * apart.
+     */
+    public CrimeRecord(UUID id, UUID offender, @Nullable UUID victim, ResourceLocation type,
+                       OptionalInt villageId, @Nullable CrimeCommunityKey community,
+                       boolean witnessed, Set<UUID> witnessIds,
+                       long timeCommitted, long heatGenerated, long karmaDelta,
+                       long fineAmount, long jailTicks,
+                       Resolution resolution, long resolutionRevision,
+                       List<CrimeResolutionEntry> resolutionHistory,
+                       @Nullable UUID linkedReputationIncidentId,
+                       Map<String, String> context) {
+        this(id, offender, victim, type, villageId, community, witnessed, witnessIds, timeCommitted,
+                heatGenerated, karmaDelta, fineAmount, jailTicks, resolution, resolutionRevision,
+                resolutionHistory, linkedReputationIncidentId, null, context);
     }
 
     private static Set<UUID> boundedWitnesses(Set<UUID> raw) {
@@ -142,21 +162,21 @@ public record CrimeRecord(UUID id, UUID offender, @Nullable UUID victim, Resourc
         history.add(entry);
         return new CrimeRecord(id, offender, victim, type, villageId, community, witnessed, witnessIds,
                 timeCommitted, heatGenerated, karmaDelta, fineAmount, jailTicks, next,
-                resolutionRevision + 1L, history, linkedReputationIncidentId, context);
+                resolutionRevision + 1L, history, linkedReputationIncidentId, sentenceId, context);
     }
 
     /** A copy carrying the civic incident this case produced in a companion mod. */
     public CrimeRecord withReputationIncident(@Nullable UUID incidentId) {
         return new CrimeRecord(id, offender, victim, type, villageId, community, witnessed, witnessIds,
                 timeCommitted, heatGenerated, karmaDelta, fineAmount, jailTicks, resolution,
-                resolutionRevision, resolutionHistory, incidentId, context);
+                resolutionRevision, resolutionHistory, incidentId, sentenceId, context);
     }
 
     /** A copy with the assessed fine and sentence filled in. */
     public CrimeRecord withPenalty(long newFineAmount, long newJailTicks) {
         return new CrimeRecord(id, offender, victim, type, villageId, community, witnessed, witnessIds,
                 timeCommitted, heatGenerated, karmaDelta, newFineAmount, newJailTicks, resolution,
-                resolutionRevision, resolutionHistory, linkedReputationIncidentId, context);
+                resolutionRevision, resolutionHistory, linkedReputationIncidentId, sentenceId, context);
     }
 
     /** A copy with one context entry added or replaced. */
@@ -165,14 +185,33 @@ public record CrimeRecord(UUID id, UUID offender, @Nullable UUID victim, Resourc
         merged.put(key, value);
         return new CrimeRecord(id, offender, victim, type, villageId, community, witnessed, witnessIds,
                 timeCommitted, heatGenerated, karmaDelta, fineAmount, jailTicks, resolution,
-                resolutionRevision, resolutionHistory, linkedReputationIncidentId, merged);
+                resolutionRevision, resolutionHistory, linkedReputationIncidentId, sentenceId, merged);
+    }
+
+    /**
+     * A copy belonging to {@code newSentenceId}.
+     *
+     * <p>Membership is what makes a release settle the right cases and only those. Before it existed,
+     * ending a sentence closed every case actionable against the prisoner at that moment, including
+     * ones committed after they were jailed -- so a crime an escapee committed on the run was settled
+     * by the term they were already serving.
+     */
+    public CrimeRecord withSentence(@Nullable UUID newSentenceId) {
+        return new CrimeRecord(id, offender, victim, type, villageId, community, witnessed, witnessIds,
+                timeCommitted, heatGenerated, karmaDelta, fineAmount, jailTicks, resolution,
+                resolutionRevision, resolutionHistory, linkedReputationIncidentId, newSentenceId, context);
+    }
+
+    /** The sentence this case was charged under, or empty while it belongs to none. */
+    public Optional<UUID> sentence() {
+        return Optional.ofNullable(sentenceId);
     }
 
     /** A copy under a different record id, used only by the duplicate-id repair on load. */
     public CrimeRecord withId(UUID newId) {
         return new CrimeRecord(newId, offender, victim, type, villageId, community, witnessed, witnessIds,
                 timeCommitted, heatGenerated, karmaDelta, fineAmount, jailTicks, resolution,
-                resolutionRevision, resolutionHistory, linkedReputationIncidentId, context);
+                resolutionRevision, resolutionHistory, linkedReputationIncidentId, sentenceId, context);
     }
 
     // ------------------------------------------------------------------ persistence
@@ -213,18 +252,42 @@ public record CrimeRecord(UUID id, UUID offender, @Nullable UUID victim, Resourc
         if (linkedReputationIncidentId != null) {
             tag.putUUID("repIncident", linkedReputationIncidentId);
         }
+        if (sentenceId != null) {
+            tag.putUUID("sentenceId", sentenceId);
+        }
         if (!context.isEmpty()) {
             tag.put("context", CrimeContext.save(context));
         }
         return tag;
     }
 
+    /**
+     * Reads one case, or throws.
+     *
+     * <p>The three fields checked below are the ones a record cannot be a record without: its own id,
+     * whose case it is, and what it was. An unparseable {@code type} used to read as null and travel
+     * on, so a corrupt row became a case against a real player for nothing in particular, which the
+     * ledger then showed, priced and settled. Throwing hands the row to
+     * {@code CrimeWorldData}'s quarantine instead, where it is kept verbatim and looked at by a person.
+     *
+     * @throws IllegalArgumentException when the row names no id, no offender, or no parseable type
+     */
     public static CrimeRecord load(CompoundTag tag) {
+        if (tag == null || !tag.hasUUID("id")) {
+            throw new IllegalArgumentException("crime record has no id");
+        }
+        if (!tag.hasUUID("offender")) {
+            throw new IllegalArgumentException("crime record " + tag.getUUID("id") + " has no offender");
+        }
         UUID victim = tag.hasUUID("victim") ? tag.getUUID("victim") : null;
         OptionalInt villageId = tag.contains("villageId")
                 ? OptionalInt.of(tag.getInt("villageId"))
                 : OptionalInt.empty();
         ResourceLocation type = ResourceLocation.tryParse(tag.getString("type"));
+        if (type == null) {
+            throw new IllegalArgumentException("crime record " + tag.getUUID("id")
+                    + " has an unparseable type \"" + tag.getString("type") + "\"");
+        }
         CrimeCommunityKey community = tag.contains("community", Tag.TAG_COMPOUND)
                 ? CrimeCommunityKey.load(tag.getCompound("community")).orElse(null)
                 : null;
@@ -254,6 +317,9 @@ public record CrimeRecord(UUID id, UUID offender, @Nullable UUID victim, Resourc
         }
 
         UUID incident = tag.hasUUID("repIncident") ? tag.getUUID("repIncident") : null;
+        // Absent on every case written before 0.6.0, and absent on every case written since that no
+        // sentence has claimed. Null is the honest answer to both.
+        UUID sentence = tag.hasUUID("sentenceId") ? tag.getUUID("sentenceId") : null;
         Map<String, String> context = tag.contains("context", Tag.TAG_COMPOUND)
                 ? CrimeContext.load(tag.getCompound("context"))
                 : Map.of();
@@ -276,6 +342,7 @@ public record CrimeRecord(UUID id, UUID offender, @Nullable UUID victim, Resourc
                 tag.getLong("resolutionRevision"),
                 history,
                 incident,
+                sentence,
                 context);
     }
 }

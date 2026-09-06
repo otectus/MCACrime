@@ -13,6 +13,7 @@ import dev.otectus.mcacrime.jail.JailConfine;
 import dev.otectus.mcacrime.jail.JailService;
 import dev.otectus.mcacrime.state.CrimeCapabilities;
 import dev.otectus.mcacrime.state.PlayerCrimeData;
+import dev.otectus.mcacrime.state.world.ServerMutationGate;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
@@ -50,6 +51,12 @@ public final class CrimeDecayHandler {
         }
         Optional<PlayerCrimeData> opt = CrimeCapabilities.get(player);
         if (opt.isEmpty()) {
+            return;
+        }
+        if (!ServerMutationGate.allows(player.getServer())) {
+            // Decay, sentences and captivity clocks all write. On a read-only store they would run in
+            // memory and be thrown away at shutdown, which is worse than not running: a prisoner would
+            // serve their whole sentence and still be serving it after a restart.
             return;
         }
         PlayerCrimeData data = opt.get();

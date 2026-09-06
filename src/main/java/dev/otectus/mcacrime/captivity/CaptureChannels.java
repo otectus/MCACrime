@@ -1,5 +1,9 @@
 package dev.otectus.mcacrime.captivity;
 
+import dev.otectus.mcacrime.action.ActionSession;
+import dev.otectus.mcacrime.action.ActionSessionManager;
+import dev.otectus.mcacrime.action.CancelReason;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -39,7 +43,7 @@ public final class CaptureChannels {
     }
 
     public static void cancel(UUID kidnapper) {
-        ACTIVE.remove(kidnapper);
+        release(ACTIVE.remove(kidnapper), CancelReason.CONFLICT);
     }
 
     public static List<UUID> kidnappers() {
@@ -54,9 +58,37 @@ public final class CaptureChannels {
         }
     }
 
-    /** Drops any channel where {@code uuid} is the kidnapper or the target (logout / death cleanup). */
+    /**
+     * Drops any channel where {@code uuid} is the kidnapper or the target (logout / death / dimension
+     * change cleanup).
+     *
+     * <p>Both roles, because a channel is just as dead when it is the victim who walked through the
+     * portal. Each dropped channel releases its session lease on the way out — without that, a lock
+     * taken by a capture would outlive the capture and refuse every later action against either party.
+     */
     public static void clearFor(UUID uuid) {
-        ACTIVE.remove(uuid);
-        ACTIVE.values().removeIf(c -> c.target.equals(uuid));
+        release(ACTIVE.remove(uuid), CancelReason.ACTOR_GONE);
+        for (CaptureChannel channel : new ArrayList<>(ACTIVE.values())) {
+            if (channel.target.equals(uuid) && ACTIVE.remove(channel.kidnapper, channel)) {
+                release(channel, CancelReason.TARGET_GONE);
+            }
+        }
+    }
+
+    /**
+     * Ends the session a channel was holding, if it was still holding one.
+     *
+     * <p>A no-op for a session something else already settled — the commit that just finished, a
+     * damage event, the action ticker — because {@code cancel} is compare-and-transition and only the
+     * first caller does any work.
+     */
+    private static void release(@javax.annotation.Nullable CaptureChannel channel, CancelReason reason) {
+        if (channel == null) {
+            return;
+        }
+        ActionSession session = channel.session();
+        if (session != null) {
+            ActionSessionManager.cancel(session, reason);
+        }
     }
 }

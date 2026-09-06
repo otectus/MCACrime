@@ -2,6 +2,7 @@ package dev.otectus.mcacrime;
 
 import dev.otectus.mcacrime.api.model.CrimeCommunityKey;
 import dev.otectus.mcacrime.crime.type.CrimeIds;
+import dev.otectus.mcacrime.fixtures.Schema7Fixture;
 import dev.otectus.mcacrime.ledger.CrimeContext;
 import dev.otectus.mcacrime.ledger.CrimeRecord;
 import dev.otectus.mcacrime.ledger.Resolution;
@@ -340,7 +341,9 @@ class CrimeDataMigrationTest {
 
         CompoundTag migrated = CrimeDataMigrations.migrate(store);
 
-        assertEquals(CrimeDataMigrations.SCHEMA_0_5_1, migrated.getInt(CrimeDataMigrations.TAG_SCHEMA));
+        // migrate() runs every remaining step, so the stamp is whatever this build writes; what this
+        // test is about is that none of the six collections was invented on the way.
+        assertEquals(CrimeDataMigrations.CURRENT_SCHEMA, migrated.getInt(CrimeDataMigrations.TAG_SCHEMA));
         assertFalse(migrated.contains("criminalVillagers"));
         assertFalse(migrated.contains("warrants"));
         assertFalse(migrated.contains("stolenGoods"));
@@ -409,9 +412,53 @@ class CrimeDataMigrationTest {
         assertEquals(first, data.bountyClaim("k"));
     }
 
+    // ------------------------------------------------------------------ schema 8 (0.6.0)
+
     /**
-     * An over-long list is truncated at the cap rather than throwing, and a malformed entry is skipped
-     * rather than costing the world every other criminal in it.
+     * The 0.6.0 step stamps the version and adds nothing, because every field behind it reads its own
+     * absence as the legacy answer. Running it twice must therefore produce the same tag: a step that
+     * wrote anything at all would have to be idempotent by argument rather than by construction.
+     */
+    @Test
+    void migratingToEightAddsNothingAndRepeatsCleanly() {
+        CompoundTag once = CrimeDataMigrations.v7to8(Schema7Fixture.store());
+        CompoundTag twice = CrimeDataMigrations.v7to8(once);
+
+        assertEquals(CrimeDataMigrations.SCHEMA_0_6_0, once.getInt(CrimeDataMigrations.TAG_SCHEMA));
+        assertEquals(once, twice);
+
+        CompoundTag before = Schema7Fixture.store();
+        before.putInt(CrimeDataMigrations.TAG_SCHEMA, CrimeDataMigrations.SCHEMA_0_6_0);
+        assertEquals(before, once, "the only difference a v7to8 may make is the schema number");
+    }
+
+    /**
+     * The whole chain, 0 to 8, on a store that never saw any of it. The point is not that it ends at
+     * the current number — the earlier tests cover that — but that a world last opened before any of
+     * these steps existed still arrives with its records intact rather than with a stack trace.
+     */
+    @Test
+    void anUnversionedStoreClimbsTheWholeChainToEight() {
+        CompoundTag migrated = CrimeDataMigrations.migrate(legacyStore(
+                legacyRecord(UUID.randomUUID(), 3, true),
+                legacyRecord(UUID.randomUUID(), 4, false)));
+
+        assertEquals(CrimeDataMigrations.SCHEMA_0_6_0, CrimeDataMigrations.schemaOf(migrated));
+        assertEquals(2, migrated.getList("ledger", Tag.TAG_COMPOUND).size());
+        assertFalse(migrated.contains("fenceStock"), "no 0.6.0 collection is written by the step");
+        assertFalse(migrated.contains("quarantine"));
+        assertEquals(CrimeDataMigrations.SCHEMA_0_6_0,
+                CrimeDataMigrations.schemaOf(CrimeWorldData.load(migrated).save(new CompoundTag())));
+    }
+
+    /**
+     * An over-long list is read in full, and a malformed entry is set aside rather than costing the
+     * world every other criminal in it.
+     *
+     * <p>0.6.0 reversed the first half of this deliberately. Truncating at the cap on load did not
+     * bound anything -- the entries were already written, and the store was about to be saved again --
+     * it just deleted the tail of the file a little more thoroughly on every restart. The ceiling now
+     * refuses the next <em>insertion</em> instead, which is the only point at which refusing is free.
      */
     @Test
     void overCapAndMalformedEntriesAreSurvivable() {
@@ -428,6 +475,7 @@ class CrimeDataMigrationTest {
 
         CrimeWorldData data = CrimeWorldData.load(store);
 
-        assertEquals(4096, data.criminalVillagers().size());
+        assertEquals(4200, data.criminalVillagers().size(), "the load loop deleted the tail of the file");
+        assertEquals(1, data.quarantineCount(), "the unreadable entry was dropped rather than set aside");
     }
 }

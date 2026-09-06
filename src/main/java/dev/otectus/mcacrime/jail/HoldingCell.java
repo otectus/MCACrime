@@ -12,6 +12,7 @@ import net.minecraft.world.level.block.state.BlockState;
 import javax.annotation.Nullable;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -48,6 +49,14 @@ public final class HoldingCell {
     private final Map<BlockPos, BlockState> replaced;
     /** What this mod actually put in each of those positions, so a changed block can be recognised. */
     private final Map<BlockPos, BlockState> placed;
+    /**
+     * Whether the pre-0.6.0 case binding has already been attempted for this cell's sentence (0.6.0).
+     *
+     * <p>The NPC half of {@code JailState.legacyBound}: an arrested villager has no capability to hang
+     * a flag on, and the cell is the only thing that outlives a restart and names the sentence. Same
+     * rule, same reason -- the inference is a one-time upgrade guess, not a standing policy.
+     */
+    private boolean legacyBound;
 
     public HoldingCell(UUID prisoner, UUID sentenceId, BlockPos anchor, ResourceLocation dim, int radius,
                        long createdGameTime, Map<BlockPos, BlockState> replaced,
@@ -97,6 +106,40 @@ public final class HoldingCell {
         return new LinkedHashMap<>(placed);
     }
 
+    /** True once the legacy case binding has been attempted for this cell's sentence. */
+    public boolean isLegacyBound() {
+        return legacyBound;
+    }
+
+    public void setLegacyBound(boolean legacyBound) {
+        this.legacyBound = legacyBound;
+    }
+
+    /**
+     * The same cell narrowed to the positions in {@code positions}.
+     *
+     * <p>Used by the restoration journal: what is left of a demolition that only partly ran is the
+     * original cell minus everything that did come back, and stating it that way means the retry needs
+     * nothing the first attempt did not already have.
+     */
+    public HoldingCell retaining(Set<BlockPos> positions) {
+        Map<BlockPos, BlockState> keptReplaced = new LinkedHashMap<>();
+        Map<BlockPos, BlockState> keptPlaced = new LinkedHashMap<>();
+        replaced.forEach((pos, state) -> {
+            if (positions.contains(pos)) {
+                keptReplaced.put(pos, state);
+                BlockState put = placed.get(pos);
+                if (put != null) {
+                    keptPlaced.put(pos, put);
+                }
+            }
+        });
+        HoldingCell narrowed = new HoldingCell(prisoner, sentenceId, anchor, dim, radius, createdGameTime,
+                keptReplaced, keptPlaced);
+        narrowed.legacyBound = legacyBound;
+        return narrowed;
+    }
+
     /** Whether this cell has outlived its cap and should come down regardless of its prisoner. */
     public boolean expired(long now, long lifetimeTicks) {
         return lifetimeTicks > 0L && now - createdGameTime >= lifetimeTicks;
@@ -144,6 +187,9 @@ public final class HoldingCell {
             blocks.add(entry);
         });
         tag.put("blocks", blocks);
+        if (legacyBound) {
+            tag.putBoolean("legacyBound", true);
+        }
         return tag;
     }
 
@@ -181,9 +227,12 @@ public final class HoldingCell {
                 // Unresolvable state: skip this block, keep the rest of the cell restorable.
             }
         }
-        return new HoldingCell(tag.getUUID("prisoner"),
+        HoldingCell cell = new HoldingCell(tag.getUUID("prisoner"),
                 tag.hasUUID("sentence") ? tag.getUUID("sentence") : null,
                 new BlockPos(tag.getInt("x"), tag.getInt("y"), tag.getInt("z")),
                 dim, Math.max(1, tag.getInt("radius")), tag.getLong("created"), replaced, placed);
+        // Absent means the inference has not run, which is right for every pre-0.6.0 cell.
+        cell.legacyBound = tag.getBoolean("legacyBound");
+        return cell;
     }
 }

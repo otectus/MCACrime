@@ -94,8 +94,11 @@ public record ActionProgressS2CPacket(UUID sessionId, String actionLabelKey, int
 
     public static void handle(ActionProgressS2CPacket msg, Supplier<NetworkEvent.Context> ctx) {
         NetworkEvent.Context context = ctx.get();
+        context.setPacketHandled(true);
+        if (!context.getDirection().getReceptionSide().isClient()) {
+            return;
+        }
         context.enqueueWork(() -> DistExecutor.unsafeRunWhenOn(Dist.CLIENT,
                 () -> () -> CrimeClientHandlers.onActionProgress(msg)));
-        context.setPacketHandled(true);
     }
 }

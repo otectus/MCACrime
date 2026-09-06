@@ -28,6 +28,35 @@ class ActionSessionManagerTest {
         ActionSessionManager.clearFor(target, CancelReason.CONFLICT);
     }
 
+    /**
+     * The ticker completing an action the same tick a damage event cancelled it. Both paths pay out,
+     * release the target lock and notify listeners, so exactly one of them may run.
+     */
+    @Test
+    void onlyTheFirstTerminalCallEndsASession() {
+        UUID actor = UUID.randomUUID();
+        UUID target = UUID.randomUUID();
+        ActionSession session = session(actor, target, UUID.randomUUID());
+        assertTrue(ActionSessionManager.begin(session));
+        ActionResult first = ActionResult.accepted("first");
+        assertTrue(ActionSessionManager.finish(session, first));
+        assertFalse(ActionSessionManager.finish(session, ActionResult.accepted("second")));
+        assertFalse(ActionSessionManager.cancel(session, CancelReason.DAMAGED));
+        assertEquals(first, ActionSessionManager.replay(actor, session.requestNonce()).orElseThrow());
+        ActionSessionManager.forgetActor(actor);
+    }
+
+    /** The same rule from the other side: a cancelled session cannot then be completed. */
+    @Test
+    void aCancelledSessionCannotAlsoFinish() {
+        UUID actor = UUID.randomUUID();
+        ActionSession session = session(actor, UUID.randomUUID(), UUID.randomUUID());
+        assertTrue(ActionSessionManager.begin(session));
+        assertTrue(ActionSessionManager.cancel(session, CancelReason.MOVED));
+        assertFalse(ActionSessionManager.finish(session, ActionResult.accepted("too late")));
+        ActionSessionManager.forgetActor(actor);
+    }
+
     @Test
     void nonceReplayReturnsPriorResultWithoutAnotherSession() {
         UUID actor = UUID.randomUUID();

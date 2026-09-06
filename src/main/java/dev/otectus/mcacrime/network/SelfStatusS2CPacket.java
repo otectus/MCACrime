@@ -29,8 +29,11 @@ public record SelfStatusS2CPacket(long karma, long heat, Band band, boolean want
 
     public static void handle(SelfStatusS2CPacket msg, Supplier<NetworkEvent.Context> ctx) {
         NetworkEvent.Context context = ctx.get();
+        context.setPacketHandled(true);
+        if (!context.getDirection().getReceptionSide().isClient()) {
+            return;
+        }
         context.enqueueWork(() ->
                 DistExecutor.unsafeRunWhenOn(Dist.CLIENT, () -> () -> CrimeClientHandlers.onSelfStatus(msg)));
-        context.setPacketHandled(true);
     }
 }

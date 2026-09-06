@@ -426,7 +426,8 @@ public final class ConfigValidator {
     public static List<String> validateFence(double maxKarmaDiscount, double maxHeatMarkup,
                                              double wantedMarkup, double minimumPriceMultiplier,
                                              double maximumPriceMultiplier, double buyPriceRatio,
-                                             int defaultBasePrice, int offerCount, int restockIntervalDays) {
+                                             int defaultBasePrice, int offerCount, int offerMaxUses,
+                                             int restockIntervalDays) {
         List<String> problems = new ArrayList<>();
         problems.addAll(fraction("fence.maxKarmaDiscount", maxKarmaDiscount));
         problems.addAll(fraction("fence.maxHeatMarkup", maxHeatMarkup));
@@ -440,6 +441,15 @@ public final class ConfigValidator {
                     + ") must be below maximumPriceMultiplier (" + maximumPriceMultiplier
                     + "), or every price is clamped to one value and Karma and Heat stop mattering.");
         }
+        if (buyPriceRatio > minimumPriceMultiplier) {
+            // Warned rather than fatal, because FencePolicy clamps it to this bound on the way in and
+            // the game is playable with the clamped value. Reported every reload, and the clamp is
+            // idempotent, so a second reload of the same file says the same thing and changes nothing.
+            problems.add("criminalJobs.fence.buyPriceRatio (" + buyPriceRatio
+                    + ") is above minimumPriceMultiplier (" + minimumPriceMultiplier
+                    + "), so a fence could pay more for an item than the least it ever charges for one;"
+                    + " it has been clamped to " + minimumPriceMultiplier + " for pricing.");
+        }
         if (buyPriceRatio <= 0.0D || buyPriceRatio >= 1.0D) {
             problems.add("criminalJobs.fence.buyPriceRatio (" + buyPriceRatio
                     + ") must be between 0.0 and 1.0 exclusive; at 1.0 or above a fence pays what it "
@@ -452,6 +462,10 @@ public final class ConfigValidator {
         if (offerCount < 1) {
             problems.add("criminalJobs.fence.offerCount (" + offerCount
                     + ") must be at least 1, or a fence opens an empty screen.");
+        }
+        if (offerMaxUses < 1) {
+            problems.add("criminalJobs.fence.offerMaxUses (" + offerMaxUses
+                    + ") must be at least 1, or no trade a fence offers could ever be taken.");
         }
         if (restockIntervalDays < 0) {
             problems.add("criminalJobs.fence.restockIntervalDays (" + restockIntervalDays
@@ -686,6 +700,7 @@ public final class ConfigValidator {
                 c.fenceBuyPriceRatio.get(),
                 c.fenceDefaultBasePrice.get(),
                 c.fenceOfferCount.get(),
+                c.fenceOfferMaxUses.get(),
                 c.fenceRestockIntervalDays.get()));
         problems.addAll(validateCompliance(
                 c.civilianCrimeReactionSpeedMultiplier.get(),

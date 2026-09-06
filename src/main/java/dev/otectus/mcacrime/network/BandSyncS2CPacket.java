@@ -24,8 +24,11 @@ public record BandSyncS2CPacket(UUID player, Band band) {
 
     public static void handle(BandSyncS2CPacket msg, Supplier<NetworkEvent.Context> ctx) {
         NetworkEvent.Context context = ctx.get();
+        context.setPacketHandled(true);
+        if (!context.getDirection().getReceptionSide().isClient()) {
+            return;
+        }
         context.enqueueWork(() ->
                 DistExecutor.unsafeRunWhenOn(Dist.CLIENT, () -> () -> CrimeClientHandlers.onBandSync(msg)));
-        context.setPacketHandled(true);
     }
 }

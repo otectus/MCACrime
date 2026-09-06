@@ -2,8 +2,8 @@ package dev.otectus.mcacrime.network;
 
 import dev.otectus.mcacrime.enforcement.ChallengeResponse;
 import dev.otectus.mcacrime.enforcement.GuardChallengeService;
+import io.netty.handler.codec.DecoderException;
 import net.minecraft.network.FriendlyByteBuf;
-import net.minecraft.server.level.ServerPlayer;
 import net.minecraftforge.network.NetworkEvent;
 
 import java.util.UUID;
@@ -17,9 +17,11 @@ import java.util.function.Supplier;
  * server matches it against the challenge it actually opened, so a replayed or forged packet answers
  * an encounter that no longer exists and does nothing at all.
  *
- * <p>The response ordinal is clamped on read rather than validated by throwing. A decode that throws
- * drops the connection, and the safe substitute here is {@code REFUSE} — the same thing not answering
- * would have produced.
+ * <p>The response travels as a name and an unknown one is refused at the decoder, not substituted.
+ * The old policy clamped to {@code REFUSE}, which reads as harmless until you notice it turns "I could
+ * not understand this packet" into "the player declined" — a decode failure that surrenders the
+ * player's choice for them. A rejected packet leaves the encounter open, and the window's own timeout
+ * is what produces a refusal.
  */
 public record GuardChallengeResponseC2SPacket(UUID encounterId, ChallengeResponse response) {
 
@@ -30,22 +32,18 @@ public record GuardChallengeResponseC2SPacket(UUID encounterId, ChallengeRespons
 
     public static void encode(GuardChallengeResponseC2SPacket msg, FriendlyByteBuf buf) {
         buf.writeUUID(msg.encounterId);
-        buf.writeVarInt(msg.response.ordinal());
+        PacketBounds.writeEnum(buf, msg.response);
     }
 
     public static GuardChallengeResponseC2SPacket decode(FriendlyByteBuf buf) {
-        return new GuardChallengeResponseC2SPacket(buf.readUUID(),
-                ChallengeResponse.byOrdinal(buf.readVarInt()));
+        UUID encounterId = buf.readUUID();
+        ChallengeResponse response = PacketBounds.readEnum(buf, ChallengeResponse.class)
+                .orElseThrow(() -> new DecoderException("Unknown challenge response"));
+        return new GuardChallengeResponseC2SPacket(encounterId, response);
     }
 
     public static void handle(GuardChallengeResponseC2SPacket msg, Supplier<NetworkEvent.Context> ctx) {
-        NetworkEvent.Context context = ctx.get();
-        context.enqueueWork(() -> {
-            ServerPlayer sender = context.getSender();
-            if (sender != null) {
-                GuardChallengeService.respond(sender, msg.encounterId(), msg.response());
-            }
-        });
-        context.setPacketHandled(true);
+        ServerPacketGuard.accept(ctx, RequestBudget.Category.CHALLENGE,
+                sender -> GuardChallengeService.respond(sender, msg.encounterId(), msg.response()));
     }
 }

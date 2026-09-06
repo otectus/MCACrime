@@ -219,6 +219,39 @@ re-evaluation is bounded by the per-village cooldown rather than by a margin on 
 | `captiveCanEscapeByDistance` | `true` | — | A kidnapping captive who strays past the tether escapes — and escaping kidnapping is never a crime. Set false and they are pulled back instead. |
 | `npcCaptiveVirtualizeWhenUnloaded` | `true` | — | An NPC captive in an unloaded chunk is virtually contained rather than force-loading the chunk. Turning this off makes every captive a permanently loaded chunk. |
 
+## `[criminalJobs]`
+
+Autonomous criminal professions: thieves who target and rob players, and fences who trade contraband
+with dynamic pricing.
+
+### `[criminalJobs.thief]`
+
+| Option | Default | Range | What it does |
+|---|---|---|---|
+| `enableThieves` | `true` | — | Whether villagers with the thief profession autonomously scout, mug, and flee. |
+| `enableMuggingThieves` | `true` | — | Whether thieves specifically perform mugging actions (as opposed to being passive targets). Off leaves thieves as a flaggable profession without autonomous behaviour. |
+| `thiefJailTicks` | `12000` | `200 … 240000` | Sentence length in online ticks when a thief is arrested. 12000 = 10 minutes. A thief comes out of jail still a thief. |
+
+### `[criminalJobs.fence]`
+
+| Option | Default | Range | What it does |
+|---|---|---|---|
+| `enableFences` | `true` | — | Whether villages have fences; without this, stolen goods cannot be traded. |
+| `maxKarmaDiscount` | `0.25` | `0.0 … 1.0` | Largest discount criminal standing earns, at the Red-band threshold. `0.25` = 25% off. |
+| `maxHeatMarkup` | `0.35` | `0.0 … 1.0` | Largest surcharge Heat adds, at the Wanted threshold. Stacks with the discount above. |
+| `wantedMarkup` | `0.20` | `0.0 … 1.0` | Flat surcharge added while the player is Wanted. Stacks with the heat markup. |
+| `minimumPriceMultiplier` | `0.55` | `0.05 … 1.0` | Floor on the combined multiplier; must be below `maximumPriceMultiplier`. **The validator warns if `buyPriceRatio` would make this ineffective, and clamps it accordingly.** |
+| `maximumPriceMultiplier` | `2.50` | `1.0 … 10.0` | Ceiling on the combined multiplier. |
+| `buyPriceRatio` | `0.5` | `0.05 … 0.95` | What a fence pays for goods, as a fraction of what it sells them for. Always resolved strictly less than 1.0, so buying and re-selling cannot turn a profit. **The validator warns if `buyPriceRatio > minimumPriceMultiplier`, because that would let a fence pay more than the least it ever sells for — an arbitrage loop. It is clamped down to at most `minimumPriceMultiplier` by the compact constructor.** |
+| `defaultBasePrice` | `8` | `1 … 100000` | Price used for contraband that a tag names but no price file gives a value. |
+| `offerCount` | `6` | `1 … 12` | How many different trades one fence offers at a time. |
+| `offerMaxUses` | `8` | `1 … 4096` | How many times each trade may be repeated before that stock runs out. Uses are persisted per fence and survive closing the screen, relogging and a restart; they reset when the fence restocks. |
+| `restockIntervalDays` | `1` | `0 … 30` | In-game days a fence keeps the same stock before re-rolling it. `0` means every time the menu opens gets a fresh roll. |
+
+**Pricing formula.** A fence sells at `basePrice × minimumOrMaximumMultiplier`, where the multiplier is clamped
+between minimum and maximum after karma and Heat adjustments. A fence buys at `basePrice × buyPriceRatio × buyRiskReduction`
+and caps it at `sell - 1`, using only Heat and Wanted risk (no karma discount) to compute the reduction.
+
 ## `[npccrime]` — declared, not yet wired
 
 | Option | Default | Range |

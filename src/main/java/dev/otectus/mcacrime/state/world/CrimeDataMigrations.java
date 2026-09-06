@@ -49,8 +49,15 @@ public final class CrimeDataMigrations {
      */
     public static final int SCHEMA_0_5_1 = 7;
 
+    /**
+     * The schema 0.6.0 writes. Like {@link #SCHEMA_0_5_1} it adds only optional fields and empty
+     * collections, so {@link #v7to8} writes nothing at all; what the number buys is that every field
+     * added across this release is behind one version rather than eight half-versions.
+     */
+    public static final int SCHEMA_0_6_0 = 8;
+
     /** The schema this build writes. */
-    public static final int CURRENT_SCHEMA = SCHEMA_0_5_1;
+    public static final int CURRENT_SCHEMA = SCHEMA_0_6_0;
 
     /** Root NBT key holding the schema integer. Absent means 0. */
     public static final String TAG_SCHEMA = "schema";
@@ -100,6 +107,9 @@ public final class CrimeDataMigrations {
         }
         if (schema < 7) {
             working = v6to7(working);
+        }
+        if (schema < 8) {
+            working = v7to8(working);
         }
         working.putInt(TAG_SCHEMA, CURRENT_SCHEMA);
         return working;
@@ -291,6 +301,32 @@ public final class CrimeDataMigrations {
     public static CompoundTag v6to7(CompoundTag tag) {
         CompoundTag out = tag.copy();
         out.putInt(TAG_SCHEMA, 7);
+        return out;
+    }
+
+    /**
+     * Stamps the 0.6.0 schema and writes nothing whatsoever.
+     *
+     * <p>Every field this release adds is optional, and every one of them reads its absence as the
+     * legacy answer, which is what makes an empty step the correct step rather than a lazy one:
+     * {@code sentenceId} on a case is null (the case belongs to no sentence), {@code surrenderCredited}
+     * and {@code legacyBound} on a jail state are false (nobody has claimed the discount, and the
+     * legacy case binding has not been attempted), {@code legacyBound} on a holding cell is false for
+     * the same reason on the NPC side, {@code paidAmount} on a bounty claim is absent (the claim is
+     * treated as fully consumed, which is the conservative reading), and the {@code fenceStock},
+     * {@code transactions}, {@code propertyEscrow}, {@code pendingCellRestorations} and
+     * {@code quarantine} lists are all empty.
+     *
+     * <p>The temptation this step exists to refuse is seeding those defaults with something plausible.
+     * Binding a live sentence to the cases open when it started would be a guess about which charges a
+     * sentence was for, made from a start tick no 0.5.1 world recorded; giving a legacy bounty claim a
+     * {@code paidAmount} of zero would say the warrant had never been paid, which is precisely the
+     * double-pay this release closes. Nothing here knows those answers, so nothing here writes them —
+     * the fields are filled in by the code that genuinely learns the value, at the moment it learns it.
+     */
+    public static CompoundTag v7to8(CompoundTag tag) {
+        CompoundTag out = tag.copy();
+        out.putInt(TAG_SCHEMA, 8);
         return out;
     }
 

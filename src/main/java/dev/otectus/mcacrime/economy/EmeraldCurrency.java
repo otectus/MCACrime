@@ -77,6 +77,12 @@ public final class EmeraldCurrency implements Currency {
     }
 
     @Override
+    public long stacksNeeded(long amount) {
+        long perStack = Math.max(1, Items.EMERALD.getMaxStackSize());
+        return amount <= 0L ? 0L : (amount + perStack - 1L) / perStack;
+    }
+
+    @Override
     public List<ItemStack> toStacks(long amount) {
         List<ItemStack> stacks = new ArrayList<>();
         long remaining = Math.max(0L, amount);

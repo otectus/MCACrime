@@ -31,8 +31,9 @@ import java.util.concurrent.ConcurrentHashMap;
  *
  * <p>Every handler opens with the same phase check, which short-circuits for essentially every event
  * the game fires — the same shape as {@code ContainmentHandler}'s not-jailed test. Restraint is not a
- * separate flag anybody sets; it is read from {@link ArrestPhase} through {@link ArrestPhases}, so
- * there is no way for a player to be cuffed by one system and free according to another.
+ * separate flag anybody sets; it is read through {@link RestraintPolicy}, which combines the arrest
+ * phases with the custody table, so there is no way for a player to be cuffed by one system and free
+ * according to another.
  *
  * <p>The speed penalty is an attribute modifier rather than {@code MobEffects.MOVEMENT_SLOWDOWN}: a
  * potion effect would be visible in the inventory, emit particles, and — decisively — be curable with
@@ -151,7 +152,7 @@ public final class RestraintHandlers {
         if (!(event.getEntity() instanceof ServerPlayer player)) {
             return;
         }
-        if (ArrestStates.isRestrained(player)) {
+        if (RestraintPolicy.effective(player).isPresent()) {
             applySpeedModifier(player);
         } else {
             removeSpeedModifier(player);
@@ -164,7 +165,7 @@ public final class RestraintHandlers {
     private static boolean restricted(Player player) {
         return player instanceof ServerPlayer server
                 && McaCrimeConfig.COMMON.restrainedPlayerRestrictions.get()
-                && ArrestStates.isRestrained(server);
+                && RestraintPolicy.effective(server).isPresent();
     }
 
     private static void deny(Event event, Player player) {

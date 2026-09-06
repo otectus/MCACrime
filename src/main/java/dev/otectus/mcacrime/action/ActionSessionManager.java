@@ -14,9 +14,11 @@ import java.util.concurrent.CopyOnWriteArrayList;
 /** Enforces one action per actor, one hostile lock per target, and in-memory nonce replay protection. */
 public final class ActionSessionManager {
     private static final int MAX_RESULTS_PER_ACTOR = 256;
+    private static final int MAX_NONCES_PER_ACTOR = 256;
     private static final Map<UUID, ActionSession> BY_ACTOR = new ConcurrentHashMap<>();
     private static final Map<UUID, UUID> TARGET_LOCKS = new ConcurrentHashMap<>();
     private static final Map<UUID, Map<UUID, ActionResult>> RESULTS = new ConcurrentHashMap<>();
+    private static final Map<UUID, Map<UUID, Long>> NONCE_PAYLOADS = new ConcurrentHashMap<>();
     private static final List<SessionEndListener> END_LISTENERS = new CopyOnWriteArrayList<>();
 
     private ActionSessionManager() {}
@@ -69,13 +71,21 @@ public final class ActionSessionManager {
     public static boolean targetLocked(UUID target) { return TARGET_LOCKS.containsKey(target); }
     public static ArrayList<ActionSession> active() { return new ArrayList<>(BY_ACTOR.values()); }
 
-    public static synchronized void finish(ActionSession session, ActionResult result) {
-        finish(session, result, null);
+    /**
+     * Ends a session exactly once.
+     *
+     * @return whether this call was the one that ended it. A second terminal call — the ticker
+     *         completing an action that a damage event cancelled in the same tick, say — returns
+     *         false and does nothing at all: no second payout, no second listener notification, and
+     *         no releasing a target lock that a following session has already taken.
+     */
+    public static synchronized boolean finish(ActionSession session, ActionResult result) {
+        return session.settle(result) && complete(session, result, null);
     }
 
     /** As {@link #finish}, carrying the cancellation reason through to the end listeners. */
-    private static synchronized void finish(ActionSession session, ActionResult result,
-                                            @Nullable CancelReason reason) {
+    private static synchronized boolean complete(ActionSession session, ActionResult result,
+                                                 @Nullable CancelReason reason) {
         BY_ACTOR.remove(session.actorId(), session);
         TARGET_LOCKS.remove(session.targetId(), session.actorId());
         remember(session.actorId(), session.requestNonce(), result);
@@ -91,6 +101,7 @@ public final class ActionSessionManager {
                 dev.otectus.mcacrime.McaCrime.LOGGER.debug("Action session end listener failed; ignoring", t);
             }
         }
+        return true;
     }
 
     public static synchronized void remember(UUID actor, UUID nonce, ActionResult result) {
@@ -101,11 +112,43 @@ public final class ActionSessionManager {
         }
     }
 
-    public static synchronized void cancel(ActionSession session, CancelReason reason) {
+    public static synchronized boolean cancel(ActionSession session, CancelReason reason) {
+        ActionResult result = ActionResult.rejected(
+                "mcacrime.action.cancel." + reason.name().toLowerCase(java.util.Locale.ROOT));
+        // Claim the ending before running the handler's cancel hook, so a session that has already
+        // finished is never rolled back by a cancellation that arrived after it.
+        if (!session.settle(result)) return false;
         CrimeActionHandler handler = ActionHandlerRegistry.get(session.actionId());
         if (handler != null) handler.cancel(session, reason);
-        finish(session, ActionResult.rejected("mcacrime.action.cancel." + reason.name().toLowerCase(java.util.Locale.ROOT)),
-                reason);
+        return complete(session, result, reason);
+    }
+
+    /**
+     * The hash the replay cache compares a repeated nonce against.
+     *
+     * <p>A nonce alone only proves "I have sent this before". Hashing the request beside it is what
+     * makes a replay detectable as a <em>different</em> request wearing an old nonce — the shape of
+     * attack that otherwise turns one authorised mugging into an authorisation for any action against
+     * any target, because the nonce is the only thing the server was checking.
+     */
+    public static long payloadHash(UUID nonce, ResourceLocation actionId, UUID target, int menuRevision) {
+        return java.util.Objects.hash(nonce, actionId, target, menuRevision) & 0xFFFFFFFFL;
+    }
+
+    /**
+     * Records this nonce's payload, or reports that the same nonce was already used for a different
+     * one. The first caller wins; a repeat of the identical request is allowed through so an honest
+     * client retry still reaches the ordinary replay cache.
+     */
+    public static synchronized boolean claimNonce(UUID actor, UUID nonce, long payloadHash) {
+        Map<UUID, Long> perActor = NONCE_PAYLOADS.computeIfAbsent(actor, ignored -> new java.util.LinkedHashMap<>());
+        Long seen = perActor.get(nonce);
+        if (seen != null) return seen == payloadHash;
+        perActor.put(nonce, payloadHash);
+        while (perActor.size() > MAX_NONCES_PER_ACTOR) {
+            perActor.remove(perActor.keySet().iterator().next());
+        }
+        return true;
     }
 
     public static Optional<ActionResult> replay(UUID actor, UUID nonce) {
@@ -130,6 +173,7 @@ public final class ActionSessionManager {
         BY_ACTOR.remove(actor);
         TARGET_LOCKS.values().removeIf(actor::equals);
         RESULTS.remove(actor);
+        NONCE_PAYLOADS.remove(actor);
     }
 
     public static int activeCount() { return BY_ACTOR.size(); }

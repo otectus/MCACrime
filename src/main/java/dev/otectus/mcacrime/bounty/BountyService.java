@@ -19,6 +19,7 @@ import dev.otectus.mcacrime.ledger.WarrantService;
 import dev.otectus.mcacrime.state.CrimeCapabilities;
 import dev.otectus.mcacrime.state.PlayerCrimeData;
 import dev.otectus.mcacrime.state.world.CrimeWorldData;
+import dev.otectus.mcacrime.state.world.ServerMutationGate;
 import dev.otectus.mcacrime.util.CrimeDebug;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
@@ -261,15 +262,51 @@ public final class BountyService {
      * currency moves, so the worst a crash between the two can do is cost the hunter a payout. The
      * reverse order would let a crash pay the same warrant revision twice.
      */
+    /** Whether the claim was taken, and what it turned out to be worth once it was. */
+    public record Payout(boolean claimed, long amount) {
+    }
+
+    /**
+     * Claims one warrant revision and says what it pays, against a ledger rather than a server.
+     *
+     * <p>The claim-before-credit order lives here, which is the point of pulling it out: the guarantee
+     * is a property of the ledger, not of the currency, and it can be asserted without one. The server
+     * overload keeps everything that is genuinely about a player — the credit, the karma, the message,
+     * the event — and does all of it only when this says the claim was taken.
+     *
+     * @param asking what the warrant is worth to this claimant before the ledger has had its say;
+     *               what is returned is that less whatever the same warrant has already paid out
+     */
+    public static Payout pay(CrimeWorldData data, BountyClaimKey key, UUID claimant, long asking, long now,
+                             BountyResolutionType type) {
+        if (!ServerMutationGate.allows(data)) {
+            // The claim row is the anti-double-pay mechanism. Paying without being able to record it
+            // would pay the same head again on the next kill, and again after that.
+            return new Payout(false, 0L);
+        }
+        long price = Math.max(0L, asking);
+        // What this warrant has already cost, across every revision of it. A revision re-opens the
+        // claim key at the new price, so without this a hunter could be paid the whole price again for
+        // a head that has only become slightly more expensive (0.6.0, audit finding B09).
+        long consumed = BountyClaimLedger.alreadyPaid(data, key.target(), key.warrantId(), price);
+        long principal = Math.max(0L, price - consumed);
+        if (!BountyClaimLedger.tryClaim(data, key, claimant, principal, now, type)) {
+            return new Payout(false, 0L);
+        }
+        return new Payout(true, principal);
+    }
+
     private static boolean pay(MinecraftServer server, ServerPlayer claimant, ServerPlayer target,
                                Warrant warrant, BountyResolutionType type, double multiplier,
                                String messageKey) {
         BountyClaimKey key = BountyClaimKey.of(warrant);
-        long principal = Math.max(0L, Math.round(price(server, target.getUUID()) * Math.max(0.0D, multiplier)));
+        long asking = Math.max(0L, Math.round(price(server, target.getUUID()) * Math.max(0.0D, multiplier)));
         long now = server.overworld().getGameTime();
-        if (!BountyClaimLedger.tryClaim(server, key, claimant.getUUID(), principal, now, type)) {
+        Payout payout = pay(CrimeWorldData.get(server), key, claimant.getUUID(), asking, now, type);
+        if (!payout.claimed()) {
             return false; // already paid for this warrant revision, or a self-claim
         }
+        long principal = payout.amount();
         if (principal > 0L) {
             Currencies.active().credit(claimant, principal, TransactionReason.BOUNTY);
         }

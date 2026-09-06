@@ -10,6 +10,112 @@ Compatibility: Minecraft 1.20.1 · Forge 47.x · requires MCA Reborn `[7.6,8)`, 
 dropped it. Optional: MCA: Reputation `[0.2,)`; the integration itself needs `0.3.0`, and an older
 companion degrades to the built-in store rather than failing the load.
 
+## [0.6.0] — unreleased
+
+Maintenance and integrity release. This update closes reliability defects in payment, capture, 
+sentencing, packets, persistence, and world recovery; guards the frontier between older and newer 
+saves; and hardens the finite-economy guarantees. Fines now quote the exact amount per case and 
+refuse outright when not allowed; surrender only writes its discount after successful arrest; 
+sentences bind only their own cases; and a save written by a newer version is opened read-only 
+until the problem is fixed. Protocol and schema bump to prevent incompatible clients and worlds 
+from silently disagreeing.
+
+### Added
+
+- **New config option `criminalJobs.fence.offerMaxUses`.** How many times each fence trade may be 
+  repeated before that specific offer runs out. Uses are persisted per fence and survive relogging 
+  and restarts; they reset when the fence restocks (default: 8, range: 1–4096).
+- **Fence stock persistence.** Stock no longer resets on screen close — each fence's uses and 
+  available trades are persisted in the save and survive restocking intervals.
+- **Five new lang keys** for new player-facing outcomes: `mcacrime.surrender.already_serving`, 
+  `mcacrime.surrender.failed`, `mcacrime.arrest.no_custody`, `mcacrime.readonly`, and 
+  `mcacrime.escrow.delivered`.
+- **Transaction receipts** track payment state (PREPARED, SOURCE_DEBITED, DELIVERY_PENDING, DELIVERED,
+  REJECTED, NEEDS_RECONCILIATION) for finite-economy auditing and recovery. Debit is recorded before
+  credit; credit failure marks the receipt as NEEDS_RECONCILIATION rather than retrying.
+- **Property escrow.** Stolen goods that cannot be delivered to their owner become a property lot 
+  and are delivered on player login.
+- **Restored-cell journal.** Cells that fail block restoration mid-dismantle record the unresolved 
+  block positions for retry rather than silently abandoning them.
+- **Safe-destination validation** before teleporting a player into jail. Collision, support, 
+  hazards, fluids, border, chunk load state, and occupied cells are all checked; arrest fails 
+  with a clear outcome if teleport cannot succeed.
+- **Sentence identity** linking case resolutions to their sentence. NPC release now settles the 
+  NPC's cases, not unrelated ones.
+- **Bounty claim tracking.** Each claim carries how much was paid, so revision and expiry do not 
+  reopen rewards that were already collected.
+- **Read-only mode** for worlds written by a newer schema. Operators with sufficient permission 
+  see a `mcacrime.readonly` message; all Crime mutations are blocked until the version mismatch 
+  is resolved.
+
+### Changed
+
+- **Protocol version 7 → 8.** Every packet now declares its direction explicitly; array and list 
+  bounds are validated at decode rather than clamped; and a `RequestBudget` per player throttles 
+  menu and ledger requests. Clients on protocol 7 are rejected at handshake.
+- **World data schema 7 → 8.** This build adds optional fields and collections for sentence 
+  identity, bounty claim payment tracking, transaction receipts, property escrow, restored-cell 
+  journal, and fence stock. Legacy fields are absent by default; existing worlds are not rewritten 
+  on load. Legacy sentences bind their cases at the offender's first login; legacy bounty claims 
+  count as fully paid.
+- **Fines now quote and settle per-case.** `SettlementPolicy` computes an exact per-case amount 
+  before any debit; the quote is used by the guard screen, dossier, command and action handler 
+  alike. Cases flagged `MANDATORY_CUSTODY` refuse the fine regardless of entry point, and a 
+  failed resolution leaves Heat untouched.
+- **Surrender only writes its discount after arrest succeeds.** Heat reduction, surrender 
+  timestamp and discount are now deferred until custody is committed. Repeat surrender while a 
+  sentence is active is refused with `mcacrime.surrender.already_serving`. Failure to establish 
+  custody produces `mcacrime.surrender.failed` and leaves the offender exactly as found.
+- **Sentences now bind their cases.** `SentenceResolutionService` settles only the cases that 
+  were sentenced, not all open cases. NPC release now settles the NPC's own cases through the 
+  same path, rather than shadowing player releases.
+- **Restraint consumption timing.** The restraint item is consumed only after custody is 
+  committed, not when capture starts. Failed captures leave inventory untouched.
+- **Restraint visual policy.** Players and villagers held by hunters or kidnappers now render 
+  with pose and cuffs, not only lawfully arrested players. `RestraintPolicy` decides who is 
+  posed and restricted.
+- **Capture commit result.** `ArrestService.Outcome` carries typed outcomes including `NO_CUSTODY` and
+  `NO_CELL` (distinct from other failures), which abort an arrest instead of accepting the capture.
+  `CaptureCommitResult` carries its own typed outcomes: CAPTURED, ALREADY_HELD, QUOTA_FULL,
+  TARGET_INVALID, RESTRAINT_MISSING, SESSION_LOST, GATED.
+- **Fence pricing validator.** `ConfigValidator` now warns and clamps effective `buyPriceRatio` 
+  if it would make the final price negative or non-finite. `FencePriceLoader` rejects entries 
+  that are non-finite, out of range, or name unknown items; keeps the last good map when a file 
+  fails; and replaces stock (rather than OR-merging) when `"sells"` or `"buys"` appears in a 
+  price file.
+- **World-data robustness.** `ServerMutationGate` closes mutations when the save is from a newer 
+  schema or failed to load. Malformed records are quarantined in a bounded list and saved back 
+  out for manual inspection. Capacity limits are enforced at insertion via `CapacityResult` 
+  rather than truncating at load.
+
+### Fixed
+
+- **Payment and settlement no longer race.** `EconomicTransactionService` records the debit before
+  the credit is attempted; if the debit fails, the receipt is marked REJECTED and nothing is persisted.
+  If the credit fails after the debit succeeds, the receipt is marked NEEDS_RECONCILIATION for operator
+  reconciliation rather than being retried.
+- **Bounty claims no longer reopen on revision.** `BountyService.pay` pays only the unpaid delta 
+  on warrant revision, and legacy claims count as fully paid. `BountyClaimLedger.expire` keeps 
+  claims whose warrant still exists.
+- **Fence pricing arithmetic is saturating.** Price calculations use `SafeMath` for fine, fence 
+  and bounty multiplications, clamping to long min/max rather than wrapping.
+- **Better error recovery for malformed world data.** Records that fail to deserialize are 
+  quarantined rather than crashing the load. The quarantine list survives saves so an operator 
+  can inspect and manually fix or discard them.
+
+### Notes
+
+- **B09 and B22 are partially addressed.** B09 (bounty revision) has a no-repay delta guard on warrant
+  revisions (`BountyService.pay`, `BountyClaimLedger.alreadyPaid`) so re-opened warrants pay only the
+  difference, but no reward-lot redesign. B22 (cell removal reliability) journals unresolved block
+  positions for retry (`HoldingCellService`, `pendingCellRestorations`), but has no policy for cells
+  altered by pistons or explosions.
+- **B18 is deferred.** NPC-on-NPC crime fabrication is out of scope for this maintenance release 
+  and will be addressed after the settlement and custody guarantees ship.
+- **19 new test classes** under `src/test/java/dev/otectus/mcacrime` exercise schema migration, 
+  payment settlement, bounty revision handling, capture outcomes, fence pricing, world data 
+  robustness, transaction receipts, and safe-destination validation.
+
 ## [0.5.0] — 2026-09-02
 
 Armed interactions. The crime menu now opens the way the fiction already implied it should: by

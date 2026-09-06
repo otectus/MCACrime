@@ -10,6 +10,7 @@ import dev.otectus.mcacrime.compat.McaCompat;
 import dev.otectus.mcacrime.crime.type.CrimeIds;
 import dev.otectus.mcacrime.detect.CrimeDetector;
 import dev.otectus.mcacrime.detect.WitnessChecker;
+import dev.otectus.mcacrime.economy.TransactionReason;
 import dev.otectus.mcacrime.economy.account.EconomicTransactionService;
 import dev.otectus.mcacrime.enforcement.GuardEnforcement;
 import dev.otectus.mcacrime.item.weapon.WeaponDetector;
@@ -158,7 +159,7 @@ public final class MugActionHandler implements CrimeActionHandler {
                 - world.actionCounter(villageValueKey(target, level, now)));
         int requested = (int) Math.min(Math.min(actorRemaining, villageRemaining), c.muggingBaseLoot.get());
         int transferred = EconomicTransactionService.transferPurseToPlayer(world, session.sessionId(),
-                profile.purse(), player, requested);
+                TransactionReason.MUG, profile.purse(), player, requested, now);
         if (transferred > 0) {
             world.addActionCounter(actorSuccessKey(actor.id(), now), 1L);
             world.addActionCounter(actorValueKey(actor.id(), now), transferred);

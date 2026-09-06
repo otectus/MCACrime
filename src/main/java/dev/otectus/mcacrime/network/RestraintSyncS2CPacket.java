@@ -54,8 +54,11 @@ public record RestraintSyncS2CPacket(UUID subject, boolean restrained, Restraint
 
     public static void handle(RestraintSyncS2CPacket msg, Supplier<NetworkEvent.Context> ctx) {
         NetworkEvent.Context context = ctx.get();
+        context.setPacketHandled(true);
+        if (!context.getDirection().getReceptionSide().isClient()) {
+            return;
+        }
         context.enqueueWork(() ->
                 DistExecutor.unsafeRunWhenOn(Dist.CLIENT, () -> () -> CrimeClientHandlers.onRestraint(msg)));
-        context.setPacketHandled(true);
     }
 }

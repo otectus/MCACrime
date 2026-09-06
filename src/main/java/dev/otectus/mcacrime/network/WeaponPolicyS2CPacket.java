@@ -32,8 +32,11 @@ public record WeaponPolicyS2CPacket(WeaponPolicySnapshot policy) {
 
     public static void handle(WeaponPolicyS2CPacket msg, Supplier<NetworkEvent.Context> ctx) {
         NetworkEvent.Context context = ctx.get();
+        context.setPacketHandled(true);
+        if (!context.getDirection().getReceptionSide().isClient()) {
+            return;
+        }
         context.enqueueWork(() ->
                 DistExecutor.unsafeRunWhenOn(Dist.CLIENT, () -> () -> CrimeClientHandlers.onWeaponPolicy(msg)));
-        context.setPacketHandled(true);
     }
 }

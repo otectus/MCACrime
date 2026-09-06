@@ -8,7 +8,6 @@ import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.fml.DistExecutor;
 import net.minecraftforge.network.NetworkEvent;
 
-import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 import java.util.function.Supplier;
@@ -24,12 +23,13 @@ import java.util.function.Supplier;
 public record RestraintBulkSyncS2CPacket(Map<UUID, RestraintVisualState> restrained) {
 
     public static void encode(RestraintBulkSyncS2CPacket msg, FriendlyByteBuf buf) {
-        buf.writeMap(msg.restrained, FriendlyByteBuf::writeUUID, RestraintBulkSyncS2CPacket::writeState);
+        PacketBounds.writeBoundedMap(buf, msg.restrained, PacketBounds.MAX_MAP_ENTRIES,
+                FriendlyByteBuf::writeUUID, RestraintBulkSyncS2CPacket::writeState);
     }
 
     public static RestraintBulkSyncS2CPacket decode(FriendlyByteBuf buf) {
-        Map<UUID, RestraintVisualState> map = buf.readMap(HashMap::new, FriendlyByteBuf::readUUID,
-                RestraintBulkSyncS2CPacket::readState);
+        Map<UUID, RestraintVisualState> map = PacketBounds.readBoundedMap(buf, PacketBounds.MAX_MAP_ENTRIES,
+                FriendlyByteBuf::readUUID, RestraintBulkSyncS2CPacket::readState);
         return new RestraintBulkSyncS2CPacket(map);
     }
 
@@ -46,8 +46,11 @@ public record RestraintBulkSyncS2CPacket(Map<UUID, RestraintVisualState> restrai
 
     public static void handle(RestraintBulkSyncS2CPacket msg, Supplier<NetworkEvent.Context> ctx) {
         NetworkEvent.Context context = ctx.get();
+        context.setPacketHandled(true);
+        if (!context.getDirection().getReceptionSide().isClient()) {
+            return;
+        }
         context.enqueueWork(() ->
                 DistExecutor.unsafeRunWhenOn(Dist.CLIENT, () -> () -> CrimeClientHandlers.onRestraintBulk(msg)));
-        context.setPacketHandled(true);
     }
 }

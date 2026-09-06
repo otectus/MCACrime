@@ -1,11 +1,14 @@
 package dev.otectus.mcacrime.bounty;
 
+import dev.otectus.mcacrime.ledger.Warrant;
 import dev.otectus.mcacrime.state.world.BountyClaimRecord;
 import dev.otectus.mcacrime.state.world.CrimeWorldData;
+import dev.otectus.mcacrime.util.SafeMath;
 import net.minecraft.server.MinecraftServer;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.OptionalLong;
 import java.util.UUID;
 
 /**
@@ -48,9 +51,36 @@ public final class BountyClaimLedger {
         if (data == null || key == null || claimant == null || claimant.equals(key.target())) {
             return false;
         }
+        long paid = Math.max(0L, reward);
         BountyClaimRecord record = new BountyClaimRecord(key.target(), key.warrantId(), key.revision(),
-                claimant, Math.max(0L, reward), now, type == null ? BountyResolutionType.KILLED : type);
+                claimant, paid, now, type == null ? BountyResolutionType.KILLED : type,
+                OptionalLong.of(paid));
         return data.putBountyClaimIfAbsent(key.asKey(), record);
+    }
+
+    /**
+     * How much has already been paid against this warrant, across every revision of it.
+     *
+     * <p>The subtraction 0.6.0's payout rests on (audit finding B09). A revision does not reset the
+     * price of a head; it re-opens the claim key at the new price, and the hunter is owed the
+     * difference rather than the whole of it again. A claim written before 0.6.0 has no recorded
+     * amount and counts as {@code currentPrice} — the conservative reading the spec asks for, which
+     * costs a hunter a re-claim rather than paying an old warrant twice.
+     *
+     * @param currentPrice what the warrant is worth now, which is what a legacy claim is taken to have consumed
+     */
+    public static long alreadyPaid(CrimeWorldData data, UUID target, UUID warrantId, long currentPrice) {
+        if (data == null || target == null || warrantId == null) {
+            return 0L;
+        }
+        long total = 0L;
+        for (BountyClaimRecord record : data.bountyClaims().values()) {
+            if (!target.equals(record.target()) || !warrantId.equals(record.warrantId())) {
+                continue;
+            }
+            total = SafeMath.addSat(total, record.paidAmount().orElse(Math.max(0L, currentPrice)));
+        }
+        return total;
     }
 
     /** Whether this exact warrant revision has already been paid for. */
@@ -67,7 +97,7 @@ public final class BountyClaimLedger {
      * a new warrant id.
      *
      * @param today the current in-game day
-     * @return how many were dropped
+     * @return how many were dropped, never counting one whose warrant is still open
      */
     public static int expire(MinecraftServer server, long today, int retentionDays) {
         return server == null ? 0 : expire(CrimeWorldData.get(server), today, retentionDays);
@@ -84,9 +114,17 @@ public final class BountyClaimLedger {
         }
         List<String> stale = new ArrayList<>();
         data.bountyClaims().forEach((claimKey, record) -> {
-            if (claimedDay(record) < cutoff) {
-                stale.add(claimKey);
+            if (claimedDay(record) >= cutoff) {
+                return;
             }
+            // A claim is only forgettable once the warrant it was paid against is gone (0.6.0, audit
+            // finding B09). Dropping one while the warrant is still on the books would hand back the
+            // record of what has already been paid, and the next revision would pay it in full again.
+            Warrant warrant = data.warrant(record.target());
+            if (warrant != null && warrant.id().equals(record.warrantId())) {
+                return;
+            }
+            stale.add(claimKey);
         });
         stale.forEach(data::removeBountyClaim);
         return stale.size();

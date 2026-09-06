@@ -26,7 +26,7 @@ import java.util.function.Supplier;
 public record CaseLedgerS2CPacket(List<Row> rows, int totalOpen, long totalDue) {
 
     /** Row cap. A dossier is a summary; a player with more open cases than this has a bigger problem. */
-    public static final int MAX_ROWS = 64;
+    public static final int MAX_ROWS = PacketBounds.MAX_DOSSIER_ROWS;
 
     private static final Resolution[] RESOLUTIONS = Resolution.values();
 
@@ -61,31 +61,34 @@ public record CaseLedgerS2CPacket(List<Row> rows, int totalOpen, long totalDue) 
             buf.writeVarLong(row.committedAt());
             buf.writeVarLong(row.fine());
             buf.writeBoolean(row.witnessed());
-            buf.writeUtf(row.community(), 128);
+            buf.writeUtf(row.community(), PacketBounds.MAX_ID_LENGTH);
         }
         buf.writeVarInt(msg.totalOpen);
         buf.writeVarLong(msg.totalDue);
     }
 
     public static CaseLedgerS2CPacket decode(FriendlyByteBuf buf) {
-        int count = Math.min(MAX_ROWS, Math.max(0, buf.readVarInt()));
+        int count = PacketBounds.readCount(buf, MAX_ROWS);
         List<Row> rows = new ArrayList<>(count);
         for (int i = 0; i < count; i++) {
             UUID caseId = buf.readUUID();
-            ResourceLocation type = buf.readResourceLocation();
+            ResourceLocation type = PacketBounds.readResourceLocation(buf);
             int ordinal = buf.readVarInt();
             Resolution resolution = ordinal >= 0 && ordinal < RESOLUTIONS.length
                     ? RESOLUTIONS[ordinal] : Resolution.UNRESOLVED;
             rows.add(new Row(caseId, type, resolution, buf.readVarLong(), buf.readVarLong(),
-                    buf.readBoolean(), buf.readUtf(128)));
+                    buf.readBoolean(), PacketBounds.readId(buf)));
         }
         return new CaseLedgerS2CPacket(rows, buf.readVarInt(), buf.readVarLong());
     }
 
     public static void handle(CaseLedgerS2CPacket msg, Supplier<NetworkEvent.Context> ctx) {
         NetworkEvent.Context context = ctx.get();
+        context.setPacketHandled(true);
+        if (!context.getDirection().getReceptionSide().isClient()) {
+            return;
+        }
         context.enqueueWork(() -> DistExecutor.unsafeRunWhenOn(Dist.CLIENT,
                 () -> () -> CrimeClientHandlers.onCaseLedger(msg)));
-        context.setPacketHandled(true);
     }
 }

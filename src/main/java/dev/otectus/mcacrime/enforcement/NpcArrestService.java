@@ -86,7 +86,7 @@ public final class NpcArrestService {
 
         // 3. Custody, restraints, and the physical hold.
         if (!CustodyService.captureNpcLawful(server, thief, CustodyOwner.guard(guardId), RestraintType.CUFFS,
-                thief.blockPosition(), level.dimension().location())) {
+                thief.blockPosition(), level.dimension().location()).ok()) {
             return false;
         }
         CrimeWorldData data = CrimeWorldData.get(server);

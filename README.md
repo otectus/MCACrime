@@ -174,7 +174,7 @@ it stays behind the single state chokepoint on purpose. See **[API.md](API.md)**
 
 ## Upgrading an existing world
 
-Older saves are migrated on load through schema 4 without a server or a config
+Older saves are migrated on load through schema 8 without a server or a config
 being consulted. The migration is **not reversible** — take a copy of your world first. The
 policy, what changes about village identity, and what an old jar does with a new save are in
 **[MIGRATION.md](MIGRATION.md)**.

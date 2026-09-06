@@ -39,7 +39,7 @@ public final class RestrainActionHandler implements CrimeActionHandler {
         ServerPlayer player = actor.asPlayer();
         if (player == null) return ActionResult.rejected("mcacrime.capture.invalid");
         RestraintType restraint = CrimeItems.bestRestraint(player);
-        return CaptureService.tryBeginCapture(player, target, restraint)
+        return CaptureService.tryBeginCapture(player, target, restraint, nonce)
                 ? ActionResult.accepted("mcacrime.capture.channeling")
                 : ActionResult.rejected(evaluate(actor, target, level, level.getGameTime()).reason());
     }

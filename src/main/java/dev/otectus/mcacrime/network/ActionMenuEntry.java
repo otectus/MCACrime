@@ -27,7 +27,7 @@ public record ActionMenuEntry(ResourceLocation actionId,
                               String reasonKey) {
 
     /** Caps the requirement strip so a malformed or hostile packet cannot make the client draw forever. */
-    public static final int MAX_REQUIREMENTS = 8;
+    public static final int MAX_REQUIREMENTS = PacketBounds.MAX_REQUIREMENT_KEYS;
 
     public ActionMenuEntry {
         requirementKeys = List.copyOf(requirementKeys);

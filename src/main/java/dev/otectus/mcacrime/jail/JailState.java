@@ -38,6 +38,24 @@ public final class JailState {
      * extended keeps its original id, because it is still the same stretch of time being served.
      */
     private UUID sentenceId = UUID.randomUUID();
+    /**
+     * Whether this sentence already granted the surrender discount (0.6.0).
+     *
+     * <p>Surrender used to be collectable once per encounter rather than once per sentence, so a
+     * prisoner could keep surrendering to the same guard and keep shortening the term. The flag makes
+     * the discount a property of the sentence, where it belongs.
+     */
+    private boolean surrenderCredited;
+    /**
+     * Whether the pre-0.6.0 case binding has already been attempted for this sentence (0.6.0).
+     *
+     * <p>The inference runs when a sentence binds no cases, and "binds no cases" is also the honest
+     * answer for a legacy sentence whose charges were all settled or pardoned in the meantime. Without
+     * this flag the inference would fire again on every single login for the rest of the term, and each
+     * time it would sweep up whatever the player had done since -- turning a one-time upgrade
+     * assumption into a standing amnesty. It runs once and says so.
+     */
+    private boolean legacyBound;
 
     public JailState() {
     }
@@ -104,6 +122,24 @@ public final class JailState {
         }
     }
 
+    /** True once this sentence has paid out the surrender discount. */
+    public boolean isSurrenderCredited() {
+        return surrenderCredited;
+    }
+
+    public void setSurrenderCredited(boolean surrenderCredited) {
+        this.surrenderCredited = surrenderCredited;
+    }
+
+    /** True once the legacy case binding has been attempted; it never runs a second time. */
+    public boolean isLegacyBound() {
+        return legacyBound;
+    }
+
+    public void setLegacyBound(boolean legacyBound) {
+        this.legacyBound = legacyBound;
+    }
+
     public boolean isEscaped() {
         return escaped;
     }
@@ -127,6 +163,8 @@ public final class JailState {
         c.modeSnapshot = modeSnapshot;
         c.escaped = escaped;
         c.sentenceId = sentenceId;
+        c.surrenderCredited = surrenderCredited;
+        c.legacyBound = legacyBound;
         return c;
     }
 
@@ -146,6 +184,12 @@ public final class JailState {
         tag.putString("mode", modeSnapshot.name());
         tag.putBoolean("escaped", escaped);
         tag.putUUID("sentenceId", sentenceId);
+        if (surrenderCredited) {
+            tag.putBoolean("surrenderCredited", true);
+        }
+        if (legacyBound) {
+            tag.putBoolean("legacyBound", true);
+        }
         return tag;
     }
 
@@ -165,6 +209,11 @@ public final class JailState {
         if (tag.hasUUID("sentenceId")) {
             s.sentenceId = tag.getUUID("sentenceId");
         }
+        // Absent on every sentence saved before 0.6.0. False is the right legacy default: an in-flight
+        // sentence has not been credited under the new rule, and the first surrender still counts.
+        s.surrenderCredited = tag.getBoolean("surrenderCredited");
+        // Absent means the inference has not run, which is exactly right for a 0.5.1 sentence.
+        s.legacyBound = tag.getBoolean("legacyBound");
         return s;
     }
 }

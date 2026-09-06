@@ -3,7 +3,6 @@ package dev.otectus.mcacrime.network;
 import dev.otectus.mcacrime.action.CrimeActionService;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.resources.ResourceLocation;
-import net.minecraft.server.level.ServerPlayer;
 import net.minecraftforge.network.NetworkEvent;
 
 import java.util.UUID;
@@ -17,12 +16,10 @@ public record StartActionC2SPacket(UUID nonce, UUID menuId, int menuRevision,
     }
     public static StartActionC2SPacket decode(FriendlyByteBuf buf) {
         return new StartActionC2SPacket(buf.readUUID(), buf.readUUID(), buf.readVarInt(),
-                buf.readResourceLocation(), buf.readUUID());
+                PacketBounds.readResourceLocation(buf), buf.readUUID());
     }
     public static void handle(StartActionC2SPacket msg, Supplier<NetworkEvent.Context> ctx) {
-        NetworkEvent.Context context = ctx.get();
-        ServerPlayer sender = context.getSender();
-        if (sender != null) context.enqueueWork(() -> CrimeActionService.startFromMenu(sender, msg));
-        context.setPacketHandled(true);
+        ServerPacketGuard.accept(ctx, RequestBudget.Category.ACTION,
+                sender -> CrimeActionService.startFromMenu(sender, msg));
     }
 }

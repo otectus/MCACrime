@@ -11,16 +11,23 @@ import dev.otectus.mcacrime.item.weapon.WeaponPolicySnapshot;
 import dev.otectus.mcacrime.jail.JailService;
 import dev.otectus.mcacrime.job.CriminalJob;
 import dev.otectus.mcacrime.state.world.CrimeWorldData;
+import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
+import net.minecraftforge.network.NetworkDirection;
+import net.minecraftforge.network.NetworkEvent;
 import net.minecraftforge.network.NetworkRegistry;
 import net.minecraftforge.network.PacketDistributor;
 import net.minecraftforge.network.simple.SimpleChannel;
 
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
+import java.util.function.BiConsumer;
+import java.util.function.Function;
+import java.util.function.Supplier;
 
 /**
  * Our own Forge {@link SimpleChannel} (independent of MCA's network, spec §13/§18). All sync is
@@ -29,10 +36,10 @@ import java.util.UUID;
  */
 public final class CrimeNetwork {
 
-    // 7: the restraint sync pair now carries a RestraintVisualType and covers NPCs as well as
-    // players. A 6 client would read the enum byte as part of the guard entity id and draw the rope to
-    // whatever entity that happened to be, so the two versions must not talk to each other.
-    private static final String PROTOCOL_VERSION = "7";
+    // 8: every message is now registered with an explicit direction, counts are rejected rather than
+    // clamped, and the guard response travels as a name instead of an ordinal. A 7 client would send an
+    // ordinal that decodes as a string of the wrong length, which is a dropped connection at best.
+    private static final String PROTOCOL_VERSION = "8";
 
     public static final SimpleChannel CHANNEL = NetworkRegistry.newSimpleChannel(
             new ResourceLocation(McaCrime.MOD_ID, "main"),
@@ -46,48 +53,70 @@ public final class CrimeNetwork {
     }
 
     public static void register() {
-        CHANNEL.registerMessage(nextId++, SelfStatusS2CPacket.class,
+        toClient(SelfStatusS2CPacket.class,
                 SelfStatusS2CPacket::encode, SelfStatusS2CPacket::decode, SelfStatusS2CPacket::handle);
-        CHANNEL.registerMessage(nextId++, BandSyncS2CPacket.class,
+        toClient(BandSyncS2CPacket.class,
                 BandSyncS2CPacket::encode, BandSyncS2CPacket::decode, BandSyncS2CPacket::handle);
-        CHANNEL.registerMessage(nextId++, BandBulkSyncS2CPacket.class,
+        toClient(BandBulkSyncS2CPacket.class,
                 BandBulkSyncS2CPacket::encode, BandBulkSyncS2CPacket::decode, BandBulkSyncS2CPacket::handle);
-        CHANNEL.registerMessage(nextId++, CaptiveStatusS2CPacket.class,
+        toClient(CaptiveStatusS2CPacket.class,
                 CaptiveStatusS2CPacket::encode, CaptiveStatusS2CPacket::decode, CaptiveStatusS2CPacket::handle);
-        CHANNEL.registerMessage(nextId++, RequestActionMenuC2SPacket.class,
+        toServer(RequestActionMenuC2SPacket.class,
                 RequestActionMenuC2SPacket::encode, RequestActionMenuC2SPacket::decode, RequestActionMenuC2SPacket::handle);
-        CHANNEL.registerMessage(nextId++, ActionMenuS2CPacket.class,
+        toClient(ActionMenuS2CPacket.class,
                 ActionMenuS2CPacket::encode, ActionMenuS2CPacket::decode, ActionMenuS2CPacket::handle);
-        CHANNEL.registerMessage(nextId++, StartActionC2SPacket.class,
+        toServer(StartActionC2SPacket.class,
                 StartActionC2SPacket::encode, StartActionC2SPacket::decode, StartActionC2SPacket::handle);
-        CHANNEL.registerMessage(nextId++, ActionProgressS2CPacket.class,
+        toClient(ActionProgressS2CPacket.class,
                 ActionProgressS2CPacket::encode, ActionProgressS2CPacket::decode, ActionProgressS2CPacket::handle);
-        CHANNEL.registerMessage(nextId++, RequestSelfMenuC2SPacket.class,
+        toServer(RequestSelfMenuC2SPacket.class,
                 RequestSelfMenuC2SPacket::encode, RequestSelfMenuC2SPacket::decode, RequestSelfMenuC2SPacket::handle);
-        CHANNEL.registerMessage(nextId++, GuardChallengeS2CPacket.class,
+        toClient(GuardChallengeS2CPacket.class,
                 GuardChallengeS2CPacket::encode, GuardChallengeS2CPacket::decode, GuardChallengeS2CPacket::handle);
-        CHANNEL.registerMessage(nextId++, GuardChallengeResponseC2SPacket.class,
+        toServer(GuardChallengeResponseC2SPacket.class,
                 GuardChallengeResponseC2SPacket::encode, GuardChallengeResponseC2SPacket::decode,
                 GuardChallengeResponseC2SPacket::handle);
-        CHANNEL.registerMessage(nextId++, RequestCaseLedgerC2SPacket.class,
+        toServer(RequestCaseLedgerC2SPacket.class,
                 RequestCaseLedgerC2SPacket::encode, RequestCaseLedgerC2SPacket::decode,
                 RequestCaseLedgerC2SPacket::handle);
-        CHANNEL.registerMessage(nextId++, CaseLedgerS2CPacket.class,
+        toClient(CaseLedgerS2CPacket.class,
                 CaseLedgerS2CPacket::encode, CaseLedgerS2CPacket::decode, CaseLedgerS2CPacket::handle);
         // Appended, never inserted: ids are the registration order, so reordering this list would make
         // two builds that differ only in packet order silently misread each other.
-        CHANNEL.registerMessage(nextId++, RestraintSyncS2CPacket.class,
+        toClient(RestraintSyncS2CPacket.class,
                 RestraintSyncS2CPacket::encode, RestraintSyncS2CPacket::decode,
                 RestraintSyncS2CPacket::handle);
-        CHANNEL.registerMessage(nextId++, RestraintBulkSyncS2CPacket.class,
+        toClient(RestraintBulkSyncS2CPacket.class,
                 RestraintBulkSyncS2CPacket::encode, RestraintBulkSyncS2CPacket::decode,
                 RestraintBulkSyncS2CPacket::handle);
-        CHANNEL.registerMessage(nextId++, WeaponPolicyS2CPacket.class,
+        toClient(WeaponPolicyS2CPacket.class,
                 WeaponPolicyS2CPacket::encode, WeaponPolicyS2CPacket::decode,
                 WeaponPolicyS2CPacket::handle);
-        CHANNEL.registerMessage(nextId++, CriminalJobSyncS2CPacket.class,
+        toClient(CriminalJobSyncS2CPacket.class,
                 CriminalJobSyncS2CPacket::encode, CriminalJobSyncS2CPacket::decode,
                 CriminalJobSyncS2CPacket::handle);
+    }
+
+    /**
+     * Registers one server-bound message. The direction is the point: the five-argument
+     * {@code registerMessage} registers a message in <em>both</em> directions, so a client-to-server
+     * packet stays decodable and dispatchable on a client — on an integrated server that means the
+     * host can be made to run a C2S handler against their own world. There is one helper per direction
+     * so the argument cannot be left off again.
+     */
+    private static <T> void toServer(Class<T> type, BiConsumer<T, FriendlyByteBuf> encoder,
+                                     Function<FriendlyByteBuf, T> decoder,
+                                     BiConsumer<T, Supplier<NetworkEvent.Context>> handler) {
+        CHANNEL.registerMessage(nextId++, type, encoder, decoder, handler,
+                Optional.of(NetworkDirection.PLAY_TO_SERVER));
+    }
+
+    /** Registers one client-bound message. See {@link #toServer}. */
+    private static <T> void toClient(Class<T> type, BiConsumer<T, FriendlyByteBuf> encoder,
+                                     Function<FriendlyByteBuf, T> decoder,
+                                     BiConsumer<T, Supplier<NetworkEvent.Context>> handler) {
+        CHANNEL.registerMessage(nextId++, type, encoder, decoder, handler,
+                Optional.of(NetworkDirection.PLAY_TO_CLIENT));
     }
 
     /** Pushes a guard challenge, or its closure, to the challenged player alone. */

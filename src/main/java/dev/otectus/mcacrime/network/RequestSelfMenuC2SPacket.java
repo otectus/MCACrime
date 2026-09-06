@@ -3,7 +3,6 @@ package dev.otectus.mcacrime.network;
 import dev.otectus.mcacrime.action.ActionMenuKind;
 import dev.otectus.mcacrime.action.CrimeActionService;
 import net.minecraft.network.FriendlyByteBuf;
-import net.minecraft.server.level.ServerPlayer;
 import net.minecraftforge.network.NetworkEvent;
 
 import java.util.function.Supplier;
@@ -39,11 +38,7 @@ public record RequestSelfMenuC2SPacket(ActionMenuKind kind) {
     }
 
     public static void handle(RequestSelfMenuC2SPacket msg, Supplier<NetworkEvent.Context> ctx) {
-        NetworkEvent.Context context = ctx.get();
-        ServerPlayer sender = context.getSender();
-        if (sender != null) {
-            context.enqueueWork(() -> CrimeActionService.openSelfMenu(sender, msg.kind()));
-        }
-        context.setPacketHandled(true);
+        ServerPacketGuard.accept(ctx, RequestBudget.Category.MENU,
+                sender -> CrimeActionService.openSelfMenu(sender, msg.kind()));
     }
 }

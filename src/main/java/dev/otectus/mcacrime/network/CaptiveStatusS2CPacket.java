@@ -28,8 +28,11 @@ public record CaptiveStatusS2CPacket(boolean captive, boolean lawful, String cap
 
     public static void handle(CaptiveStatusS2CPacket msg, Supplier<NetworkEvent.Context> ctx) {
         NetworkEvent.Context context = ctx.get();
+        context.setPacketHandled(true);
+        if (!context.getDirection().getReceptionSide().isClient()) {
+            return;
+        }
         context.enqueueWork(() ->
                 DistExecutor.unsafeRunWhenOn(Dist.CLIENT, () -> () -> CrimeClientHandlers.onCaptiveStatus(msg)));
-        context.setPacketHandled(true);
     }
 }

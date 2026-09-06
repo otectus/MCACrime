@@ -11,8 +11,10 @@ import net.minecraft.world.level.material.FluidState;
 
 import javax.annotation.Nullable;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -85,12 +87,21 @@ public final class CellBuilder {
                 CellBlueprint.RADIUS, level.getGameTime(), replaced, placed);
     }
 
-    /** Puts back everything a cell replaced. Idempotent: a second call finds the blocks already right. */
-    public static void demolish(ServerLevel level, HoldingCell cell) {
+    /**
+     * Puts back everything a cell replaced, and says what it could not reach.
+     *
+     * <p>Idempotent: a second call finds the blocks already right. The return value is the point of the
+     * 0.6.0 shape — a position in an unloaded chunk is skipped rather than restored, and until this
+     * method could say so, the caller dropped the cell's record anyway and left the cage standing
+     * forever with nothing in the world pointing at it.
+     *
+     * @return the positions still holding this cell's blocks, empty when everything came back
+     */
+    public static Set<BlockPos> demolish(ServerLevel level, HoldingCell cell) {
         if (level == null || cell == null) {
-            return;
+            return Set.of();
         }
-        restoreBlocks(level, cell.replaced(), cell.placed());
+        return restoreBlocks(level, cell.replaced(), cell.placed());
     }
 
     /**
@@ -103,14 +114,19 @@ public final class CellBuilder {
      * way back out. An empty {@code placed} map means "restore unconditionally", which is only used by
      * the rollback path, where every block was placed moments ago by this same call.
      */
-    private static void restoreBlocks(ServerLevel level, Map<BlockPos, BlockState> replaced,
-                                      Map<BlockPos, BlockState> placed) {
+    private static Set<BlockPos> restoreBlocks(ServerLevel level, Map<BlockPos, BlockState> replaced,
+                                               Map<BlockPos, BlockState> placed) {
         List<Map.Entry<BlockPos, BlockState>> entries = List.copyOf(replaced.entrySet());
         int skipped = 0;
+        // Only genuinely unfinished work goes in here. A position somebody else has since built on is
+        // deliberately left alone and is *not* unresolved: it is settled, by the rule that says this mod
+        // never overwrites another player's block. Retrying it forever would be the opposite of that.
+        Set<BlockPos> unresolved = new LinkedHashSet<>();
         for (int i = entries.size() - 1; i >= 0; i--) {
             Map.Entry<BlockPos, BlockState> entry = entries.get(i);
             try {
                 if (!level.isLoaded(entry.getKey())) {
+                    unresolved.add(entry.getKey());
                     continue;
                 }
                 BlockState expected = placed.get(entry.getKey());
@@ -120,13 +136,16 @@ public final class CellBuilder {
                 }
                 level.setBlockAndUpdate(entry.getKey(), entry.getValue());
             } catch (Throwable t) {
-                // One block failing to restore must not leave the rest of the cell standing.
+                // One block failing to restore must not leave the rest of the cell standing, but it is
+                // still one of this cell's blocks in the world, so it is retried later.
                 McaCrime.LOGGER.debug("MCA: Crime could not restore {}; continuing", entry.getKey(), t);
+                unresolved.add(entry.getKey());
             }
         }
         if (skipped > 0) {
             McaCrime.LOGGER.debug("MCA: Crime left {} changed block(s) in place while removing a cell", skipped);
         }
+        return unresolved;
     }
 
     private static BlockState stateFor(CellBlueprint.Role role) {

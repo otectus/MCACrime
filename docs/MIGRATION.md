@@ -22,7 +22,7 @@ migration does and what safety nets exist, but none of them replace the copy.
 ## What happens on load
 
 `mcacrime.dat` carries a `schema` integer. On load, every step needed to bring it to the current
-schema runs in order, and the result is stamped. This build writes **schema 3**.
+schema runs in order, and the result is stamped. This build writes **schema 8**.
 
 The migration is deliberately **pure tag-to-tag work**. It does not consult the server, the config,
 the world, or where any player happens to be standing — a migration that read live state would
@@ -53,6 +53,57 @@ writing empties would only grow the file.
 
 The outbox, dead-letter list, and dedupe store are created empty. A world that existed before any
 companion mod has, by definition, nothing pending.
+
+### 3 → 4 — the finite action economy
+
+Villager profiles, action counters, village treasuries, and transaction receipts are initialized 
+empty. A world still at schema 3 has no prior economy records to carry forward.
+
+### 4 → 5 — observations and reports
+
+Observation and report collections are initialized empty. The witness identities already on old 
+crime records are preserved exactly; role, confidence, place and line-of-sight are not synthesised 
+because none of that was ever recorded.
+
+### 5 → 6 — the holding-cell roster
+
+The holding-cell roster is initialized empty. Existing jail anchors point at structures players 
+built by hand and registered with `/crime assignjail`; they are not assumed to be owned by this 
+mod, so no cell records are seeded from them.
+
+### 6 → 7 — criminal villagers, stolen goods, and warrants
+
+This step stamps the schema and writes nothing except the schema number. Six new collections
+are created: criminal job assignments, stolen goods ledgers, bounty warrants, bounty claims,
+bounty contracts, and fence restock timers. All start empty; a world still at schema 6 has
+no prior criminal activity to migrate.
+
+### 7 → 8 — sentence identity, payment tracking, and world recovery
+
+This step stamps the schema and writes nothing whatsoever. Every field added is optional with a 
+safe legacy default:
+
+- **`CrimeRecord.sentenceId`:** null (case belongs to no sentence; legacy cases are bound at 
+  first login, see below).
+- **`JailState.surrenderCredited` and `JailState.legacyBound`:** false (nobody claimed the 
+  discount yet, legacy binding not attempted).
+- **`HoldingCell.legacyBound`:** false (same reason, for NPC custody).
+- **`BountyClaimRecord.paidAmount`:** absent (claim treated as fully consumed, preventing 
+  double-pay on warrant revision).
+- **Collections** (`fenceStock`, `transactions`, `propertyEscrow`, `pendingCellRestorations`, 
+  `quarantine`): empty (absent already reads as empty everywhere that consumes them).
+
+**Legacy sentence binding:** On first login, `JailService.reconcileOnLogin` examines each player's 
+active jail sentence. If the sentence has no case bindings yet (`legacyBound` is false), it binds 
+every currently actionable, unbound case against the offender and marks the binding as reconciled. 
+NPC custody reconciliation works the same way. This happens once per offender per world load; 
+subsequent logins find sentences already bound.
+
+**World-data safety:** A save written by a newer schema version is opened read-only. Operators 
+with permission level 2 or higher see `mcacrime.readonly` on login; all Crime mutations are 
+blocked until the version mismatch is resolved (downgrade the mod or upgrade the save). Malformed 
+records that fail to deserialize are quarantined in a bounded list for manual inspection rather 
+than crashing the load.
 
 ## What changes that you will notice
 
@@ -99,6 +150,14 @@ So a downgrade does not corrupt the save, but it does not restore the old behavi
 you with a file that the old jar can open and largely cannot read. **The backup copy is what you
 actually roll back to.** Nothing in this design replaces it, and this section exists to say so
 plainly rather than to imply a rollback path that works better than it does.
+
+**Rolling back from schema 8 to schema 7:** The `schema` key remains 8. A schema-7 jar (the last
+release before the 7 → 8 migration; historically 0.5.1) reads an unknown schema and does not
+migrate it. The fields added in that migration — `CrimeRecord.sentenceId`,
+`JailState.surrenderCredited`, `JailState.legacyBound`, `BountyClaimRecord.paidAmount`,
+`fenceStock`, `transactions`, `propertyEscrow`, `pendingCellRestorations`, and `quarantine` —
+are preserved verbatim in the reserved section and are not read by that older loader. They survive
+the downgrade and are still present when you upgrade to a schema-8 build again.
 
 ## Removing the mod
 

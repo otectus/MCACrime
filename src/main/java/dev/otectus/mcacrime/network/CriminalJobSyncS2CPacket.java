@@ -33,8 +33,11 @@ public record CriminalJobSyncS2CPacket(UUID villager, CriminalJob job) {
 
     public static void handle(CriminalJobSyncS2CPacket msg, Supplier<NetworkEvent.Context> ctx) {
         NetworkEvent.Context context = ctx.get();
+        context.setPacketHandled(true);
+        if (!context.getDirection().getReceptionSide().isClient()) {
+            return;
+        }
         context.enqueueWork(() ->
                 DistExecutor.unsafeRunWhenOn(Dist.CLIENT, () -> () -> CrimeClientHandlers.onCriminalJob(msg)));
-        context.setPacketHandled(true);
     }
 }

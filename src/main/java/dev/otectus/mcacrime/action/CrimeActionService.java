@@ -25,6 +25,7 @@ import dev.otectus.mcacrime.network.ActionMenuS2CPacket;
 import dev.otectus.mcacrime.network.ActionMenuEntry;
 import dev.otectus.mcacrime.network.CrimeNetwork;
 import dev.otectus.mcacrime.network.StartActionC2SPacket;
+import dev.otectus.mcacrime.state.world.ServerMutationGate;
 import dev.otectus.mcacrime.util.CrimeDebug;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
@@ -99,6 +100,7 @@ public final class CrimeActionService {
     public static ActionResult startTargeted(ServerPlayer actor, ResourceLocation action, UUID targetId, UUID nonce) {
         bootstrap();
         if (!(actor.level() instanceof ServerLevel level)) return ActionResult.rejected("mcacrime.action.server_only");
+        if (!ServerMutationGate.allows(actor.getServer())) return ActionResult.rejected("mcacrime.readonly");
         ActionResult replay = ActionSessionManager.replay(actor.getUUID(), nonce).orElse(null);
         if (replay != null) return replay;
         ActionSession active = ActionSessionManager.forActor(actor.getUUID()).orElse(null);
@@ -110,8 +112,8 @@ public final class CrimeActionService {
         CrimeActionHandler handler = ActionHandlerRegistry.get(action);
         if (handler == null) return ActionResult.rejected("mcacrime.action.unknown");
         ActionResult result = handler.start(new PlayerActor(actor), target, level, nonce);
-        // Timed actions remember their nonce when their session finishes. Immediate and capture-channel
-        // actions do not own an ActionSession, so remember their result here as the replay backstop.
+        // Timed and capture actions remember their nonce when their session finishes. Immediate ones
+        // do not own an ActionSession, so remember their result here as the replay backstop.
         if (ActionSessionManager.forActor(actor.getUUID()).isEmpty()) {
             ActionSessionManager.remember(actor.getUUID(), nonce, result);
         }
@@ -165,6 +167,9 @@ public final class CrimeActionService {
     public static boolean openMenu(ServerPlayer actor, UUID targetId) {
         bootstrap();
         if (!(actor.level() instanceof ServerLevel level)) return false;
+        // Refused at the menu rather than at the action: offering choices that will all be rejected is
+        // a worse experience than saying up front that nothing can be done this session.
+        if (!ServerMutationGate.allows(actor.getServer())) return false;
         Entity entity = level.getEntity(targetId);
         if (!(entity instanceof LivingEntity target) || actor.distanceToSqr(target) > 16.0D
                 || !actor.hasLineOfSight(target)) return false;
@@ -201,6 +206,7 @@ public final class CrimeActionService {
     public static boolean openSelfMenu(ServerPlayer actor, ActionMenuKind kind) {
         bootstrap();
         if (!(actor.level() instanceof ServerLevel level)) return false;
+        if (!ServerMutationGate.allows(actor.getServer())) return false;
         return sendMenu(actor, level, actor, actor.getUUID(), SELF_MENU, kind, false);
     }
 
@@ -220,8 +226,10 @@ public final class CrimeActionService {
             ActionMenuEntry entry = buildEntry(actionId, crimeActor, target, level, now);
             if (entry != null) actions.add(entry);
         }
+        java.util.Set<ResourceLocation> offered = actions.stream().map(ActionMenuEntry::actionId)
+                .collect(java.util.stream.Collectors.toUnmodifiableSet());
         ActionMenuSession menu = new ActionMenuSession(UUID.randomUUID(), actor.getUUID(), targetId,
-                level.dimension().location(), 1, now + MENU_TTL);
+                level.dimension().location(), 1, now + MENU_TTL, offered);
         MENUS.put(actor.getUUID(), menu);
         CrimeNetwork.CHANNEL.send(PacketDistributor.PLAYER.with(() -> actor), new ActionMenuS2CPacket(
                 menu.id(), menu.revision(), targetId, kind, describe(target), actions));
@@ -263,6 +271,7 @@ public final class CrimeActionService {
 
     public static ActionResult startFromMenu(ServerPlayer actor, StartActionC2SPacket request) {
         if (!(actor.level() instanceof ServerLevel level)) return ActionResult.rejected("mcacrime.action.server_only");
+        if (!ServerMutationGate.allows(actor.getServer())) return ActionResult.rejected("mcacrime.readonly");
         ActionSession active = ActionSessionManager.forActor(actor.getUUID()).orElse(null);
         if (active != null && active.requestNonce().equals(request.nonce())) {
             return ActionResult.accepted("mcacrime.action.in_progress");
@@ -270,6 +279,23 @@ public final class CrimeActionService {
         ActionMenuSession menu = MENUS.get(actor.getUUID());
         if (menu == null || !menu.valid(actor.getUUID(), request.targetId(), level.dimension().location(),
                 request.menuId(), request.menuRevision(), level.getGameTime())) {
+            actor.sendSystemMessage(Component.translatable("mcacrime.action.stale_menu"));
+            return ActionResult.rejected("mcacrime.action.stale_menu");
+        }
+        // The row has to have been on the menu. A valid menu id is a target context, not a licence for
+        // every action the registry knows about.
+        if (!menu.offers(request.actionId())) {
+            CrimeDebug.crime("Action {} from {} refused: not offered by menu {}",
+                    request.actionId(), actor.getGameProfile().getName(), menu.id());
+            actor.sendSystemMessage(Component.translatable("mcacrime.action.stale_menu"));
+            return ActionResult.rejected("mcacrime.action.stale_menu");
+        }
+        // Same nonce, different request: a replayed authorisation pointed at something else.
+        if (!ActionSessionManager.claimNonce(actor.getUUID(), request.nonce(),
+                ActionSessionManager.payloadHash(request.nonce(), request.actionId(), request.targetId(),
+                        request.menuRevision()))) {
+            CrimeDebug.crime("Action {} from {} refused: nonce {} reused with a different payload",
+                    request.actionId(), actor.getGameProfile().getName(), request.nonce());
             actor.sendSystemMessage(Component.translatable("mcacrime.action.stale_menu"));
             return ActionResult.rejected("mcacrime.action.stale_menu");
         }

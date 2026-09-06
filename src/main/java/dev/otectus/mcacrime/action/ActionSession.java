@@ -4,6 +4,7 @@ import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.phys.Vec3;
 
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicReference;
 
 /** Mutable server-only channel state. The target and dimension can never change after construction. */
 public final class ActionSession {
@@ -16,6 +17,7 @@ public final class ActionSession {
     private final Vec3 actorStart;
     private final long startedAt;
     private final int requiredTicks;
+    private final AtomicReference<ActionResult> terminal = new AtomicReference<>();
     private int progress;
     private boolean pointOfNoReturn;
 
@@ -46,4 +48,19 @@ public final class ActionSession {
     public boolean pointOfNoReturn() { return pointOfNoReturn; }
     public void markPointOfNoReturn() { pointOfNoReturn = true; }
     public boolean advance() { return ++progress >= requiredTicks; }
+
+    /**
+     * Claims this session's one and only ending, or reports that somebody else already claimed it.
+     *
+     * <p>A session can be ended from several directions in the same tick — the ticker completing it,
+     * a damage event cancelling it, the target dying — and each of those paths pays out, releases
+     * locks and notifies listeners. Whoever wins this compare-and-set does that work; everybody else
+     * is told the session is already over and does nothing, so no outcome is ever applied twice.
+     */
+    public boolean settle(ActionResult result) {
+        return terminal.compareAndSet(null, result);
+    }
+
+    /** The result this session ended with, or null while it is still running. */
+    public ActionResult terminal() { return terminal.get(); }
 }
