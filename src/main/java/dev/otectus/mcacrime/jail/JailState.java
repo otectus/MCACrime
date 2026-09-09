@@ -30,8 +30,10 @@ public final class JailState {
     private ResourceLocation jailDim;
     private int jailRadius;
     private JailContainmentMode modeSnapshot = JailContainmentMode.CONTAINMENT;
-    /** PHYSICAL breakout flag: drives Legal Target. The sentence still continues while escaped. */
+    /** PHYSICAL breakout flag: drives Legal Target and pauses sentence/captivity-cap credit. */
     private boolean escaped;
+    /** A cuff escape remains an escape even before the prisoner can leave the jail region. */
+    private boolean cuffEscape;
     /**
      * Identity of this sentence, so the cases it settles can name it and a replayed release settles
      * nothing twice. Minted once when the sentence starts and never reused; a sentence that is
@@ -146,6 +148,14 @@ public final class JailState {
 
     public void setEscaped(boolean escaped) {
         this.escaped = escaped;
+        if (!escaped) cuffEscape = false;
+    }
+
+    public boolean isCuffEscape() { return escaped && cuffEscape; }
+
+    public void escapeCuffs() {
+        escaped = true;
+        cuffEscape = true;
     }
 
     /** True when this sentence has a resolvable anchor + dimension (otherwise soft-confine is impossible). */
@@ -162,6 +172,7 @@ public final class JailState {
         c.jailRadius = jailRadius;
         c.modeSnapshot = modeSnapshot;
         c.escaped = escaped;
+        c.cuffEscape = cuffEscape;
         c.sentenceId = sentenceId;
         c.surrenderCredited = surrenderCredited;
         c.legacyBound = legacyBound;
@@ -183,6 +194,7 @@ public final class JailState {
         tag.putInt("radius", jailRadius);
         tag.putString("mode", modeSnapshot.name());
         tag.putBoolean("escaped", escaped);
+        if (isCuffEscape()) tag.putBoolean("cuffEscape", true);
         tag.putUUID("sentenceId", sentenceId);
         if (surrenderCredited) {
             tag.putBoolean("surrenderCredited", true);
@@ -204,6 +216,7 @@ public final class JailState {
         s.jailRadius = tag.getInt("radius");
         s.modeSnapshot = JailContainmentMode.parse(tag.getString("mode"));
         s.escaped = tag.getBoolean("escaped");
+        s.cuffEscape = s.escaped && tag.getBoolean("cuffEscape");
         // A sentence saved before this field existed keeps the fresh id minted in the field
         // initialiser. That is correct: the id only has to be unique, never to match a past value.
         if (tag.hasUUID("sentenceId")) {

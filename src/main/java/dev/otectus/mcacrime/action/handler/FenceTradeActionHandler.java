@@ -44,6 +44,7 @@ public final class FenceTradeActionHandler implements CrimeActionHandler {
         if (WorldCriminalJobService.of(server).get(target.getUUID()) != CriminalJob.FENCE) {
             return ActionAvailability.hidden("mcacrime.action.invalid_target");
         }
+        if (target.isSleeping()) return ActionAvailability.blocked("mcacrime.action.target_asleep");
         return ActionAvailability.available();
     }
 

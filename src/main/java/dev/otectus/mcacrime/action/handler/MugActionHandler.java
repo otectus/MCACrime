@@ -57,6 +57,7 @@ public final class MugActionHandler implements CrimeActionHandler {
             return ActionAvailability.hidden("mcacrime.mug.notarget");
         if (!c.allowHostileActionsAgainstChildren.get() && !McaCompat.isAdult(target))
             return ActionAvailability.hidden("mcacrime.mug.child");
+        if (target.isSleeping()) return ActionAvailability.blocked("mcacrime.action.target_asleep");
         if (!actor.canReach(target, REACH_SQR))
             return ActionAvailability.blocked("mcacrime.mug.notarget");
         // A mugging is a threat, and an unarmed threat is a request. Blocked rather than hidden: the
@@ -95,7 +96,6 @@ public final class MugActionHandler implements CrimeActionHandler {
         MuggingService.markThreat(actor.id(), target.getUUID(), now);
         CrimeDetector.commitDirect(player, CrimeIds.THEFT, target, level,
                 WitnessChecker.resolve(level, target), "mug_attempt");
-        GuardEnforcement.alert(player, "mcacrime.msg.guardaggro.reported", 600L);
 
         // The victim says something and the street hears it. Both are new: a mugging used to be a
         // silent progress bar that only the mugger could perceive at all.
@@ -137,6 +137,17 @@ public final class MugActionHandler implements CrimeActionHandler {
             ActionSessionManager.cancel(session, CancelReason.LOST_SIGHT);
             return;
         }
+        boolean dynamic = McaCrimeConfig.COMMON.enableDynamicCompliance.get()
+                && McaCrimeConfig.COMMON.enableVillagerReactions.get();
+        var reaction = dev.otectus.mcacrime.ai.CrimeReactionService.stateOf(target.getUUID());
+        if (dev.otectus.mcacrime.ai.ReactionControlPolicy.refusesMugging(
+                dev.otectus.mcacrime.detect.EntitySelectors.isResponder(target), dynamic, reaction)) {
+            actor.sendMessage(Component.translatable("mcacrime.mug.refused"));
+            ActionSessionManager.cancel(session, CancelReason.CONFLICT);
+            return;
+        }
+        if (dynamic && (reaction == dev.otectus.mcacrime.ai.VictimReactionState.STALLING
+                || reaction == dev.otectus.mcacrime.ai.VictimReactionState.THREATENED)) return;
         if (!session.advance()) {
             // Progress is the HUD channel bar's job now. It replaces an action-bar line that
             // overwrote itself every ten ticks and then vanished without saying why.

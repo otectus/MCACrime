@@ -1,0 +1,7 @@
+{
+  "event": "mcacrime:memory_restitution",
+  "fallback": "dialogue.mcacrime.memory_restitution.generic",
+  "variants": [
+    { "priority": 0, "when": {}, "lines": ["dialogue.mcacrime.memory_restitution.generic"] }
+  ]
+}

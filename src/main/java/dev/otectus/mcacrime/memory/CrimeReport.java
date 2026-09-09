@@ -22,7 +22,7 @@ public record CrimeReport(UUID reportId,
                           UUID incidentId,
                           UUID observationId,
                           UUID reporterId,
-                          UUID suspectId,
+                          @Nullable UUID suspectId,
                           ResourceLocation actionId,
                           @Nullable CrimeCommunityKey jurisdiction,
                           long filedAt,
@@ -31,7 +31,7 @@ public record CrimeReport(UUID reportId,
                           boolean authoritative) {
 
     public CrimeReport {
-        confidence = Math.max(0.0F, Math.min(1.0F, confidence));
+        confidence = suspectId != null && Float.isFinite(confidence) ? Math.max(0.0F, Math.min(1.0F, confidence)) : 0;
         expiresAt = Math.max(0L, expiresAt);
     }
 
@@ -50,7 +50,7 @@ public record CrimeReport(UUID reportId,
      * not walk up and restrain somebody on the strength of a noise.
      */
     public boolean supportsArrest(double threshold) {
-        return authoritative || confidence >= threshold;
+        return suspectId != null && confidence >= Math.max(0.5, threshold);
     }
 
     public CompoundTag save() {
@@ -59,7 +59,7 @@ public record CrimeReport(UUID reportId,
         tag.putUUID("incident", incidentId);
         tag.putUUID("observation", observationId);
         tag.putUUID("reporter", reporterId);
-        tag.putUUID("suspect", suspectId);
+        if (suspectId != null) tag.putUUID("suspect", suspectId);
         tag.putString("action", actionId.toString());
         if (jurisdiction != null) {
             tag.put("jurisdiction", jurisdiction.save());
@@ -72,7 +72,7 @@ public record CrimeReport(UUID reportId,
     }
 
     public static CrimeReport load(CompoundTag tag) {
-        if (!tag.hasUUID("id") || !tag.hasUUID("incident") || !tag.hasUUID("suspect")) {
+        if (!tag.hasUUID("id") || !tag.hasUUID("incident") || !tag.hasUUID("reporter")) {
             throw new IllegalArgumentException("report is missing an identity");
         }
         ResourceLocation action = ResourceLocation.tryParse(tag.getString("action"));
@@ -86,8 +86,8 @@ public record CrimeReport(UUID reportId,
                 tag.getUUID("id"),
                 tag.getUUID("incident"),
                 tag.hasUUID("observation") ? tag.getUUID("observation") : tag.getUUID("id"),
-                tag.hasUUID("reporter") ? tag.getUUID("reporter") : tag.getUUID("suspect"),
-                tag.getUUID("suspect"),
+                tag.getUUID("reporter"),
+                tag.hasUUID("suspect") ? tag.getUUID("suspect") : null,
                 action,
                 jurisdiction,
                 tag.getLong("filedAt"),

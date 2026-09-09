@@ -20,11 +20,10 @@ import java.util.UUID;
  * The FINALIZE half of the theft transaction, and the only thing that knows a thief is carrying
  * somebody else's property (spec §"Stolen-goods recovery").
  *
- * <p>Everything here is a claim rather than a read. {@link #claimAll} removes the entries it returns
- * and marks the world data dirty <em>before</em> handing them back, so a second death event, a crash
- * between the drop and the save, or two recovery paths racing can never produce the same sword twice.
- * That ordering is the whole anti-duplication mechanism; a caller that wants to look without taking
- * should ask {@code CrimeWorldData.stolenGoodsByThief} instead.
+ * <p>Confirmed death uses {@link #escrowAll} to move provenance into owner escrow before any
+ * external delivery. Both writes share SavedData and run without intervening callbacks. Legacy
+ * claim overloads still hand delivery responsibility to their caller; they do not provide an
+ * atomic inventory/world save. Read-only callers use {@code CrimeWorldData.stolenGoodsByThief}.
  *
  * <p>Every method has a {@link CrimeWorldData} overload beside the {@link MinecraftServer} one. The
  * server overload is what callers use; the data overload is what makes the claim-once property
@@ -40,6 +39,23 @@ public final class StolenGoodsLedger {
 
     // ------------------------------------------------------------------ recording
 
+    /** Capacity and replay gate around the actual removal. Save ordering is still not cross-file atomic. */
+    public static java.util.Optional<TheftExecutor.TheftResult> commitTheft(CrimeWorldData data, HolderLookup.Provider registries,
+            UUID id, UUID thief, UUID owner, String provider, long now,
+            java.util.function.Supplier<TheftExecutor.TheftResult> remove) {
+        if (!ServerMutationGate.allows(data) || thief == null || owner == null || remove == null
+                || !data.reserveTheft(id)) return java.util.Optional.empty();
+        try {
+            var result = remove.get();
+            if (result == null) throw new IllegalStateException("Theft provider returned no result");
+            if (result.tookSomething() && record(data, registries, id, thief, owner, result, now, provider) == null)
+                throw new IllegalStateException("Reserved theft provenance could not be stored");
+            return java.util.Optional.of(result);
+        } finally {
+            data.finishTheftReservation(id);
+        }
+    }
+
     /**
      * Files what a mugging took.
      *
@@ -51,8 +67,8 @@ public final class StolenGoodsLedger {
     public static UUID record(MinecraftServer server, UUID transactionId, UUID thief, UUID owner,
                               TheftExecutor.TheftResult result, long now) {
         return server == null ? null
-                : record(CrimeWorldData.get(server), server.registryAccess(), transactionId, thief, owner,
-                        result, now);
+                : record(CrimeWorldData.get(server), server.registryAccess(), transactionId, thief, owner, result, now,
+                        dev.otectus.mcacrime.economy.Currencies.active().id().toString());
     }
 
     /**
@@ -61,19 +77,25 @@ public final class StolenGoodsLedger {
      *                 server's own {@code registryAccess()} is the only correct answer
      */
     @Nullable
-    public static UUID record(CrimeWorldData data, HolderLookup.Provider provider, UUID transactionId,
-                              UUID thief, UUID owner, TheftExecutor.TheftResult result, long now) {
-        if (data == null || provider == null || transactionId == null || thief == null || owner == null
+    public static UUID record(CrimeWorldData data, HolderLookup.Provider provider, UUID transactionId, UUID thief, UUID owner,
+                              TheftExecutor.TheftResult result, long now) {
+        return record(data, provider, transactionId, thief, owner, result, now, "");
+    }
+
+    public static UUID record(CrimeWorldData data, HolderLookup.Provider provider, UUID transactionId, UUID thief, UUID owner,
+                              TheftExecutor.TheftResult result, long now, String providerId) {
+        if (data == null || transactionId == null || thief == null || owner == null
                 || result == null || !result.tookSomething()) {
             return null;
         }
         if (!ServerMutationGate.allows(data)) {
             return null;
         }
-        // The provenance row is what makes the theft recoverable, so a table with no room for it is a
-        // theft that must not happen. Refusing here is refusing before anything leaves an inventory.
-        if (!data.putStolenGoods(StolenGoodsRecord.ofStack(provider, transactionId, thief, owner,
-                result.stack(), result.currency(), now)).stored()) {
+        // The caller must reserve provenance capacity before executing the theft. This records its
+        // result; refusing here cannot undo a transfer that the caller has already performed.
+        var base = StolenGoodsRecord.ofStack(provider, transactionId, thief, owner, result.stack(), result.currency(), now);
+        if (!data.putStolenGoods(new StolenGoodsRecord(transactionId, thief, owner, base.stackTag(),
+                base.currency(), now, providerId)).stored()) {
             return null;
         }
         return transactionId;
@@ -103,9 +125,9 @@ public final class StolenGoodsLedger {
     /**
      * The caller takes responsibility for delivery.
      *
-     * <p>Kept for the paths that hand records straight into something that cannot fail to accept them
-     * -- a drop list on a corpse, most of all. Anything that gives to a player should use the
-     * {@link Delivery} overload, so an owner who cannot take it now still gets it later.
+     * <p>This legacy handoff removes provenance before returning it. A canceled drop event or failed
+     * inventory delivery can still lose that property. New recovery paths should use
+     * {@link #escrowAll} and {@link dev.otectus.mcacrime.state.world.PropertyEscrow} instead.
      */
     public static List<StolenGoodsRecord> claimAll(CrimeWorldData data, UUID thief) {
         return claim(data, thief, null, record -> true, 0L);
@@ -133,11 +155,12 @@ public final class StolenGoodsLedger {
     }
 
     /**
-     * The one place entries leave the ledger. {@code owner} null claims everything.
+     * Legacy delivery/claim path. {@code owner} null claims everything.
      *
      * <p>The removal happens per entry through {@code removeStolenGoods}, which keeps the by-thief
      * index in step and sets the data dirty; only entries that were genuinely removed are returned, so
-     * two callers racing each get a disjoint half of the loot rather than a copy of all of it.
+     * sequential callers only receive rows still present. External callbacks precede removal and
+     * must not reenter this legacy path; the escrow path protects its handover with receipts.
      */
     private static List<StolenGoodsRecord> claim(CrimeWorldData data, UUID thief, @Nullable UUID owner,
                                                  Delivery delivery, long now) {
@@ -180,9 +203,33 @@ public final class StolenGoodsLedger {
         // The stack tag is carried across verbatim, so no registry lookup is needed here: what the
         // theft encoded is exactly what the lot owes.
         PropertyLot lot = new PropertyLot(lotId, record.owner(),
-                record.hasStack() ? record.stackTag() : null, record.currency(), "",
+                record.hasStack() ? record.stackTag() : null, record.currency(), record.providerId(),
                 record.transactionId(), PropertyLot.DeliveryState.PENDING, now);
+        PropertyLot existing = data.propertyLot(lotId);
+        if (existing != null) {
+            // Never restore a full stolen stack/amount over an escrow remainder.
+            return existing.owner().equals(lot.owner())
+                    && java.util.Objects.equals(existing.sourceRecordId(), lot.sourceRecordId())
+                    && java.util.Objects.equals(existing.stackTag(), lot.stackTag())
+                    && existing.currency() == lot.currency() && existing.providerId().equals(lot.providerId());
+        }
         return data.putPropertyLot(lot).stored();
+    }
+
+    /** Move recoverable property without invoking a fallible external delivery between the stores. */
+    public static int escrowAll(CrimeWorldData data, UUID thief, long now) {
+        return escrowForOwner(data, thief, null, now);
+    }
+
+    /** Selected owner recovery uses the same receipt-backed path as confirmed death. */
+    public static int escrowForOwner(CrimeWorldData data, UUID thief, @Nullable UUID owner, long now) {
+        if (!ServerMutationGate.allows(data) || thief == null) return 0;
+        int moved = 0;
+        for (StolenGoodsRecord record : data.stolenGoodsByThief(thief)) {
+            if (owner != null && !owner.equals(record.owner())) continue;
+            if (escrow(data, record, now) && data.removeStolenGoods(record.transactionId()) != null) moved++;
+        }
+        return moved;
     }
 
     // ------------------------------------------------------------------ expiry

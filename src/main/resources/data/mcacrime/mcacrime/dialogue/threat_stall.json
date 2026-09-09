@@ -1,0 +1,7 @@
+{
+  "event": "mcacrime:threat_stall",
+  "fallback": "dialogue.mcacrime.threat_stall.generic",
+  "variants": [
+    { "priority": 0, "when": {}, "lines": ["dialogue.mcacrime.threat_stall.generic"] }
+  ]
+}

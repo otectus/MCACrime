@@ -20,16 +20,11 @@ import java.util.UUID;
  *
  * <p>This is not exactly-once and does not claim to be. The debit side and the credit side may live in
  * different files — world {@code SavedData} on one side, a player's inventory or a third-party economy
- * on the other — and nothing available in NeoForge commits both atomically. What the ordering here
- * buys is a bounded, <em>named</em> failure: {@link State#SOURCE_DEBITED} is written and the store is
- * dirtied before anything is credited, so a crash in the window between them leaves a receipt saying
- * money left and never arrived. That receipt is never automatically retried — a non-idempotent credit
- * replayed is how duplication happens — it is left as {@link State#NEEDS_RECONCILIATION} for an
- * operator. A crash <em>before</em> the store is flushed loses the receipt along with the debit, which
- * is the surviving hole and is the reason high-value transfers should ride escrow instead.
- *
- * <p>No {@code HolderLookup.Provider} anywhere: a receipt persists amounts and ids, never a stack, so
- * unlike {@link dev.otectus.mcacrime.state.world.PropertyLot} it needs no registry to save or load.
+ * on the other — and nothing available in Forge commits both atomically. What the ordering here buys
+ * is capacity reservation before provider calls and an in-memory record before credit. Dirtiness
+ * schedules a save; it does not flush one. A crash can persist either side independently, including
+ * an external debit with no saved receipt, or a completed credit with an incomplete receipt. Saved
+ * incomplete receipts require operator reconciliation; automatically replaying them risks duplication.
  */
 public record TransactionReceipt(UUID id, State state, String providerId, long amount,
                                  TransactionReason reason, @Nullable UUID from, @Nullable UUID to,
@@ -39,6 +34,8 @@ public record TransactionReceipt(UUID id, State state, String providerId, long a
     public enum State {
         /** Priced and validated; nothing has moved. */
         PREPARED,
+        /** A bounty entitlement is reserved; no credit attempt is in flight. Safe to collect later. */
+        AWAITING_DELIVERY,
         /** The source has been debited and the credit has not been attempted or has not returned. */
         SOURCE_DEBITED,
         /** The debit is done and the credit is on its way through something asynchronous. */

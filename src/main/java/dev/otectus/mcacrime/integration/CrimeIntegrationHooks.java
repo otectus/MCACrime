@@ -82,6 +82,11 @@ public final class CrimeIntegrationHooks {
         if (server == null || view == null || !McaCrimeConfig.COMMON.enableReputation.get()) {
             return;
         }
+        // Personal records become public only after identified information reaches an authority.
+        if (McaCrimeConfig.COMMON.enableObservations.get()
+                && !"jailbreak".equals(view.context().get("detection")) && !"command".equals(view.context().get("detection"))
+                && CrimeWorldData.get(server).reportsAgainst(view.offenderId()).stream().noneMatch(report ->
+                        report.incidentId().equals(view.id()) && report.supportsArrest(McaCrimeConfig.COMMON.reportConfidenceThreshold.get()))) return;
         Optional<ResourceLocation> incident = CrimeIncidentMapping.incidentFor(view.crimeType());
         if (incident.isEmpty() || view.community().isEmpty()) {
             // No civic meaning, or no community to record it against. A crime in the wilderness is

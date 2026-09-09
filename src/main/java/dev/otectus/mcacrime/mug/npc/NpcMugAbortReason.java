@@ -12,6 +12,8 @@ import java.util.Locale;
 public enum NpcMugAbortReason {
     /** The victim drew a qualifying weapon. The one piece of counterplay the spec asks for. */
     VICTIM_ARMED,
+    /** The villager's relationship with this player now meets the configured protection threshold. */
+    RELATIONSHIP_PROTECTED,
     /** A guard reached the thief before the timer did (Phase 8 calls this). */
     GUARD_INTERVENTION,
     /** The thief died mid-threat. */

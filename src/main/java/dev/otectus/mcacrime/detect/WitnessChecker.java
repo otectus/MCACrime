@@ -49,7 +49,7 @@ public final class WitnessChecker {
         double r = McaCrimeConfig.COMMON.witnessRadius.get();
         AABB box = victim.getBoundingBox().inflate(r);
         List<LivingEntity> nearby = level.getEntitiesOfClass(LivingEntity.class, box,
-                e -> e != victim && e.isAlive() && !e.isSpectator() && McaCompat.isMcaVillager(e));
+                e -> e != victim && dev.otectus.mcacrime.ai.NpcAwareness.isAwake(e) && !e.isSpectator() && McaCompat.isMcaVillager(e));
 
         List<WitnessSelection.Candidate> candidates = new ArrayList<>(nearby.size());
         for (LivingEntity witness : nearby) {
@@ -60,5 +60,37 @@ public final class WitnessChecker {
         }
         return WitnessSelection.select(candidates,
                 McaCrimeConfig.COMMON.maxStoredWitnesses.get(), nearby.size());
+    }
+
+    /** Per-crime radius, spherical bounds, and sight of the act without assumed identity. */
+    public static WitnessResult resolve(ServerLevel level, LivingEntity actor, LivingEntity victim,
+                                        dev.otectus.mcacrime.crime.type.CrimeAwareness awareness) {
+        if (!McaCrimeConfig.COMMON.enableWitnessSystem.get()) return resolve(level, victim == null ? actor : victim);
+        LivingEntity center = victim == null ? actor : victim;
+        double radius = awareness.visualRadius() * McaCrimeConfig.COMMON.visualWitnessRadiusMultiplier.get();
+        List<WitnessSelection.Candidate> candidates = new ArrayList<>();
+        List<LivingEntity> nearby = level.getEntitiesOfClass(LivingEntity.class, center.getBoundingBox().inflate(radius),
+                e -> e != actor && e != victim && dev.otectus.mcacrime.ai.NpcAwareness.isAwake(e) && !e.isSpectator() && McaCompat.isMcaVillager(e));
+        for (LivingEntity witness : nearby) {
+            if (perceive(witness, actor, center, awareness).sawAct()) {
+                candidates.add(new WitnessSelection.Candidate(witness.getUUID(), witness.distanceToSqr(center)));
+            }
+        }
+        return WitnessSelection.select(candidates, McaCrimeConfig.COMMON.maxStoredWitnesses.get(), nearby.size());
+    }
+
+    public static PerceptionRules.Result perceive(LivingEntity observer, LivingEntity actor, LivingEntity center,
+                                                   dev.otectus.mcacrime.crime.type.CrimeAwareness awareness) {
+        if (!dev.otectus.mcacrime.ai.NpcAwareness.isAwake(observer)) return new PerceptionRules.Result(false, false, 0);
+        var toward = center.getEyePosition().subtract(observer.getEyePosition()).normalize();
+        boolean seesActor = observer.hasLineOfSight(actor);
+        boolean seesAct = seesActor || observer.hasLineOfSight(center);
+        return PerceptionRules.evaluate(new PerceptionRules.Input(Math.sqrt(observer.distanceToSqr(center)),
+                awareness.visualRadius() * McaCrimeConfig.COMMON.visualWitnessRadiusMultiplier.get(),
+                awareness.soundRadius() * McaCrimeConfig.COMMON.auditoryWitnessRadiusMultiplier.get(),
+                seesAct, seesActor, observer.hasEffect(net.minecraft.world.effect.MobEffects.BLINDNESS),
+                McaCompat.isVillagerSleeping(observer), actor.isInvisible(), actor.isCrouching(), !seesAct,
+                observer.getLookAngle().dot(toward), actor.level().getMaxLocalRawBrightness(actor.blockPosition()) / 15.0,
+                actor.level().isRainingAt(actor.blockPosition())));
     }
 }

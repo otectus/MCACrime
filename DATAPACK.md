@@ -26,6 +26,30 @@ and field.
 | `heatDelta` | long | **yes** | — | Law-enforcement pressure added when the crime generates Heat. Non-negative. |
 | `witnessedMultiplier` | double | no | `1.0` | Scales both karma and Heat when the crime *was* witnessed. |
 | `victimTag` | string | no | `""` | Classification hint — `"villager"`, `"guard"`, or empty. Informational: the detector resolves the actual victim itself and does not match on this. |
+| `awareness` | object | no | Per-crime defaults | 0.6.0 perception and memory metadata, shown below. |
+
+```json
+"awareness": {
+  "visualRadius": 20.0,
+  "soundRadius": 22.0,
+  "severity": 0.7,
+  "violent": true,
+  "memoryDays": 24
+}
+```
+
+Radii accept `0–64` blocks, severity `0–1`, and duration `1–365` Minecraft days.
+Within an explicitly supplied object the defaults are visual 12, sound 0, severity 0.25,
+violent false, duration 3. An omitted object inherits offense-specific defaults (quiet theft,
+louder violence, and longer kidnapping/murder memory). The existing player mug action is still a
+theft case and uses a robbery awareness profile of visual/sound 16, severity 0.6 and duration 16 days.
+Auditory awareness never assigns a suspect. A wall halves the effective sound radius.
+
+New dialogue pools under `data/<namespace>/mcacrime/dialogue/` are `threat_plead`, `threat_stall`,
+`threat_defy`, `threat_panic`, `memory_fear`, `memory_anger`, `memory_family`, and `memory_restitution`.
+They use the existing `event`/`fallback`/`variants` format. Additional context facts are
+`crime_victim`, `crime_family`, `crime_witness`, `crime_restitution` and low/medium/high bands
+`crime_fear` and `crime_anger`.
 
 ### A worked example
 

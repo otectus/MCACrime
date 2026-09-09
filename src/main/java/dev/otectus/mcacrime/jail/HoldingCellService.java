@@ -28,6 +28,8 @@ import java.util.UUID;
  */
 public final class HoldingCellService {
 
+    private static int occupancyCursor;
+
     private HoldingCellService() {
     }
 
@@ -234,13 +236,20 @@ public final class HoldingCellService {
      * so a server with a large roster never spends a tick on this.
      */
     public static void sweep(MinecraftServer server) {
-        if (server == null) {
+        if (server == null || !ServerMutationGate.allows(server)) {
             return;
         }
         CrimeWorldData data = CrimeWorldData.get(server);
         List<HoldingCell> cells = data.holdingCells();
         if (cells.isEmpty()) {
+            retrySweep(server, data);
             return;
+        }
+        // Repair old cells too. A rotating budget ensures larger rosters do not starve later cells.
+        for (int i = 0; i < Math.min(4, cells.size()); i++) {
+            HoldingCell cell = cells.get(Math.floorMod(occupancyCursor++, cells.size()));
+            ServerLevel level = JailService.resolveLevel(server, cell.dim());
+            if (level != null && level.isLoaded(cell.anchor())) CellOccupants.freeBystanders(level, cell);
         }
         long now = server.overworld().getGameTime();
         long lifetime = McaCrimeConfig.COMMON.holdingCellLifetimeTicks.get();

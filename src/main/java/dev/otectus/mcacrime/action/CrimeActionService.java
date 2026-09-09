@@ -18,8 +18,6 @@ import dev.otectus.mcacrime.captivity.CustodyRegistry;
 import dev.otectus.mcacrime.captivity.CustodyReleaseReason;
 import dev.otectus.mcacrime.captivity.CustodyService;
 import dev.otectus.mcacrime.item.weapon.WeaponDetector;
-import dev.otectus.mcacrime.job.CriminalJob;
-import dev.otectus.mcacrime.job.WorldCriminalJobService;
 import dev.otectus.mcacrime.ransom.RansomService;
 import dev.otectus.mcacrime.network.ActionMenuS2CPacket;
 import dev.otectus.mcacrime.state.world.ServerMutationGate;
@@ -28,7 +26,6 @@ import dev.otectus.mcacrime.network.CrimeNetwork;
 import dev.otectus.mcacrime.network.StartActionC2SPacket;
 import dev.otectus.mcacrime.util.CrimeDebug;
 import net.minecraft.network.chat.Component;
-import net.minecraft.server.MinecraftServer;
 import net.neoforged.neoforge.network.PacketDistributor;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
@@ -167,34 +164,17 @@ public final class CrimeActionService {
     public static boolean openMenu(ServerPlayer actor, UUID targetId) {
         bootstrap();
         if (!(actor.level() instanceof ServerLevel level)) return false;
+        // Refused at the menu rather than at the action: offering choices that will all be rejected is
+        // a worse experience than saying up front that nothing can be done this session.
         if (!ServerMutationGate.allows(actor.getServer())) return false;
         Entity entity = level.getEntity(targetId);
         if (!(entity instanceof LivingEntity target) || actor.distanceToSqr(target) > 16.0D
                 || !actor.hasLineOfSight(target)) return false;
-        // The same gate the Crime button greys itself out on, re-decided here because the button is
-        // the client's opinion and this is the server's. An unarmed sender reaches a fence and nobody
-        // else, and then only for the trade half of the menu.
+        // Reconciliation must remain reachable with the weapon lowered, including while the
+        // villager refuses ordinary conversation. The weapon requirement only filters coercion.
         boolean unarmed = McaCrimeConfig.COMMON.requireWeaponForCrimeMenu.get()
                 && WeaponDetector.drawnWeapon(actor).isEmpty();
-        if (unarmed && !isFence(actor, targetId)) {
-            // Silently: a reply would tell a probing client exactly which villager is a fence.
-            CrimeDebug.crime("Menu request from {} refused: no weapon drawn and {} is not a fence",
-                    actor.getGameProfile().getName(), targetId);
-            return false;
-        }
         return sendMenu(actor, level, target, targetId, VILLAGER_MENU, ActionMenuKind.VILLAGER, unarmed);
-    }
-
-    /**
-     * Whether the persisted criminal job of this villager is FENCE.
-     *
-     * <p>Read from the world data rather than from anything the client sent: the client is told which
-     * villagers are fences so the button can enable, and being told is not the same as being believed.
-     */
-    private static boolean isFence(ServerPlayer actor, UUID targetId) {
-        MinecraftServer server = actor.getServer();
-        if (server == null) return false;
-        return WorldCriminalJobService.of(server).get(targetId) == CriminalJob.FENCE;
     }
 
     /**
@@ -209,9 +189,8 @@ public final class CrimeActionService {
     }
 
     /**
-     * @param nonCoerciveOnly drops every coercive entry from the menu. Set for the unarmed sender the
-     *         gate above let through to a fence: they may trade, and a mug row they could not start
-     *         would only be a row that says no.
+     * @param nonCoerciveOnly drops coercive entries for unarmed players while retaining peaceful
+     *         options such as apologies, release, rescue and fence trading.
      */
     private static boolean sendMenu(ServerPlayer actor, ServerLevel level, LivingEntity target, UUID targetId,
                                     List<ResourceLocation> actionIds, ActionMenuKind kind,

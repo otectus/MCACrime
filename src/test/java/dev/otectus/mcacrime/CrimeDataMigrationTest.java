@@ -412,8 +412,50 @@ class CrimeDataMigrationTest {
     }
 
     /**
-     * An over-long list loads in full rather than losing its tail, and a malformed entry is set aside
-     * rather than costing the world every other criminal in it (0.6.0).
+     * The 0.6.0 step stamps the version and adds nothing, because every field behind it reads its own
+     * absence as the legacy answer. Running it twice must therefore produce the same tag: a step that
+     * wrote anything at all would have to be idempotent by argument rather than by construction.
+     */
+    @Test
+    void migratingToEightAddsNothingAndRepeatsCleanly() {
+        CompoundTag once = CrimeDataMigrations.v7to8(Schema7Fixture.store());
+        CompoundTag twice = CrimeDataMigrations.v7to8(once);
+
+        assertEquals(CrimeDataMigrations.SCHEMA_0_6_0, once.getInt(CrimeDataMigrations.TAG_SCHEMA));
+        assertEquals(once, twice);
+
+        CompoundTag before = Schema7Fixture.store();
+        before.putInt(CrimeDataMigrations.TAG_SCHEMA, CrimeDataMigrations.SCHEMA_0_6_0);
+        assertEquals(before, once, "the only difference a v7to8 may make is the schema number");
+    }
+
+    /**
+     * The whole chain, 0 to 8, on a store that never saw any of it. The point is not that it ends at
+     * the current number — the earlier tests cover that — but that a world last opened before any of
+     * these steps existed still arrives with its records intact rather than with a stack trace.
+     */
+    @Test
+    void anUnversionedStoreClimbsTheWholeChainToCurrent() {
+        CompoundTag migrated = CrimeDataMigrations.migrate(legacyStore(
+                legacyRecord(UUID.randomUUID(), 3, true),
+                legacyRecord(UUID.randomUUID(), 4, false)));
+
+        assertEquals(CrimeDataMigrations.CURRENT_SCHEMA, CrimeDataMigrations.schemaOf(migrated));
+        assertEquals(2, migrated.getList("ledger", Tag.TAG_COMPOUND).size());
+        assertFalse(migrated.contains("fenceStock"), "no 0.6.0 collection is written by the step");
+        assertFalse(migrated.contains("quarantine"));
+        assertEquals(CrimeDataMigrations.CURRENT_SCHEMA,
+                CrimeDataMigrations.schemaOf(CrimeWorldData.load(migrated, net.minecraft.core.RegistryAccess.EMPTY).save(new CompoundTag(), net.minecraft.core.RegistryAccess.EMPTY)));
+    }
+
+    /**
+     * An over-long list is read in full, and a malformed entry is set aside rather than costing the
+     * world every other criminal in it.
+     *
+     * <p>0.6.0 reversed the first half of this deliberately. Truncating at the cap on load did not
+     * bound anything -- the entries were already written, and the store was about to be saved again --
+     * it just deleted the tail of the file a little more thoroughly on every restart. The ceiling now
+     * refuses the next <em>insertion</em> instead, which is the only point at which refusing is free.
      */
     @Test
     void overCapAndMalformedEntriesAreSurvivable() {
@@ -461,14 +503,14 @@ class CrimeDataMigrationTest {
      * and the ledger row that went in is still there afterwards.
      */
     @Test
-    void anUnversionedStoreMigratesAllTheWayToEight() {
+    void anUnversionedStoreMigratesAllTheWayToCurrentSchema() {
         UUID caseId = UUID.randomUUID();
         CompoundTag store = legacyStore(legacyRecord(caseId, 4, true));
 
         CompoundTag migrated = CrimeDataMigrations.migrate(store);
 
-        assertEquals(8, CrimeDataMigrations.schemaOf(migrated));
-        assertEquals(CrimeDataMigrations.SCHEMA_0_6_0, CrimeDataMigrations.CURRENT_SCHEMA);
+        assertEquals(CrimeDataMigrations.CURRENT_SCHEMA, CrimeDataMigrations.schemaOf(migrated));
+        assertEquals(CrimeDataMigrations.SCHEMA_RECONCILIATION, CrimeDataMigrations.CURRENT_SCHEMA);
         assertEquals(1, migrated.getList("ledger", Tag.TAG_COMPOUND).size());
         // The dimension-aware key the very first step wrote is still intact eight steps later.
         assertTrue(migrated.getList("ledger", Tag.TAG_COMPOUND).getCompound(0)

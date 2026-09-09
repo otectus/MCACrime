@@ -1,17 +1,12 @@
 package dev.otectus.mcacrime.mug.npc;
 
 import dev.otectus.mcacrime.McaCrimeConfig;
-import dev.otectus.mcacrime.economy.Currencies;
-import dev.otectus.mcacrime.economy.Currency;
-import dev.otectus.mcacrime.economy.TransactionReason;
 import dev.otectus.mcacrime.state.world.CrimeWorldData;
 import dev.otectus.mcacrime.state.world.StolenGoodsRecord;
 import dev.otectus.mcacrime.util.CrimeDebug;
-import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.phys.Vec3;
 
 import java.util.ArrayList;
@@ -32,11 +27,9 @@ import java.util.UUID;
  * cuffed — the system would reward murdering somebody in restraints. Returning property on arrest
  * makes the lawful outcome the profitable one.
  *
- * <p>The return is transactional in exactly the way death recovery is, and for the same reason:
- * {@link StolenGoodsLedger#claimForOwner} removes the entries it hands back, so an arrest cannot pay
- * a victim who has already been paid, and {@code StolenGoodsRecovery}'s later {@code claimAll} on the
- * same thief can only find what this call left behind. Owners who are offline or too far away keep
- * their claim untouched: nothing is destroyed by not being nearby.
+ * <p>Provenance moves into owner escrow before delivery, preserving the recorded currency provider
+ * and retaining ambiguous failures for reconciliation. Owners who are offline or too far away keep
+ * their claim untouched. A later death finds only property the arrest did not already move to escrow.
  */
 public final class StolenGoodsReturn {
 
@@ -81,7 +74,7 @@ public final class StolenGoodsReturn {
      * Returns everything this thief was holding for any victim within {@code stolenGoodsReturnRadius}
      * of the arrest.
      *
-     * @return how many ledger entries were handed back
+     * @return how many ledger entries moved into owner escrow (delivery may still be pending)
      */
     public static int onArrest(MinecraftServer server, ServerLevel level, UUID thief, Vec3 at) {
         if (server == null || level == null || thief == null || at == null
@@ -112,7 +105,8 @@ public final class StolenGoodsReturn {
             if (player == null) {
                 continue; // logged out between the distance check and here; the claim survives
             }
-            returned += give(player, StolenGoodsLedger.claimForOwner(server, thief, owner));
+            returned += StolenGoodsLedger.escrowForOwner(CrimeWorldData.get(server), thief, owner, level.getGameTime());
+            dev.otectus.mcacrime.engine.CrimeReconciler.deliverEscrow(player, server);
         }
         if (returned > 0) {
             CrimeDebug.crime("arrest of thief {} returned {} ledger entr(ies) to nearby owners",
@@ -121,31 +115,4 @@ public final class StolenGoodsReturn {
         return returned;
     }
 
-    /** Hands one owner their entries back. Anything that will not fit lands at their feet. */
-    private static int give(ServerPlayer owner, List<StolenGoodsRecord> claimed) {
-        Currency currency = Currencies.active();
-        int handed = 0;
-        for (StolenGoodsRecord record : claimed) {
-            if (record.hasStack()) {
-                ItemStack stack = record.stack(owner.registryAccess());
-                if (!stack.isEmpty()) {
-                    Component name = stack.getHoverName();
-                    if (!owner.getInventory().add(stack)) {
-                        // A full inventory must not silently eat the return: the entry is already out
-                        // of the ledger, so the only safe place left is the floor.
-                        owner.drop(stack, false);
-                    }
-                    owner.sendSystemMessage(Component.translatable("mcacrime.npc_mug.returned", name));
-                }
-            }
-            long amount = Math.max(0L, record.currency());
-            if (amount > 0L) {
-                currency.credit(owner, amount, TransactionReason.RECOVERY);
-                owner.sendSystemMessage(Component.translatable("mcacrime.npc_mug.returned",
-                        currency.format(amount)));
-            }
-            handed++;
-        }
-        return handed;
-    }
 }

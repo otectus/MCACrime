@@ -18,8 +18,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 class CrimeButtonStateTest {
 
-    private static final String REQUIRES_WEAPON = "gui.mcacrime.crime.requires_weapon";
-    private static final String MAIN_HAND = "gui.mcacrime.crime.requires_weapon_main_hand";
+    private static final String PEACEFUL = "gui.mcacrime.crime.peaceful";
     private static final String FENCE = "gui.mcacrime.crime.fence_trade";
 
     @Test
@@ -30,16 +29,16 @@ class CrimeButtonStateTest {
     }
 
     @Test
-    void anUnarmedPlayerIsToldToDrawAWeapon() {
+    void anUnarmedPlayerCanReachApologiesWithoutDrawingAWeapon() {
         ButtonState state = ButtonState.compute(true, false, false, true);
-        assertFalse(state.active());
-        assertEquals(REQUIRES_WEAPON, state.tooltipKey());
+        assertTrue(state.active());
+        assertEquals(PEACEFUL, state.tooltipKey());
     }
 
     @Test
-    void theTooltipNamesTheHandWhenTheOffHandDoesNotCount() {
-        assertEquals(MAIN_HAND, ButtonState.compute(true, false, false, false).tooltipKey());
-        assertEquals(REQUIRES_WEAPON, ButtonState.compute(true, false, false, true).tooltipKey());
+    void peacefulOptionsRemainReachableRegardlessOfOffHandPolicy() {
+        assertEquals(PEACEFUL, ButtonState.compute(true, false, false, false).tooltipKey());
+        assertEquals(PEACEFUL, ButtonState.compute(true, false, false, true).tooltipKey());
     }
 
     @Test
@@ -74,10 +73,9 @@ class CrimeButtonStateTest {
     }
 
     @Test
-    void theOldFourArgumentGateStillRequiresAWeapon() {
-        // The overload the rest of the suite uses: it must keep meaning "a weapon is required",
-        // or every row above would start passing for the wrong reason.
-        assertFalse(ButtonState.compute(true, false, false, true).active());
+    void bothSignaturesKeepPeacefulActionsReachable() {
+        assertEquals(ButtonState.compute(true, false, false, true, true),
+                ButtonState.compute(true, false, false, true));
     }
 
     @Test
@@ -105,7 +103,7 @@ class CrimeButtonStateTest {
                 for (boolean fence : new boolean[]{false, true}) {
                     for (boolean offHand : new boolean[]{false, true}) {
                         ButtonState state = ButtonState.compute(found, armed, fence, offHand);
-                        assertEquals(found && (armed || fence), state.active());
+                        assertEquals(found, state.active());
                         if (!armed) {
                             assertTrue(state.tooltipKey() != null && state.tooltipKey().startsWith("gui.mcacrime.crime."),
                                     "an unarmed row must explain itself");

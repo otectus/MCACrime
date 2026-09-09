@@ -22,7 +22,7 @@ import java.util.UUID;
 public record SettlementQuote(UUID offender, List<CaseRef> cases, long amount, long heat,
                               long heatCleared, long expiresAt, Optional<RejectReason> reject) {
 
-    /** How long an offer stands. Ten seconds: long enough to read, too short to bank. */
+    /** How long an offer stands: thirty seconds. */
     public static final long VALIDITY_TICKS = 600L;
 
     /** One case in the offer, at the revision it was priced under. */
@@ -46,7 +46,7 @@ public record SettlementQuote(UUID offender, List<CaseRef> cases, long amount, l
         /** Nothing outstanding to settle. */
         NOTHING_OWED("mcacrime.fine.nothing"),
         /** The offer stood too long, or a case moved under it. Re-quote and ask again. */
-        STALE("mcacrime.fine.nothing");
+        STALE("mcacrime.fine.stale");
 
         private final String messageKey;
 

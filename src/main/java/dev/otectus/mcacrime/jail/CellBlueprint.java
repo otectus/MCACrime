@@ -52,6 +52,13 @@ public final class CellBlueprint {
     private CellBlueprint() {
     }
 
+    /** Includes the floor, bars, roof and enclosed air, not just the blocks being replaced. */
+    public static net.minecraft.world.phys.AABB bounds(net.minecraft.core.BlockPos anchor) {
+        return new net.minecraft.world.phys.AABB(anchor.getX() - RADIUS, anchor.getY() - 1,
+                anchor.getZ() - RADIUS, anchor.getX() + RADIUS + 1,
+                anchor.getY() + INTERIOR_HEIGHT + 1, anchor.getZ() + RADIUS + 1);
+    }
+
     /**
      * Every block the cell occupies, in placement order: floor, then walls, then roof, then the
      * interior cleared last so a wall block can never be placed into the space just cleared.

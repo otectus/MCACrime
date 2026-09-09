@@ -41,6 +41,8 @@ public final class CrimeActionTicker {
                 ActionSessionManager.cancel(session, CancelReason.DIMENSION_CHANGED);
             } else if (!(entity instanceof LivingEntity target) || !target.isAlive()) {
                 ActionSessionManager.cancel(session, CancelReason.TARGET_GONE);
+            } else if (target.isSleeping() && session.actionId().equals(CrimeActionIds.MUG)) {
+                ActionSessionManager.cancel(session, CancelReason.CONFLICT);
             } else {
                 CrimeActionHandler handler = ActionHandlerRegistry.get(session.actionId());
                 if (handler == null) {

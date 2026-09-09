@@ -28,6 +28,7 @@ class PayloadRegistrationTest {
         EXPECTED.put(StartActionC2SPacket.TYPE, "start_action");
         EXPECTED.put(RequestSelfMenuC2SPacket.TYPE, "request_self_menu");
         EXPECTED.put(GuardChallengeResponseC2SPacket.TYPE, "guard_challenge_response");
+        EXPECTED.put(GuardChallengeDisplayedC2SPacket.TYPE, "guard_challenge_displayed");
         EXPECTED.put(RequestCaseLedgerC2SPacket.TYPE, "request_case_ledger");
         EXPECTED.put(SelfStatusS2CPacket.TYPE, "self_status");
         EXPECTED.put(BandSyncS2CPacket.TYPE, "band_sync");
@@ -44,8 +45,8 @@ class PayloadRegistrationTest {
     }
 
     @Test
-    void thereAreSeventeenPayloads() {
-        assertEquals(17, EXPECTED.size());
+    void thereAreEighteenPayloads() {
+        assertEquals(18, EXPECTED.size());
     }
 
     @Test

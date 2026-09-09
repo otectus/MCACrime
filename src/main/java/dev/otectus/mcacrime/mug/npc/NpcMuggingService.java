@@ -3,12 +3,11 @@ package dev.otectus.mcacrime.mug.npc;
 import dev.otectus.mcacrime.McaCrimeConfig;
 import dev.otectus.mcacrime.ai.thief.ThiefBehaviorService;
 import dev.otectus.mcacrime.api.event.CrimeAttemptEvent;
-import dev.otectus.mcacrime.api.event.NpcCrimeCommittedEvent;
 import dev.otectus.mcacrime.api.model.CrimeRecordView;
 import dev.otectus.mcacrime.audio.CrimeSounds;
+import dev.otectus.mcacrime.compat.McaCompat;
 import dev.otectus.mcacrime.crime.type.CrimeIds;
-import dev.otectus.mcacrime.detect.CrimeDetector;
-import dev.otectus.mcacrime.detect.WitnessChecker;
+import dev.otectus.mcacrime.detect.EntitySelectors;
 import dev.otectus.mcacrime.dialogue.CrimeDialogueService;
 import dev.otectus.mcacrime.dialogue.DialogueEvents;
 import dev.otectus.mcacrime.economy.Currencies;
@@ -20,6 +19,9 @@ import dev.otectus.mcacrime.ledger.CrimeFlag;
 import dev.otectus.mcacrime.network.ActionProgressS2CPacket;
 import dev.otectus.mcacrime.network.CrimeNetwork;
 import dev.otectus.mcacrime.util.CrimeDebug;
+import dev.otectus.mcacrime.jail.JailService;
+import dev.otectus.mcacrime.state.world.CrimeWorldData;
+import dev.otectus.mcacrime.state.world.ServerMutationGate;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceKey;
@@ -114,9 +116,11 @@ public final class NpcMuggingService {
      *         which case nothing has been said or drawn and the thief simply goes back to looking
      */
     public static Optional<NpcMugSession> begin(ServerLevel level, LivingEntity thief, ServerPlayer victim) {
-        if (level == null || thief == null || victim == null || isVictim(victim.getUUID())) {
+        if (level == null || thief == null || victim == null || isVictim(victim.getUUID())
+                || sessionForThief(thief.getUUID()).isPresent()) {
             return Optional.empty();
         }
+        if (abortReason(level, thief, victim, true) != null) return Optional.empty();
         UUID transactionId = UUID.randomUUID();
         CrimeAttemptEvent.Started started = new CrimeAttemptEvent.Started(transactionId, thief.getUUID(),
                 victim.getUUID(), CrimeIds.MUGGING);
@@ -124,6 +128,9 @@ public final class NpcMuggingService {
             CrimeDebug.crime("npc mug refused by listener: thief {} victim {}", thief.getUUID(), victim.getUUID());
             return Optional.empty();
         }
+        // A listener can change hearts, weapons, custody or the job, or open another session.
+        if (abortReason(level, thief, victim, true) != null
+                || sessionForThief(thief.getUUID()).isPresent()) return Optional.empty();
 
         long now = level.getGameTime();
         NpcMugSession session = new NpcMugSession(transactionId, thief.getUUID(), victim.getUUID(),
@@ -136,7 +143,7 @@ public final class NpcMuggingService {
         // custody is not optional, and the offender is an NPC rather than a player.
         ActiveIncidentRegistry.open(new ActiveIncidentRegistry.ActiveIncident(transactionId, thief.getUUID(),
                 victim.getUUID(), level.dimension(), now,
-                EnumSet.of(CrimeFlag.CAUGHT_IN_ACT, CrimeFlag.MANDATORY_CUSTODY, CrimeFlag.NPC_OFFENDER),
+                EnumSet.of(CrimeFlag.NPC_OFFENDER),
                 ActiveIncidentRegistry.Phase.THREAT));
 
         CrimeDialogueService.speak(thief, victim, DialogueEvents.NPC_MUG_START,
@@ -178,19 +185,15 @@ public final class NpcMuggingService {
                 abort(session.victimId(), NpcMugAbortReason.THIEF_DEAD);
                 continue;
             }
-            if (thief.distanceToSqr(victim) > MUG_REACH * MUG_REACH) {
-                abort(session.victimId(), NpcMugAbortReason.OUT_OF_RANGE);
-                continue;
-            }
-
             long now = level.getGameTime();
-            if (session.shouldCheckWeapon(now)) {
+            boolean checkWeapon = session.shouldCheckWeapon(now);
+            if (checkWeapon) {
                 session.scheduleWeaponCheck(now, weaponInterval);
-                if (WeaponDetector.isArmed(victim)) {
-                    // The one piece of counterplay the spec asks for, and the only one.
-                    abort(session.victimId(), NpcMugAbortReason.VICTIM_ARMED);
-                    continue;
-                }
+            }
+            NpcMugAbortReason reason = abortReason(level, thief, victim, checkWeapon);
+            if (reason != null) {
+                abort(session.victimId(), reason);
+                continue;
             }
 
             session.advance();
@@ -218,13 +221,60 @@ public final class NpcMuggingService {
         if (session == null) {
             return;
         }
+        closeAborted(ServerLifecycleHooks.getCurrentServer(), session, reason);
+    }
+
+    /** Shared by selection, approach and the debug command; reach is checked when the threat starts. */
+    public static boolean canTarget(ServerLevel level, LivingEntity thief, ServerPlayer victim) {
+        return participantAbortReason(level, thief, victim) == null && !WeaponDetector.isArmed(victim);
+    }
+
+    /** Inclusive MCA heart threshold. A negative setting disables only relationship protection. */
+    public static boolean relationshipProtects(int hearts, int minimumHearts) {
+        return minimumHearts >= 0 && hearts >= minimumHearts;
+    }
+
+    @Nullable
+    private static NpcMugAbortReason participantAbortReason(ServerLevel level, LivingEntity thief,
+                                                           ServerPlayer victim) {
+        if (level == null || victim == null || !victim.isAlive() || victim.isRemoved() || victim.level() != level)
+            return NpcMugAbortReason.VICTIM_GONE;
+        if (thief == null || !thief.isAlive() || thief.isRemoved() || thief.level() != level)
+            return NpcMugAbortReason.THIEF_DEAD;
+        if (!ServerMutationGate.allows(level.getServer())
+                || !dev.otectus.mcacrime.ai.NpcAwareness.isAwake(thief)
+                || victim.isSpectator() || victim.isCreative() || victim.isInvulnerable()
+                || EntitySelectors.isProtected(victim) || JailService.isJailed(victim))
+            return NpcMugAbortReason.CANCELLED;
+        int threshold = McaCrimeConfig.COMMON.thiefMugProtectionHearts.get();
+        if (threshold >= 0 && relationshipProtects(McaCompat.getHearts(victim, thief), threshold))
+            return NpcMugAbortReason.RELATIONSHIP_PROTECTED;
+        CrimeWorldData data = CrimeWorldData.get(level.getServer());
+        if (!McaCrimeConfig.COMMON.enableThieves.get()
+                || WorldCriminalJobService.of(level.getServer()).get(thief.getUUID())
+                    != dev.otectus.mcacrime.job.CriminalJob.THIEF
+                || data.isCaptive(thief.getUUID()) || data.isCaptive(victim.getUUID()))
+            return NpcMugAbortReason.CANCELLED;
+        return null;
+    }
+
+    @Nullable
+    private static NpcMugAbortReason abortReason(ServerLevel level, LivingEntity thief, ServerPlayer victim,
+                                                boolean checkWeapon) {
+        NpcMugAbortReason reason = participantAbortReason(level, thief, victim);
+        if (reason != null) return reason;
+        if (thief.distanceToSqr(victim) > MUG_REACH * MUG_REACH) return NpcMugAbortReason.OUT_OF_RANGE;
+        return checkWeapon && WeaponDetector.isArmed(victim) ? NpcMugAbortReason.VICTIM_ARMED : null;
+    }
+
+    /** Close the HUD, incident and attempt on every abort, including a failed final eligibility check. */
+    private static void closeAborted(@Nullable MinecraftServer server, NpcMugSession session,
+                                     NpcMugAbortReason reason) {
         session.markAborted();
-        MinecraftServer server = ServerLifecycleHooks.getCurrentServer();
-        ServerPlayer victim = server == null ? null : server.getPlayerList().getPlayer(victimId);
+        ServerPlayer victim = server == null ? null : server.getPlayerList().getPlayer(session.victimId());
         if (victim != null) {
             CrimeNetwork.sendActionProgress(victim, ActionProgressS2CPacket.ended(session.transactionId(),
-                    "gui.mcacrime.action.npc_mug", ActionProgressS2CPacket.Phase.CANCELLED, reason.outcomeKey(),
-                    Component.empty()));
+                    "gui.mcacrime.action.npc_mug", ActionProgressS2CPacket.Phase.CANCELLED, reason.outcomeKey(), Component.empty()));
             ServerLevel level = levelOf(server, session.dimension());
             LivingEntity thief = thiefOf(level, session);
             if (thief != null && level != null && reason == NpcMugAbortReason.VICTIM_ARMED) {
@@ -233,18 +283,6 @@ public final class NpcMuggingService {
                                 DialogueEvents.NPC_MUG_ABORT_ARMED));
             }
         }
-        closeAborted(server, session, reason);
-    }
-
-    /**
-     * The half of an abort that happens whether or not the victim is still there to be told: close the
-     * incident, say so, and hand the thief back to its own behaviour.
-     *
-     * <p>Shared with {@link #complete}, which reaches it when the victim vanished between the tick
-     * that filled the bar and the commit that would have charged them for it.
-     */
-    private static void closeAborted(@Nullable MinecraftServer server, NpcMugSession session,
-                                     NpcMugAbortReason reason) {
         ActiveIncidentRegistry.close(session.thiefId());
         NeoForge.EVENT_BUS.post(new CrimeAttemptEvent.Ended(session.transactionId(), session.thiefId(),
                 session.victimId(), CrimeIds.MUGGING, CrimeAttemptEvent.AttemptOutcome.ABORTED, reason.name()));
@@ -267,10 +305,10 @@ public final class NpcMuggingService {
      * one race that matters, and it aborts: no debit, no record, no loot.
      */
     public static void complete(NpcMugSession session) {
-        if (session == null || !SESSIONS.remove(session.victimId(), session)) {
+        if (session == null || !session.running() || !session.complete()
+                || !SESSIONS.remove(session.victimId(), session)) {
             return;
         }
-        session.markFinished();
         MinecraftServer server = ServerLifecycleHooks.getCurrentServer();
         ServerLevel level = levelOf(server, session.dimension());
         ServerPlayer victim = server == null ? null : server.getPlayerList().getPlayer(session.victimId());
@@ -279,9 +317,9 @@ public final class NpcMuggingService {
             return;
         }
         LivingEntity thief = thiefOf(level, session);
-        if (thief == null || !thief.isAlive()) {
-            // Nobody is left to steal it, and the record would name an offender that does not exist.
-            closeAborted(server, session, NpcMugAbortReason.THIEF_DEAD);
+        NpcMugAbortReason reason = abortReason(level, thief, victim, true);
+        if (reason != null) {
+            closeAborted(server, session, reason);
             return;
         }
 
@@ -291,22 +329,28 @@ public final class NpcMuggingService {
         TheftPlanner.TheftPlan plan = TheftPlanner.plan(currency.balance(victim),
                 TheftExecutor.snapshot(victim, policy), policy, level.random::nextInt);
 
-        // COMMIT -- that plan, verbatim.
-        TheftExecutor.TheftResult result = TheftExecutor.commit(victim, plan, currency);
-
-        // FINALIZE -- provenance first, so a crash after this point still knows who owns what.
-        long now = level.getGameTime();
-        if (result.tookSomething()) {
-            StolenGoodsLedger.record(server, session.transactionId(), session.thiefId(),
-                    victim.getUUID(), result, now);
+        reason = abortReason(level, thief, victim, true);
+        if (reason != null) {
+            closeAborted(server, session, reason);
+            return; // An external balance callback may have changed participant eligibility.
         }
+
+        long now = level.getGameTime();
+        var committed = StolenGoodsLedger.commitTheft(CrimeWorldData.get(server), server.registryAccess(), session.transactionId(),
+                session.thiefId(), victim.getUUID(), currency.id().toString(), now,
+                () -> TheftExecutor.commit(victim, plan, currency));
+        if (committed.isEmpty()) {
+            closeAborted(server, session, NpcMugAbortReason.CANCELLED);
+            return;
+        }
+        TheftExecutor.TheftResult result = committed.get();
+        session.markFinished();
         ActiveIncidentRegistry.advance(session.thiefId(), ActiveIncidentRegistry.Phase.COMMITTED);
         EnumSet<CrimeFlag> flags = ActiveIncidentRegistry.get(session.thiefId())
                 .map(ActiveIncidentRegistry.ActiveIncident::flags)
-                .orElseGet(() -> EnumSet.of(CrimeFlag.CAUGHT_IN_ACT, CrimeFlag.MANDATORY_CUSTODY,
-                        CrimeFlag.NPC_OFFENDER));
-        Optional<CrimeRecordView> view = CrimeDetector.commitNpc(thief, CrimeIds.MUGGING, victim, level,
-                WitnessChecker.resolve(level, victim), "npc", flags);
+                .orElseGet(() -> EnumSet.of(CrimeFlag.NPC_OFFENDER));
+        Optional<CrimeRecordView> view = dev.otectus.mcacrime.incident.IncidentService.commitNpc(
+                session.transactionId(), thief, CrimeIds.MUGGING, victim, level, "npc", flags);
 
         tellVictim(victim, session, result, currency);
         CrimeDialogueService.speak(thief, victim, DialogueEvents.NPC_MUG_SUCCESS,
@@ -314,8 +358,6 @@ public final class NpcMuggingService {
                         DialogueEvents.NPC_MUG_SUCCESS));
 
         ActiveIncidentRegistry.close(session.thiefId());
-        NeoForge.EVENT_BUS.post(new NpcCrimeCommittedEvent(session.thiefId(), session.victimId(),
-                CrimeIds.MUGGING, session.transactionId(), view.map(CrimeRecordView::id).orElse(null)));
         NeoForge.EVENT_BUS.post(new CrimeAttemptEvent.Ended(session.transactionId(), session.thiefId(),
                 session.victimId(), CrimeIds.MUGGING, CrimeAttemptEvent.AttemptOutcome.COMMITTED, ""));
         CrimeDebug.crime("npc mug {} committed: currency={} item={}", session.transactionId(),

@@ -9,12 +9,17 @@ never hears about it.
 
 - **Minecraft** 1.21.1 · **NeoForge** · **Java** 21
 - **Requires** MCA Reborn, the version pinned in `gradle.properties`
-- **Optional companion** MCA: Reputation, the NeoForge 1.21.1 build
+- **Optional integrations** MCA: Reputation, MCA: Quests, and Locks Reforged, using their NeoForge 1.21.1 builds
 - **Licence** GPL-3.0-only
 
 ---
 
 ## What it does
+
+The latest development pass confirms death before awarding kill bounties or recovering stolen
+property. Recovered goods go to their owner's escrow, with delivery attempted immediately for
+online owners and on login for everyone else. See the
+[death and recovery phase notes](docs/MCA_CRIME_PHASE2_DEATH_RECOVERY.md) for validation and limits.
 
 MCA already models how one villager feels about you — that is what hearts are. This mod models
 what the **law** does about you, on two separate axes that never read each other.
@@ -24,34 +29,55 @@ what the **law** does about you, on two separate axes that never read each other
 - **Heat** is short-term law-enforcement pressure. At 50 you are **Wanted** and guards come for
   you. It bleeds off per online minute, so lying low genuinely works — and lying logged out does
   not, because every clock in this mod counts online time only.
-- **Crimes are data.** Ten ship as JSON — theft, harming a villager, assaulting a guard,
-  jailbreak, kidnapping, killing a villager, murder during a robbery, assault on another player,
-  extortion, and murder of another player — each with its own karma and Heat cost. A datapack can
-  retune all ten or add its own.
-- **Witnesses** decide whether the law ever finds out. A villager or guard within twelve blocks
-  with line of sight to the *victim* becomes a named witness, recorded by UUID at the moment it
-  happened. An unwitnessed crime scales its karma penalty and, by default, generates no Heat at
-  all. The record still exists; the village just does not know about it.
-- **Enforcement.** Being a **legal target** — Wanted, an escaped prisoner, holding a captive, or
-  (optionally) an Outlaw — makes force against you lawful. Guards pursue you; ordinary villagers
-  flee. Neither runs a per-tick world scan.
+- **Crimes are data.** Seven ship as JSON — theft, harming a villager, assaulting a guard,
+  jailbreak, kidnapping, killing a villager, and murder during a robbery — each with its own karma
+  and Heat cost. A datapack can retune all seven or add its own.
+- **Witnesses** see or hear crimes within offense-specific ranges. Walls block sight; sound alone
+  identifies no suspect. Civilians carry their information to guards, and only sufficiently confident
+  reports create public consequences. Local family conversations can spread uncertain accounts.
+- **Intimidation and memory (0.6.0).** Victims can comply, panic, stall, resist or defy depending on
+  weapon aim, personality, health, support and history. Persistent fear and anger affect later
+  interactions and soften through time, apologies and matching-case reconciliation.
+  To apologize, put weapons away, wait one minute after the incident, then sneak and
+  right-click the villager with an empty main hand. Choose **Apologize** in the Crime menu;
+  its MCA screen button and optional keybind also work unarmed. An apology helps repair
+  trust but does not immediately erase fear or legal charges.
+- **Enforcement.** Guards act on reported cases in their own jurisdiction. Wanted Heat,
+  including Heat set by commands, independently causes nearby guards
+  and archers to approach and confront you. Refusal keeps pursuit lawful until it expires or is
+  resolved. These statuses do not reveal private crimes to a guard.
+  Escaped prisoners and active captors also provide a basis for intervention. Victims react from
+  personal memory; neither system runs a per-tick world scan.
+- **Combat evidence.** Damage charges use final damage and confirmed death. Armor-reduced hits,
+  totem saves and canceled deaths cannot become a predicted murder charge. Self-defense requires
+  a recent unprovoked attack and permits nonlethal retaliation; provoking a villager or guard does
+  not make their retaliation a license to attack them. Lethal force needs its own permission.
 - **Jail** is served in **online ticks**. Logging out pauses your sentence, dying does not clear
   it, changing dimension does not stop it, and a server restart resumes it. Three containment
   modes decide whether the walls are breakable and whether leaving counts as a breakout.
-- **Fines and surrender.** A fine settles *named cases*, oldest first — the ledger afterwards says
-  which offences you answered for. Above the jailable Heat threshold a fine is refused outright:
-  some crimes cannot be paid away. Outlaws must surrender before they may pay at all.
+- **Fines and surrender.** Guards quote and settle only their locally known cases. A changed offer
+  requires another confirmation before payment; insufficient funds leaves surrender available.
+  Local Heat reductions are capped by the selected cases' recorded contribution. Outside an encounter, `/crime payfine`
+  remains a voluntary settlement of the whole record and Heat, including unreported crimes.
+  Mandatory-custody cases and cases already assigned to a sentence cannot be paid away. The configured
+  Heat threshold and Outlaw payment policy still apply to each settlement's scope.
 - **Kidnapping** is the structural twin of jail, deliberately kept legally distinct. Restrain a
   villager or a player with rope, cuffs, or locked cuffs after a channel that a hit, a step, or a
   lost line of sight will break — and only against a target who is genuinely vulnerable. Guards
   are never capturable this way.
+- **Cuff lockpicking with Locks Reforged.** When installed, escaping ordinary or locked cuffs
+  requires winning its native minigame. Attempts need no item by default; enable
+  `[kidnapping].cuffEscapeRequiresLockpick` to require a lockpick in the inventory. Lawful cuff
+  escape counts as jailbreak and preserves the sentence. Rope keeps its existing escape rules.
 - **Ransom.** Somebody has to pay for your captive, and who it is follows a strict priority:
   spouse, parent, adult child, sibling, close relative, and failing all of those, the village
   itself at a lower price. Family payers must be reachable online players.
 - **Mugging.** Rob a villager for a modest amount of emeralds and take a moderate theft charge.
   Kill that same villager shortly afterwards and the death is reclassified as murder during a
-  robbery — the heaviest crime in the mod, with no extra loot for it. Robbery is meant to pay
-  better than murder.
+  robbery — the heaviest crime in the mod.
+- **Death loot.** Villagers drop equipped gear and one purchase worth of each available trade; guards
+  and archers leave their equipment. Item data is preserved and carried gear is not duplicated.
+  Fences leave one item per available selling offer. Configure these defaults under `[loot]` in [CONFIG.md](CONFIG.md).
 - **The ledger.** Every crime is a case with an identity, a victim, a community, its witnesses,
   and a disposition: unresolved, fined, served, pardoned, escaped, or expired. Escaping is not
   forgiveness — an escaped case stays actionable, and can still be settled later.
@@ -70,6 +96,10 @@ and deletes nothing; time-based retention does — stale criminal-villager recor
 contracts, and claims past their retention window are dropped on a timer.
 
 ## Installing
+
+In 0.6.0, bounty payments retain unpaid inventory overflow and uncertain currency outcomes. Use
+`/crime collectbounty` to collect queued rewards. Operators can inspect/export/reconcile retained
+receipts with `/crime recovery`; see [recovery operations](docs/RECOVERY_OPERATIONS.md).
 
 Drop the jar in `mods/` alongside MCA Reborn. That is the whole installation; the mod works
 standalone.
@@ -118,7 +148,8 @@ deed, never both and never neither. `/crime debug integrations` reports which.
 ## Commands
 
 Everything is under `/crime`. Checking your own standing and acting on your own situation needs no
-permission; reading someone else's needs level 2; changing anything needs level 3.
+permission; reading someone else's needs level 2. Setting heat also needs level 2 so command blocks
+can use it; other administrative changes need level 3.
 
 For ordinary play, open MCA's villager interaction screen and choose **Crime…**. If a supported MCA
 layout cannot be bridged, Shift+interact with an empty hand opens the same server-issued menu. The
@@ -144,7 +175,8 @@ cooldowns, and finite accounts.
 
 /crime validate                              run config validation                  (level 3)
 /crime reload                                reload datapack crime definitions       (level 3)
-/crime set karma|heat <player> <value>                                              (level 3)
+/crime set heat <player> <value>             also available to command blocks       (level 2)
+/crime set karma <player> <value>                                                   (level 3)
 /crime clearheat <player>                                                           (level 3)
 /crime jail <player> <ticks>                 ticks are online ticks                 (level 3)
 /crime release <player>                      clears jail and kidnapping alike       (level 3)
@@ -182,12 +214,10 @@ Mutation is never exposed — it stays behind the single state chokepoint on pur
 
 ## Upgrading an existing world
 
-Worlds upgraded from Forge 1.20.1 are migrated on load through schema 8 without a server or a
-config being consulted. The migration is **not reversible** — take a copy of your world first.
-Player data is read once from the legacy Forge capability format (`ForgeCaps`) under `player.dat`
-and lifted into the NeoForge data attachment format; new-format data always wins. The policy,
-what changes about village identity, and what an old jar does with a new save are in
-**[MIGRATION.md](MIGRATION.md)**.
+Older saves are migrated on load through schema 10 without a server or a config
+being consulted. The migration is **not reversible** — take a copy of your world first. The
+policy, what changes about village identity, and what an old jar does with a new save are in
+**[MIGRATION.md](docs/MIGRATION.md)**.
 
 ## Documentation
 
@@ -196,12 +226,13 @@ what changes about village identity, and what an old jar does with a new save ar
 | [CONFIG.md](CONFIG.md) | every config option, default, range, and disabled behaviour |
 | [DATAPACK.md](DATAPACK.md) | crime and incident schemas with examples |
 | [API.md](API.md) | the public Java API, events, and failure contracts |
-| [MIGRATION.md](MIGRATION.md) | schema migration, removal, and rollback |
+| [MIGRATION.md](docs/MIGRATION.md) | schema migration, removal, and rollback |
 | [CHANGELOG.md](CHANGELOG.md) | release notes |
+| [NeoForge parity](docs/NEOFORGE_PARITY_2026-09-08.md) | 0.6.0 feature parity, platform adaptations, and validation |
 | [CURSEFORGE.md](CURSEFORGE.md) | the store listing copy |
-| [mca-crime-spec-document.md](mca-crime-spec-document.md) | the original design specification |
-| [MCA_CRIME_SUITE_INTEGRATION_IMPLEMENTATION_PLAN.md](MCA_CRIME_SUITE_INTEGRATION_IMPLEMENTATION_PLAN.md) | the suite integration design |
-| [PHASE_2](PHASE_2_VERIFICATION.md) · [PHASE_3](PHASE_3_VERIFICATION.md) · [PHASE_4](PHASE_4_VERIFICATION.md) · [PHASE_5](PHASE_5_VERIFICATION.md) | the in-world checklists that must pass before a release is tagged |
+| [mca-crime-spec-document.md](docs/mca-crime-spec-document.md) | the original design specification |
+| [MCA_CRIME_SUITE_INTEGRATION_IMPLEMENTATION_PLAN.md](docs/MCA_CRIME_SUITE_INTEGRATION_IMPLEMENTATION_PLAN.md) | the suite integration design |
+| [PHASE_2](docs/PHASE_2_VERIFICATION.md) · [PHASE_3](docs/PHASE_3_VERIFICATION.md) · [PHASE_4](docs/PHASE_4_VERIFICATION.md) · [PHASE_5](docs/PHASE_5_VERIFICATION.md) | the in-world checklists that must pass before a release is tagged |
 
 ## Building
 
@@ -212,33 +243,33 @@ and the foojay resolver if needed, so it works on any machine without needing `J
 ./gradlew build
 ```
 
-`build/libs/mcacrime-<version>.jar` is the reobfuscated artifact. The build also runs
+`build/libs/mcacrime-<version>.jar` is the release artifact. The build also runs
 `checkJarContents`, which fails if a companion mod's classes ever end up shaded into it.
 
-To build a jar that includes the MCA: Reputation adapter, build that repository first and then ask
-for the adapter explicitly:
+To include every optional integration in a release, build the NeoForge sibling projects
+`MCAReputation_1.21.1`, `MCAQuests_1.21.1` and `Locks_Reforged_1.21.1` first, then require all three
+adapters when building Crime. For example, build Reputation first:
 
 ```bash
-cd ../MCAReputation && ./gradlew build
+cd ../MCAReputation_1.21.1 && ./gradlew build
 ```
 
 ```bash
-./gradlew build -PrequireReputation=true
+./gradlew build -PrequireReputation=true -PrequireQuests=true -PrequireLocks=true
 ```
 
-Without `-PrequireReputation=true` the adapter package is excluded when the sibling checkout is
-absent, and the jar behaves exactly as it does with MCA: Reputation uninstalled. With the flag, a
-missing sibling fails the build instead of silently shipping without the bridge.
+Without the corresponding `require` flag, an unavailable sibling excludes that optional adapter.
+Release flags make a missing dependency fail the build. If Locks is installed but the cuff adapter
+is unavailable, cuff escape reports the problem and never substitutes a timed escape.
 
 The test suite includes a probe that replays the entire MCA binding manifest against the real MCA jars
 listed in `mca_probe_versions` in `gradle.properties`, each in its own class loader, and fails if anything
 the mod needs has been renamed or removed. Because no class names an MCA type, the compiler can no
 longer catch that; this is what replaces it. Add a version to `mca_probe_versions` whenever MCA moves again.
 
-**MCA Reborn does not load under a dev runtime** for this NeoForge version — its bundled mixins only resolve
-against production names, so `runClient` is not a valid test of anything that touches MCA. Everything
-MCA-facing has to be verified in a production-style instance; the `PHASE_N_VERIFICATION.md` files
-are those checklists.
+MCA Reborn loads in the NeoForge development runtime. Unit tests boot its mod loader, and
+`runGameTestServer` exercises real world and attachment behavior. Client presentation still needs
+in-game verification; see [the NeoForge parity report](docs/NEOFORGE_PARITY_2026-09-08.md).
 
 ## Licence
 

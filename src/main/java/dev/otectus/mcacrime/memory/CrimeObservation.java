@@ -28,7 +28,7 @@ public record CrimeObservation(UUID observationId,
                                UUID incidentId,
                                UUID observerId,
                                ObserverRole role,
-                               UUID suspectedActorId,
+                               @Nullable UUID suspectedActorId,
                                @Nullable UUID victimId,
                                ResourceLocation actionId,
                                ResourceLocation dimension,
@@ -39,13 +39,23 @@ public record CrimeObservation(UUID observationId,
                                boolean sawAct,
                                boolean heardAct,
                                ReportState reportState,
-                               long expiresAt) {
+                               long expiresAt,
+                               boolean relayed) {
+
+    public CrimeObservation(UUID id, UUID incident, UUID observer, ObserverRole role, UUID suspect, UUID victim,
+                            ResourceLocation action, ResourceLocation dimension, BlockPos location, long at,
+                            float confidence, boolean sawActor, boolean sawAct, boolean heardAct, ReportState report, long expires) {
+        this(id, incident, observer, role, suspect, victim, action, dimension, location, at, confidence,
+                sawActor, sawAct, heardAct, report, expires, false);
+    }
 
     public CrimeObservation {
         role = role == null ? ObserverRole.EYEWITNESS : role;
         reportState = reportState == null ? ReportState.PENDING : reportState;
         location = location == null ? BlockPos.ZERO : location;
-        confidence = Math.max(0.0F, Math.min(1.0F, confidence));
+        confidence = Float.isFinite(confidence) ? Math.max(0.0F, Math.min(1.0F, confidence)) : 0;
+        if (!sawActor && role != ObserverRole.INFORMED) suspectedActorId = null;
+        if (suspectedActorId == null) confidence = 0;
         expiresAt = Math.max(0L, expiresAt);
     }
 
@@ -56,7 +66,7 @@ public record CrimeObservation(UUID observationId,
 
     /** Whether the observer could name the offender, as opposed to only knowing something happened. */
     public boolean identifiesActor() {
-        return sawActor && confidence > 0.0F;
+        return suspectedActorId != null && confidence >= 0.25F;
     }
 
     public boolean expired(long now) {
@@ -66,14 +76,19 @@ public record CrimeObservation(UUID observationId,
     public CrimeObservation withReportState(ReportState next) {
         return next == reportState ? this : new CrimeObservation(observationId, incidentId, observerId, role,
                 suspectedActorId, victimId, actionId, dimension, location, observedAt, confidence,
-                sawActor, sawAct, heardAct, next, expiresAt);
+                sawActor, sawAct, heardAct, next, expiresAt, relayed);
     }
 
     /** Lowers confidence without changing what was seen — used when knowledge arrives second-hand. */
     public CrimeObservation withConfidence(float next) {
         return new CrimeObservation(observationId, incidentId, observerId, role, suspectedActorId, victimId,
                 actionId, dimension, location, observedAt, next, sawActor, sawAct, heardAct,
-                reportState, expiresAt);
+                reportState, expiresAt, relayed);
+    }
+
+    public CrimeObservation withRelayed() {
+        return new CrimeObservation(observationId, incidentId, observerId, role, suspectedActorId, victimId,
+                actionId, dimension, location, observedAt, confidence, sawActor, sawAct, heardAct, reportState, expiresAt, true);
     }
 
     public CompoundTag save() {
@@ -82,7 +97,7 @@ public record CrimeObservation(UUID observationId,
         tag.putUUID("incident", incidentId);
         tag.putUUID("observer", observerId);
         tag.putString("role", role.name());
-        tag.putUUID("suspect", suspectedActorId);
+        if (suspectedActorId != null) tag.putUUID("suspect", suspectedActorId);
         if (victimId != null) {
             tag.putUUID("victim", victimId);
         }
@@ -96,6 +111,7 @@ public record CrimeObservation(UUID observationId,
         tag.putBoolean("heardAct", heardAct);
         tag.putString("report", reportState.name());
         tag.putLong("expires", expiresAt);
+        tag.putBoolean("relayed", relayed);
         return tag;
     }
 
@@ -105,8 +121,7 @@ public record CrimeObservation(UUID observationId,
      * observation, it is a claim nobody made, so it is dropped rather than filled in with a placeholder.
      */
     public static CrimeObservation load(CompoundTag tag) {
-        if (!tag.hasUUID("id") || !tag.hasUUID("incident") || !tag.hasUUID("observer")
-                || !tag.hasUUID("suspect")) {
+        if (!tag.hasUUID("id") || !tag.hasUUID("incident") || !tag.hasUUID("observer")) {
             throw new IllegalArgumentException("observation is missing an identity");
         }
         ResourceLocation action = ResourceLocation.tryParse(tag.getString("action"));
@@ -119,7 +134,7 @@ public record CrimeObservation(UUID observationId,
                 tag.getUUID("incident"),
                 tag.getUUID("observer"),
                 ObserverRole.byName(tag.getString("role")),
-                tag.getUUID("suspect"),
+                tag.hasUUID("suspect") ? tag.getUUID("suspect") : null,
                 tag.hasUUID("victim") ? tag.getUUID("victim") : null,
                 action,
                 dimension,
@@ -130,7 +145,7 @@ public record CrimeObservation(UUID observationId,
                 tag.getBoolean("sawAct"),
                 tag.getBoolean("heardAct"),
                 ReportState.byName(tag.getString("report")),
-                tag.getLong("expires"));
+                tag.getLong("expires"), tag.getBoolean("relayed"));
     }
 
     /**

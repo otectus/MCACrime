@@ -53,7 +53,7 @@ class NoMcaStaticLinkTest {
     private static final String[] FORBIDDEN_ROOTS = {
             "forge/net/mca", "net/conczin/mca", "net/mca/",
             // The old loader, forbidden on the same terms and for the same reason: a surviving
-            // net.minecraftforge reference in a NeoForge 1.21.1 build resolves to nothing at runtime.
+            // net.neoforged.neoforge reference in a NeoForge 1.21.1 build resolves to nothing at runtime.
             "net/minecraftforge/"};
 
     @Test

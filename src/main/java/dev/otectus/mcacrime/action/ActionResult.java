@@ -18,7 +18,7 @@ import java.util.List;
 public record ActionResult(boolean accepted, String code, List<Object> args) {
 
     public ActionResult {
-        args = List.copyOf(args);
+        args = args == null ? List.of() : List.copyOf(args);
     }
 
     public ActionResult(boolean accepted, String code) { this(accepted, code, List.of()); }

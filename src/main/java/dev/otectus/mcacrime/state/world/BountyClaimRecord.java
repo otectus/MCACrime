@@ -7,7 +7,7 @@ import java.util.OptionalLong;
 import java.util.UUID;
 
 /**
- * A bounty that has already been paid (0.5.1). Persisted so it can never be paid again.
+ * A consumed bounty entitlement (0.5.1). New claims have a separate payment receipt in 0.6.0.
  *
  * <p>The key is {@code (target, warrantId, revision)}, and every part of it is load-bearing. Without
  * the warrant id, a target who becomes Wanted a second time collides with the first. Without the

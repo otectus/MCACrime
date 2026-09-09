@@ -10,7 +10,6 @@ import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.neoforge.event.entity.EntityJoinLevelEvent;
 import net.neoforged.neoforge.event.entity.EntityLeaveLevelEvent;
-import net.neoforged.neoforge.event.entity.living.LivingDeathEvent;
 import net.neoforged.neoforge.event.server.ServerStoppingEvent;
 import net.neoforged.neoforge.event.tick.ServerTickEvent;
 
@@ -60,11 +59,13 @@ public final class ThiefTicker {
         }
     }
 
-    @SubscribeEvent
-    public static void onDeath(LivingDeathEvent event) {
-        if (!event.getEntity().level().isClientSide()) {
-            end(event.getEntity().getUUID(), NpcMugAbortReason.THIEF_DEAD);
-        }
+    public static void confirmedDeath(UUID entity) {
+        end(entity, NpcMugAbortReason.THIEF_DEAD);
+    }
+
+    /** Job removed/changed or thieves disabled: end the session before releasing its controller. */
+    public static void stop(UUID entity) {
+        end(entity, NpcMugAbortReason.CANCELLED);
     }
 
     /**

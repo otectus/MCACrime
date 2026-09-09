@@ -51,6 +51,7 @@ import dev.otectus.mcacrime.state.world.BountyClaimRecord;
 import dev.otectus.mcacrime.state.world.CrimeWorldData;
 import dev.otectus.mcacrime.state.world.CriminalVillagerRecord;
 import net.minecraft.ChatFormatting;
+import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.commands.arguments.EntityArgument;
@@ -107,6 +108,8 @@ public final class CrimeCommand {
 
     private static void register(CommandDispatcher<CommandSourceStack> dispatcher) {
         dispatcher.register(Commands.literal("crime")
+                .then(RecoveryCommand.tree())
+                .then(Commands.literal("collectbounty").executes(ctx -> BountyService.collect(ctx.getSource().getPlayerOrException())))
                 .then(Commands.literal("karma")
                         .executes(CrimeCommand::karma))
                 .then(Commands.literal("status")
@@ -143,9 +146,24 @@ public final class CrimeCommand {
                         .requires(src -> src.hasPermission(3))
                         .then(Commands.argument("target", EntityArgument.player())
                                 .executes(CrimeCommand::clearHeat)))
+                .then(Commands.literal("clear").requires(src -> src.hasPermission(3))
+                        .then(Commands.literal("memory")
+                                .then(Commands.argument("villager", EntityArgument.entity())
+                                        .then(Commands.argument("player", EntityArgument.player()).executes(ctx -> {
+                                            if (!dev.otectus.mcacrime.state.world.ServerMutationGate.allows(ctx.getSource().getServer())) return 0;
+                                            var target = EntityArgument.getEntity(ctx, "villager");
+                                            var offender = EntityArgument.getPlayer(ctx, "player");
+                                            var data = CrimeWorldData.get(ctx.getSource().getServer());
+                                            data.villagerProfile(target.getUUID()).ifPresent(profile -> profile.clearMemories(offender.getUUID()));
+                                            data.setDirty();
+                                            ctx.getSource().sendSuccess(() -> Component.literal("Cleared crime memories for this villager and player."), true);
+                                            return 1;
+                                        })))))
                 .then(Commands.literal("set")
-                        .requires(src -> src.hasPermission(3))
+                        // Command blocks have level 2 and need heat for scripted crime areas.
+                        .requires(src -> src.hasPermission(2))
                         .then(Commands.literal("karma")
+                                .requires(src -> src.hasPermission(3))
                                 .then(Commands.argument("target", EntityArgument.player())
                                         .then(Commands.argument("value", IntegerArgumentType.integer())
                                                 .executes(CrimeCommand::setKarma))))
@@ -192,6 +210,18 @@ public final class CrimeCommand {
                         .executes(CrimeCommand::mugTest))
                 .then(Commands.literal("debug")
                         .requires(src -> src.hasPermission(2))
+                        .then(Commands.literal("witness").executes(ctx -> debugAwareness(ctx, "witness", null))
+                                .then(Commands.argument("villager", EntityArgument.entity()).executes(ctx -> debugAwareness(ctx, "witness", EntityArgument.getEntity(ctx, "villager")))))
+                        .then(Commands.literal("threat").executes(ctx -> debugAwareness(ctx, "threat", null))
+                                .then(Commands.argument("villager", EntityArgument.entity()).executes(ctx -> debugAwareness(ctx, "threat", EntityArgument.getEntity(ctx, "villager")))))
+                        .then(Commands.literal("memory").executes(ctx -> debugAwareness(ctx, "memory", null))
+                                .then(Commands.argument("villager", EntityArgument.entity()).executes(ctx -> debugAwareness(ctx, "memory", EntityArgument.getEntity(ctx, "villager")))))
+                        .then(Commands.literal("crimeevents").executes(ctx -> {
+                            var active = dev.otectus.mcacrime.ai.CrimeReactionService.snapshot();
+                            for (var reaction : active) ctx.getSource().sendSuccess(() -> Component.literal(
+                                    reaction.villagerId() + " " + reaction.state() + " observation=" + reaction.observationId()), false);
+                            return active.size();
+                        }))
                         .then(Commands.literal("thieves")
                                 .executes(CrimeCommand::debugThieves))
                         .then(Commands.literal("bounty")
@@ -257,6 +287,29 @@ public final class CrimeCommand {
                     + " -> " + newest.lastError()).withStyle(ChatFormatting.RED), false);
         }
         return data.pendingOperationCount();
+    }
+
+    private static int debugAwareness(CommandContext<CommandSourceStack> ctx, String mode, Entity selected)
+            throws CommandSyntaxException {
+        ServerPlayer player = ctx.getSource().getPlayerOrException();
+        Entity target = selected == null ? nearestMcaVillager(player, 8) : selected;
+        if (!(target instanceof LivingEntity villager) || !McaCompat.isMcaVillager(villager)) {
+            ctx.getSource().sendFailure(Component.literal("No MCA villager selected.")); return 0;
+        }
+        var server = ctx.getSource().getServer();
+        if (mode.equals("threat")) {
+            var context = dev.otectus.mcacrime.ai.ThreatContexts.build(villager, player,
+                    dev.otectus.mcacrime.action.ActionSessionManager.activeCoerciveAgainst(villager.getUUID()).isPresent());
+            var evaluation = dev.otectus.mcacrime.ai.ThreatEvaluator.evaluate(context, dev.otectus.mcacrime.ai.ThreatContexts.options());
+            ctx.getSource().sendSuccess(() -> Component.literal(context + "\n" + evaluation), false);
+        } else if (mode.equals("memory")) {
+            for (var memory : McaCrimeApi.victimMemories(server, villager.getUUID(), player.getUUID()))
+                ctx.getSource().sendSuccess(() -> Component.literal(memory.toString()), false);
+        } else {
+            for (var observation : CrimeWorldData.get(server).observationsBy(villager.getUUID()))
+                ctx.getSource().sendSuccess(() -> Component.literal(observation.toString()), false);
+        }
+        return 1;
     }
 
     private static int debugActions(CommandContext<CommandSourceStack> ctx) {
@@ -511,7 +564,6 @@ public final class CrimeCommand {
         return 1;
     }
 
-    /** Dumps custody + the ⚠ relationship-adapter results for the nearest villager — the in-world verification harness. */
     /**
      * What the guard-population pass sees in this dimension, per village.
      *
@@ -532,6 +584,20 @@ public final class CrimeCommand {
         for (String line : dev.otectus.mcacrime.enforcement.GuardPopulationService.report(level)) {
             sb.append("\n  ").append(line);
         }
+        for (LivingEntity guard : level.getEntitiesOfClass(LivingEntity.class,
+                player.getBoundingBox().inflate(McaCrimeConfig.COMMON.guardAggroRadius.get()),
+                dev.otectus.mcacrime.detect.EntitySelectors::isResponder).stream().limit(16).toList()) {
+            var decision = dev.otectus.mcacrime.justice.JusticeService.forGuard(level, guard, player);
+            sb.append("\n  responder=").append(guard.getUUID())
+                    .append(" jurisdiction=").append(decision.jurisdiction())
+                    .append(" basis=").append(decision.basis())
+                    .append(" caseCount=").append(decision.cases().size())
+                    .append(" cases=").append(decision.caseIds().stream().limit(16).toList());
+        }
+        var challenge = dev.otectus.mcacrime.enforcement.GuardChallengeService.open(player.getUUID());
+        if (challenge != null) sb.append("\n  encounter=").append(challenge.encounterId())
+                .append(" revision=").append(challenge.revision()).append(" fine=").append(challenge.assessedFine())
+                .append(" remainingTicks=").append(challenge.remaining(level.getGameTime()));
         String out = sb.toString();
         ctx.getSource().sendSuccess(() -> Component.literal(out), false);
         return 1;
@@ -584,6 +650,7 @@ public final class CrimeCommand {
         return 1;
     }
 
+    /** Dumps custody + the ⚠ relationship-adapter results for the nearest villager — the in-world verification harness. */
     private static int debugCustody(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
         ServerPlayer player = ctx.getSource().getPlayerOrException();
         MinecraftServer server = ctx.getSource().getServer();

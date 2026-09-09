@@ -1,11 +1,55 @@
 # MCA: Crime — Java API
 
 Package `dev.otectus.mcacrime.api`. Everything a companion mod needs is here: a read-only facade,
-immutable model types, and events on `NeoForge.EVENT_BUS`.
+immutable model types, and NeoForge events.
+
+## Victim and witness context (0.6.0)
+
+`McaCrimeApi.victimMemories(MinecraftServer, UUID villager, UUID player)` returns immutable
+`VictimMemoryView` records scoped to that pair. Each includes incident/victim identity, category,
+timestamp, severity, current fear/anger, repeat count, whether the memory is indirect, and apology,
+restitution and sentence status. Empty means absent or disabled memory; queries never create purse
+or memory records. Invoke on the server thread. Detailed emotional values are not automatically
+sent to clients.
+
+`VictimCrimeMemoryChangedEvent` is posted after a stored memory changes. `getVillager()`,
+`getMemory()` and `getReason()` expose the new immutable context; reasons are `created`, `witnessed`,
+`family`, `informed`, `apology`, and `reconciled`. Lazy decay is reflected in queries and does not
+emit an event every tick. Conversation and quest addons can combine these with existing
+`CrimeObservationEvent`, `CrimeReportEvent` and `WitnessReactionChangedEvent` hooks. Report events
+retain incident identity and local jurisdiction for optional settlement integrations.
+
+**Nullable suspect contract:** observations and reports may have no suspect in 0.6.0. A hearing-only
+observation carries no perpetrator identity. Consumers of `getSuspectId()` must accept null;
+guard authorship alone no longer makes a low-confidence report sufficient for arrest. One-hop
+family accounts use `ObserverRole.INFORMED` and cannot become direct eyewitness testimony.
+
+No Conversations, Quests or Capitals class is referenced by the new common code. The existing
+Reputation adapter receives civic crime incidents only after sufficiently confident local reporting.
 
 ---
 
 ## Contracts
+
+Bounty payment completion is now separate from entitlement reservation. `BountyResolvedEvent` and
+Karma follow confirmed full delivery, which may be delayed until login or `/crime collectbounty`.
+The claim continues consuming its full principal while payment is queued. A provider failure retains
+an uncertain receipt; operator acknowledgement changes bookkeeping without replaying events/Karma.
+Companions must not infer immediate payment from an arrest, death or `Payout.claimed()` alone.
+
+Kill `BountyResolvedEvent` notifications now follow shared death confirmation at tick end (or the
+pre-save reconciliation boundary), rather than running inside `LivingDeathEvent`. Canceled deaths
+and revival before reconciliation emit no kill reward. Kill claims require separate bounty and
+lethal-force permission and retain the sampled warrant revision, price and currency. Internal
+death/recovery services are not additions to API v1. See the
+[death and recovery phase notes](docs/MCA_CRIME_PHASE2_DEATH_RECOVERY.md) for provider failure limits.
+
+Guard assessments now share `justice/JusticeService` internally. Challenge review, quotes and arrest
+use the same local case selection; `/crime debug guards` exposes the basis and selected IDs to operators.
+These implementation classes are not additions to API v1. Existing `FinePaidEvent` case IDs remain
+the exact cases settled. Resolution preflights run before debit; all selected case writes and the
+live player's Heat update precede resolution notifications. A notification failure is logged and
+does not undo payment or skip later case notifications; there is no new durable event retry mechanism.
 
 Three rules hold for every method in `McaCrimeApi`, and they are the reason the surface looks the way
 it does.
@@ -167,6 +211,11 @@ outlive the entity it describes.
 
 ### `JailSentenceView`
 
+`McaCrimeApi.sentence(player)` includes the persisted sentence UUID and the still-actionable cases
+bound to that exact sentence. A lawful cuff escape keeps the same UUID and cases and reports
+`escaped = true`; it does not settle them. The custody view's separate `custodyId` and `linkedCaseId`
+remain empty pending a canonical custody identity/link contract; neither is synthesized from a sentence UUID.
+
 ```java
 public record JailSentenceView(
         Optional<UUID> sentenceId,
@@ -239,6 +288,26 @@ vetoes for most of them. Most extend `CrimeEvent`, which carries `getPlayer()`.
 | `CrimeReportEvent.Post` | A report has been filed | Notification; already stored. Not cancellable. |
 
 ### Choosing between the two crime events
+
+During an incident commit, the ledger row is inserted first, both player values are applied, then
+observations and victim memories are installed. Karma/Heat/Wanted, observation/report/reaction/memory
+post-events, and the final witnessed/committed notifications are deferred until that work is complete.
+Cancelable evidence preflights still run synchronously and can suppress evidence, not undo the act.
+Incident Heat events use the case UUID as their `dedupeKey`. A throwing notification is logged and
+later queued notifications still run; delivery to later listeners of the same NeoForge event is subject
+to Forge's event-bus exception behavior and is not retried durably.
+
+NPC commits now emit `NpcCrimeCommittedEvent` centrally, after property transfer and case/evidence
+installation, with the existing mug session ID as both transaction and case ID. Interrupted attempts
+use that session ID too, so their later completion cannot create another case under it. The legacy
+NPC facade emits this notification itself; integrations must not post it again. Paid ransom records
+use their demand ID, retain the existing zero Karma/Heat audit behavior, and do not emit a second
+player crime event or second set of private capture consequences.
+
+New damage cases include `combat_encounter`, `combat_initiator`, `combat_basis`, and
+`damage_attribution` in bounded record context. These are diagnostic provenance, not new public
+legal permissions. Combat is reconciled at server tick end; `LivingHurtEvent` is too early to read
+a resulting Crime case. No public API version, packet shape or schema changes in this pass.
 
 Use `CrimeWitnessedEvent` when you care that the village *knows*: gossip, guard reactions, public
 standing. Use `CrimeCommittedEvent` when you care that it *happened*: a quest that counts kills, a

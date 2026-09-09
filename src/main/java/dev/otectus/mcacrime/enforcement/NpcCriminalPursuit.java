@@ -4,8 +4,6 @@ import dev.otectus.mcacrime.McaCrimeConfig;
 import dev.otectus.mcacrime.ai.ArmedResolver;
 import dev.otectus.mcacrime.captivity.CustodyRegistry;
 import dev.otectus.mcacrime.compat.McaCompat;
-import dev.otectus.mcacrime.mug.npc.NpcMugAbortReason;
-import dev.otectus.mcacrime.mug.npc.NpcMuggingService;
 import dev.otectus.mcacrime.util.CrimeDebug;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.resources.ResourceKey;
@@ -61,7 +59,7 @@ public final class NpcCriminalPursuit {
      * left alone rather than being re-pointed every scan.
      */
     public static void engage(ServerLevel level, LivingEntity guard, ActiveIncidentRegistry.ActiveIncident incident) {
-        if (level == null || guard == null || incident == null || !guard.isAlive()) {
+        if (level == null || guard == null || incident == null || !dev.otectus.mcacrime.ai.NpcAwareness.isAwake(guard)) {
             return;
         }
         if (guard.getUUID().equals(incident.offenderId())) {
@@ -75,17 +73,17 @@ public final class NpcCriminalPursuit {
         if (existing != null) {
             return; // busy with somebody else; the other guards in range can take this one
         }
+        if (ResponderAssignments.isEscorting(level.getServer(), guard.getUUID(), incident.offenderId())) return;
+        ActiveIncidentRegistry.ActiveIncident evidence =
+                NpcArrestService.observeIntervention(level, guard, incident).orElse(null);
+        if (evidence == null) return;
         ACTIVE.put(guard.getUUID(), new Pursuit(incident.offenderId(), level.dimension().location(),
-                now, 0L, incident));
+                now, 0L, evidence));
         CrimeDebug.crime("guard {} is pursuing criminal villager {}", guard.getUUID(), incident.offenderId());
 
         // Detection, not contact, is what saves the victim (spec §"Player mugging interaction"): the
         // moment a guard has the thief in its sights the mugging is over, and the chase that follows is
         // about catching a thief rather than about beating it to the theft.
-        if (ActiveIncidentRegistry.get(incident.offenderId()).isPresent()) {
-            NpcMuggingService.sessionForThief(incident.offenderId()).ifPresent(session ->
-                    NpcMuggingService.abort(session.victimId(), NpcMugAbortReason.GUARD_INTERVENTION));
-        }
     }
 
     /** Whether anybody is already chasing this offender, so a scan does not pile guards onto one thief. */
@@ -103,6 +101,11 @@ public final class NpcCriminalPursuit {
 
     public static int activeCount() {
         return ACTIVE.size();
+    }
+
+    public static boolean isAssignedElsewhere(UUID guard, UUID suspect) {
+        Pursuit active = ACTIVE.get(guard);
+        return active != null && !active.thiefId().equals(suspect);
     }
 
     /** Drops every chase. Called on server stop so a restart never inherits one. */
@@ -131,6 +134,10 @@ public final class NpcCriminalPursuit {
                 ACTIVE.remove(guardId);
                 continue;
             }
+            if (!dev.otectus.mcacrime.ai.NpcAwareness.isAwake(guard)) {
+                giveUp(guardId, guard, null, "guard asleep");
+                continue;
+            }
             if (!(level.getEntity(pursuit.thiefId()) instanceof LivingEntity thief) || !thief.isAlive()) {
                 giveUp(guardId, guard, null, "gone");
                 continue;
@@ -142,6 +149,10 @@ public final class NpcCriminalPursuit {
             }
 
             long now = level.getGameTime();
+            if (NpcArrestService.admissibleCase(level, guard, pursuit.incident()).isEmpty()) {
+                giveUp(guardId, guard, thief, "case no longer actionable");
+                continue;
+            }
             if (now - pursuit.startedAt() > timeout) {
                 giveUp(guardId, guard, thief, "timed out");
                 continue;
@@ -151,10 +162,13 @@ public final class NpcCriminalPursuit {
                 giveUp(guardId, guard, thief, "out of range");
                 continue;
             }
-            if (distanceSqr <= ARREST_REACH_SQR) {
-                ACTIVE.remove(guardId);
-                McaCompat.clearGuardTarget(guard, thief);
-                NpcArrestService.arrest(level, thief, guard, pursuit.incident());
+            if (distanceSqr <= ARREST_REACH_SQR && guard.hasLineOfSight(thief) && !thief.isInvisible()) {
+                if (NpcArrestService.arrest(level, thief, guard, pursuit.incident())) {
+                    ACTIVE.remove(guardId);
+                    McaCompat.clearGuardTarget(guard, thief);
+                } else {
+                    giveUp(guardId, guard, thief, "arrest declined");
+                }
                 continue;
             }
             if (now < pursuit.nextThinkAt()) {

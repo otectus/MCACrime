@@ -4,6 +4,7 @@ import dev.otectus.mcacrime.McaCrime;
 import dev.otectus.mcacrime.api.model.CrimeCommunityKey;
 import dev.otectus.mcacrime.captivity.CustodyRecord;
 import dev.otectus.mcacrime.economy.account.TransactionReceipt;
+import dev.otectus.mcacrime.economy.account.ReconciliationDecision;
 import dev.otectus.mcacrime.economy.fence.FenceStockRecord;
 import dev.otectus.mcacrime.integration.CrimeIntegrationOperation;
 import dev.otectus.mcacrime.integration.DedupeEntry;
@@ -32,6 +33,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -105,6 +107,8 @@ public final class CrimeWorldData extends SavedData {
     private static final int MAX_HOLDING_CELLS = 1024;
     private static final int MAX_TRANSACTIONS = 4096;
     private static final int MAX_PROPERTY_ESCROW = 4096;
+    private static final int MAX_RECONCILIATION_DECISIONS = 4096;
+    private final Map<UUID, ReconciliationDecision> reconciliationDecisions = new LinkedHashMap<>();
     /**
      * How many unreadable rows are kept for an operator to look at. Small on purpose: quarantine is a
      * diagnostic, not a second copy of the store, and a systematically corrupt file would otherwise
@@ -172,6 +176,7 @@ public final class CrimeWorldData extends SavedData {
     private final Map<UUID, FenceStockRecord> fenceStock = new LinkedHashMap<>();
     /** Tables that have already said they are full. One line per table per session, not per refusal. */
     private final Set<String> capacityReported = new LinkedHashSet<>();
+    private final Set<UUID> reservedThefts = new LinkedHashSet<>();
     /** Money that moved, and how far it got (0.6.0, spec §4.5). Keyed by transaction id. */
     private final Map<UUID, TransactionReceipt> transactions = new LinkedHashMap<>();
     /** Property owed to a player who could not take delivery of it (0.6.0). Keyed by lot id. */
@@ -322,12 +327,18 @@ public final class CrimeWorldData extends SavedData {
 
     /** Appends a record. Idempotent: a record whose id is already present is ignored (replay-safe). */
     public void addRecord(CrimeRecord record) {
+        tryAddRecord(record);
+    }
+
+    /** Checked insertion used before an incident applies any consequences. */
+    public boolean tryAddRecord(CrimeRecord record) {
         if (record == null || frozen() || ledger.containsKey(record.id())) {
-            return;
+            return false;
         }
         ledger.put(record.id(), record);
         byOffender.computeIfAbsent(record.offender(), k -> new ArrayList<>()).add(record.id());
         setDirty();
+        return true;
     }
 
     /**
@@ -415,6 +426,12 @@ public final class CrimeWorldData extends SavedData {
         return bind(offender, sentenceId, now, false);
     }
 
+    /** Binds an explicit assessment. An empty selection means no charges, never every charge. */
+    public List<UUID> bindSentence(UUID offender, UUID sentenceId, long now, Collection<UUID> caseIds) {
+        if (caseIds == null || caseIds.isEmpty()) return List.of();
+        return bind(offender, sentenceId, now, false, new HashSet<>(caseIds));
+    }
+
     /**
      * The same binding, marked as an inference rather than a fact (0.6.0).
      *
@@ -428,12 +445,17 @@ public final class CrimeWorldData extends SavedData {
     }
 
     private List<UUID> bind(UUID offender, UUID sentenceId, long now, boolean inferred) {
+        return bind(offender, sentenceId, now, inferred, null);
+    }
+
+    private List<UUID> bind(UUID offender, UUID sentenceId, long now, boolean inferred,
+                            @Nullable Set<UUID> selected) {
         if (offender == null || sentenceId == null || frozen()) {
             return new ArrayList<>();
         }
         List<UUID> bound = new ArrayList<>();
         for (CrimeRecord record : actionableFor(offender)) {
-            if (record.sentenceId() != null) {
+            if (record.sentenceId() != null || (selected != null && !selected.contains(record.id()))) {
                 continue;
             }
             CrimeRecord charged = record.withSentence(sentenceId);
@@ -1003,7 +1025,8 @@ public final class CrimeWorldData extends SavedData {
         if (record == null || frozen()) {
             return CapacityResult.FULL;
         }
-        if (atCapacity(stolenGoods, record.transactionId(), MAX_STOLEN_GOODS, "stolen goods")) {
+        if (!stolenGoods.containsKey(record.transactionId()) && !reservedThefts.contains(record.transactionId())
+                && stolenGoods.size() + reservedThefts.size() >= MAX_STOLEN_GOODS) {
             return CapacityResult.FULL;
         }
         stolenGoods.put(record.transactionId(), record);
@@ -1241,9 +1264,35 @@ public final class CrimeWorldData extends SavedData {
         return CapacityResult.OK;
     }
 
+    /** Reserve capacity across a synchronous inventory/provider call without evicting existing goods. */
+    public boolean reserveTheft(UUID id) {
+        return !frozen() && id != null && !stolenGoods.containsKey(id)
+                && stolenGoods.size() + reservedThefts.size() < MAX_STOLEN_GOODS && reservedThefts.add(id);
+    }
+
+    public void finishTheftReservation(UUID id) { reservedThefts.remove(id); }
+
+    /** Forget a reservation only when its caller proved no money moved. */
+    public boolean cancelPreparedTransaction(TransactionReceipt expected) {
+        if (frozen() || expected == null || expected.state() != TransactionReceipt.State.PREPARED
+                || !transactions.remove(expected.id(), expected)) return false;
+        setDirty();
+        return true;
+    }
+
     /** Every receipt, oldest first. A copy: pruning iterates it while removing from it. */
     public List<TransactionReceipt> transactions() {
         return new ArrayList<>(transactions.values());
+    }
+
+    public List<ReconciliationDecision> reconciliationDecisions() { return List.copyOf(reconciliationDecisions.values()); }
+
+    public boolean appendReconciliation(ReconciliationDecision decision) {
+        if (frozen() || decision == null || reconciliationDecisions.containsKey(decision.id())
+                || reconciliationDecisions.size() >= MAX_RECONCILIATION_DECISIONS) return false;
+        reconciliationDecisions.put(decision.id(), decision);
+        setDirty();
+        return true;
     }
 
     /**
@@ -1288,6 +1337,8 @@ public final class CrimeWorldData extends SavedData {
     public List<PropertyLot> propertyEscrow() {
         return new ArrayList<>(propertyEscrow.values());
     }
+
+    public PropertyLot propertyLot(UUID id) { return propertyEscrow.get(id); }
 
     /** Inserts or replaces one lot. A full escrow refuses, so the caller keeps the ledger row instead. */
     public CapacityResult putPropertyLot(PropertyLot lot) {
@@ -1504,8 +1555,9 @@ public final class CrimeWorldData extends SavedData {
         ListTag transactionList = new ListTag();
         transactions.values().forEach(receipt -> transactionList.add(receipt.save()));
         tag.put("transactions", transactionList);
-        // The provider goes through to the lot exactly as it does to a stolen-goods row: a lot holds a
-        // full ItemStack, and in 1.21 an item's components cannot be written without the registries.
+        ListTag decisions = new ListTag();
+        reconciliationDecisions.values().forEach(decision -> decisions.add(decision.save()));
+        tag.put("reconciliationDecisions", decisions);
         ListTag escrowList = new ListTag();
         propertyEscrow.values().forEach(lot -> escrowList.add(lot.save(provider)));
         tag.put("propertyEscrow", escrowList);
@@ -1852,6 +1904,16 @@ public final class CrimeWorldData extends SavedData {
         }
         warnSkipped("transaction receipt", badTransactions);
         warnOverflow("transaction receipt", data.transactions.size(), MAX_TRANSACTIONS);
+        ListTag decisions = tag.getList("reconciliationDecisions", Tag.TAG_COMPOUND);
+        for (int i = 0; i < decisions.size(); i++) {
+            try {
+                var decision = ReconciliationDecision.load(decisions.getCompound(i));
+                data.reconciliationDecisions.put(decision.id(), decision);
+            } catch (RuntimeException failure) {
+                data.quarantine("reconciliation decision: " + failure.getMessage(), decisions.getCompound(i));
+            }
+        }
+        warnOverflow("reconciliation decision", data.reconciliationDecisions.size(), MAX_RECONCILIATION_DECISIONS);
 
         ListTag escrowList = tag.getList("propertyEscrow", Tag.TAG_COMPOUND);
         int badLots = 0;

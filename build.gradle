@@ -108,6 +108,24 @@ mcaProbeVersions.eachWithIndex { version, i ->
 }
 
 dependencies {
+    // Native menu adapter only. The real Locks mod owns its classes at runtime.
+    def locksClasses = file(project.findProperty('locksClasses') ?: "${projectDir}/../Locks_Reforged_1.21.1/build/classes/java/main")
+    if (locksClasses.exists()) {
+        compileOnly files(locksClasses)
+    } else if (project.hasProperty('requireLocks')) {
+        throw new GradleException("Locks Reforged classes missing at ${locksClasses}; build its NeoForge port first.")
+    } else {
+        sourceSets.main.java { exclude 'dev/otectus/mcacrime/compat/locksreforged/CuffLockPickingMenu.java' }
+        logger.warn('Building without the native cuff adapter; set -PrequireLocks=true for a release build.')
+    }
+    // Opt-in integration runs exercise the actual optional mod; it never enters the production jar.
+    if (project.hasProperty('locksRuntimeJar')) {
+        def locksRuntime = file(project.property('locksRuntimeJar'))
+        if (!locksRuntime.isFile()) throw new GradleException("Missing Locks runtime jar: ${locksRuntime}")
+        localRuntime files(locksRuntime)
+        testRuntimeOnly files(locksRuntime)
+    }
+
     // MCA Reborn - a mojmap NeoForge mod jar, so it loads as a real mod under runClient/runServer.
     // (On 1.20.1 it could not: MCA shipped a Forgix-merged universal jar and needed fg.deobf.)
     //
@@ -315,7 +333,7 @@ tasks.register('checkJarContents') {
         def forbidden = ['net/minecraftforge/', 'net/conczin/mca/', 'forge/net/conczin/mca/',
                          'forge/net/mca/', 'net/mca/', 'dev/architectury/', 'me/shedaniel/',
                          'dev/otectus/mcareputation/', 'dev/otectus/mcaquests/',
-                         'dev/otectus/mcaconversations/', 'org/junit/',
+                         'dev/otectus/mcaconversations/', 'org/junit/', 'melonslise/locks/',
                          'dev/otectus/mcacrime/gametest/']
         // Text entries whose expanded content is inspected below (spec 13.4).
         def texts = [:]
@@ -406,6 +424,7 @@ tasks.register('checkJarContents') {
         // Reputation and MCA: Quests adapters name the companion mod each is compiled against and only
         // ever class-loaded beside. Nothing outside those packages may name any of them.
         def allowedIn = [
+                'melonslise/locks/' : 'dev/otectus/mcacrime/compat/locksreforged/',
                 'net/conczin/mca/'          : 'dev/otectus/mcacrime/compat/mca/',
                 'forge/net/conczin/mca/'    : 'dev/otectus/mcacrime/compat/mca/',
                 'forge/net/mca/'            : 'dev/otectus/mcacrime/compat/mca/',

@@ -5,98 +5,279 @@ All notable changes to MCA: Crime.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); this project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.6.0] — unreleased
+## [0.6.4] — unreleased
 
-Maintenance and integrity release, bringing this port to behavioural parity with the Forge 1.20.1
-baseline's 0.6.0. Fines now quote and settle the same per-case total everywhere they are shown or
-charged, and refuse outright when a case requires custody. Surrender no longer pays out before an
-arrest actually lands. Sentences settle only the cases they were bound for. A restraint is spent
-only once custody is actually committed, and who is restrained is now decided by custody state
-rather than arrest phase alone. Fence stock, pricing, and every client-to-server request are
-hardened against the arbitrage, reset, and replay problems the 0.5.1 port shipped with; world data
-recovers from malformed records instead of losing them, and a save written by a newer schema opens
-read-only instead of being silently reinterpreted.
+### Fixed
+
+- Fix the guard confrontation screen overflowing the stack while rendering, reported when
+  clicking Surrender. Its background hook no longer calls `Screen.render()`, which immediately
+  reentered the hook. Draw widgets, the countdown and the menu-displayed acknowledgment once
+  from the main render method, and add regression checks shared with the Forge version.
+- See [Surrender crash verification](docs/SURRENDER_CRASH_VERIFICATION.md) for the diagnosis,
+  platform differences and client verification steps.
+
+## [0.6.3] — unreleased
+
+### Fixed
+
+- Allow unarmed players to reach Apologize through the Crime button, menu keybind and
+  sneak + empty-main-hand interaction, even when a frightened villager refuses conversation.
+  Keep coercive actions behind their weapon requirements. Explain the one-minute settling
+  period, repeat-apology cooldown, already accepted apologies and active threats separately.
+  Refusal dialogue now explains the reconciliation shortcut.
+- Asking a guard to show the charges, or opening a detention with no local charges, now sends
+  readable fallback text alongside the translation key. A client missing the Wanted explanation
+  no longer prints `mcacrime.challenge.reason.wanted` in chat. Existing client translations and
+  resource-pack overrides still take precedence. The same protection covers resisting arrest,
+  escaped custody, unlawful captivity and the no-charges response.
+
+## [0.6.2] — unreleased
 
 ### Added
 
+- Villagers, including thieves, will not mug players with 50 or more MCA relationship hearts
+  with that villager. Configure `criminalJobs.thief.mugProtectionHearts` in the common config;
+  `-1` disables relationship protection and `0` protects neutral and positive relationships.
+
+### Fixed
+
+- Wanted Heat now independently authorizes guard and archer pursuit and confrontation, including
+  `/crime set heat <player> 100` without a recorded offense. Keep the configurable Wanted threshold
+  (default 50), local case/fine scope, and existing response window. Explain Heat-only detention
+  instead of displaying zero charges and claiming there is nothing against the player.
+- Keep an active refusal enforceable after Heat drops, permit arrests on the same Wanted/refusal
+  basis, and exclude captive responders from starting or continuing a confrontation.
+- Recheck mugging eligibility during selection, approach, active sessions and immediately before
+  theft. Relationship/config changes now stop an attempt before items or currency move, and
+  `/crime mugtest` respects the same protections.
+- Honor invulnerability, configured victim protection, custody and game-mode changes throughout
+  an attempt. Check weapons and reach at both the start and completion, even when periodic weapon
+  checks are configured less frequently. Recheck eligibility after external attempt/balance callbacks.
+- Close the victim's HUD and mark the session aborted when a final check refuses theft. Refuse
+  premature completion and starting another mugging while the thief already has a session.
+
+## [0.6.1] — 2026-09-08
+
+### Fixed
+
+- Allow `/crime set heat <player> <value>` at permission level 2, so command blocks can set
+  a selected player's heat for scripted areas such as bank vaults. Previously, the level-3
+  requirement rejected command-block execution before the target selector was evaluated.
+- Keep `/crime set karma` and other administrative changes at permission level 3, and continue
+  rejecting heat commands from sources below level 2.
+- Add regression tests for command parsing without an executing player, permission boundaries,
+  and nonnegative heat values. Update the command reference with the heat-command permission.
+
+## [0.6.0] — unreleased
+
+Villager death loot:
+
+- Limit death loot to one purchase worth of output per available trade (for example, one iron
+  axe), rather than multiplying the output by remaining trade uses. Apply the same limit to fences.
+- Drop actual equipped gear and one output bundle per unlocked, non-exhausted trade by default, including
+  guard/archer equipment. Preserve item names, enchantments, durability and other item data.
+- Recover equipment before MCA clears it during death, without duplicating gear carried in MCA's
+  inventory or already included in normal drops. Newly added gear respects Curse of Vanishing.
+- Check fences' persisted stock before dropping one item per available selling offer; exclude
+  their buying orders and do not restock on death.
+- Honor `doMobLoot` and loot-event cancellation. Add independent gear/stock toggles and a bounded
+  trade-stack limit under `[loot]`; retain the old small profession drops as an opt-in fallback.
+- See [death loot verification](docs/DEATH_LOOT_VERIFICATION.md) for coverage and scope.
+
+Sleep and archer follow-up:
+
+- Sleeping villagers cannot see or hear crimes, acquire new observations, report, gossip, flee,
+  threaten players, trade, or respond to conversations. Existing memories are retained for after waking.
+- Sleeping guards and archers are unavailable for challenges, pursuit, escort assignments and bounty
+  hand-ins. Sleep during a challenge ends the conversation without treating it as refusal.
+- Clear stale navigation, attack targets, fear speed modifiers and drawn bows while an MCA NPC sleeps,
+  without cancelling its tick or forcing it awake. Damage keeps its normal wake-up behavior; physical
+  restraint wakes a captive before a leash can drag them out of bed.
+- Recognize MCA archers as law responders alongside guards, including immunity to civilian fear AI.
+- Reject sleep-dependent interactions on the server and close a fence trade when the fence falls asleep.
+
+HUD, escort and reaction refinements:
+
+- Combine Heat/Wanted and Sentence/Captivity into one bottom-left panel, below passive chat and
+  beside the hotbar. Fit the panel to the available GUI space and hide it while typing in chat.
+  Migrate the former unmodified top-left default once; preserve custom placements.
+- Give guard confrontations at least **15 seconds**, starting with the first displayed menu frame.
+  Delivery acknowledgment has a bounded five-second allowance; reopening, requoting and replaying
+  acknowledgments cannot renew the response window. Keep the speaking guard facing the suspect.
+- Remove the competing legacy flee navigator. Apply civilian speed penalties on direct reaction
+  entry too, use normal MCA walking multipliers and cap crime-directed movement. Retain successful
+  flee paths and distinguish an interrupted path from arrival.
+- Keep guards and other responders out of civilian fear/compliance states and fear-based interaction
+  refusals. Reaction cleanup preserves active law routes and targets; responders file their own reports.
+- Route escorts to reachable intake stands outside generated cells, consider alternative entrances
+  and bounded segments toward distant assigned jails, allow detours and wait for the prisoner before
+  the lead gets taut. Stop the guard's route at intake; retain the blocked-route teleport failsafe.
+- Reject generated-cell sites containing living occupants, including the interior and wall margins.
+  Repair older cells by moving trapped non-prisoner villagers/guards to checked safe exterior stands.
+- Network protocol is now **11**; world schema remains **10**. See
+  [HUD and AI verification](docs/HUD_AI_VERIFICATION.md) for coverage and remaining live checks.
+
+Bounty payment recovery and operator tools:
+
+- Reserve a provider-bound payment receipt alongside each new bounty claim before attempting credit.
+  Retain exact emerald overflow in the receipt; `/crime collectbounty` and login collect known unpaid
+  remainders. Uncertain external credits stop automatic retries. Pending claims survive normal expiry.
+- Defer bounty completion events, Karma and paid messages until full payment is confirmed. Changing
+  the active currency never converts a saved reward; collection resolves its recorded provider.
+- Add permission-level-three `/crime recovery` receipt/escrow/quarantine/audit inspection and JSON
+  export, plus revision-checked, noted operator acknowledgement/rearming. Corrections retain the prior
+  receipt/property payload and do not directly issue money/items or replay bounty completion effects.
+- Advance world data to schema 10 to protect the new audit records from older builds. Older saves
+  migrate without inventing payment receipts for historical claims. See
+  [recovery operations](docs/RECOVERY_OPERATIONS.md) for commands and cross-system crash limits.
+
+Remaining-work review follow-up and cuff lockpicking:
+
+- When Locks Reforged is installed, ordinary and locked cuff self-escapes require solving its native
+  lockpicking minigame. Store the combination with custody, validate pins on the server, and invalidate
+  attempts when custody, restraint, dimension or required-pick possession changes. Rope keeps its
+  existing behavior. `kidnapping.cuffEscapeRequiresLockpick` defaults to `false`; enabling it requires
+  a pick anywhere in inventory. Picks are not consumed or damaged by cuff attempts.
+- Successful lawful cuff escapes preserve the sentence and surrender credit, end the escort, pause
+  sentence service and file jailbreak. Recapture resumes the original sentence.
+- Reserve economic receipts and stolen-property capacity before removing money/items. Reject changed
+  transaction replays and retain ambiguous debit failures for operator reconciliation. These stores
+  still cannot atomically save an external economy and Minecraft inventory/world data.
+- Return stolen goods on arrest through provider-aware owner escrow and shared delivery receipts.
+- Reconcile thief controllers after job changes and enable/disable reloads. Ignore other mods' config
+  reloads and schedule live reload work on the server thread.
+- Populate the public sentence view's identity and exact linked cases. Add a finite configurable
+  locked-cuff work duration for nonzero timed escape chances when Locks Reforged is absent.
+
+Confirmed death and property recovery follow-up
+([phase notes](docs/MCA_CRIME_PHASE2_DEATH_RECOVERY.md)):
+
+- Apply kill rewards, stolen-property recovery and death-specific custody/reaction/thief cleanup
+  only after shared death confirmation. Reject cancellation, revival and repeated corpse callbacks.
+- Require both bounty eligibility and lawful lethal force for kill rewards. Freeze the warrant
+  revision, price and currency; refuse closed/replaced/revised warrants or a changed currency.
+- Move stolen property to owner escrow after confirmed thief death instead of adding it to native
+  death drops. Attempt delivery for online owners and retain undelivered property for login.
+- Record escrow delivery attempts before external transfer. Keep exact partial remainders; suspend
+  automatic retry after ambiguous outcomes. Full receipt/escrow tables preserve the property record.
+- Preserve the currency provider on new stolen-goods records and retain legacy records with an
+  unidentified provider. No additional schema, protocol or mod-version change.
+
+Incident and combat follow-up ([phase notes](docs/MCA_CRIME_PHASE2_INCIDENTS.md)):
+
+- Coordinate player, NPC and ransom records through checked incident insertion; reject repeated IDs
+  and read-only stores before consequences, and defer incident notifications until state/evidence exist.
+- Reconcile final damage and death events at server tick end. Armor reduction, zero/canceled damage,
+  absorption, totems and canceled deaths no longer depend on an early lethal prediction.
+- Record initiating aggression and lawful response in bounded, server/dimension-scoped encounters.
+  AI targeting grants no self-defense exemption; nonlethal defense and lethal permission remain separate.
+- Narrow raid grace to one nonlethal indirect explosion per encounter against a non-player,
+  non-responder. Attribute supported tame-animal damage to its loaded player owner.
+- Bind NPC commit notifications and ransom audit rows to their existing transaction/demand IDs.
+  Confirm death before releasing custody. No save-schema, protocol or mod-version change.
+
+Local law and settlement follow-up ([phase notes](docs/MCA_CRIME_PHASE2_JUSTICE.md)):
+
+- Share local evidence assessment across guard pursuit, challenge, charge review and arrest; private case counts and stale refusal alone grant no guard authority.
+- Freeze each displayed fine to its cases, penalties, policy, currency and Heat. Changed offers require another response and never debit on the stale click.
+- Settle exact selections without adopting unrelated cases; cap Heat reduction by the selected cases' contribution. Commands and the Crime menu answer the open guard offer; outside an encounter, voluntary whole-record settlement remains available.
+- Keep failed-payment screens open, refresh prices and controls by encounter revision, and retain the original response deadline. Surrender stays with the challenging guard.
+- Run each resolution preflight once before debit, commit all selected cases before notifying listeners, and publish live case notifications after Heat is updated.
+- Add responder basis and case IDs to `/crime debug guards`. No save-schema or mod-version change in this pass; the changed guard packets require protocol 10.
+
+Arrest and custody follow-up ([implementation and migration notes](docs/MCA_CRIME_PHASE2_CUSTODY.md)):
+
+- Preserve the original reported NPC case through arrest; record witnessed interventions once, before pursuit.
+- Bind assessed charges at arrest and persist sentence identity independently of generated cells; prevent arrival/relogin from adopting later crimes.
+- Bound NPC escort recovery across restarts, validate detention destinations, and protect guards assigned to another prisoner.
+- Reconcile captive thief AI, recheck mugging participants before transfer, and remove resolved cases from report authority.
+- Pause PHYSICAL escape sentence credit; return, surrender and guard recapture resume the original sentence without a second discount.
+- Validate challenge conversations and retain the response window after a failed payment.
+
+Witness, intimidation, victim memory and integrity release. Development reference and the in-world
+verification checklist are in [the 0.6.0 phase notes](docs/MCA_CRIME_0.6.0_WITNESS_MEMORY.md).
+This update closes reliability defects in payment, capture,
+sentencing, packets, persistence, and world recovery; guards the frontier between older and newer
+saves; and hardens the finite-economy guarantees. Fines now quote the exact amount per case and
+refuse outright when not allowed; surrender only writes its discount after successful arrest;
+sentences bind only their own cases; and a save written by a newer version is opened read-only
+until the problem is fixed. Protocol and schema bump to prevent incompatible clients and worlds
+from silently disagreeing.
+
+### Added
+
+- Per-crime visual and auditory awareness, anonymous hearing, identification confidence and local guard reporting.
+- Dynamic compliance, panic, stalling, defiance and resistance using MCA personality, weapons, health, memory and nearby support.
+- Bounded persistent fear/anger memories, repeated-offense merging, lazy decay, reduced family/witness memories and one-hop local gossip.
+- Contextual interaction refusal, bounded apologies, matching-case restitution and sentence reconciliation.
+- Immutable memory API context, a memory-change event, dialogue pools and witness/threat/memory debug commands.
+
 - **New config option `criminalJobs.fence.offerMaxUses`.** How many times each fence trade may be
-  repeated before that offer runs out. Uses are tracked per fence in `FenceStockRecord` and persist
-  across closing the screen, relogging, and a restart; they reset on restock (default `8`, range
-  `1-4096`).
-- **Fence stock persistence.** Trade uses used to live on the `MerchantOffer` objects built for the
-  screen, so closing and reopening it handed the player a fresh set of uses; stock now lives in
-  world data keyed by the fence's UUID (`FenceStockRecord`).
-- **Five new lang keys**: `mcacrime.readonly`, `mcacrime.escrow.delivered`,
-  `mcacrime.surrender.already_serving`, `mcacrime.surrender.failed`, and `mcacrime.arrest.no_custody`.
-- **Transaction receipts** (`TransactionReceipt`) track payment state (`PREPARED`,
-  `SOURCE_DEBITED`, `DELIVERY_PENDING`, `DELIVERED`, `REJECTED`, `NEEDS_RECONCILIATION`), so a
-  credit that fails after a successful debit is left for reconciliation rather than retried.
-- **Property escrow.** Stolen goods that cannot be handed to their owner become a `PropertyLot` and
-  are delivered on that player's next login.
-- **Restored-cell journal.** A holding cell that cannot finish restoring its blocks when it comes
-  down keeps the remaining positions in a pending-restoration list and retries them on a later
-  sweep, instead of leaving them unrestored.
-- **Safe-destination validation** (`SafeCustodyDestination`) before a jail or custody teleport:
-  checks the chunk is loaded, the destination is passable, supported, free of hazards, inside the
-  world border, and not already occupied.
-- **Legacy sentence binding.** A jail sentence loaded from a save that predates sentence identity
-  has its outstanding cases bound to it once, on the prisoner's first login after the upgrade
-  (`JailService.inferLegacySentenceMembership`), and is stamped so the guess never runs twice.
-- **Bounty claim payment tracking.** Claims now record how much was actually paid
-  (`BountyClaimLedger`), so a warrant revision or an expired claim cannot reopen a reward that was
-  already collected.
-- **Read-only mode.** A world data store that is from a newer schema, or that failed to load, opens
-  read-only (`ServerMutationGate`); Crime mutations are refused until the mismatch is resolved.
-- **Per-player request budget.** All five client-to-server payloads (`RequestActionMenuC2SPacket`,
-  `StartActionC2SPacket`, `RequestSelfMenuC2SPacket`, `GuardChallengeResponseC2SPacket`,
-  `RequestCaseLedgerC2SPacket`) now spend a token from a per-category `RequestBudget` before doing
-  any work.
-- **19 new test classes** exercising fence pricing/stock, bounty no-repay, capture-commit outcomes,
-  settlement policy, surrender, sentence-case binding, world-data capacity and quarantine,
-  saturating arithmetic, and safe-destination validation.
+  repeated before that specific offer runs out. Uses are persisted per fence and survive relogging
+  and restarts; they reset when the fence restocks (default: 8, range: 1–4096).
+- **Fence stock persistence.** Stock no longer resets on screen close — each fence's uses and
+  available trades are persisted in the save and survive restocking intervals.
+- **Five new lang keys** for new player-facing outcomes: `mcacrime.surrender.already_serving`,
+  `mcacrime.surrender.failed`, `mcacrime.arrest.no_custody`, `mcacrime.readonly`, and
+  `mcacrime.escrow.delivered`.
+- **Transaction receipts** track payment state (PREPARED, SOURCE_DEBITED, DELIVERY_PENDING, DELIVERED,
+  REJECTED, NEEDS_RECONCILIATION) for finite-economy auditing and recovery. Debit is recorded before
+  credit; credit failure marks the receipt as NEEDS_RECONCILIATION rather than retrying.
+- **Property escrow.** Stolen goods that cannot be delivered to their owner become a property lot
+  and are delivered on player login.
+- **Restored-cell journal.** Cells that fail block restoration mid-dismantle record the unresolved
+  block positions for retry rather than silently abandoning them.
+- **Safe-destination validation** before teleporting a player into jail. Collision, support,
+  hazards, fluids, border, chunk load state, and occupied cells are all checked; arrest fails
+  with a clear outcome if teleport cannot succeed.
+- **Sentence identity** linking case resolutions to their sentence. NPC release now settles the
+  NPC's cases, not unrelated ones.
+- **Bounty claim tracking.** Each claim carries how much was paid, so revision and expiry do not
+  reopen rewards that were already collected.
+- **Read-only mode** for worlds written by a newer schema. Operators with sufficient permission
+  see a `mcacrime.readonly` message; all Crime mutations are blocked until the version mismatch
+  is resolved.
 
 ### Changed
 
-- **World data schema 7 → 8.** Adds only optional fields and empty collections for sentence
-  identity, bounty claim payment tracking, transaction receipts, property escrow, the restored-cell
-  journal, and fence stock. `v7to8` stamps the schema and writes nothing else, so an existing save
-  is not rewritten by the migration itself.
-- **Action menus only honour an action they were actually offered.** `ActionMenuSession` carries
-  the set of actions shown; `CrimeActionService.startFromMenu` refuses anything not in that set.
-  The request nonce is hashed together with the action id, target, and menu revision
-  (`ActionSessionManager.payloadHash`), and an `ActionSession` can be settled exactly once
-  (`ActionSession.settle`, a compare-and-set).
-- **Fines quote and settle the same per-case total everywhere.** `SettlementPolicy.quote` computes
-  the exact amount before any charge; `FineService.pay` charges that same quote. A case flagged
-  `MANDATORY_CUSTODY` is refused rather than priced.
-- **Surrender defers its reward.** Heat reduction and the surrender discount are written only after
-  `SurrenderService.commit` confirms the arrest succeeded; repeating surrender while a sentence is
-  active is refused with `mcacrime.surrender.already_serving`, and a custody failure is refused with
-  `mcacrime.surrender.failed`.
-- **Sentences bind their own cases.** `SentenceResolutionService` settles only the cases charged
-  under the sentence id it was given, via `JailService.bindSentence`; an escort or a `/crime jail`
-  extension binds newly-added charges to the sentence already running rather than shadowing it.
-- **Restraint consumption moved to custody commit.** `RestraintReservation` records which inventory
-  slot will pay before a capture is attempted; the item is spent only once `CaptureTicker`'s commit
-  succeeds, not when the capture channel starts.
-- **Custody, not arrest phase alone, decides who is restrained.** `RestraintPolicy.effective` reads
-  both `ArrestStates` and `CustodyRegistry`, so a kidnapping victim or a bounty hunter's live
-  capture is posed and restricted exactly as a lawfully arrested player is.
-- **Fence buy price no longer derives from the marked-up sell price.** `FencePricing.buyPrice`
-  computes from the base price independently, applying `buyPriceRatio` and risk only as a
-  reduction, so Heat can never raise what a fence pays. `buyPriceRatio` itself is clamped to at most
-  `minimumPriceMultiplier` in `FencePolicy`'s compact constructor — `ConfigValidator` only warns
-  about the same condition and reports that the clamp already applied.
-- **Bounty revisions pay only the unpaid delta.** `BountyService.pay` subtracts what
-  `BountyClaimLedger.alreadyPaid` reports was already paid against the warrant, across every
-  revision.
-- **Capacity enforced at insertion, with three exceptions.** Most `CrimeWorldData.putX` methods now
-  return a `CapacityResult` and refuse past their table's limit, instead of accepting everything and
-  truncating on load. `putRansom` and `putPendingCellRestoration` stay void and apply no cap of
-  their own; `putBountyClaimIfAbsent` enforces its table's cap but reports the outcome as a plain
-  `boolean` — whether the claim was recorded — rather than a `CapacityResult`.
-- **Malformed records are quarantined, not dropped.** Rows that fail to deserialize are kept in a
-  bounded quarantine list rather than discarded during load.
+- **Protocol version 7 → 10.** Every packet now declares its direction explicitly; array and list
+  bounds are validated at decode rather than clamped; and a `RequestBudget` per player throttles
+  menu and ledger requests. Clients on older protocols are rejected at handshake.
+- **World data schema 7 → 9.** This build adds optional category memories and witness relay markers,
+  as well as the schema 8 development fields and collections for sentence
+  identity, bounty claim payment tracking, transaction receipts, property escrow, restored-cell
+  journal, and fence stock. Legacy fields are absent by default; existing worlds are not rewritten
+  on load. Legacy sentences bind their cases at the offender's first login; legacy bounty claims
+  count as fully paid.
+- **Fines now quote and settle per-case.** `SettlementPolicy` computes an exact per-case amount
+  before any debit; the quote is used by the guard screen, dossier, command and action handler
+  alike. Cases flagged `MANDATORY_CUSTODY` refuse the fine regardless of entry point, and a
+  failed resolution leaves Heat untouched.
+- **Surrender only writes its discount after arrest succeeds.** Heat reduction, surrender
+  timestamp and discount are now deferred until custody is committed. Repeat surrender while a
+  sentence is active is refused with `mcacrime.surrender.already_serving`. Failure to establish
+  custody produces `mcacrime.surrender.failed` and leaves the offender exactly as found.
+- **Sentences now bind their cases.** `SentenceResolutionService` settles only the cases that
+  were sentenced, not all open cases. NPC release now settles the NPC's own cases through the
+  same path, rather than shadowing player releases.
+- **Restraint consumption timing.** The restraint item is consumed only after custody is
+  committed, not when capture starts. Failed captures leave inventory untouched.
+- **Restraint visual policy.** Players and villagers held by hunters or kidnappers now render
+  with pose and cuffs, not only lawfully arrested players. `RestraintPolicy` decides who is
+  posed and restricted.
+- **Capture commit result.** `ArrestService.Outcome` carries typed outcomes including `NO_CUSTODY` and
+  `NO_CELL` (distinct from other failures), which abort an arrest instead of accepting the capture.
+  `CaptureCommitResult` carries its own typed outcomes: CAPTURED, ALREADY_HELD, QUOTA_FULL,
+  TARGET_INVALID, RESTRAINT_MISSING, SESSION_LOST, GATED.
+- **Fence pricing validator.** `ConfigValidator` now warns and clamps effective `buyPriceRatio`
+  if it would make the final price negative or non-finite. `FencePriceLoader` rejects entries
+  that are non-finite, out of range, or name unknown items; keeps the last good map when a file
+  fails; and replaces stock (rather than OR-merging) when `"sells"` or `"buys"` appears in a
+  price file.
+- **World-data robustness.** `ServerMutationGate` closes mutations when the save is from a newer
+  schema or failed to load. Malformed records are quarantined in a bounded list and saved back
+  out for manual inspection. Capacity limits are enforced at insertion via `CapacityResult`
+  rather than truncating at load.
 
 ### Fixed
 

@@ -11,7 +11,7 @@ This is the NeoForge 1.21.1 port of MCA: Crime. It is a separate project from th
 - **MC / NeoForge / Java / mappings**: see `gradle.properties` (mappings are `official`)
 - **Baseline**: NeoForge 1.21.1 / ModDevGradle (plugin version pinned in build.gradle) / Java 21
 
-Version numbers live only in `gradle.properties`; `processResources` expands them into `neoforge.mods.toml` and `pack.mcmeta`. Never hard-code one elsewhere, this file included.
+Version numbers live only in `gradle.properties`; `processResources` expands them into `neoforge.mods.toml` (NeoForge synthesizes pack metadata). Never hard-code one elsewhere, this file included.
 
 ## Build
 
@@ -36,7 +36,8 @@ ai/thief   autonomous thief controller, target selection, guard evasion
 mug/npc    NPC mugging sessions, theft planning, stolen-goods recovery
 economy/fence  contraband pricing, goods registry, trading UI
 compat integration locksreforged mcaquests  optional companions; degrade at runtime
-client mixin  client-only; common code must never import these
+client mixin/client  client-only; common code must never import these
+mixin      common vanilla equipment capture; no static MCA dependencies
 network item audio command config util  plumbing
 ```
 
@@ -45,14 +46,16 @@ network item audio command config util  plumbing
 - **MCA Reborn** - mandatory at runtime, but `localRuntime` and `testRuntimeOnly` in Gradle; no MCA type may appear anywhere in `src/main/java` (enforced by `NoMcaStaticLinkTest`). Every MCA class and member is resolved by name at runtime by `compat/mca/McaBinding`, so one jar works across MCA's package-root migrations.
 - **MCA: Reputation** - optional companion, resolved by name at runtime. Compiles only when `../MCAReputation_1.21.1/build/classes/java/main` exists. Pass `-PrequireReputation=true` to force the build to fail if it is absent.
 - **MCA: Quests** - optional integration, resolved by name at runtime. Publishes bounties as guard-given contracts. Compiles only when `../MCAQuests_1.21.1/build/classes/java/main` exists. Pass `-PrequireQuests=true` to force the build to fail if it is absent.
-- **Locks Reforged** - optional integration for fence lock/pick pricing tiers. Resolved at runtime by registry ID lookups; no 1.21.1 port exists at this time.
+- **Locks Reforged** - optional fence pricing and native cuff lockpicking. The isolated cuff menu compiles against `../Locks_Reforged_1.21.1/build/classes/java/main` (override with `-PlocksClasses=...`); release builds must set `-PrequireLocks=true`. Runtime presence is checked before loading the adapter. `-PlocksRuntimeJar=...` enables real-mod integration runs without bundling it.
 - **Architectury** - MCA's own runtime requirement; deliberately not declared in `neoforge.mods.toml`.
 
 ## Conventions
 
 - Registration is imperative on the MOD bus in the `McaCrime` constructor. DeferredRegisters for items and creative tabs are attached in `item/CrimeItems.register`; villager professions are registered in `job/CriminalProfessions.register`. Gameplay handlers are `@EventBusSubscriber` (inherits FORGE bus) or on the mod bus. NeoForge uses a different annotation system; check the imports (`net.neoforged.*`).
 - Config is hand-written `ModConfigSpec`, **COMMON + CLIENT only, no SERVER spec**: common is server-authoritative, client is presentation only. `config/ConfigValidator` runs at setup and on every reload.
-- Exactly one mixin: `mixin/client/RestraintPoseMixin`, targeting `LivingEntityRenderer.render`, one `@Inject` at AFTER `EntityModel.setupAnim` call, guarded by `MixinConfigTest`. **MixinExtras is neither declared nor used** - no `@WrapOperation`.
+- Two narrowly scoped mixins: common `mixin/MobDeathEquipmentMixin` observes `Mob.setItemSlot`
+  before MCA clears dying villagers' equipment; client-only `mixin/client/RestraintPoseMixin` poses
+  restrained arms. `MixinConfigTest` verifies side separation and registration. No MixinExtras.
 - All MCA access is `MethodHandle` lookups in `compat/mca/McaBinding` behind the `compat/McaCompat` facade, because MCA's package root has moved between releases; missing members degrade to stubs. `NoMcaStaticLinkTest` fails the build if static linkage returns, and `McaBindingProbeTest` replays the binding against every jar in `mca_probe_versions`.
 - Optional integrations must degrade at runtime - `ModList.isLoaded` plus `Class.forName` into an isolated adapter (`compat/ReputationBridge` -> `compat/reputation/`) with an API-version handshake, never a `neoforge.mods.toml` range that would gate the game load.
 - MCA is on `localRuntime` and `testRuntimeOnly` (build.gradle ~123-133) because ModDevGradle's unit-test runner must boot the mod loader with MCA present; MCA is absent only from `compileClasspath` and `testCompileClasspath`; `NoMcaStaticLinkTest` and `OptionalClassloadTest` verify bytecode references, not runtime absence, and `McaBindingProbeTest` uses a child-first classloader so each probe jar is genuinely the version tested.
@@ -71,9 +74,9 @@ From spec §2.1, these must never change:
 - Mod ID: `mcacrime`
 - Data attachment ID: `mcacrime:player_crime`
 - SavedData name: `mcacrime` (world-level data file key)
-- World file schema version: 8 (allows schema migrations, not rewrites)
+- World schema is defined by `CrimeDataMigrations.CURRENT_SCHEMA`; preserve every older migration and unknown-data quarantine.
 - Config keys: common and client sections, exact keys stable across patches
-- Packet protocol version: 8 (1.20.1 clients cannot join)
+- Packet protocol is defined by `CrimeNetwork.PROTOCOL_VERSION`; clients and server must match. Forge clients cannot join this NeoForge port.
 
 ## Tooling Notes
 

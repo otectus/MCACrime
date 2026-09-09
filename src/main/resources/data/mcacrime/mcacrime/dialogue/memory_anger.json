@@ -1,0 +1,7 @@
+{
+  "event": "mcacrime:memory_anger",
+  "fallback": "dialogue.mcacrime.memory_anger.generic",
+  "variants": [
+    { "priority": 0, "when": {}, "lines": ["dialogue.mcacrime.memory_anger.generic"] }
+  ]
+}

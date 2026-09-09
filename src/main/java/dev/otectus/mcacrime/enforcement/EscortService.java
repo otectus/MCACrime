@@ -136,11 +136,16 @@ public final class EscortService {
 
     /** Starts an escort. With {@code arrestEscortTimeoutTicks} at zero the arrest completes at once. */
     public static void begin(ServerPlayer player, @Nullable LivingEntity guard, JailAnchor anchor,
-                             long sentenceTicks) {
+                              long sentenceTicks) {
+        beginChecked(player, guard, anchor, sentenceTicks);
+    }
+
+    /** Reports immediate intake failure before the caller awards surrender credit or delivery pay. */
+    public static boolean beginChecked(ServerPlayer player, @Nullable LivingEntity guard, JailAnchor anchor,
+                                       long sentenceTicks) {
         long timeout = McaCrimeConfig.COMMON.arrestEscortTimeoutTicks.get();
         if (timeout <= 0L || guard == null) {
-            complete(player, anchor, sentenceTicks, guard);
-            return;
+            return completeChecked(player, anchor, sentenceTicks, guard);
         }
         ArrestStates.transition(player, ArrestPhase.ESCORTING);
         ACTIVE.put(player.getUUID(), player.level().getGameTime());
@@ -148,6 +153,7 @@ public final class EscortService {
                 ArrestService.nameOf(guard)));
         player.sendSystemMessage(Component.translatable("mcacrime.arrest.restrained",
                 ArrestService.nameOf(guard)));
+        return true;
     }
 
     /** Advances every running escort. Called from the throttled enforcement scan. */
@@ -161,12 +167,12 @@ public final class EscortService {
                 // Logged out mid-escort. The arrest record persists on the player and login
                 // reconciliation finishes the job; keeping the escort would be walking a guard toward
                 // nobody.
-                ACTIVE.remove(prisonerId);
+                forget(prisonerId);
                 continue;
             }
             ArrestState state = ArrestStates.of(prisoner);
             if (state == null || state.getPhase() != ArrestPhase.ESCORTING) {
-                ACTIVE.remove(prisonerId);
+                forget(prisonerId);
                 continue;
             }
             step(server, prisoner, state);
@@ -181,17 +187,17 @@ public final class EscortService {
         if (anchor == null) {
             // The destination went missing between the arrest and here. Never hold a restrained player
             // for a cell that does not exist.
-            ACTIVE.remove(prisoner.getUUID());
+            forget(prisoner.getUUID());
             GuardChallengeService.standDownAndRecover(prisoner, "mcacrime.arrest.recovery");
             releaseCustodyQuietly(server, prisoner);
             return;
         }
 
         Entity guard = state.getGuard() == null ? null : level.getEntity(state.getGuard());
-        if (guard == null || !guard.isAlive()) {
+        if (!dev.otectus.mcacrime.ai.NpcAwareness.isAwake(guard)) {
             guard = reassign(level, prisoner, state);
         }
-        boolean guardPresent = guard != null && guard.isAlive();
+        boolean guardPresent = dev.otectus.mcacrime.ai.NpcAwareness.isAwake(guard);
 
         double tether = McaCrimeConfig.COMMON.escortTetherBlocks.get();
         double tetherSqr = tether * tether;
@@ -208,24 +214,24 @@ public final class EscortService {
         state.setLastSeenPos(here);
 
         BlockPos destination = anchor.pos();
-        double destinationSqr = prisoner.distanceToSqr(destination.getX() + 0.5, destination.getY(),
-                destination.getZ() + 0.5);
-        int strikes = nextStrikes(state.getBestAnchorDistanceSqr(), destinationSqr, state.getStuckStrikes());
-        state.setStuckStrikes(strikes);
-        state.setBestAnchorDistanceSqr(Math.min(state.getBestAnchorDistanceSqr(), destinationSqr));
-
         boolean inRegion = JailRegion.contains(destination, anchor.radius(), anchor.dim(),
                 here, level.dimension().location());
+        JailEscortNavigation.Progress progress = new JailEscortNavigation.Progress(false, false);
+        if (guardPresent && !inRegion && guard.distanceToSqr(prisoner) <= tetherSqr) {
+            LawHold.hold(guard.getUUID(), level.getGameTime()
+                    + 3L * Math.max(1, McaCrimeConfig.COMMON.guardScanIntervalTicks.get()));
+            progress = JailEscortNavigation.advance(level, guard, prisoner, anchor);
+        }
         long online = CrimeAttachments.get(prisoner).getOnlineTicksLived();
 
-        Step step = decide(guardPresent, inRegion,
+        Step step = decide(guardPresent, inRegion || progress.arrived(),
                 guardPresent ? guard.distanceToSqr(prisoner) : 0.0,
                 tetherSqr,
-                isStuck(strikes, McaCrimeConfig.COMMON.escortStuckScans.get()),
+                progress.stuck(),
                 online, state.getDeadlineOnlineTick() <= 0L ? Long.MAX_VALUE : state.getDeadlineOnlineTick());
 
         switch (step) {
-            case CONTINUE -> walk(level, guard, prisoner, state, destination);
+            case CONTINUE -> { /* JailEscortNavigation owns the walk order and its cadence. */ }
             case ARRIVED -> complete(prisoner, anchor, state.getSentenceTicks(),
                     guard instanceof LivingEntity living ? living : null);
             case COMPLETE_BY_TELEPORT -> {
@@ -235,34 +241,6 @@ public final class EscortService {
             }
             case TETHER_BROKEN -> abandon(server, prisoner, state);
         }
-    }
-
-    /**
-     * Issues the walk order, on a cadence rather than every scan.
-     *
-     * <p>An MCA villager runs its own brain, so a navigation order reissued constantly fights it and the
-     * guard visibly stutters. The order is refreshed when the interval has elapsed or when the previous
-     * path has finished, which is enough to route around a closed door without arguing with MCA about
-     * every step.
-     */
-    private static void walk(ServerLevel level, @Nullable Entity guard, ServerPlayer prisoner,
-                             ArrestState state, BlockPos destination) {
-        if (guard == null) {
-            return;
-        }
-        // Hold the guard against the reaction system for a few scans. Without this the reaction ticker,
-        // which runs twice as often as this scan, clears the escort target on its way out of a panic
-        // controller -- the same race LawHold was written for.
-        long now = level.getGameTime();
-        LawHold.hold(state.getGuard(), now + 3L * McaCrimeConfig.COMMON.guardScanIntervalTicks.get());
-        McaCompat.faceEntity(guard, prisoner);
-        long interval = McaCrimeConfig.COMMON.escortNavigationIntervalTicks.get();
-        if (now - state.getLastNavigationTick() < interval && !McaCompat.navigationDone(guard)) {
-            return;
-        }
-        state.setLastNavigationTick(now);
-        McaCompat.moveVillagerTo(guard, destination.getX() + 0.5, destination.getY(),
-                destination.getZ() + 0.5, McaCrimeConfig.COMMON.escortWalkSpeed.get());
     }
 
     /**
@@ -278,7 +256,10 @@ public final class EscortService {
         LivingEntity best = null;
         double bestDistance = Double.MAX_VALUE;
         for (LivingEntity candidate : level.getEntitiesOfClass(LivingEntity.class,
-                prisoner.getBoundingBox().inflate(radius), EntitySelectors::isResponder)) {
+                prisoner.getBoundingBox().inflate(radius), EntitySelectors::isAvailableResponder)) {
+            if (!candidate.isAlive() || !candidate.hasLineOfSight(prisoner)
+                    || ResponderAssignments.isEscorting(level.getServer(), candidate.getUUID(), prisoner.getUUID())
+                    || NpcCriminalPursuit.isAssignedElsewhere(candidate.getUUID(), prisoner.getUUID())) continue;
             double distance = candidate.distanceToSqr(prisoner);
             if (distance < bestDistance) {
                 bestDistance = distance;
@@ -308,10 +289,15 @@ public final class EscortService {
      */
     public static void complete(ServerPlayer prisoner, JailAnchor anchor, long sentenceTicks,
                                 @Nullable LivingEntity guard) {
-        ACTIVE.remove(prisoner.getUUID());
+        completeChecked(prisoner, anchor, sentenceTicks, guard);
+    }
+
+    private static boolean completeChecked(ServerPlayer prisoner, JailAnchor anchor, long sentenceTicks,
+                                            @Nullable LivingEntity guard) {
+        forget(prisoner.getUUID());
         MinecraftServer server = prisoner.getServer();
         if (server == null) {
-            return;
+            return false;
         }
         ArrestState state = ArrestStates.of(prisoner);
         UUID sentenceId = state == null ? null : state.getSentenceId();
@@ -320,12 +306,13 @@ public final class EscortService {
             // custody with no sentence: let them go and let the guard start over.
             releaseCustodyQuietly(server, prisoner);
             GuardChallengeService.standDownAndRecover(prisoner, "mcacrime.arrest.recovery");
-            return;
+            return false;
         }
         CustodyService.transferLawfulCustody(server, prisoner.getUUID(),
                 CustodyOwner.jail(-1, anchor.pos(), anchor.dim()));
         if (guard != null) {
             LawHold.clear(guard.getUUID());
+            McaCompat.stopModNavigation(guard);
             McaCompat.clearGuardTarget(guard, prisoner);
         }
         // The sentence has started, so the phase moves before the stand-down clears the arrest record.
@@ -334,11 +321,12 @@ public final class EscortService {
         CrimeState.setResistingArrest(prisoner, false);
         prisoner.sendSystemMessage(Component.translatable("mcacrime.arrest.arrived"));
         CrimeNetwork.sendSelfStatus(prisoner);
+        return true;
     }
 
     /** The prisoner ran. Custody ends, and running from a surrender is itself resisting arrest. */
     private static void abandon(MinecraftServer server, ServerPlayer prisoner, ArrestState state) {
-        ACTIVE.remove(prisoner.getUUID());
+        forget(prisoner.getUUID());
         UUID guard = state.getGuard();
         ArrestStates.clear(prisoner);
         releaseCustodyQuietly(server, prisoner);
@@ -350,7 +338,7 @@ public final class EscortService {
     }
 
     private static void releaseCustodyQuietly(MinecraftServer server, ServerPlayer prisoner) {
-        ACTIVE.remove(prisoner.getUUID());
+        forget(prisoner.getUUID());
         if (ArrestService.inLawfulCustody(server, prisoner.getUUID())) {
             CustodyService.release(server, prisoner.getUUID(),
                     dev.otectus.mcacrime.captivity.CustodyReleaseReason.ADMIN);
@@ -378,7 +366,9 @@ public final class EscortService {
                 continue; // the escort is walking them, not fighting them; leave its hold alone
             }
             McaCompat.clearGuardTarget(guard, prisoner);
-            LawHold.clear(guard.getUUID());
+            if (!ResponderAssignments.isEscorting(level.getServer(), guard.getUUID(), prisoner.getUUID())
+                    && !NpcCriminalPursuit.isAssignedElsewhere(guard.getUUID(), prisoner.getUUID()))
+                LawHold.clear(guard.getUUID());
         }
     }
 
@@ -390,11 +380,13 @@ public final class EscortService {
     /** Drops a player's escort on logout, so the map cannot grow for the life of the server. */
     public static void forget(UUID prisoner) {
         ACTIVE.remove(prisoner);
+        JailEscortNavigation.forget(prisoner);
     }
 
     /** Drops every escort. Called on server stop. */
     public static void clearAll() {
         ACTIVE.clear();
+        JailEscortNavigation.clear();
     }
 
     /** Exposed for {@code /crime debug}: how many escorts are running. */

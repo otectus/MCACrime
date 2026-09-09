@@ -23,13 +23,19 @@ import java.util.UUID;
  */
 public record GuardChallengeS2CPacket(boolean open, UUID encounterId, Component guardName,
                                       Component jurisdiction, int chargeCount, long assessedFine,
-                                      boolean canPay, long remainingTicks) implements CustomPacketPayload {
+                                      boolean canPay, long remainingTicks, long revision) implements CustomPacketPayload {
 
     public static final Type<GuardChallengeS2CPacket> TYPE = new Type<>(McaCrime.id("guard_challenge"));
 
-    /** Eight fields, two past what {@code StreamCodec.composite} carries, so written by hand. */
+    /** Nine fields, beyond what {@code StreamCodec.composite} carries, so written by hand. */
     public static final StreamCodec<RegistryFriendlyByteBuf, GuardChallengeS2CPacket> STREAM_CODEC =
             StreamCodec.of(GuardChallengeS2CPacket::write, GuardChallengeS2CPacket::read);
+
+    public GuardChallengeS2CPacket(boolean open, UUID encounterId, Component guardName,
+                                  Component jurisdiction, int chargeCount, long assessedFine,
+                                  boolean canPay, long remainingTicks) {
+        this(open, encounterId, guardName, jurisdiction, chargeCount, assessedFine, canPay, remainingTicks, 0L);
+    }
 
     public GuardChallengeS2CPacket {
         encounterId = encounterId == null ? new UUID(0L, 0L) : encounterId;
@@ -58,7 +64,7 @@ public record GuardChallengeS2CPacket(boolean open, UUID encounterId, Component 
                                                Component guardName, Component jurisdiction) {
         return new GuardChallengeS2CPacket(true, challenge.encounterId(), guardName, jurisdiction,
                 challenge.chargeCount(), challenge.assessedFine(), challenge.canPay(),
-                challenge.remaining(now));
+                challenge.remaining(now), challenge.revision());
     }
 
     /** The close form: everything else is ignored by the client when {@code open} is false. */
@@ -76,13 +82,15 @@ public record GuardChallengeS2CPacket(boolean open, UUID encounterId, Component 
         buf.writeVarLong(msg.assessedFine());
         buf.writeBoolean(msg.canPay());
         buf.writeVarLong(msg.remainingTicks());
+        CrimeStreamCodecs.NON_NEGATIVE_LONG.encode(buf, msg.revision());
     }
 
     private static GuardChallengeS2CPacket read(RegistryFriendlyByteBuf buf) {
         return new GuardChallengeS2CPacket(buf.readBoolean(), buf.readUUID(),
                 ComponentSerialization.STREAM_CODEC.decode(buf),
                 ComponentSerialization.STREAM_CODEC.decode(buf),
-                buf.readVarInt(), buf.readVarLong(), buf.readBoolean(), buf.readVarLong());
+                buf.readVarInt(), buf.readVarLong(), buf.readBoolean(), buf.readVarLong(),
+                CrimeStreamCodecs.NON_NEGATIVE_LONG.decode(buf));
     }
 
     @Override

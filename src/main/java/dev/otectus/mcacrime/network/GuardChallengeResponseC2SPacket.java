@@ -23,7 +23,7 @@ import java.util.UUID;
  * response worth guessing at.
  */
 public record GuardChallengeResponseC2SPacket(UUID encounterId,
-                                              ChallengeResponse response) implements CustomPacketPayload {
+                                              ChallengeResponse response, long revision) implements CustomPacketPayload {
 
     public static final Type<GuardChallengeResponseC2SPacket> TYPE =
             new Type<>(McaCrime.id("guard_challenge_response"));
@@ -33,7 +33,12 @@ public record GuardChallengeResponseC2SPacket(UUID encounterId,
                     UUIDUtil.STREAM_CODEC, GuardChallengeResponseC2SPacket::encounterId,
                     CrimeStreamCodecs.enumCodec(ChallengeResponse.class, "challenge response"),
                     GuardChallengeResponseC2SPacket::response,
+                    CrimeStreamCodecs.NON_NEGATIVE_LONG, GuardChallengeResponseC2SPacket::revision,
                     GuardChallengeResponseC2SPacket::new);
+
+    public GuardChallengeResponseC2SPacket(UUID encounterId, ChallengeResponse response) {
+        this(encounterId, response, 0L);
+    }
 
     public GuardChallengeResponseC2SPacket {
         encounterId = encounterId == null ? new UUID(0L, 0L) : encounterId;

@@ -14,12 +14,16 @@ import net.minecraft.server.level.ServerLevel;
 import net.neoforged.neoforge.event.entity.EntityLeaveLevelEvent;
 import net.neoforged.neoforge.event.entity.living.LivingDeathEvent;
 import net.neoforged.neoforge.event.entity.living.LivingDamageEvent;
+import net.neoforged.neoforge.event.tick.ServerTickEvent;
+import net.neoforged.neoforge.event.server.ServerStoppedEvent;
+import net.neoforged.bus.api.EventPriority;
+import net.minecraft.world.entity.LivingEntity;
 import net.neoforged.neoforge.event.entity.player.PlayerEvent;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
 
 /**
- * The game-bus entry points for crime detection (spec §5.3). Server-side only (guarded by the
+ * The NeoForge-bus entry points for crime detection (spec §5.3). Server-side only (guarded by the
  * {@link ServerLevel} check); the master toggle short-circuits before any work. All real logic lives in
  * {@link CrimeDetector} / {@link CrimeGate}.
  */
@@ -60,35 +64,51 @@ public final class CrimeDetectionHandlers {
             ActionSessionManager.clearFor(event.getEntity().getUUID(), CancelReason.DAMAGED);
             CustodyService.interruptEscape(event.getEntity().getUUID(), hurtLevel.getServer());
         }
-        if (!McaCrimeConfig.COMMON.enableCrimeDetection.get()) {
-            return;
-        }
-        if (event.getEntity().level() instanceof ServerLevel level) {
-            guarded("hurt detection", () ->
-                    CrimeDetector.onHarm(event.getEntity(), event.getSource(), event.getNewDamage(), level));
+    }
+
+    @SubscribeEvent(priority = EventPriority.LOWEST)
+    public static void onLivingDamage(LivingDamageEvent.Pre event) {
+        if (McaCrimeConfig.COMMON.enableCrimeDetection.get()
+                && event.getEntity().level() instanceof ServerLevel level) {
+            guarded("damage sampling", () -> DamageIncidentService.damage(event, level));
         }
     }
 
-    @SubscribeEvent
+    @SubscribeEvent(priority = EventPriority.LOWEST, receiveCanceled = true)
     public static void onLivingDeath(LivingDeathEvent event) {
-        if (event.getEntity().level() instanceof ServerLevel deathLevel) {
-            var server = deathLevel.getServer();
-            var dead = event.getEntity().getUUID();
-            CaptureChannels.clearFor(dead);
-            ActionSessionManager.clearFor(dead, CancelReason.DEATH);
-            if (CustodyRegistry.isCaptive(server, dead)) {
-                CustodyService.release(server, dead, CustodyReleaseReason.CAPTIVE_DIED);
-            }
-            for (CustodyRecord held : CustodyRegistry.byOwner(server, dead)) {
-                CustodyService.release(server, held.getCaptive(), CustodyReleaseReason.CAPTOR_GONE);
-            }
-        }
-        if (!McaCrimeConfig.COMMON.enableCrimeDetection.get()) {
-            return;
-        }
         if (event.getEntity().level() instanceof ServerLevel level) {
-            guarded("kill detection", () -> CrimeDetector.onKill(event.getEntity(), event.getSource(), level));
+            guarded("death sampling", () -> DamageIncidentService.death(event, level));
         }
+    }
+
+    /** Cleanup shares confirmed death finality, so downstream death cancellation cannot free a captive. */
+    static void confirmedDeath(LivingEntity victim, ServerLevel level) {
+        var server = level.getServer();
+        var dead = victim.getUUID();
+        CaptureChannels.clearFor(dead);
+        ActionSessionManager.clearFor(dead, CancelReason.DEATH);
+        if (CustodyRegistry.isCaptive(server, dead)) {
+            CustodyService.release(server, dead, CustodyReleaseReason.CAPTIVE_DIED);
+        }
+        for (CustodyRecord held : CustodyRegistry.byOwner(server, dead)) {
+            CustodyService.release(server, held.getCaptive(), CustodyReleaseReason.CAPTOR_GONE);
+        }
+    }
+
+    @SubscribeEvent(priority = EventPriority.LOWEST)
+    public static void onServerTick(ServerTickEvent.Post event) {
+        reconcileBeforePlayerSave(event.getServer());
+    }
+
+    /** Also called before vanilla saves/logs out or copies a player's crime attachment. */
+    public static void reconcileBeforePlayerSave(net.minecraft.server.MinecraftServer server) {
+        if (server != null) guarded("damage reconciliation", () -> DamageIncidentService.flush(server));
+    }
+
+    @SubscribeEvent
+    public static void onServerStopped(ServerStoppedEvent event) {
+        DamageIncidentService.clear(event.getServer());
+        detectionDisabled = false;
     }
 
     /**
@@ -116,11 +136,14 @@ public final class CrimeDetectionHandlers {
         java.util.UUID mover = event.getEntity().getUUID();
         ActionSessionManager.clearFor(mover, CancelReason.DIMENSION_CHANGED);
         CaptureChannels.clearFor(mover);
+        // Combat provenance expires after disengagement; a quick portal trip must not reset who attacked first.
     }
 
     @SubscribeEvent
     public static void onLogout(PlayerEvent.PlayerLoggedOutEvent event) {
-        CrimeDetector.clearAttacker(event.getEntity().getUUID());
+        if (event.getEntity() instanceof net.minecraft.server.level.ServerPlayer player)
+            reconcileBeforePlayerSave(player.getServer());
+        // Keep bounded recent aggression until its normal expiry; relogging cannot legalize retaliation.
         CaptureChannels.clearFor(event.getEntity().getUUID()); // drop any in-progress channel by/of this player
         MuggingService.onLogout(event.getEntity().getUUID()); // drop any pending mug markers
         ActionSessionManager.clearFor(event.getEntity().getUUID(), CancelReason.ACTOR_GONE);
@@ -128,8 +151,8 @@ public final class CrimeDetectionHandlers {
         // replay cache and any open menu, neither of which any other path ever removes.
         ActionSessionManager.forgetActor(event.getEntity().getUUID());
         dev.otectus.mcacrime.action.CrimeActionService.forgetMenu(event.getEntity().getUUID());
-        // Same class of leak, three more maps: a guard encounter, an enforcement alert, and this
-        // player's request buckets, all keyed by player and all previously removed by nothing.
+        // Same class of leak, three more maps: a guard encounter, an enforcement alert, and a dossier
+        // cooldown stamp all keyed by player and all previously removed by nothing.
         dev.otectus.mcacrime.enforcement.GuardChallengeService.forget(event.getEntity().getUUID());
         dev.otectus.mcacrime.enforcement.GuardEnforcement.forget(event.getEntity().getUUID());
         // An escort is a walk in progress, and there is nobody to walk any more. The lawful custody

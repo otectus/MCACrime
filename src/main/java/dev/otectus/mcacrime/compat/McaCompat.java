@@ -105,10 +105,8 @@ public final class McaCompat {
      *
      * <p>The id is tried first and a scan is the fallback, so the configured
      * {@code professionMatchingMode} governs writes as well as reads and an MCA that renames its own
-     * profession still resolves. Only {@code guard} is ever produced, never {@code archer}: this mod
-     * recognises archers as law through {@code McaHandles.isMcaGuard} for counting purposes, but
-     * {@code EntitySelectors.isResponder} matches the {@code guard} path alone, so converting somebody
-     * to an archer would produce a villager the mod itself does not treat as law.
+     * profession still resolves. Population balancing produces guards; existing archers are also
+     * recognized as law responders by {@code EntitySelectors.isResponder}.
      */
     public static Optional<VillagerProfession> guardProfession() {
         Optional<VillagerProfession> direct = BuiltInRegistries.VILLAGER_PROFESSION
@@ -274,7 +272,7 @@ public final class McaCompat {
      * @return true when a lever actually took effect, so a caller can tell aggro from silence
      */
     public static boolean setGuardTarget(Entity guard, LivingEntity target) {
-        if (!(guard instanceof Mob mob) || target == null) {
+        if (!(guard instanceof Mob mob) || target == null || !dev.otectus.mcacrime.ai.NpcAwareness.isAwake(guard)) {
             return false;
         }
         boolean applied = false;
@@ -348,21 +346,16 @@ public final class McaCompat {
      * error. <b>Server side only.</b>
      */
     public static boolean makeVillagerFlee(Entity villager, ServerPlayer from) {
-        if (!isMcaVillager(villager) || !(villager instanceof PathfinderMob mob)) {
+        if (!isMcaVillager(villager) || !(villager instanceof LivingEntity living)
+                || !(villager.level() instanceof ServerLevel level)
+                || dev.otectus.mcacrime.detect.EntitySelectors.isResponder(living)) {
             return false;
         }
-        try {
-            Vec3 away = mob.position().subtract(from.position());
-            if (away.lengthSqr() < 1.0E-4) {
-                away = new Vec3(1, 0, 0);
-            }
-            Vec3 dest = mob.position().add(away.normalize().scale(8.0));
-            mob.getNavigation().moveTo(dest.x, dest.y, dest.z, 1.2);
-            return true;
-        } catch (Throwable t) {
-            McaCrime.LOGGER.debug("MCA makeVillagerFlee failed; ignoring", t);
-            return false;
-        }
+        // A second navigator used to override compliance, captivity and the bounded flee route.
+        if (dev.otectus.mcacrime.ai.CrimeReactionService.stateOf(villager.getUUID())
+                != dev.otectus.mcacrime.ai.VictimReactionState.CALM) return false;
+        return dev.otectus.mcacrime.ai.CrimeReactionService.trigger(level, living, from.getUUID(),
+                dev.otectus.mcacrime.ai.VictimReactionState.FLEEING, null) != null;
     }
 
     // ------------------------------------------------------------------ reaction navigation (§11.3)
@@ -377,11 +370,13 @@ public final class McaCompat {
      * exists, which the controller treats as a path failure rather than as arrival.
      */
     public static boolean moveVillagerTo(Entity villager, double x, double y, double z, double speed) {
-        if (!isMcaVillager(villager) || !(villager instanceof PathfinderMob mob)) {
+        if (!(villager instanceof Mob mob) || !dev.otectus.mcacrime.ai.NpcAwareness.isAwake(villager)) {
             return false;
         }
         try {
-            return mob.getNavigation().moveTo(x, y, z, speed);
+            net.minecraft.core.BlockPos destination = net.minecraft.core.BlockPos.containing(x, y, z);
+            return dev.otectus.mcacrime.ai.CrimeNavigation.start(mob,
+                    mob.getNavigation().createPath(destination, 1), destination, speed, isMcaVillager(villager));
         } catch (Throwable t) {
             McaCrime.LOGGER.debug("MCA moveVillagerTo failed; ignoring", t);
             return false;
@@ -476,7 +471,7 @@ public final class McaCompat {
      * always runs.
      */
     public static boolean makeVillagerResist(Entity villager, LivingEntity offender) {
-        if (!isMcaVillager(villager) || !(villager instanceof Mob mob)) {
+        if (!isMcaVillager(villager) || !(villager instanceof Mob mob) || !dev.otectus.mcacrime.ai.NpcAwareness.isAwake(villager)) {
             return false;
         }
         try {
@@ -507,7 +502,7 @@ public final class McaCompat {
 
     /** Turns a villager to face an entity. Cosmetic, and safe to fail. */
     public static void faceEntity(Entity villager, Entity target) {
-        if (villager instanceof Mob mob && target != null) {
+        if (villager instanceof Mob mob && target != null && dev.otectus.mcacrime.ai.NpcAwareness.isAwake(villager)) {
             try {
                 mob.getLookControl().setLookAt(target, 30.0F, 30.0F);
             } catch (Throwable t) {
@@ -539,6 +534,8 @@ public final class McaCompat {
         if (captive instanceof Mob mob) {
             try {
                 mob.setLeashedTo(holder, true);
+                // Physical restraint wakes the captive; mere proximity never does.
+                if (mob.isSleeping()) mob.stopSleeping();
                 return true;
             } catch (Throwable t) {
                 McaCrime.LOGGER.debug("MCA leashTo failed; ignoring", t);

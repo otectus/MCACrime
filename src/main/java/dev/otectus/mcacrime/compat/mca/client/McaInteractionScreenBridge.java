@@ -40,12 +40,11 @@ import java.util.UUID;
  * <p>Since 0.5.1 the button sits at the bottom, under MCA's own widgets rather than at a hardcoded
  * offset: the panel is a different height on different MCA builds and at different GUI scales, so the
  * placement is measured from the widgets actually on the screen and only falls back to the screen edge
- * when there are none. It is also gated: without a drawn weapon there is no crime to commit, so the
- * button is visible, disabled, and carries a tooltip saying which hand the weapon has to be in. A fence
- * is the exception — trading contraband is not coercion, so an unarmed player may open that menu.
+ * when there are none. Unarmed players may open peaceful options, including apologies. The server
+ * filters coercive actions when a drawn weapon is required.
  *
  * <p>The gate here is convenience only. {@code CrimeActionService.openMenu} re-checks it against the
- * server's own config and the persisted job, so a client that skips the button gains nothing.
+ * server's own config and action availability, so a client that skips the button gains nothing.
  */
 @EventBusSubscriber(modid = McaCrime.MOD_ID, value = Dist.CLIENT)
 public final class McaInteractionScreenBridge {
@@ -77,35 +76,27 @@ public final class McaInteractionScreenBridge {
      */
     public record ButtonState(boolean active, @Nullable String tooltipKey) {
 
-        /** The gate as it stood before 0.5.1's server-side switch: a weapon is always required. */
+        /** Uses the default weapon requirement for coercive actions. */
         public static ButtonState compute(boolean targetFound, boolean armed, boolean fence,
                                           boolean allowOffHand) {
             return compute(targetFound, armed, fence, allowOffHand, true);
         }
 
         /**
-         * The full gate, including the server's {@code requireWeaponForCrimeMenu} switch.
-         *
-         * <p>A server with the gate off treats every player as armed for the purposes of this button,
-         * because it is. Explicit rather than folded into {@code armed} by the caller so the disagreement
-         * this exists to prevent -- a grey button over a menu the server would have opened -- cannot come
-         * back through a caller that forgot.
+         * The weapon policy changes the available rows, never access to peaceful actions.
+         * The off-hand parameter is retained for callers using the existing signature.
          */
         public static ButtonState compute(boolean targetFound, boolean armed, boolean fence,
                                           boolean allowOffHand, boolean weaponRequired) {
             boolean effectivelyArmed = armed || !weaponRequired;
-            boolean active = targetFound && (effectivelyArmed || fence);
+            boolean active = targetFound;
             if (effectivelyArmed) {
                 return new ButtonState(active, null);
             }
             if (fence) {
-                // The one villager an unarmed player may open the menu on, so the tooltip invites the
-                // trade rather than repeating a weapon requirement that does not apply here.
                 return new ButtonState(active, "gui.mcacrime.crime.fence_trade");
             }
-            return new ButtonState(active, allowOffHand
-                    ? "gui.mcacrime.crime.requires_weapon"
-                    : "gui.mcacrime.crime.requires_weapon_main_hand");
+            return new ButtonState(active, "gui.mcacrime.crime.peaceful");
         }
     }
 

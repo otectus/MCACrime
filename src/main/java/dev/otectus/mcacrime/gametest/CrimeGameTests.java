@@ -44,9 +44,8 @@ import java.util.concurrent.atomic.AtomicInteger;
  * <p>Both player tests drive {@link ServerPlayer#restoreFrom} rather than {@code PlayerList.respawn}
  * or {@code changeDimension}. That is not a shortcut around the real code path - it <em>is</em> the
  * code path: {@code restoreFrom} is the single line {@code PlayerList.respawn} runs on the new player
- * object (PlayerList.java:467), and it is where NeoForge fires {@code PlayerEvent.Clone}, whose only
- * listener is {@code AttachmentInternals#onPlayerClone} calling {@code copyEntityAttachments(from, to,
- * isDeath)}. {@code isDeath} is {@code !keepEverything}, so {@code restoreFrom(old, false)} is exactly
+ * object (PlayerList.java:467), and it is where NeoForge fires {@code PlayerEvent.Clone}, which drives
+ * attachment copying and Crime's final damage reconciliation before the copy. {@code isDeath} is {@code !keepEverything}, so {@code restoreFrom(old, false)} is exactly
  * the {@code copyOnDeath} filter and {@code restoreFrom(old, true)} is exactly the keep-everything
  * filter. Going through {@code PlayerList.respawn} or {@code ServerPlayer#changeDimension} instead
  * would need a mock player holding a live {@code Connection} (and, for the dimension case, would not
@@ -64,9 +63,8 @@ public final class CrimeGameTests {
     }
 
     /**
-     * Spec §7.4 row 8. Death used to be handled by a {@code PlayerEvent.Clone} listener of this mod's
-     * own; now it is {@code .copyOnDeath()} on the attachment type, and no source-level check proves
-     * that builder call is still there.
+     * Spec §7.4 row 8. Death must retain crime data through {@code .copyOnDeath()} and the clone
+     * reconciliation listener; a runtime assertion checks the resulting values.
      */
     @GameTest(template = "platform")
     public static void respawnPreservesPlayerCrimeData(GameTestHelper helper) {
@@ -125,8 +123,8 @@ public final class CrimeGameTests {
         data.addActionCounter(counter, 7L);
 
         CompoundTag tag = data.save(new CompoundTag(), server.registryAccess());
-        helper.assertTrue(CrimeDataMigrations.CURRENT_SCHEMA == 6,
-                "this build writes schema " + CrimeDataMigrations.CURRENT_SCHEMA + ", expected 6");
+        helper.assertTrue(CrimeDataMigrations.CURRENT_SCHEMA == 10,
+                "this build writes schema " + CrimeDataMigrations.CURRENT_SCHEMA + ", expected 10");
         helper.assertTrue(CrimeDataMigrations.schemaOf(tag) == CrimeDataMigrations.CURRENT_SCHEMA,
                 "saved tag is schema " + CrimeDataMigrations.schemaOf(tag));
 
@@ -149,6 +147,8 @@ public final class CrimeGameTests {
 
         ServerPlayer offender = mockPlayer(level);
         Cow witness = helper.spawnWithNoFreeWill(EntityType.COW, new BlockPos(1, 2, 1));
+        BlockPos act = helper.absolutePos(new BlockPos(2, 2, 2));
+        offender.setPos(act.getX() + 0.5, act.getY(), act.getZ() + 0.5);
         AtomicInteger fired = new AtomicInteger();
         CancellingListener listener = new CancellingListener(fired);
         NeoForge.EVENT_BUS.register(listener);

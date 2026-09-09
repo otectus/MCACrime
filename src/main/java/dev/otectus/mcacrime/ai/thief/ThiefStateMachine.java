@@ -39,7 +39,8 @@ public final class ThiefStateMachine {
         }
         return switch (current) {
             case IDLE -> ThiefState.SCOUTING;
-            case SCOUTING -> s.victimFound() && !s.guardRiskHard() ? ThiefState.APPROACHING : ThiefState.SCOUTING;
+            case SCOUTING -> s.victimFound() && !s.victimInvalid() && !s.victimArmed() && !s.guardRiskHard()
+                    ? ThiefState.APPROACHING : ThiefState.SCOUTING;
             case APPROACHING -> {
                 if (s.guardRiskHard()) {
                     yield ThiefState.FLEEING;

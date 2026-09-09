@@ -40,6 +40,9 @@ public final class GuardChallengeScreen extends Screen {
     private ChallengePanelLayout layout = ChallengePanelLayout.of(4);
     private int panelLeft;
     private int panelTop;
+    private long revision;
+    private Button payButton;
+    private boolean paymentPending;
 
     public GuardChallengeScreen() {
         super(Component.translatable("gui.mcacrime.challenge.title"));
@@ -47,6 +50,7 @@ public final class GuardChallengeScreen extends Screen {
 
     @Override
     protected void init() {
+        payButton = null;
         var challenge = ClientChallengeData.current();
         if (challenge == null) {
             onClose();
@@ -60,6 +64,7 @@ public final class GuardChallengeScreen extends Screen {
         panelTop = (height - layout.panelHeight()) / 2;
 
         UUID encounter = challenge.encounterId();
+        revision = challenge.revision();
         int index = 0;
         addResponse(encounter, ChallengeResponse.SURRENDER,
                 Component.translatable(ChallengeResponse.SURRENDER.labelKey()), index++);
@@ -75,10 +80,20 @@ public final class GuardChallengeScreen extends Screen {
     }
 
     private void addResponse(UUID encounter, ChallengeResponse response, Component label, int index) {
-        addRenderableWidget(Button.builder(label, b -> respond(encounter, response))
+        Button button = addRenderableWidget(Button.builder(label, b -> respond(encounter, response))
                 .bounds(panelLeft + layout.contentLeft(), panelTop + layout.buttonY(index),
                         layout.buttonWidth(), layout.buttonHeight())
                 .build());
+        if (response == ChallengeResponse.PAY_FINE) {
+            payButton = button;
+            payButton.active = !paymentPending;
+        }
+    }
+
+    /** Called on a new offer or a payment failure acknowledgment for the same encounter. */
+    public void refreshOffer() {
+        paymentPending = false;
+        rebuildWidgets();
     }
 
     /**
@@ -86,8 +101,13 @@ public final class GuardChallengeScreen extends Screen {
      * point of asking is to decide afterwards.
      */
     private void respond(UUID encounter, ChallengeResponse response) {
-        CrimeNetwork.sendToServer(new GuardChallengeResponseC2SPacket(encounter, response));
-        if (response.closesEncounter() && minecraft != null) {
+        if (response == ChallengeResponse.PAY_FINE) {
+            if (paymentPending) return;
+            paymentPending = true;
+            if (payButton != null) payButton.active = false;
+        }
+        CrimeNetwork.sendToServer(new GuardChallengeResponseC2SPacket(encounter, response, revision));
+        if (response != ChallengeResponse.PAY_FINE && response.closesEncounter() && minecraft != null) {
             minecraft.setScreen(null);
         }
     }
@@ -114,6 +134,7 @@ public final class GuardChallengeScreen extends Screen {
         // both senses — the wrong y, and the wrong draw order — so the one number the player needs in
         // order to decide was the one thing they could not see.
         drawStatusLine(graphics, ClientChallengeData.current());
+        ClientChallengeData.menuDisplayed();
     }
 
     /**
@@ -123,6 +144,7 @@ public final class GuardChallengeScreen extends Screen {
      * {@code Screen.render} calls {@code renderBackground} itself, so chrome drawn in {@code render}
      * before {@code super.render} would be painted over by the blur and the menu background. The
      * status line still runs after the widgets, for the reason above.
+     * Never call {@code super.render} here: it reenters this hook and overflows the stack.
      */
     @Override
     public void renderBackground(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
@@ -140,7 +162,9 @@ public final class GuardChallengeScreen extends Screen {
             graphics.drawString(font, challenge.guardName(), panelLeft + 10,
                     panelTop + layout.guardNameY(), PanelColours.TEXT_MUTED, false);
             graphics.drawString(font,
-                    Component.translatable("gui.mcacrime.challenge.charges", challenge.chargeCount()),
+                    challenge.chargeCount() > 0
+                            ? Component.translatable("gui.mcacrime.challenge.charges", challenge.chargeCount())
+                            : Component.translatable("gui.mcacrime.challenge.detention"),
                     panelLeft + 10, panelTop + layout.chargesY(), PanelColours.TEXT, false);
         }
     }

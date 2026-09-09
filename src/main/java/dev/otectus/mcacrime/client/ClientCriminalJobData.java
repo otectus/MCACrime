@@ -10,8 +10,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * Client-side cache of the criminal jobs of the villagers this client is tracking (0.5.1).
  *
  * <p>Fed by the server when tracking starts and whenever a job changes; the client never decides one.
- * The Crime button is the only reader today: a fence is the one villager an unarmed player may open
- * the menu on, so the button has to know before the click which villager that is.
+ * The Crime button uses the job to invite an unarmed player to trade with a fence.
  */
 public final class ClientCriminalJobData {
 

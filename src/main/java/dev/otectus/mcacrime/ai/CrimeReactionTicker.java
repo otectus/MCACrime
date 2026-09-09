@@ -33,29 +33,27 @@ public final class CrimeReactionTicker {
     }
 
     @SubscribeEvent
+    public static void onLivingTick(net.neoforged.neoforge.event.tick.EntityTickEvent.Pre event) {
+        if (event.getEntity().level() instanceof ServerLevel
+                && event.getEntity() instanceof net.minecraft.world.entity.LivingEntity living) {
+            NpcAwareness.settleSleeping(living);
+        }
+    }
+
+    @SubscribeEvent
     public static void onServerTick(ServerTickEvent.Post event) {
         MinecraftServer server = net.neoforged.neoforge.server.ServerLifecycleHooks.getCurrentServer();
         if (server == null) {
             return;
         }
         CrimeReactionService.tick(server);
+        dev.otectus.mcacrime.enforcement.GuardChallengeService.holdConversations(server);
+        dev.otectus.mcacrime.memory.WitnessSocialService.tick(server);
 
         long now = server.overworld().getGameTime();
         if (now - lastPrune >= PRUNE_INTERVAL_TICKS) {
             lastPrune = now;
             ReportService.prune(server, now);
-        }
-    }
-
-    /**
-     * Ends a reaction when its villager dies. Without this the controller would survive until the next
-     * tick discovered the entity was gone — harmless, but it would also leave the death cleanup racing
-     * a controller that still thinks it owns the villager's navigation.
-     */
-    @SubscribeEvent
-    public static void onDeath(LivingDeathEvent event) {
-        if (event.getEntity().level() instanceof ServerLevel level) {
-            CrimeReactionService.clear(level, event.getEntity().getUUID());
         }
     }
 
@@ -73,5 +71,6 @@ public final class CrimeReactionTicker {
         // converts one back.
         dev.otectus.mcacrime.enforcement.GuardPopulationService.clearAll();
         lastPrune = 0L;
+        dev.otectus.mcacrime.memory.WitnessSocialService.clear();
     }
 }

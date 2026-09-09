@@ -1,11 +1,13 @@
 {
   "required": true,
   "minVersion": "0.8",
-  "package": "dev.otectus.mcacrime.mixin.client",
+  "package": "dev.otectus.mcacrime.mixin",
   "compatibilityLevel": "JAVA_21",
-  "mixins": [],
+  "mixins": [
+    "MobDeathEquipmentMixin"
+  ],
   "client": [
-    "RestraintPoseMixin"
+    "client.RestraintPoseMixin"
   ],
   "injectors": {
     "defaultRequire": 1

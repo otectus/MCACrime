@@ -13,6 +13,8 @@ import net.neoforged.bus.api.Event;
  *
  * <p>Posted <em>after</em> the claim has been written and the currency issued, so a listener can treat
  * it as settled fact rather than an intention.
+ * Queued or partial bounty payments defer this event until collection confirms full delivery.
+ * Operator receipt acknowledgement deliberately does not replay events or Karma rewards.
  */
 public final class BountyResolvedEvent extends Event {
 

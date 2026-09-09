@@ -81,12 +81,17 @@ public final class EntitySelectors {
         return protectedSelector().matches(entity);
     }
 
-    /** A law responder: an MCA guard, or an entity the server owner added. */
+    /** A law responder: an MCA guard or archer, or an entity the server owner added. */
     public static boolean isResponder(Entity entity) {
-        if (McaCompat.isGuard(entity)) {
+        if (McaCompat.isGuard(entity) || McaCompat.isArcher(entity)) {
             return true;
         }
         return responderSelector().matches(entity);
+    }
+
+    /** A responder who can currently notice, converse, or perform an arrest. */
+    public static boolean isAvailableResponder(Entity entity) {
+        return dev.otectus.mcacrime.ai.NpcAwareness.isAwake(entity) && isResponder(entity);
     }
 
     /** Drops the compiled forms so the next lookup rebuilds them. Called on config reload. */

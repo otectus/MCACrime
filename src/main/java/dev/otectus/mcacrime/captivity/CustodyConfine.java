@@ -42,7 +42,8 @@ public final class CustodyConfine {
         if (inRange) {
             return;
         }
-        if (McaCrimeConfig.COMMON.captiveCanEscapeByDistance.get()) {
+        if (McaCrimeConfig.COMMON.captiveCanEscapeByDistance.get()
+                && !CuffEscapeService.usesMinigame(record.getRestraint())) {
             CustodyService.release(server, captive.getUUID(), CustodyReleaseReason.ESCAPED); // no crime (§8.1)
             return;
         }

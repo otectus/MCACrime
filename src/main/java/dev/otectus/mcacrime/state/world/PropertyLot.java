@@ -51,6 +51,8 @@ public record PropertyLot(UUID lotId, UUID owner, @Nullable CompoundTag stackTag
         currency = Math.max(0L, currency);
     }
 
+    @Override public CompoundTag stackTag() { return stackTag == null ? null : stackTag.copy(); }
+
     /** A lot holding one item stack. */
     public static PropertyLot ofStack(HolderLookup.Provider provider, UUID lotId, UUID owner,
                                       @Nullable ItemStack stack, @Nullable UUID sourceRecordId,
@@ -94,7 +96,10 @@ public record PropertyLot(UUID lotId, UUID owner, @Nullable CompoundTag stackTag
                 anything ? DeliveryState.PARTIAL : DeliveryState.DELIVERED, createdAt);
     }
 
-    public CompoundTag save(HolderLookup.Provider provider) {
+    public CompoundTag save(HolderLookup.Provider provider) { return save(); }
+
+    /** The stack tag is already encoded, so auditing it requires no live registry. */
+    public CompoundTag save() {
         CompoundTag tag = new CompoundTag();
         tag.putUUID("lotId", lotId);
         tag.putUUID("owner", owner);

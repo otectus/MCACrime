@@ -18,7 +18,7 @@ import net.minecraft.server.level.ServerPlayer;
  *       (the default safety net that keeps a CONTAINMENT prisoner in even past ender pearls etc.).</li>
  *   <li><b>PHYSICAL</b> — leaving the region is a legitimate breakout: flag {@code escaped} (→ Legal Target)
  *       and commit a {@code jailbreak} crime (witnessed by the law). The player is NOT teleported back and
- *       the sentence continues.</li>
+ *       sentence credit pauses until the prisoner returns or is recaptured.</li>
  * </ul>
  *
  * All anchor/dimension resolution is fail-safe; a vanished dimension just disables confinement (the
@@ -34,6 +34,7 @@ public final class JailConfine {
         if (jail == null || !jail.hasValidAnchor()) {
             return;
         }
+        if (jail.isCuffEscape()) return; // Recapture/surrender, not proximity, resumes this sentence.
         ServerLevel level = JailService.resolveLevel(player.getServer(), jail.getJailDim());
         if (level == null) {
             return; // dimension gone — cap/reconcile handles release
@@ -42,6 +43,10 @@ public final class JailConfine {
         boolean inRegion = JailRegion.contains(jail.getJailAnchor(), jail.getJailRadius(), jail.getJailDim(),
                 player.blockPosition(), posDim);
         if (inRegion) {
+            if (jail.isEscaped()) {
+                jail.setEscaped(false);
+                CrimeNetwork.sendSelfStatus(player);
+            }
             return;
         }
         // Player is OUTSIDE the jail region.
@@ -67,7 +72,7 @@ public final class JailConfine {
                 }
                 CrimeNetwork.sendSelfStatus(player);
             }
-            return; // legitimate escape — do not teleport back; sentence continues
+            return; // legitimate escape; sentence credit pauses while outside
         }
         // CONTAINMENT / REINFORCED: soft-confine back to the anchor.
         JailService.teleportToAnchor(player, jail);

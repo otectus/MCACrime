@@ -8,8 +8,39 @@ the second one, because that is what changes shape between versions.
 
 ## Before you upgrade
 
+The HUD/AI follow-up uses **network protocol 11** and **world schema 10**. Update clients and server
+together for the guard-menu display acknowledgment. No world-data conversion is needed for these
+changes. Client HUD layout migration moves only the former TOP_LEFT default with offsets 4/4;
+custom placements remain selectable. Guard response windows below 300 ticks become 300 (15 seconds).
+Loaded older cells receive a bounded bystander repair sweep; only safe exterior destinations are used.
+
+The bounty/reconciliation follow-up writes **world schema 10** and retains **network protocol 10**.
+It adds queued bounty receipts and durable operator audit records. Schema 9 and older saves load
+without inventing payouts for historical claims. Older builds with the future-schema guard become
+read-only on schema 10; restore a matching backup for rollback. See [recovery operations](RECOVERY_OPERATIONS.md).
+
+The earlier local settlement update introduced **network protocol 10** with **world schema 9**.
+Update both clients and server: guard offers and responses now include a revision. No additional
+save conversion is needed, and open conversations/offers remain temporary server state.
+
+The [incident/combat follow-up](MCA_CRIME_PHASE2_INCIDENTS.md) retains those versions. New cases
+may contain bounded combat provenance; old cases are not reclassified. Combat encounters and
+pending damage samples are temporary and cleared on server stop. `raidGrace` now covers only
+one eligible nonlethal indirect explosion per encounter, rather than all crime during a raid.
+NPC integrations must stop posting a second `NpcCrimeCommittedEvent` after the legacy commit
+facade, which now emits the event centrally using the committed case identity.
+
 **Take a copy of your world.** The schema migration runs on load, in one direction, and does not run
 backwards.
+
+The [death/recovery follow-up](MCA_CRIME_PHASE2_DEATH_RECOVERY.md) also retains protocol 10/schema 9.
+New stolen-goods rows optionally name their currency provider. Absent names stay unknown and keep
+the legacy current-provider behavior; no provider is inferred from old amounts. New named currency
+lots wait when a different provider is active. Confirmed thief deaths now move property to owner
+escrow instead of native death drops. Delivery attempts use the existing receipt collection;
+pending/ambiguous attempts do not automatically retry. Older schema-9 development builds do not
+enforce these rules and may discard the optional metadata, so same-schema rollback is not a recovery
+procedure. Restore the matching backup when rolling back.
 
 ```bash
 # with the server stopped
@@ -82,7 +113,13 @@ If the upgrade fails or data is corrupt, restore the backup and downgrade to For
 ## What happens on load
 
 `mcacrime.dat` carries a `schema` integer. On load, every step needed to bring it to the current
-schema runs in order, and the result is stamped. This build writes **schema 8**.
+schema runs in order, and the result is stamped. This build writes **schema 10**.
+
+Schema 8 development saves remain supported. Schema 9 adds optional `crimeMemories` under each
+villager profile and a `relayed` flag on observations. An absent suspect UUID represents an
+unidentified actor; hearing-only observations no longer retain an inferred suspect. Old purse and
+robbery cooldown data are preserved, and absent category memories remain empty. No historical
+memory or family knowledge is fabricated on upgrade.
 
 The migration is deliberately **pure tag-to-tag work**. It does not consult the server, the config,
 the world, or where any player happens to be standing — a migration that read live state would

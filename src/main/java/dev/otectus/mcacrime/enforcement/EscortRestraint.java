@@ -55,7 +55,7 @@ public final class EscortRestraint {
             return;
         }
         Entity guard = level.getEntity(state.getGuard());
-        if (guard == null || !guard.isAlive()) {
+        if (!dev.otectus.mcacrime.ai.NpcAwareness.isAwake(guard)) {
             // The escort scan owns reassignment; doing nothing for a tick is correct here.
             return;
         }

@@ -52,6 +52,7 @@ public final class FenceTradeService {
      *         was anything useful to say
      */
     public static boolean open(ServerPlayer player, LivingEntity fence) {
+        if (!dev.otectus.mcacrime.ai.NpcAwareness.isAwake(fence)) return false;
         if (player == null || fence == null || !(player.level() instanceof ServerLevel level)) {
             return false;
         }

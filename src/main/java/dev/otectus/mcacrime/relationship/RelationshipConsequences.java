@@ -54,7 +54,8 @@ public final class RelationshipConsequences {
         if (familyLoss > 0) {
             for (UUID rel : familyOf(victim)) {
                 Entity relEntity = level.getEntity(rel);
-                if (relEntity != null) {
+                if (relEntity instanceof LivingEntity relative && event.getRecordView().map(v -> v.witnessIds().contains(rel)).orElse(false)
+                        && relative.hasLineOfSight(offender) && !offender.isInvisible()) {
                     McaCompat.addHearts(offender, relEntity, -familyLoss);
                 }
             }
@@ -62,8 +63,10 @@ public final class RelationshipConsequences {
         // Personal hearts are always ours: MCA: Reputation tracks community standing, not how a
         // particular villager feels about you, so there is nothing to double up on above this line.
         // Community standing is the part that can be counted twice, and is handled below.
-        applyVillagePenalty(level, offender, event.getCrimeType(), event.getRecordView()
-                .flatMap(dev.otectus.mcacrime.api.model.CrimeRecordView::community).orElse(null));
+        if (!c.enableObservations.get()) {
+            applyVillagePenalty(level, offender, event.getCrimeType(), event.getRecordView()
+                    .flatMap(dev.otectus.mcacrime.api.model.CrimeRecordView::community).orElse(null));
+        }
     }
 
     /**

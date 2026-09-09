@@ -53,6 +53,7 @@ public final class ReportService {
      */
     public static Optional<CrimeReport> fileDirect(ServerLevel level, LivingEntity responder,
                                                    CrimeObservation observation) {
+        if (!dev.otectus.mcacrime.ai.NpcAwareness.isAwake(responder)) return Optional.empty();
         return file(level, responder, observation, true);
     }
 
@@ -70,7 +71,11 @@ public final class ReportService {
             return Optional.empty();
         }
         CrimeObservation observation = CrimeWorldData.get(server).observation(observationId).orElse(null);
-        if (observation == null || !observation.pending()) {
+        if (observation == null || !observation.pending() || observation.expired(level.getGameTime())
+                || !observation.observerId().equals(reporter.getUUID()) || !dev.otectus.mcacrime.ai.NpcAwareness.isAwake(reporter)
+                || !dev.otectus.mcacrime.ai.NpcAwareness.isAwake(responder) || responder.level() != level || reporter.level() != level
+                || !EntitySelectors.isResponder(responder) || reporter.distanceToSqr(responder) > 9
+                || !reporter.hasLineOfSight(responder) || dataSuppressed(server, reporter)) {
             return Optional.empty();
         }
         Optional<CrimeReport> filed = file(level, reporter, observation, false);
@@ -94,7 +99,8 @@ public final class ReportService {
             return;
         }
         UUID suspectId = report.suspectId();
-        if (suspectId == null || !WorldCriminalJobService.of(server).isCriminal(suspectId)) {
+        if (!report.supportsArrest(McaCrimeConfig.COMMON.reportConfidenceThreshold.get())
+                || suspectId == null || !WorldCriminalJobService.of(server).isCriminal(suspectId)) {
             return; // an ordinary villager is not chased for having been named
         }
         if (!(level.getEntity(suspectId) instanceof LivingEntity suspect) || !suspect.isAlive()) {
@@ -114,7 +120,10 @@ public final class ReportService {
     private static Optional<CrimeReport> file(ServerLevel level, LivingEntity reporter,
                                               CrimeObservation observation, boolean authoritative) {
         MinecraftServer server = level == null ? null : level.getServer();
-        if (server == null || observation == null) {
+        if (!dev.otectus.mcacrime.state.world.ServerMutationGate.allows(server) || observation == null || !observation.pending()
+                || observation.expired(level.getGameTime()) || !observation.observerId().equals(reporter.getUUID())
+                || dataSuppressed(server, reporter)
+                || (authoritative && (!EntitySelectors.isResponder(reporter) || !observation.sawAct()))) {
             return Optional.empty();
         }
         CrimeWorldData data = CrimeWorldData.get(server);
@@ -143,16 +152,18 @@ public final class ReportService {
         data.replaceObservation(observation.withReportState(ReportState.FILED));
         propagate(server, report);
 
-        NeoForge.EVENT_BUS.post(new CrimeReportEvent.Post(report.reportId(), report.incidentId(),
+        dev.otectus.mcacrime.incident.IncidentNotifications.post(new CrimeReportEvent.Post(report.reportId(), report.incidentId(),
                 report.observationId(), report.reporterId(), report.suspectId(), report.actionId(),
                 report.jurisdiction(), report.confidence(), report.authoritative()));
 
-        ServerPlayer suspect = server.getPlayerList().getPlayer(report.suspectId());
+        ServerPlayer suspect = report.suspectId() == null ? null : server.getPlayerList().getPlayer(report.suspectId());
         if (suspect != null && !authoritative) {
             CrimeDialogueService.speak(reporter, suspect, DialogueEvents.REPORT_FILED,
                     CrimeDialogueService.context(level, reporter, suspect, report.incidentId(),
                             DialogueEvents.REPORT_FILED));
         }
+        if (suspect != null && report.supportsArrest(McaCrimeConfig.COMMON.reportConfidenceThreshold.get()))
+            dev.otectus.mcacrime.enforcement.GuardEnforcement.alert(suspect, "mcacrime.msg.guardaggro.reported", 600L);
         return Optional.of(report);
     }
 
@@ -166,6 +177,8 @@ public final class ReportService {
      */
     @Nullable
     private static CrimeCommunityKey jurisdictionFor(ServerLevel level, CrimeObservation observation) {
+        var recorded = CrimeWorldData.get(level.getServer()).recordById(observation.incidentId());
+        if (recorded.isPresent()) return recorded.get().communityKey().orElse(null);
         if (observation.victimId() != null) {
             var victim = level.getEntity(observation.victimId());
             CrimeCommunityKey byVictim = CrimeCommunityResolver.resolve(victim, level).orElse(null);
@@ -191,6 +204,14 @@ public final class ReportService {
      * another, and they are not the same event.
      */
     private static void propagate(MinecraftServer server, CrimeReport report) {
+        if (!report.supportsArrest(McaCrimeConfig.COMMON.reportConfidenceThreshold.get())) return;
+        CrimeWorldData world = CrimeWorldData.get(server);
+        if (world.reportsAgainst(report.suspectId()).stream()
+                .filter(r -> r.incidentId().equals(report.incidentId()) && r.supportsArrest(McaCrimeConfig.COMMON.reportConfidenceThreshold.get()))
+                .count() > 1) return;
+        world.recordById(report.incidentId()).ifPresent(record ->
+                dev.otectus.mcacrime.integration.CrimeIntegrationHooks.onCommitted(server, record.view()));
+        if (dev.otectus.mcacrime.integration.CrimeIntegrationHooks.willRecordCanonically(report.actionId())) return;
         int drop = McaCrimeConfig.COMMON.villageRepDrop.get();
         if (drop <= 0) {
             return;
@@ -225,8 +246,8 @@ public final class ReportService {
         boolean global = McaCrimeConfig.COMMON.globalCrimePropagation.get();
         return CrimeWorldData.get(server).reportsAgainst(suspect).stream()
                 .filter(report -> !report.expired(now))
-                .filter(report -> global || jurisdiction == null || report.wilderness()
-                        || jurisdiction.equals(report.jurisdiction()))
+                .filter(report -> hasActionableCase(CrimeWorldData.get(server), report))
+                .filter(report -> global || (jurisdiction != null && jurisdiction.equals(report.jurisdiction())))
                 .toList();
     }
 
@@ -240,6 +261,21 @@ public final class ReportService {
             }
         }
         return false;
+    }
+
+    /** A report carries evidence for one live case; it cannot outlive resolution or name another crime. */
+    public static boolean hasActionableCase(CrimeWorldData data, CrimeReport report) {
+        return data != null && report != null && report.suspectId() != null
+                && data.recordById(report.incidentId()).filter(record -> record.actionable()
+                && record.offender().equals(report.suspectId()) && record.type().equals(report.actionId()))
+                .isPresent();
+    }
+
+    public static boolean knownCase(MinecraftServer server, dev.otectus.mcacrime.ledger.CrimeRecord record,
+                                     @Nullable CrimeCommunityKey jurisdiction, long now) {
+        if (record == null || !record.actionable()) return false;
+        return dev.otectus.mcacrime.justice.JusticeService.evaluate(server, record.offender(), jurisdiction, now)
+                .caseIds().contains(record.id());
     }
 
     /** The community a guard is enforcing for, from its own home village. */
@@ -264,4 +300,10 @@ public final class ReportService {
             McaCrime.LOGGER.debug("MCA: Crime aged out {} observation(s)/report(s).", changed);
         }
     }
+
+    private static boolean dataSuppressed(MinecraftServer server, LivingEntity reporter) {
+        return CrimeWorldData.get(server).isCaptive(reporter.getUUID()) || !McaCompat.isAdult(reporter)
+                || McaCompat.isVillagerSleeping(reporter);
+    }
+
 }

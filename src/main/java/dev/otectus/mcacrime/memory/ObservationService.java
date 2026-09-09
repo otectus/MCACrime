@@ -67,8 +67,18 @@ public final class ObservationService {
     public static List<CrimeObservation> record(ServerLevel level, LivingEntity offender,
                                                 @Nullable LivingEntity victim, ResourceLocation crimeId,
                                                 UUID incidentId, WitnessResult witnesses) {
+        return record(level, offender, victim, crimeId, incidentId, witnesses,
+                dev.otectus.mcacrime.crime.type.CrimeTypeRegistry.getOrBuiltin(crimeId)
+                        .map(dev.otectus.mcacrime.crime.type.CrimeType::awareness)
+                        .orElse(dev.otectus.mcacrime.crime.type.CrimeAwareness.defaults(crimeId)));
+    }
+
+    public static List<CrimeObservation> record(ServerLevel level, LivingEntity offender,
+                                                @Nullable LivingEntity victim, ResourceLocation crimeId,
+                                                UUID incidentId, WitnessResult witnesses,
+                                                dev.otectus.mcacrime.crime.type.CrimeAwareness awareness) {
         MinecraftServer server = level == null ? null : level.getServer();
-        if (server == null || !McaCrimeConfig.COMMON.enableObservations.get()) {
+        if (!dev.otectus.mcacrime.state.world.ServerMutationGate.allows(server) || !McaCrimeConfig.COMMON.enableObservations.get()) {
             return List.of();
         }
         long now = level.getGameTime();
@@ -80,13 +90,14 @@ public final class ObservationService {
 
         // 1. The direct victim. They do not need line of sight to know it happened to them, and their
         //    identity confidence is total when the offender was standing in front of them.
-        if (victim != null && victim.isAlive() && McaCompat.isMcaVillager(victim)) {
-            boolean faceToFace = victim.distanceToSqr(offender) <= CLOSE_RANGE * CLOSE_RANGE
-                    && victim.hasLineOfSight(offender);
+        if (victim != null && dev.otectus.mcacrime.ai.NpcAwareness.isAwake(victim) && McaCompat.isMcaVillager(victim)) {
+            boolean faceToFace = !offender.isInvisible() && victim.hasLineOfSight(offender)
+                    && !victim.hasEffect(net.minecraft.world.effect.MobEffects.BLINDNESS)
+                    && !McaCompat.isVillagerSleeping(victim);
             covered.add(victim.getUUID());
             CrimeObservation observation = build(incidentId, victim, ObserverRole.DIRECT_VICTIM,
-                    offender.getUUID(), victimId, crimeId, level, where, now, expiresAt,
-                    faceToFace ? 1.0F : 0.7F, faceToFace, true, true);
+                    faceToFace ? offender.getUUID() : null, victimId, crimeId, level, where, now, expiresAt,
+                    faceToFace ? 1.0F : 0.0F, faceToFace, true, awareness.soundRadius() > 0);
             if (store(server, observation)) {
                 stored.add(observation);
                 startReaction(level, victim, offender, observation);
@@ -101,13 +112,17 @@ public final class ObservationService {
                 continue;
             }
             Entity entity = level.getEntity(witnessId);
-            if (!(entity instanceof LivingEntity witness) || !witness.isAlive()) {
+            if (!(entity instanceof LivingEntity witness) || !dev.otectus.mcacrime.ai.NpcAwareness.isAwake(witness)) {
                 continue;
             }
             ObserverRole role = EntitySelectors.isResponder(witness) ? ObserverRole.GUARD : ObserverRole.EYEWITNESS;
-            float confidence = role.baseConfidence() * distanceFalloff(witness, offender);
-            CrimeObservation observation = build(incidentId, witness, role, offender.getUUID(), victimId,
-                    crimeId, level, where, now, expiresAt, confidence, true, true, true);
+            var perceived = dev.otectus.mcacrime.detect.WitnessChecker.perceive(witness, offender,
+                    victim == null ? offender : victim, awareness);
+            if (!perceived.aware()) continue;
+            CrimeObservation observation = build(incidentId, witness, role,
+                    perceived.identifiesActor() ? offender.getUUID() : null, victimId,
+                    crimeId, level, where, now, expiresAt, perceived.confidence(),
+                    perceived.identifiesActor(), perceived.sawAct(), perceived.heardAct());
             if (store(server, observation)) {
                 stored.add(observation);
                 if (role == ObserverRole.GUARD) {
@@ -121,21 +136,21 @@ public final class ObservationService {
 
         // 3. Everybody who heard it. One extra bounded scan, over a larger radius than sight, because
         //    a wall stops a line of sight and does not stop a scream.
-        int hearingRadius = McaCrimeConfig.COMMON.hearingWitnessRadius.get();
+        double hearingRadius = awareness.soundRadius() * McaCrimeConfig.COMMON.auditoryWitnessRadiusMultiplier.get();
         if (hearingRadius > 0) {
             AABB box = new AABB(where).inflate(hearingRadius);
             for (LivingEntity listener : level.getEntitiesOfClass(LivingEntity.class, box,
-                    entity -> entity != offender && entity.isAlive() && !entity.isSpectator()
+                    entity -> entity != offender && dev.otectus.mcacrime.ai.NpcAwareness.isAwake(entity) && !entity.isSpectator()
                             && McaCompat.isMcaVillager(entity))) {
                 if (!covered.add(listener.getUUID())) {
                     continue;
                 }
-                float confidence = ObserverRole.HEARING_WITNESS.baseConfidence()
-                        * distanceFalloff(listener, offender)
-                        * (listener.hasLineOfSight(offender) ? 1.0F : OBSTRUCTED_HEARING);
+                var perceived = dev.otectus.mcacrime.detect.WitnessChecker.perceive(listener, offender,
+                        victim == null ? offender : victim, awareness);
+                if (!perceived.heardAct() || stored.size() >= McaCrimeConfig.COMMON.maxStoredWitnesses.get() + 1) continue;
                 CrimeObservation observation = build(incidentId, listener, ObserverRole.HEARING_WITNESS,
-                        offender.getUUID(), victimId, crimeId, level, where, now, expiresAt,
-                        confidence, false, false, true);
+                        null, victimId, crimeId, level, where, now, expiresAt,
+                        0, false, false, true);
                 if (store(server, observation)) {
                     stored.add(observation);
                     startReaction(level, listener, offender, observation);
@@ -149,7 +164,7 @@ public final class ObservationService {
      * Builds one observation, applying the incapacity rules from §12.2 as it goes.
      *
      * <p>Incapacity lowers <em>reporting ability</em> rather than deleting knowledge. A villager who
-     * was asleep when it happened, or is a child, or is currently tied up in the offender's basement,
+     * saw the act while awake but is a child or is currently tied up in the offender's basement,
      * still knows what they know — they simply cannot walk to a guard about it, which is why the
      * observation is stored as {@link ReportState#SUPPRESSED} instead of being discarded. Discarding
      * it would mean the villager could never speak about it afterwards either.
@@ -173,7 +188,7 @@ public final class ObservationService {
      * they are holding can file a report from inside the cell.
      */
     private static boolean canReport(ServerLevel level, LivingEntity observer) {
-        if (!McaCompat.isAdult(observer)) {
+        if (!dev.otectus.mcacrime.ai.NpcAwareness.isAwake(observer) || !McaCompat.isAdult(observer)) {
             return false;
         }
         MinecraftServer server = level.getServer();
@@ -192,7 +207,8 @@ public final class ObservationService {
         if (!CrimeWorldData.get(server).addObservation(observation)) {
             return false;
         }
-        NeoForge.EVENT_BUS.post(new CrimeObservationEvent.Post(observation.observationId(),
+        WitnessSocialService.schedule(observation.observerId(), observation.observedAt());
+        dev.otectus.mcacrime.incident.IncidentNotifications.post(new CrimeObservationEvent.Post(observation.observationId(),
                 observation.incidentId(), observation.observerId(), observation.suspectedActorId(),
                 observation.victimId(), observation.actionId(), observation.role(),
                 observation.location(), observation.confidence()));
@@ -209,8 +225,13 @@ public final class ObservationService {
         if (!observation.pending()) {
             return;
         }
-        CrimeReactionService.trigger(level, observer, offender.getUUID(),
-                VictimReactionState.THREATENED, observation.observationId());
+        if (dev.otectus.mcacrime.detect.EntitySelectors.isResponder(observer)) {
+            ReportService.fileDirect(level, observer, observation);
+            return;
+        }
+        CrimeReactionService.trigger(level, observer, observation.suspectedActorId(),
+                observation.identifiesActor() ? VictimReactionState.THREATENED : VictimReactionState.SEEKING_HELP,
+                observation.observationId());
     }
 
     /**

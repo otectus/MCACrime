@@ -5,14 +5,10 @@ import dev.otectus.mcacrime.captivity.CustodyRecord;
 import dev.otectus.mcacrime.captivity.CustodyReleaseReason;
 import dev.otectus.mcacrime.captivity.CustodyService;
 import dev.otectus.mcacrime.compat.McaCompat;
-import dev.otectus.mcacrime.crime.type.CrimeIds;
 import dev.otectus.mcacrime.economy.Currencies;
 import dev.otectus.mcacrime.economy.TransactionReason;
 import dev.otectus.mcacrime.economy.account.EconomicTransactionService;
 import dev.otectus.mcacrime.jail.JailService;
-import dev.otectus.mcacrime.ledger.CrimeLedger;
-import dev.otectus.mcacrime.ledger.CrimeRecord;
-import dev.otectus.mcacrime.ledger.Resolution;
 import dev.otectus.mcacrime.state.world.CrimeWorldData;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
@@ -79,7 +75,7 @@ public final class RansomService {
     /** Exact-target form used by the interaction menu; the custody table, not a cached capability, is authoritative. */
     public static Outcome demandOutcome(ServerPlayer captor, UUID victimId) {
         MinecraftServer server = captor.getServer();
-        if (server == null) return Outcome.refused(0);
+        if (!dev.otectus.mcacrime.state.world.ServerMutationGate.allows(server)) return Outcome.refused(0);
         McaCrimeConfig.Common c = McaCrimeConfig.COMMON;
         CrimeWorldData world = CrimeWorldData.get(server);
         CustodyRecord record = world.getCustody(victimId);
@@ -114,7 +110,7 @@ public final class RansomService {
                     amount, now)) {
                 return Outcome.refused(refuse(captor, "mcacrime.ransom.treasury_empty"));
             }
-            settle(server, record, captor, amount, villageId, now);
+            settle(server, record, captor, victim, demandId, amount);
             stampCooldowns(world, victimId, null, villageId, now);
             captor.sendSystemMessage(Component.translatable("mcacrime.ransom.village", amount));
             return new Outcome(1, amount);
@@ -144,6 +140,7 @@ public final class RansomService {
     /** The resolved payer pays their open demand, freeing the captive. Returns 1 on success, 0 on a refusal. */
     public static Outcome payOutcome(ServerPlayer payer) {
         MinecraftServer server = payer.getServer();
+        if (!dev.otectus.mcacrime.state.world.ServerMutationGate.allows(server)) return Outcome.refused(0);
         if (server == null) {
             return Outcome.refused(0);
         }
@@ -176,8 +173,7 @@ public final class RansomService {
             return Outcome.refused(refuse(payer, "mcacrime.ransom.need"));
         }
         state.setStatus(RansomStatus.PAID);
-        settle(server, record, captor, state.getAmount(), McaCompat.getHomeVillageId(victim),
-                victim.level().getGameTime());
+        settle(server, record, captor, victim, state.getDemandId(), state.getAmount());
         world.removeRansom(state.getVictim());
         payer.sendSystemMessage(Component.translatable("mcacrime.ransom.paid", state.getAmount()));
         captor.sendSystemMessage(Component.translatable("mcacrime.ransom.received", state.getAmount()));
@@ -214,11 +210,11 @@ public final class RansomService {
     // ------------------------------------------------------------------ internals
 
     /** Frees the victim and writes the ransom audit record. Karma/Heat were already applied at capture time. */
-    private static void settle(MinecraftServer server, CustodyRecord record, ServerPlayer captor, long amount,
-                               OptionalInt villageId, long gameTime) {
-        CrimeLedger.record(server, new CrimeRecord(UUID.randomUUID(), captor.getUUID(), record.getCaptive(),
-                CrimeIds.EXTORTION, villageId, false, gameTime, 0L, 0L, amount, 0L, Resolution.UNRESOLVED));
-        CustodyService.release(server, record.getCaptive(), CustodyReleaseReason.RANSOM_PAID);
+    private static void settle(MinecraftServer server, CustodyRecord record, ServerPlayer captor,
+                               LivingEntity victim, UUID demandId, long amount) {
+        dev.otectus.mcacrime.incident.IncidentService.commitRansom(demandId, captor, victim,
+                (ServerLevel) victim.level(), amount,
+                () -> CustodyService.release(server, record.getCaptive(), CustodyReleaseReason.RANSOM_PAID));
     }
 
     private static int failDemand(CrimeWorldData world, RansomState state, RansomStatus status, ServerPlayer payer) {

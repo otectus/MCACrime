@@ -24,14 +24,16 @@ public final class ContainmentHandler {
         if (!(event.getPlayer() instanceof ServerPlayer player)) {
             return;
         }
-        JailState jail = CrimeAttachments.get(player).getJail();
-        if (jail == null || jail.getModeSnapshot() == JailContainmentMode.PHYSICAL) {
-            return; // not jailed, or breakable-walls mode
-        }
-        ResourceLocation posDim = player.level().dimension().location();
-        if (JailRegion.contains(jail.getJailAnchor(), jail.getJailRadius(), jail.getJailDim(),
-                event.getPos(), posDim)) {
-            event.setCanceled(true); // can't mine out of a CONTAINMENT/REINFORCED jail
-        }
+        java.util.Optional.of(CrimeAttachments.get(player)).ifPresent(data -> {
+            JailState jail = data.getJail();
+            if (jail == null || jail.isCuffEscape() || jail.getModeSnapshot() == JailContainmentMode.PHYSICAL) {
+                return; // not jailed, or breakable-walls mode
+            }
+            ResourceLocation posDim = player.level().dimension().location();
+            if (JailRegion.contains(jail.getJailAnchor(), jail.getJailRadius(), jail.getJailDim(),
+                    event.getPos(), posDim)) {
+                event.setCanceled(true); // can't mine out of a CONTAINMENT/REINFORCED jail
+            }
+        });
     }
 }

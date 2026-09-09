@@ -23,6 +23,13 @@ final class CrimeStreamCodecs {
     static final StreamCodec<RegistryFriendlyByteBuf, Long> LONG =
             StreamCodec.of((buf, value) -> buf.writeLong(value), RegistryFriendlyByteBuf::readLong);
 
+    static final StreamCodec<RegistryFriendlyByteBuf, Long> NON_NEGATIVE_LONG = StreamCodec.of(
+            (buf, value) -> buf.writeVarLong(value), buf -> {
+                long value = buf.readVarLong();
+                if (value < 0L) throw new DecoderException("Negative challenge revision");
+                return value;
+            });
+
     private CrimeStreamCodecs() {
     }
 

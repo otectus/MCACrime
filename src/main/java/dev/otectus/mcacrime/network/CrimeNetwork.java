@@ -40,15 +40,8 @@ import java.util.UUID;
  */
 public final class CrimeNetwork {
 
-    /**
-     * Bumped from the Forge channel's {@code "6"}: named payloads, a different framing and a different
-     * component encoding. Nothing on protocol 6 could talk to this, so it does not claim to.
-     *
-     * <p>7 to 8 in 0.5.1: both restraint payloads changed shape, and the added field sits between two
-     * that were already on the wire. A reader and a writer that disagree there do not throw, they
-     * produce a plausible wrong answer, so the mismatch is refused at handshake instead.
-     */
-    private static final String PROTOCOL_VERSION = "8";
+    // 11 adds the one-shot challenge display acknowledgment. Update clients and server together.
+    private static final String PROTOCOL_VERSION = "11";
 
     private CrimeNetwork() {
     }
@@ -67,6 +60,9 @@ public final class CrimeNetwork {
                 GuardChallengeResponseC2SPacket.STREAM_CODEC, CrimeNetwork::handleGuardChallengeResponse);
         registrar.playToServer(RequestCaseLedgerC2SPacket.TYPE, RequestCaseLedgerC2SPacket.STREAM_CODEC,
                 CrimeNetwork::handleRequestCaseLedger);
+
+        registrar.playToServer(GuardChallengeDisplayedC2SPacket.TYPE, GuardChallengeDisplayedC2SPacket.STREAM_CODEC,
+                CrimeNetwork::handleGuardChallengeDisplayed);
 
         registrar.playToClient(SelfStatusS2CPacket.TYPE, SelfStatusS2CPacket.STREAM_CODEC,
                 CrimeClientPayloadRouter::handleSelfStatus);
@@ -121,7 +117,13 @@ public final class CrimeNetwork {
                                                      IPayloadContext context) {
         if (!(context.player() instanceof ServerPlayer sp)) return;
         if (!RequestBudget.allow(sp.getUUID(), RequestBudget.Category.CHALLENGE)) return;
-        GuardChallengeService.respond(sp, payload.encounterId(), payload.response());
+        GuardChallengeService.respond(sp, payload.encounterId(), payload.revision(), payload.response());
+    }
+
+    private static void handleGuardChallengeDisplayed(GuardChallengeDisplayedC2SPacket payload, IPayloadContext context) {
+        if (!(context.player() instanceof ServerPlayer sp)) return;
+        if (!RequestBudget.allow(sp.getUUID(), RequestBudget.Category.CHALLENGE)) return;
+        GuardChallengeService.menuDisplayed(sp, payload.encounterId());
     }
 
     private static void handleRequestCaseLedger(RequestCaseLedgerC2SPacket payload, IPayloadContext context) {
