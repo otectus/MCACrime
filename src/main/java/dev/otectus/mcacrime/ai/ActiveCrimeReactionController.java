@@ -25,7 +25,19 @@ public final class ActiveCrimeReactionController {
     @Nullable
     private UUID offenderId;
     @Nullable
-    private final UUID observationId;
+    private UUID observationId;
+    private long nextThreatAt;
+    private ThreatEvaluator.Evaluation threatEvaluation;
+    private boolean finishedStalling;
+    public boolean finishedStalling() { return finishedStalling; }
+    public void finishStalling() { finishedStalling = true; }
+
+    public void carryObservation(UUID observation) { if (observation != null) { observationId = observation; reported = false; } }
+    public boolean shouldEvaluateThreat(long now) { return now >= nextThreatAt; }
+    public void evaluatedThreat(long now, int interval, ThreatEvaluator.Evaluation evaluation) {
+        nextThreatAt = now + interval; threatEvaluation = evaluation;
+    }
+    public ThreatEvaluator.Evaluation threatEvaluation() { return threatEvaluation; }
 
     private VictimReactionState state = VictimReactionState.CALM;
     private long stateEnteredAt;
@@ -162,6 +174,7 @@ public final class ActiveCrimeReactionController {
 
     /** Retargets an existing reaction — a second offender takes over an already-panicking villager. */
     public void retarget(@Nullable UUID newOffender) {
+        if (!java.util.Objects.equals(this.offenderId, newOffender)) finishedStalling = false;
         this.offenderId = newOffender;
     }
 

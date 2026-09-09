@@ -52,6 +52,11 @@ public final class CrimeContext {
     public static final String FLAGS = CrimeFlag.CONTEXT_KEY;
     /** The fine transaction that settled this case. */
     public static final String FINE_TRANSACTION = "fine_txn";
+    /** Bounded combat provenance, present only for newly reconciled damage incidents. */
+    public static final String COMBAT_ENCOUNTER = "combat_encounter";
+    public static final String COMBAT_INITIATOR = "combat_initiator";
+    public static final String COMBAT_BASIS = "combat_basis";
+    public static final String DAMAGE_ATTRIBUTION = "damage_attribution";
 
     private CrimeContext() {
     }

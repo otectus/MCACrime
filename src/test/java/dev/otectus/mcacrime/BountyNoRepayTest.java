@@ -125,6 +125,7 @@ class BountyNoRepayTest {
     void expiryForgetsAClaimWhoseWarrantIsGone() {
         CrimeWorldData data = new CrimeWorldData();
         pay(data, 1L, HUNTER, 250L);
+        assertTrue(dev.otectus.mcacrime.bounty.BountyPayments.deliver(data, key(1L), HUNTER, "", amount -> 0L, 25000L));
 
         assertEquals(1, BountyClaimLedger.expire(data, 500L, 30));
         assertEquals(0L, BountyClaimLedger.alreadyPaid(data, TARGET, WARRANT, 250L));

@@ -48,6 +48,7 @@ public final class CrimeReconciler {
             CrimeWorldData.get(server).setDirty();
             warnOperator(player, server);
             deliverEscrow(player, server);
+            dev.otectus.mcacrime.bounty.BountyService.collect(player);
         }
         CrimeState.recomputeDerived(player);
         JailService.reconcileOnLogin(player); // free a player whose jail became unusable (§7.4 no softlock)
@@ -93,17 +94,17 @@ public final class CrimeReconciler {
     /**
      * Hands over anything this player is owed and could not be given at the time.
      *
-     * <p>Login is the one moment a player is provably present, in a known dimension, with an inventory
-     * that can be inspected -- which is exactly the set of things a delivery needs and a death, an
-     * arrest or an expiry sweep cannot rely on. What does not fit stays in the lot, so a full inventory
-     * costs the player nothing but another login.
+     * <p>Called on login and after confirmed thief death for owners who are online and alive.
+     * What does not fit remains in escrow for a later login. An ambiguous external result records
+     * a receipt and suspends automatic retry until it can be reconciled.
      */
-    private static void deliverEscrow(ServerPlayer player, MinecraftServer server) {
+    public static void deliverEscrow(ServerPlayer player, MinecraftServer server) {
+        if (player == null || !player.isAlive() || !ServerMutationGate.allows(server)) return;
         CrimeWorldData data = CrimeWorldData.get(server);
         if (data.propertyEscrowFor(player.getUUID()).isEmpty()) {
             return;
         }
-        int closed = PropertyEscrow.deliverPending(data, player.getUUID(), lot -> handover(player, lot));
+        int closed = PropertyEscrow.deliverPending(data, player.getUUID(), lot -> handover(player, lot), server.overworld().getGameTime());
         if (closed > 0) {
             player.sendSystemMessage(Component.translatable("mcacrime.escrow.delivered", closed));
         }
@@ -113,25 +114,27 @@ public final class CrimeReconciler {
      * One lot into one player's inventory or balance.
      *
      * <p>{@code Inventory.add} shrinks the stack it is handed and leaves the overflow in it, so what
-     * comes back from this is literally what the inventory refused. Currency has no partial form here:
-     * a credit either happened or it did not.
+     * comes back from this is literally what the inventory refused. The currency adapter must
+     * confirm its credit; a failure is ambiguous and must not be retried automatically.
      */
     private static PropertyLot handover(ServerPlayer player, PropertyLot lot) {
+        var currency = Currencies.active();
+        if (lot.currency() > 0 && !lot.providerId().isEmpty()
+                && !lot.providerId().equals(currency.id().toString())) return lot;
         CompoundTag stillOwed = null;
         if (lot.hasStack()) {
             ItemStack stack = lot.stack();
-            if (!stack.isEmpty()) {
-                player.getInventory().add(stack);
-                if (!stack.isEmpty()) {
-                    stillOwed = stack.save(new CompoundTag());
-                }
-            }
+            if (stack.isEmpty()) return lot; // A missing item mod cannot erase the saved stack.
+            player.getInventory().add(stack);
+            if (!stack.isEmpty()) stillOwed = stack.save(new CompoundTag());
         }
         long owedCurrency = lot.currency();
-        if (owedCurrency > 0L
-                && Currencies.active().tryCredit(player, owedCurrency, TransactionReason.RECOVERY)) {
+        if (owedCurrency > 0L) {
+            if (!currency.tryCredit(player, owedCurrency, TransactionReason.RECOVERY))
+                throw new IllegalStateException("Currency provider did not confirm property delivery");
             owedCurrency = 0L;
         }
+        if (java.util.Objects.equals(stillOwed, lot.stackTag()) && owedCurrency == lot.currency()) return lot;
         return lot.remaining(stillOwed, owedCurrency);
     }
 }

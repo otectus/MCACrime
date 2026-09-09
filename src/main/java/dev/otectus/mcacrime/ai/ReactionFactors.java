@@ -90,6 +90,21 @@ public record ReactionFactors(float bravery,
         return new ReactionFactors(0.5F, 0.5F, 0.5F, 0.5F, 0.5F, 0.5F, 0.3F);
     }
 
+    /** Verified MCA personality names, with unchanged deterministic fallback when absent or unknown. */
+    public ReactionFactors withPersonality(String personality) {
+        if (personality == null) return this;
+        float courage = bravery, combat = combatConfidence, social = sociability;
+        switch (personality) {
+            case "confident" -> courage = Math.max(courage, 0.8F);
+            case "athletic" -> { courage = Math.max(courage, 0.65F); combat = Math.max(combat, 0.6F); }
+            case "shy", "sensitive" -> courage = Math.min(courage, 0.3F);
+            case "grumpy" -> courage = Math.max(courage, 0.6F);
+            case "friendly", "peppy" -> social = Math.max(social, 0.8F);
+            default -> { }
+        }
+        return new ReactionFactors(courage, social, lawfulness, greed, loyaltyToActor, loyaltyToVillage, combat);
+    }
+
     /**
      * How willing this villager is to fight rather than run, once a threat is real. Combat confidence
      * dominates, bravery modifies it, and loyalty to the actor pulls hard the other way — you do not

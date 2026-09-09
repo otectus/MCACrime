@@ -20,19 +20,8 @@ import net.minecraftforge.fml.common.Mod;
 import java.util.List;
 
 /**
- * What a killed villager leaves behind, by profession.
- *
- * <p>{@code enableProfessionDeathDrops} shipped in 0.1.0 and was read by nothing, so a server owner
- * could turn it on and see no difference. The plan (§22.3) says to keep it off until it is tested and
- * then implement it, which is what this is: off by default, and when on, a small profession-appropriate
- * drop.
- *
- * <p>Two deliberate limits. It only fires for a <b>player</b> kill, because the setting is about what
- * murdering a villager yields, not about zombies dropping bread. And the drops are the villager's
- * <em>trade goods</em> rather than anything valuable — a dead farmer leaves wheat, not emeralds. That
- * keeps this from becoming a reason to kill villagers, which is the exact incentive the rest of the mod
- * exists to remove: robbing someone already pays better than killing them, and this must not change
- * that.
+ * Legacy small profession drops for player kills. Used only when explicitly enabled and actual
+ * trade-stock drops are disabled; {@link VillagerDeathLoot} owns the default equipment/stock policy.
  */
 @Mod.EventBusSubscriber(modid = McaCrime.MOD_ID)
 public final class ProfessionDeathDrops {
@@ -45,7 +34,8 @@ public final class ProfessionDeathDrops {
 
     @SubscribeEvent
     public static void onDrops(LivingDropsEvent event) {
-        if (!McaCrimeConfig.COMMON.enableProfessionDeathDrops.get()) {
+        if (!McaCrimeConfig.COMMON.enableProfessionDeathDrops.get() || McaCrimeConfig.COMMON.dropVillagerTradeStock.get()
+                || !event.getEntity().level().getGameRules().getBoolean(net.minecraft.world.level.GameRules.RULE_DOMOBLOOT)) {
             return;
         }
         LivingEntity victim = event.getEntity();

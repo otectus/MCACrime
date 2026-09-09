@@ -438,16 +438,16 @@ class CrimeDataMigrationTest {
      * these steps existed still arrives with its records intact rather than with a stack trace.
      */
     @Test
-    void anUnversionedStoreClimbsTheWholeChainToEight() {
+    void anUnversionedStoreClimbsTheWholeChainToCurrent() {
         CompoundTag migrated = CrimeDataMigrations.migrate(legacyStore(
                 legacyRecord(UUID.randomUUID(), 3, true),
                 legacyRecord(UUID.randomUUID(), 4, false)));
 
-        assertEquals(CrimeDataMigrations.SCHEMA_0_6_0, CrimeDataMigrations.schemaOf(migrated));
+        assertEquals(CrimeDataMigrations.CURRENT_SCHEMA, CrimeDataMigrations.schemaOf(migrated));
         assertEquals(2, migrated.getList("ledger", Tag.TAG_COMPOUND).size());
         assertFalse(migrated.contains("fenceStock"), "no 0.6.0 collection is written by the step");
         assertFalse(migrated.contains("quarantine"));
-        assertEquals(CrimeDataMigrations.SCHEMA_0_6_0,
+        assertEquals(CrimeDataMigrations.CURRENT_SCHEMA,
                 CrimeDataMigrations.schemaOf(CrimeWorldData.load(migrated).save(new CompoundTag())));
     }
 

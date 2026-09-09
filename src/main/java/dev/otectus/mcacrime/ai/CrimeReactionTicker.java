@@ -5,7 +5,6 @@ import dev.otectus.mcacrime.enforcement.LawHold;
 import dev.otectus.mcacrime.memory.ReportService;
 import net.minecraft.server.MinecraftServer;
 import net.minecraftforge.event.TickEvent;
-import net.minecraftforge.event.entity.living.LivingDeathEvent;
 import net.minecraftforge.event.server.ServerStoppingEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
@@ -33,6 +32,14 @@ public final class CrimeReactionTicker {
     }
 
     @SubscribeEvent
+    public static void onLivingTick(net.minecraftforge.event.entity.living.LivingEvent.LivingTickEvent event) {
+        if (event.getEntity().level() instanceof ServerLevel
+                && event.getEntity().isSleeping()) {
+            NpcAwareness.settleSleeping(event.getEntity());
+        }
+    }
+
+    @SubscribeEvent
     public static void onServerTick(TickEvent.ServerTickEvent event) {
         if (event.phase != TickEvent.Phase.END) {
             return;
@@ -42,23 +49,13 @@ public final class CrimeReactionTicker {
             return;
         }
         CrimeReactionService.tick(server);
+        dev.otectus.mcacrime.enforcement.GuardChallengeService.holdConversations(server);
+        dev.otectus.mcacrime.memory.WitnessSocialService.tick(server);
 
         long now = server.overworld().getGameTime();
         if (now - lastPrune >= PRUNE_INTERVAL_TICKS) {
             lastPrune = now;
             ReportService.prune(server, now);
-        }
-    }
-
-    /**
-     * Ends a reaction when its villager dies. Without this the controller would survive until the next
-     * tick discovered the entity was gone — harmless, but it would also leave the death cleanup racing
-     * a controller that still thinks it owns the villager's navigation.
-     */
-    @SubscribeEvent
-    public static void onDeath(LivingDeathEvent event) {
-        if (event.getEntity().level() instanceof ServerLevel level) {
-            CrimeReactionService.clear(level, event.getEntity().getUUID());
         }
     }
 
@@ -76,5 +73,6 @@ public final class CrimeReactionTicker {
         // converts one back.
         dev.otectus.mcacrime.enforcement.GuardPopulationService.clearAll();
         lastPrune = 0L;
+        dev.otectus.mcacrime.memory.WitnessSocialService.clear();
     }
 }

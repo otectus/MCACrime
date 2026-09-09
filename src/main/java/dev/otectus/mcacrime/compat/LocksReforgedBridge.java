@@ -3,19 +3,19 @@ package dev.otectus.mcacrime.compat;
 import dev.otectus.mcacrime.McaCrime;
 import dev.otectus.mcacrime.McaCrimeConfig;
 import net.minecraftforge.fml.ModList;
+import dev.otectus.mcacrime.captivity.CustodyRecord;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.network.chat.Component;
 
 /**
  * The optional-classloading seam for Locks Reforged, built to the same discipline as
  * {@link ReputationBridge}.
  *
- * <p>The adapter behind this one names no Locks type at all -- it looks its items up by registry id --
- * so strictly speaking the string indirection below is not load-bearing. It is here anyway, because
- * "every optional mod is reached through a bridge" is a rule worth being able to check by looking,
- * and because an adapter that later grew a direct reference would otherwise become a
- * {@code NoClassDefFoundError} on a server that never installed the mod.
+ * <p>Fence stock uses registry ids; the cuff adapter extends Locks' native menu. Both are reached
+ * by name only after a mod-presence check so the native menu is never resolved without Locks.
  *
- * <p>Absent mod, disabled key and outright failure all end the same way: fences still work, with
- * vanilla contraband only, and the log says which of the three happened.
+ * <p>The fence-stock setting does not disable cuff lockpicking. An unavailable cuff adapter reports
+ * a failure and never substitutes a timed escape; an absent mod retains the configured timed behavior.
  */
 public final class LocksReforgedBridge {
 
@@ -26,6 +26,23 @@ public final class LocksReforgedBridge {
     private static volatile String status = "not initialised";
 
     private LocksReforgedBridge() {
+    }
+
+    /** Cuff escapes are independent of the optional fence-stock setting. */
+    public static boolean installed() {
+        return ModList.get() != null && ModList.get().isLoaded(MOD_ID);
+    }
+
+    public static boolean openCuffs(ServerPlayer player, CustodyRecord record) {
+        if (!installed()) return false;
+        try {
+            return (boolean) Class.forName("dev.otectus.mcacrime.compat.locksreforged.CuffLockPickingMenu")
+                    .getMethod("open", ServerPlayer.class, CustodyRecord.class).invoke(null, player, record);
+        } catch (ReflectiveOperationException | LinkageError e) {
+            McaCrime.LOGGER.error("MCA: Crime could not open the Locks Reforged cuff minigame", e);
+            player.sendSystemMessage(Component.translatable("mcacrime.captive.escape.lock_unavailable"));
+            return false; // Never substitute a timed escape when the installed adapter is unavailable.
+        }
     }
 
     /** Chooses whether the integration runs. Called once from common setup, after every mod has loaded. */

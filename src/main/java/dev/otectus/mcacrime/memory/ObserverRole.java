@@ -18,6 +18,8 @@ public enum ObserverRole {
     EYEWITNESS("eyewitness", 0.85F, true),
     /** Heard a struggle or a scream without seeing who caused it. */
     HEARING_WITNESS("hearing_witness", 0.4F, true),
+    /** A direct witness told this relative; never equivalent to eyewitness testimony. */
+    INFORMED("informed", 0.5F, true),
     /** A law responder who observed it directly; files without needing to reach anybody. */
     GUARD("guard", 1.0F, true),
     /** Physical traces rather than a person — reserved for a later phase; never reports on its own. */

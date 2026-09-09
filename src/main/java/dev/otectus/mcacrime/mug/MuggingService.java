@@ -46,6 +46,12 @@ public final class MuggingService {
         return stamp != null && now - stamp < MUG_WINDOW_TICKS;
     }
 
+    /** Nonconsuming provenance read: a totem/canceled death must not erase the overt threat. */
+    public static boolean isRecentThreat(UUID mugger, UUID victim, long now) {
+        Long stamp = RECENT.get(new MugKey(mugger, victim));
+        return stamp != null && now >= stamp && now - stamp < MUG_WINDOW_TICKS;
+    }
+
     public static void onLogout(UUID player) {
         RECENT.keySet().removeIf(k -> k.mugger().equals(player));
     }

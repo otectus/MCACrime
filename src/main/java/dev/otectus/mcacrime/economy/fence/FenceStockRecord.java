@@ -121,6 +121,11 @@ public final class FenceStockRecord {
         return true;
     }
 
+    /** Removes this stocking's remaining goods when the fence dies; no per-item loop. */
+    public void exhaust(String offerId, int maxUses) {
+        if (offerId != null && maxUses > 0) stock.put(offerId, new OfferStock(maxUses, maxUses));
+    }
+
     /** Whether {@code gameTime} has reached the restock this fence is waiting for. */
     public boolean dueForRestock(long gameTime) {
         return nextRestockTick != DISABLED && gameTime >= nextRestockTick;

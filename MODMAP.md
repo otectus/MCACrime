@@ -24,50 +24,53 @@ Machine-generated map of this mod. Read this first when picking the project up.
 dev.otectus.mcacrime                                 2 files
 dev.otectus.mcacrime.action                          25 files
 dev.otectus.mcacrime.action.handler                  12 files
-dev.otectus.mcacrime.ai                              10 files
+dev.otectus.mcacrime.ai                              16 files
 dev.otectus.mcacrime.ai.thief                        9 files
 dev.otectus.mcacrime.api                             1 file
-dev.otectus.mcacrime.api.event                       22 files
-dev.otectus.mcacrime.api.model                       8 files
+dev.otectus.mcacrime.api.event                       23 files
+dev.otectus.mcacrime.api.model                       9 files
 dev.otectus.mcacrime.api.result                      1 file
 dev.otectus.mcacrime.audio                           1 file
-dev.otectus.mcacrime.bounty                          8 files
-dev.otectus.mcacrime.captivity                       16 files
+dev.otectus.mcacrime.bounty                          9 files
+dev.otectus.mcacrime.captivity                       18 files
 dev.otectus.mcacrime.client                          17 files
-dev.otectus.mcacrime.client.hud                      2 files
+dev.otectus.mcacrime.client.hud                      3 files
 dev.otectus.mcacrime.client.render                   4 files
 dev.otectus.mcacrime.client.screen                   9 files
 dev.otectus.mcacrime.client.screen.widget            3 files
-dev.otectus.mcacrime.command                         1 file
+dev.otectus.mcacrime.command                         2 files
 dev.otectus.mcacrime.compat                          8 files
-dev.otectus.mcacrime.compat.locksreforged            1 file
+dev.otectus.mcacrime.compat.locksreforged            2 files
 dev.otectus.mcacrime.compat.mca                      2 files
 dev.otectus.mcacrime.compat.mca.client               1 file
 dev.otectus.mcacrime.compat.mcaquests                2 files
 dev.otectus.mcacrime.compat.reputation               1 file
 dev.otectus.mcacrime.config                          1 file
 dev.otectus.mcacrime.crime                           3 files
-dev.otectus.mcacrime.crime.type                      5 files
-dev.otectus.mcacrime.detect                          9 files
+dev.otectus.mcacrime.crime.type                      6 files
+dev.otectus.mcacrime.detect                          15 files
 dev.otectus.mcacrime.dialogue                        5 files
-dev.otectus.mcacrime.economy                         11 files
-dev.otectus.mcacrime.economy.account                 4 files
-dev.otectus.mcacrime.economy.fence                   11 files
-dev.otectus.mcacrime.enforcement                     32 files
+dev.otectus.mcacrime.economy                         12 files
+dev.otectus.mcacrime.economy.account                 6 files
+dev.otectus.mcacrime.economy.fence                   12 files
+dev.otectus.mcacrime.enforcement                     35 files
 dev.otectus.mcacrime.engine                          3 files
 dev.otectus.mcacrime.event                           3 files
+dev.otectus.mcacrime.incident                        2 files
 dev.otectus.mcacrime.integration                     7 files
 dev.otectus.mcacrime.item                            4 files
 dev.otectus.mcacrime.item.weapon                     7 files
-dev.otectus.mcacrime.jail                            15 files
+dev.otectus.mcacrime.jail                            16 files
 dev.otectus.mcacrime.job                             6 files
-dev.otectus.mcacrime.ledger                          11 files
-dev.otectus.mcacrime.loot                            1 file
-dev.otectus.mcacrime.memory                          9 files
+dev.otectus.mcacrime.justice                         2 files
+dev.otectus.mcacrime.ledger                          12 files
+dev.otectus.mcacrime.loot                            3 files
+dev.otectus.mcacrime.memory                          14 files
+dev.otectus.mcacrime.mixin                           1 file
 dev.otectus.mcacrime.mixin.client                    1 file
 dev.otectus.mcacrime.mug                             1 file
 dev.otectus.mcacrime.mug.npc                         9 files
-dev.otectus.mcacrime.network                         22 files
+dev.otectus.mcacrime.network                         23 files
 dev.otectus.mcacrime.ransom                          8 files
 dev.otectus.mcacrime.relationship                    1 file
 dev.otectus.mcacrime.state                           5 files
@@ -121,6 +124,7 @@ _No datagen providers detected — assets and data JSON are hand-written._
 Run `check_mod.py` for a full consistency check (missing models, lang keys, textures).
 
 <!-- MODMAP:AUTO:END — everything below is hand-maintained and preserved -->
+
 
 
 

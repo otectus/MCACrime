@@ -18,6 +18,7 @@ public final class ClientChallengeData {
     @Nullable
     private static volatile GuardChallengeS2CPacket current;
     private static volatile long remainingTicks;
+    private static java.util.UUID displayedEncounter;
 
     private ClientChallengeData() {
     }
@@ -34,6 +35,14 @@ public final class ClientChallengeData {
     public static void clear() {
         current = null;
         remainingTicks = 0L;
+        displayedEncounter = null;
+    }
+
+    public static void menuDisplayed() {
+        if (current == null || current.encounterId().equals(displayedEncounter)) return;
+        displayedEncounter = current.encounterId();
+        dev.otectus.mcacrime.network.CrimeNetwork.CHANNEL.sendToServer(
+                new dev.otectus.mcacrime.network.GuardChallengeDisplayedC2SPacket(displayedEncounter));
     }
 
     @Nullable
@@ -51,7 +60,7 @@ public final class ClientChallengeData {
 
     /** Runs the local countdown one client tick. Stops at zero and never goes negative. */
     public static void tick() {
-        if (current != null && remainingTicks > 0L) {
+        if (current != null && current.encounterId().equals(displayedEncounter) && remainingTicks > 0L) {
             remainingTicks--;
         }
     }

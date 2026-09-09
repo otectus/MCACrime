@@ -1,5 +1,38 @@
 # MCA: Crime — configuration
 
+## Witness, intimidation and memory options (0.6.0)
+
+All values below live in `mcacrime-common.toml` and are decided by the server.
+
+| Group / key | Default | Range / behavior |
+|---|---|---|
+| `crimeAwareness.enableWitnessSystem` | `true` | Use per-crime visual perception; off uses the legacy visual witness scan. |
+| `crimeAwareness.visualWitnessRadiusMultiplier` | `1.0` | `0–2`, applied to datapack visual radii. |
+| `crimeAwareness.auditoryWitnessRadiusMultiplier` | `1.0` | `0–2`; zero disables hearing. Sound alone never identifies a suspect. |
+| `crimeAwareness.enableWitnessGossip` | `true` | One nearby relative per direct observation, after a delay; rumors cannot relay again. |
+| `intimidation.enableDynamicCompliance` | `true` | Reevaluate active victims; off uses the previous compliance decision. |
+| `intimidation.enablePanic` / `enableStalling` / `enablePleading` | `true` | Enable these outcomes/presentation. Resistance and freezing retain `reactions.armedVillagersCanResist` and `reactions.freezeComplyingVictims`. |
+| `intimidation.threatReevaluationTicks` | `10` | `5–100`; transitions also have at least twice this interval or 20 ticks of dwell time. |
+| `intimidation.meleeThreatRange` | `6.0` | `1–12` blocks; distance reduces threat. |
+| `intimidation.rangedThreatRange` | `24.0` | `4–64` blocks; bows must be drawn and crossbows charged. Existing action reach still applies. |
+| `victimMemory.enableVictimMemory` | `true` | Enables new memories and their behavioral effects; off preserves stored data. |
+| `victimMemory.enableFamilyMemory` | `true` | Reduced memories for informed family. |
+| `victimMemory.memoryDecayMultiplier` | `1.0` | `0–10`; zero pauses emotional decay. World game time advances while the server runs, including while the offender is offline. |
+| `victimMemory.enableRestitution` | `true` | Matching theft/robbery case payment reduces memory anger. |
+| `victimMemory.enableApologies` | `true` | Requires a memory, no drawn weapon or coercive session, and at least 1,200 ticks since the incident. |
+| `victimMemory.maximumMemoriesPerVillager` | `24` | `1–64`; enforced when recording, merging repeats and preferentially retaining severe memories. |
+| `victimMemory.apologyCooldownTicks` | `24000` | `1200–168000`; one emotional benefit per current incident, with the cooldown retained after repeats. |
+
+Existing `detection.observations.enableObservations`, report radius/statute, confidence threshold,
+reaction limits and navigation intervals continue to apply. Arrest requires at least probable
+identification (0.5), even if the configurable threshold is lower. Core witness sight always checks
+line of sight; no option allows walls to provide a confident suspect. Existing global propagation
+remains opt-in and is only applied after a report reaches authority.
+
+The legacy `hearingWitnessRadius` is superseded by offense-specific sound radii and the auditory
+multiplier in this phase. Mugging action reach is unchanged; a larger intimidation range does not
+permit remote purse transfers.
+
 Two files, written on first run:
 
 - `config/mcacrime-common.toml` — **server-authoritative**. On a dedicated server the server's copy
@@ -30,7 +63,7 @@ The same checks run at load and log warnings.
 |---|---|---|---|
 | `karmaBlueThreshold` | `100` | `-1000000 … 1000000` | Karma at or above this is the Lawful band. Must be greater than the Red threshold. |
 | `karmaRedThreshold` | `-100` | `-1000000 … 1000000` | Karma at or below this is the Outlaw band. Must be less than the Blue threshold. |
-| `wantedHeatThreshold` | `50` | `0 … 1000000` | Heat at or above this makes a player Wanted, and therefore a legal target. |
+| `wantedHeatThreshold` | `50` | `0 … 1000000` | Heat at or above this makes a player Wanted. Nearby available guards and archers pursue and confront them even without a crime report, including Heat set by commands. |
 
 Bands are derived from karma alone and never read Heat. If the two thresholds are inverted, band
 derivation refuses to produce nonsense and falls back to ±100 — but `/crime validate` reports it, and
@@ -150,13 +183,27 @@ These cap *positive* karma, and no positive karma source exists yet. See `[karma
 | `guardScanIntervalTicks` | `10` | `1 … 200` | Server ticks between guard-pursuit scans, and the re-apply cadence. The scan is bounded by the number of online legal targets, so it is never a per-tick world sweep — raise this on a large server before touching anything else. |
 | `redIsLegalTarget` | `false` | — | Whether simply being an Outlaw makes force against you lawful, with no Wanted status needed. |
 | `allowKillingRed` | `false` | — | Whether **lethal** force against a player who is only an Outlaw is lawful. Separate from `redIsLegalTarget` on purpose: a server can allow subduing an outlaw without allowing executing one. Wanted status, an escape, or actively holding a captive each justify lethal force regardless of this setting. |
-| `raidGrace` | `true` | — | Suppress crime detection during an active village raid, so a stray arrow in a pillager fight is not a murder charge. |
+| `raidGrace` | `true` | — | Forgive the first nonlethal indirect explosion against a protected non-player, non-responder in a combat encounter during an active raid. Direct attacks, arrows, repeated hits and killing remain chargeable. Encounter grace resets only after 200 ticks without harm between those actors. |
 | `pvpCountsAsCrime` | `false` | — | Whether harming another player is recorded as a crime. On, it produces `mcacrime:assault_player` and `mcacrime:murder_player` — their own crime types, not the villager ones. Force against a legal target is still lawful, so attacking a Wanted player is never itself an offence. |
 | `globalCrimePropagation` | `false` | — | Whether a filed report sours every village that already knows you, rather than only the jurisdiction that received it. Off keeps standing local, which is what makes per-village reputation mean anything. It also decides whether a guard may act on another village's reports. |
 | `enableGuardChallenge` | `true` | — | A guard with a basis challenges before it attacks: it states the charge and opens a window to surrender, pay, ask what the charges are, or refuse. Off returns guards to attacking a Wanted player on sight. |
-| `guardChallengeWindowTicks` | `200` | `20 … 12000` | How long a challenged player has to answer. **No answer is a refusal**, not a pardon. |
+| `guardChallengeWindowTicks` | `300` | `300 … 12000` | At least **15 seconds** to answer from the first displayed menu frame. Delivery acknowledgment has a bounded five-second allowance. Reopening/requoting does not restart the timer. No answer is a refusal. Older shorter settings are raised to 300. |
 | `guardChallengeRadius` | `6.0` | `1.0 … 32.0` | How close a guard must be to issue a challenge. Smaller than `guardAggroRadius`, so guards do not shout charges across a field. |
 | `resistingArrestTicks` | `2400` | `20 … 1728000` | How long refusing a challenge keeps you a lawful target, in online ticks. This is what makes refusal a decision rather than a message: for the duration, guards may use force whether or not your Heat would otherwise justify it. |
+
+`/crime set heat <player> 100` makes the player Wanted with the default threshold (50), without
+requiring a witnessed crime or filed report. The next guard scan (10 ticks / half a second by
+default) sends an available nearby guard or archer toward the player; confrontation starts
+within 6 blocks and line of sight. The acquisition radius defaults to 16 blocks. Sleeping,
+captive, unloaded or already-assigned responders cannot take the encounter, and an existing
+arrest or recovery period retains control. The mod does not spawn or teleport a guard for a
+Heat command. Custom `wantedHeatThreshold` settings still determine when pursuit begins.
+
+A stop based only on Wanted status explains that the player must surrender, without inventing
+ledger charges or a fine. Refusal permits force even if Heat subsequently falls below the
+threshold, until resistance expires or is resolved. Otherwise clearing/decaying Heat below
+the threshold ends a stop that has no remaining basis. Heat does not reveal private or remote
+crime records to guards; their case lists and fines retain the configured jurisdiction rules.
 
 ### `[enforcement.guards]`
 
@@ -215,9 +262,32 @@ re-evaluation is bounded by the per-village cooldown rather than by a margin on 
 | `restraintEscapeChanceRope` | `0.25` | `0.0 … 1.0` | Per-attempt chance a captive slips rope. |
 | `restraintEscapeChanceCuffs` | `0.08` | `0.0 … 1.0` | Per-attempt chance for cuffs. |
 | `restraintEscapeChanceLockedCuffs` | `0.0` | `0.0 … 1.0` | `0` means escape needs a key or a rescue, not a roll. |
+| `escapeWorkTicksRope` | `200` | `1 … 72000` | Work duration for rope escape attempts. |
+| `escapeWorkTicksCuffs` | `600` | `1 … 72000` | Work duration for ordinary cuffs when Locks Reforged is absent. |
+| `escapeWorkTicksLockedCuffs` | `1200` | `1 … 72000` | Work duration for locked cuffs when Locks Reforged is absent and their escape chance is nonzero. |
+| `cuffEscapeRequiresLockpick` | `false` | — | With Locks Reforged present, require a lockpick anywhere in the player's inventory to attempt cuff escape. |
 | `captiveTetherBlocks` | `6.0` | `1.0 … 128.0` | How far a captive may stray from the hold point. |
 | `captiveCanEscapeByDistance` | `true` | — | A kidnapping captive who strays past the tether escapes — and escaping kidnapping is never a crime. Set false and they are pulled back instead. |
 | `npcCaptiveVirtualizeWhenUnloaded` | `true` | — | An NPC captive in an unloaded chunk is virtually contained rather than force-loading the chunk. Turning this off makes every captive a permanently loaded chunk. |
+
+With **Locks Reforged installed**, the Escape action and `/crime escape` open its native lockpicking
+minigame for ordinary and locked cuffs, including cuffs worn during lawful arrest. Ordinary cuffs
+use five pins; locked cuffs use seven. A wrong pin resets progress. The server validates every pin;
+closing the screen cancels that attempt and reopening retains the same combination. This integration
+uses itemless minigame rules, so it does not consume or damage a pick, even when possession is required.
+The requirement is checked when opening and throughout the attempt, including the offhand inventory slot.
+
+To require a pick, set `cuffEscapeRequiresLockpick = true` under `[kidnapping]` in
+`config/mcacrime-common.toml` on the server. Default `false` permits attempts without an item. This
+setting controls cuff attempts independently of Locks' itemless block-lock setting and MCA: Crime's
+`locksReforgedFenceTrades` setting. The cuff escape chance, work duration and distance-escape settings
+do not bypass the minigame while Locks is present. Rope retains its configured escape behavior.
+
+Escaping lawful cuffs preserves the assessed sentence, pauses sentence credit, ends the escort and
+files a jailbreak. Recapture or surrender resumes that sentence; returning to the jail region alone
+does not undo a cuff escape. Guards normally remove their cuffs at jail intake, so an uncuffed prisoner
+does not get a cuff-picking action. Rescue, captor release, administration and captivity failsafes still
+work. Without Locks, the existing timed escape rules apply; the pick requirement has no effect.
 
 ## `[criminalJobs]`
 
@@ -228,9 +298,21 @@ with dynamic pricing.
 
 | Option | Default | Range | What it does |
 |---|---|---|---|
-| `enableThieves` | `true` | — | Whether villagers with the thief profession autonomously scout, mug, and flee. |
-| `enableMuggingThieves` | `true` | — | Whether thieves specifically perform mugging actions (as opposed to being passive targets). Off leaves thieves as a flaggable profession without autonomous behaviour. |
+| `mugProtectionHearts` | `50` | `-1 … 1000` | A villager will not mug a player with at least this many MCA relationship hearts toward that villager. `-1` disables relationship protection; `0` protects neutral and positive relationships. |
 | `thiefJailTicks` | `12000` | `200 … 240000` | Sentence length in online ticks when a thief is arrested. 12000 = 10 minutes. A thief comes out of jail still a thief. |
+
+Set the threshold in `config/mcacrime-common.toml` on the server (or in your singleplayer
+instance), under `[criminalJobs.thief]`. Pack authors can ship that same common config. The
+`enableThieves` master switch is under `[criminalJobs]`; there is no `enableMuggingThieves` option.
+
+The threshold is inclusive and uses each villager's relationship with the individual player,
+not Karma or village reputation. With the default, 49 hearts remains eligible and 50 hearts
+is protected. A friend of one thief can still be targeted by another thief who has fewer hearts
+with that player. Relationship gains and config reloads also stop an approach or an ongoing
+mugging before property is taken, including attempts started with `/crime mugtest`. Checks do
+not depend on the thief being shown as an MCA profession. Other victim protections continue
+to apply when the threshold is disabled. If MCA's heart lookup is unavailable, it returns 0,
+following the compatibility layer's existing fallback.
 
 ### `[criminalJobs.fence]`
 
@@ -285,9 +367,9 @@ throttles have no effect.
 | `escortTetherBlocks` | `16.0` | `4.0 … 64.0` | **Hard** radius: how far an arrested player may get from their escort before the arrest is abandoned and they are marked resisting instead. Running from a surrender is a decision, so it gets a consequence rather than a teleport back. |
 | `escortLeashBlocks` | `5.0` | `1.0 … 32.0` | **Soft** radius: past this, the prisoner is pulled back toward the guard, gently at first and harder as they approach the tether. Must stay below `escortTetherBlocks`, or the escort is abandoned before the lead ever engages — `/crime validate` flags this. |
 | `escortSpeedPenalty` | `0.35` | `0.0 … 0.9` | How much of a restrained player's movement speed is taken away. `0.35` = they move at 65% of normal. Applied as an attribute modifier rather than a potion effect, so it is invisible, emits no particles, and cannot be drunk away with milk. |
-| `escortWalkSpeed` | `0.9` | `0.1 … 2.0` | How fast the guard walks while escorting. Below `1.0` reads as a deliberate march rather than a chase, and keeps the guard inside the leash radius. |
+| `escortWalkSpeed` | `0.9` | `0.1 … 2.0` | Relative walking pace. MCA navigation uses half the raw multiplier, with a cap on movement attribute times navigation speed. Guards wait for their prisoner before the lead gets taut. |
 | `escortNavigationIntervalTicks` | `20` | `1 … 200` | How often the escort reissues its walk order. MCA villagers run their own brain, so an order reissued every tick fights it and the guard visibly stutters; the order is also refreshed whenever the previous path finishes. |
-| `escortStuckScans` | `6` | `1 … 100` | How many consecutive escort scans may pass without the prisoner getting closer to the jail before the arrest completes by teleport instead. The door, terrain and pathfinding failsafe: a guard that cannot find its way may finish an arrest less gracefully, never cancel it. |
+| `escortStuckScans` | `6` | `1 … 100` | Consecutive scans without meaningful guard or prisoner movement before intake completes by teleport. Detours count as progress even when they lead away from the jail temporarily. The overall escort deadline still applies. |
 | `restrainedPlayerRestrictions` | `true` | — | While restrained, suppress attacking, interacting, breaking blocks, jumping, mounting and sprinting. Off keeps the escort and the visuals but lets a cuffed player act normally. |
 | `arrestRecoveryTicks` | `200` | `20 … 24000` | How long, in online ticks, guards stand down after an arrest could not be completed. This is a state the arrest genuinely reached, not a cooldown on the screen: without it a guard that just failed re-opens the same confrontation on the next scan and fails again. |
 | `jailAssignedMaxDistance` | `256.0` | `0.0 … 10000.0` | How far an operator-assigned jail may be from an arrest and still be used. `0` means unlimited, which is the historical behaviour and means a single `/crime assignjail` anywhere in a dimension captures every arrest in it and permanently suppresses cell-building. Beyond this distance the arrest builds or falls back locally instead. `/crime jail` is never distance-limited. |
@@ -369,6 +451,7 @@ added here genuinely witnesses crimes and receives reports.
 | `enabled` | `true` | Right-clicking an MCA villager while holding a weapon opens the Crime menu. |
 | `requireSneak` | `false` | Also require sneaking before the menu opens. |
 | `allowOffHand` | `true` | Let an off-hand weapon open the menu too. |
+| `requireWeaponForCrimeMenu` | `true` | Require a drawn weapon for coercive menu actions. Peaceful options, including apologies, remain reachable unarmed. Individual action requirements still apply when this is off. |
 
 The interacting hand's item is the one classified, and the main hand is dispatched first, so a
 main-hand weapon opens the menu once rather than twice.
@@ -442,13 +525,32 @@ and flipped to the matching failure with a notification.
 The validator rejects a ransom table that cannot produce a price: a zero TTL, or a non-zero base with
 every tier multiplier at zero.
 
+## `[loot]`
+
+| Option | Default | Range | What it does |
+|---|---|---|---|
+| `dropEquipment` | `true` | — | Drop an MCA villager's equipped gear, retaining names, damage and enchantments. Applies to guards and archers too. |
+| `dropTradeStock` | `true` | — | Drop one purchase worth of output per unlocked, non-exhausted trade. Applies to fence goods too. |
+| `maxTradeDropStacks` | `128` | `1 … 4096` | Maximum trade-output stacks per death, split at each item's actual stack limit. Excess is discarded; equipment is separate. |
+
+These additions apply to deaths from any cause and honor `doMobLoot`. Equipped items with
+Curse of Vanishing do not receive an extra drop. MCA continues to handle its carried inventory;
+equipment backed by the same inventory item is not duplicated. These options control Crime's
+additions, not MCA's existing inventory drops.
+
+Each available trade drops its output count once: an iron-axe trade drops one axe, and a trade
+for three bread drops three bread. Remaining uses never multiply the drop. Exhausted and still-locked
+offers do not drop anything. Children have no trade stock. Fence buying orders are not physical stock,
+and death does not restock or reroll a fence. New loot defaults also apply to existing configs;
+the old `mugging.enableProfessionDeathDrops` key remains a separate, disabled legacy fallback.
+
 ## `[mugging]`
 
 | Option | Default | Range | What it does |
 |---|---|---|---|
 | `enableMugging` | `true` | — | Whether target-bound mug actions are available. |
 | `muggingBaseLoot` | `4` | `0 … 1000000` | Maximum emeralds requested; actual payout is bounded by purse and daily caps. |
-| `enableProfessionDeathDrops` | `false` | — | Whether a villager killed while resisting a mugging drops profession loot. Off by design: with it on, murdering your victim starts paying better than robbing them. |
+| `enableProfessionDeathDrops` | `false` | — | Legacy small profession drops for player kills; used only when `loot.dropTradeStock` is disabled. Actual equipment and trade stock use `[loot]`. |
 | `muggingChannelTicks` | `60` | `1 … 6000` | Continuous threat time before resolution. |
 | `muggingAttemptCooldownTicks` | `24000` | `0 … 10000000` | Same actor/victim attempt window, stamped at threat start. |
 | `muggingVictimRecoveryTicks` | `12000` | `0 … 10000000` | Global recovery after a successful loss. |
@@ -560,13 +662,20 @@ atonement, and a case ageing out is not the village forgiving a murder.
 | `renderRestraintPose` | `true` | — | Pose a restrained player's arms behind their back. The only thing in this mod that needs a mixin, and it is client-side only — a dedicated server never loads it. Presentation only: turning it off changes nothing the server knows or allows. |
 | `renderCuffs` | `true` | — | Draw cuffs on a restrained player's wrists. Parented to the arms, so they sit correctly with or without the pose above. |
 | `renderEscortRope` | `true` | — | Draw the lead between an escorting guard and their prisoner. Cosmetic: it is drawn from mod state rather than a real leash, because a vanilla lead cannot be attached to a player. |
-| `hudAnchor` | `BOTTOM_LEFT` | `TOP_LEFT`, `TOP_CENTER`, `TOP_RIGHT`, `CENTER_LEFT`, `CENTER_RIGHT`, `BOTTOM_LEFT`, `BOTTOM_CENTER`, `BOTTOM_RIGHT` | Which edge the status and custody boxes sit against. Bottom anchors are lifted clear of the hotbar and the health and armor rows, and `BOTTOM_CENTER` clear of the channel bar, so picking one never hides a box behind vanilla's HUD. The channel bar itself always sits above the hotbar. |
+| `hudAnchor` | `BOTTOM_LEFT` | `TOP_LEFT`, `TOP_CENTER`, `TOP_RIGHT`, `CENTER_LEFT`, `CENTER_RIGHT`, `BOTTOM_LEFT`, `BOTTOM_CENTER`, `BOTTOM_RIGHT` | Anchor for one combined Heat/Sentence panel. BOTTOM_LEFT fits below chat and left of the hotbar; other bottom anchors clear the health rows (and the channel bar at BOTTOM_CENTER). |
+| `hudLayoutVersion` | `0` → `1` | `0 … 1` | Managed migration marker. On first load, the former TOP_LEFT default at offsets 4/4 becomes BOTTOM_LEFT. Custom anchor/offset combinations survive. |
 | `hudOffsetX` | `4` | `-4096 … 4096` | Horizontal nudge inward from the anchored edge — right from a left anchor, left from a right one. Clamped so an element never leaves the screen. |
 | `hudOffsetY` | `4` | `-4096 … 4096` | Vertical nudge inward from the anchored edge — down from a top anchor, up from a bottom one. Clamped the same way. |
 
-The default corner is the bottom-left because the top-left is where MCA: Quests draws its quest log.
-Vanilla chat also lives in the bottom-left, so the boxes and recent chat lines share that space until
-chat fades; a player who would rather not have that can pick another corner or raise `hudOffsetY`.
+The default panel stays below vanilla chat, including its queued-message strip, and beside the hotbar.
+Sentence shares the same panel as Heat, with no reserved empty Heat row when Heat is hidden. On small
+GUI widths or with long translated labels, the panel scales to fit that pocket. BOTTOM_LEFT clamps
+offsets within the pocket; select another anchor for unrestricted custom positioning. The panel hides
+while the chat input is open. MCA: Quests can keep its top-left quest log.
+
+Responders retain law/combat AI when threatened, including with empty hands or low health; civilian
+fear/compliance options no longer make guards flee. The existing civilian reaction speed multiplier
+also applies to direct flee/help requests, in addition to the normalized navigation pace.
 
 ## Playing with it turned down
 

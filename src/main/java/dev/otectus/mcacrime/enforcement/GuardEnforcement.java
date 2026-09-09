@@ -100,7 +100,8 @@ public final class GuardEnforcement {
                 }
                 Alert alert = ALERTS.get(player.getUUID());
                 boolean legalTarget = OutlawResolver.resolve(player).lawfulCombatTarget();
-                if (ArrestPhases.inProgress(ArrestStates.phaseOf(player))) {
+                if (ArrestPhases.inProgress(ArrestStates.phaseOf(player))
+                        && !LegalTarget.isEscapedPrisoner(player)) {
                     // An arrest already owns this player, and both branches below would fight it.
                     //
                     // Pursuit would re-challenge and re-aggro: Heat and charges survive an arrest, so a
@@ -111,7 +112,7 @@ public final class GuardEnforcement {
                     // escort had just taken -- once per scan, every scan, handing the guard back to the
                     // reaction ticker in the middle of walking somebody to a cell.
                     EscortService.noteOwned(player);
-                } else if (legalTarget || alert != null) {
+                } else if (legalTarget || alert != null || hasKnownCases(server, player, level.getGameTime())) {
                     pursue(level, player, alert, legalTarget, radius);
                 } else {
                     standDown(level, player, radius);
@@ -137,7 +138,29 @@ public final class GuardEnforcement {
         AABB box = player.getBoundingBox().inflate(radius);
         List<LivingEntity> guards = level.getEntitiesOfClass(LivingEntity.class, box,
                 EntitySelectors::isResponder);
+        guards = guards.stream().filter(guard -> dev.otectus.mcacrime.ai.NpcAwareness.isAwake(guard)
+                && !dev.otectus.mcacrime.state.world.CrimeWorldData.get(level.getServer()).isCaptive(guard.getUUID())
+                && !ResponderAssignments.isEscorting(level.getServer(), guard.getUUID(), player.getUUID())
+                && !NpcCriminalPursuit.isAssignedElsewhere(guard.getUUID(), player.getUUID())).toList();
+        guards = guards.stream().filter(guard -> {
+            boolean authorized = dev.otectus.mcacrime.justice.JusticeService.forGuard(level, guard, player).mayChallenge();
+            if (!authorized) McaCompat.clearGuardTarget(guard, player);
+            return authorized;
+        }).toList();
         if (guards.isEmpty()) {
+            standDown(level, player, radius);
+            return;
+        }
+
+        if (LegalTarget.isEscapedPrisoner(player)) {
+            LivingEntity recapturing = nearestWithin(guards, player,
+                    Math.min(2.0D, McaCrimeConfig.COMMON.guardChallengeRadius.get()));
+            if (recapturing != null) {
+                if (ArrestService.arrest(player, recapturing, ArrestService.Cause.GUARD_INITIATED)
+                        == ArrestService.Outcome.ALREADY_SERVING) GuardChallengeService.standDown(player);
+            } else {
+                approach(nearest(guards, player), player);
+            }
             return;
         }
 
@@ -149,6 +172,9 @@ public final class GuardEnforcement {
             for (LivingEntity guard : guards) {
                 McaCompat.clearGuardTarget(guard, player);
             }
+            LawHold.hold(challenger.getUUID(), now + 3L * Math.max(1, McaCrimeConfig.COMMON.guardScanIntervalTicks.get()));
+            McaCompat.holdPosition(challenger);
+            McaCompat.faceEntity(challenger, player);
             return;
         }
         if (!GuardChallengeService.forcePermitted(player, now)) {
@@ -186,12 +212,24 @@ public final class GuardEnforcement {
         }
     }
 
+    /** Case-based activation supplements Wanted status; responders still select local cases below. */
+    private static boolean hasKnownCases(MinecraftServer server, ServerPlayer player, long now) {
+        var configured = dev.otectus.mcacrime.justice.JusticeService.Settings.fromConfig();
+        var publicScope = new dev.otectus.mcacrime.justice.JusticeService.Settings(
+                configured.observations(), true, configured.confidence());
+        return dev.otectus.mcacrime.justice.JusticeService.evaluate(
+                dev.otectus.mcacrime.state.world.CrimeWorldData.get(server), player.getUUID(), null, now,
+                publicScope, false, false).mayChallenge();
+    }
+
     /** Walks one guard toward the suspect without making it hostile. Best-effort; failure is a no-op. */
     private static void approach(@Nullable LivingEntity guard, ServerPlayer player) {
         if (guard == null) {
             return;
         }
         McaCompat.faceEntity(guard, player);
+        LawHold.hold(guard.getUUID(), player.level().getGameTime()
+                + 3L * Math.max(1, McaCrimeConfig.COMMON.guardScanIntervalTicks.get()));
         McaCompat.moveVillagerTo(guard, player.getX(), player.getY(), player.getZ(), 1.1);
     }
 
@@ -215,7 +253,9 @@ public final class GuardEnforcement {
         for (LivingEntity guard : level.getEntitiesOfClass(LivingEntity.class, box,
                 EntitySelectors::isResponder)) {
             McaCompat.clearGuardTarget(guard, player);
-            LawHold.clear(guard.getUUID());
+            if (!ResponderAssignments.isEscorting(level.getServer(), guard.getUUID(), player.getUUID())
+                    && !NpcCriminalPursuit.isAssignedElsewhere(guard.getUUID(), player.getUUID()))
+                LawHold.clear(guard.getUUID());
         }
         // A recovery window expires on the player's own clock; Heat decaying out from under a failed
         // arrest must not cut it short, or the guard that just failed re-challenges immediately.
@@ -233,7 +273,7 @@ public final class GuardEnforcement {
         double bestDistance = Double.MAX_VALUE;
         for (LivingEntity guard : guards) {
             double distance = guard.distanceToSqr(player);
-            if (distance <= limit && distance < bestDistance) {
+            if (distance <= limit && distance < bestDistance && guard.hasLineOfSight(player)) {
                 bestDistance = distance;
                 best = guard;
             }
@@ -280,7 +320,9 @@ public final class GuardEnforcement {
         LivingEntity best = null;
         double bestDistance = Double.MAX_VALUE;
         for (LivingEntity guard : level.getEntitiesOfClass(LivingEntity.class, box,
-                entity -> entity != offender && entity.isAlive() && EntitySelectors.isResponder(entity))) {
+                entity -> entity != offender && EntitySelectors.isAvailableResponder(entity))) {
+            if (ResponderAssignments.isEscorting(level.getServer(), guard.getUUID(), offender.getUUID())
+                    || NpcCriminalPursuit.isAssignedElsewhere(guard.getUUID(), offender.getUUID())) continue;
             double distance = guard.distanceToSqr(offender);
             if (distance < bestDistance && guard.hasLineOfSight(offender)) {
                 bestDistance = distance;

@@ -20,8 +20,9 @@ import java.util.UUID;
  * caller pays only when this returns true, so the claim is marked <em>before</em> any currency moves.
  * The spec asks for "atomically mark paid before or with currency issuance"; this is the "before".
  *
- * <p>Claims are persisted in world data, not in memory, so a reconnect, a restart, or a server crash
- * between the mark and the payout can only ever cost the hunter money — never pay twice.
+ * <p>Claims consume entitlement, not proof of currency delivery. BountyPayments reserves the receipt
+ * alongside a new claim. Pending payments retain their claims past normal expiry. Inventory/provider
+ * saves remain independent from SavedData; ambiguous credits require reconciliation after a crash.
  */
 public final class BountyClaimLedger {
 
@@ -114,6 +115,8 @@ public final class BountyClaimLedger {
         }
         List<String> stale = new ArrayList<>();
         data.bountyClaims().forEach((claimKey, record) -> {
+            var payment = data.transaction(BountyPayments.id(BountyPayments.key(record)));
+            if (payment != null && !payment.state().terminal()) return;
             if (claimedDay(record) >= cutoff) {
                 return;
             }

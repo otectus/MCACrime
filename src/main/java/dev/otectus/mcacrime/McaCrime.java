@@ -52,6 +52,7 @@ public final class McaCrime {
         // instance on its own, but a reload that mutates the list in place would not change identity,
         // so the reload event drops it explicitly rather than relying on that.
         modBus.addListener(this::onConfigReload);
+        modBus.addListener(this::onConfigLoading);
         modBus.addListener(CrimeCapabilities::onRegisterCapabilities);
         CrimeItems.register(modBus); // restraints + creative tab (spec §8.3)
         CriminalProfessions.register(modBus); // thief/fence, presentation only (0.5.1)
@@ -60,7 +61,14 @@ public final class McaCrime {
     }
 
     private void onConfigReload(net.minecraftforge.fml.event.config.ModConfigEvent.Reloading event) {
-        if (event.getConfig().getType() == ModConfig.Type.COMMON) {
+        migrateClientHud(event.getConfig());
+        if (!MOD_ID.equals(event.getConfig().getModId())
+                || event.getConfig().getSpec() != McaCrimeConfig.COMMON_SPEC) return;
+        net.minecraft.server.MinecraftServer running =
+                net.minecraftforge.server.ServerLifecycleHooks.getCurrentServer();
+        Runnable refresh = () -> {
+            ConfigValidator.validateCurrentConfig().forEach(problem ->
+                    LOGGER.warn("MCA: Crime config reload: {}", problem));
             dev.otectus.mcacrime.detect.EntitySelectors.invalidate();
             dev.otectus.mcacrime.item.weapon.WeaponDetector.invalidate();
             // The active currency is chosen by an id, so a reload that renames it must take effect
@@ -75,13 +83,30 @@ public final class McaCrime {
                 // Both criminal-job presentation keys are answered once per villager, so a reload that
                 // flips one has to revisit the criminals that already exist rather than only the next.
                 WorldCriminalJobService.of(server).refreshPresentation();
+                WorldCriminalJobService.of(server).refreshBehaviors();
                 // Fence stock is priced from the config and assembled from tags, so a reload that
                 // retuned the default price has to reach the next screen that opens. Only with a
                 // server running: tags do not exist before one does, and rebuilding against none
                 // would empty every fence.
                 dev.otectus.mcacrime.economy.fence.FenceGoodsRegistry.rebuild();
             }
-        }
+        };
+        if (running != null) running.execute(refresh);
+        else refresh.run();
+    }
+
+    private void onConfigLoading(net.minecraftforge.fml.event.config.ModConfigEvent.Loading event) {
+        migrateClientHud(event.getConfig());
+    }
+
+    private void migrateClientHud(ModConfig config) {
+        if (!MOD_ID.equals(config.getModId()) || config.getSpec() != McaCrimeConfig.CLIENT_SPEC
+                || McaCrimeConfig.CLIENT.hudLayoutVersion.get() >= 1) return;
+        var client = McaCrimeConfig.CLIENT;
+        client.hudAnchor.set(dev.otectus.mcacrime.client.hud.CrimeHudLayout.migratedAnchor(
+                client.hudAnchor.get(), client.hudOffsetX.get(), client.hudOffsetY.get()));
+        client.hudLayoutVersion.set(1);
+        config.save();
     }
 
     private void onCommonSetup(FMLCommonSetupEvent event) {

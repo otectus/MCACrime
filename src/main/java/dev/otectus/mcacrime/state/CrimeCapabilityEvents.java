@@ -33,8 +33,13 @@ public final class CrimeCapabilityEvents {
     public static void onClone(PlayerEvent.Clone event) {
         // The original player's caps are invalidated on death; revive to read, then re-invalidate.
         event.getOriginal().reviveCaps();
-        CrimeCapabilities.get(event.getOriginal()).ifPresent(old ->
-                CrimeCapabilities.get(event.getEntity()).ifPresent(fresh -> fresh.copyFrom(old)));
-        event.getOriginal().invalidateCaps();
+        try {
+            if (event.getOriginal() instanceof net.minecraft.server.level.ServerPlayer player)
+                dev.otectus.mcacrime.detect.CrimeDetectionHandlers.reconcileBeforePlayerSave(player.getServer());
+            CrimeCapabilities.get(event.getOriginal()).ifPresent(old ->
+                    CrimeCapabilities.get(event.getEntity()).ifPresent(fresh -> fresh.copyFrom(old)));
+        } finally {
+            event.getOriginal().invalidateCaps();
+        }
     }
 }

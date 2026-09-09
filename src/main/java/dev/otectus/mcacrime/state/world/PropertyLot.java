@@ -45,6 +45,8 @@ public record PropertyLot(UUID lotId, UUID owner, @Nullable CompoundTag stackTag
         currency = Math.max(0L, currency);
     }
 
+    @Override public CompoundTag stackTag() { return stackTag == null ? null : stackTag.copy(); }
+
     /** A lot holding one item stack. */
     public static PropertyLot ofStack(UUID lotId, UUID owner, @Nullable ItemStack stack,
                                       @Nullable UUID sourceRecordId, long createdAt) {

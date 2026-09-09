@@ -23,7 +23,11 @@ import java.util.function.Supplier;
  * player's choice for them. A rejected packet leaves the encounter open, and the window's own timeout
  * is what produces a refusal.
  */
-public record GuardChallengeResponseC2SPacket(UUID encounterId, ChallengeResponse response) {
+public record GuardChallengeResponseC2SPacket(UUID encounterId, ChallengeResponse response, long revision) {
+
+    public GuardChallengeResponseC2SPacket(UUID encounterId, ChallengeResponse response) {
+        this(encounterId, response, 0L);
+    }
 
     public GuardChallengeResponseC2SPacket {
         encounterId = encounterId == null ? new UUID(0L, 0L) : encounterId;
@@ -33,17 +37,20 @@ public record GuardChallengeResponseC2SPacket(UUID encounterId, ChallengeRespons
     public static void encode(GuardChallengeResponseC2SPacket msg, FriendlyByteBuf buf) {
         buf.writeUUID(msg.encounterId);
         PacketBounds.writeEnum(buf, msg.response);
+        buf.writeVarLong(msg.revision);
     }
 
     public static GuardChallengeResponseC2SPacket decode(FriendlyByteBuf buf) {
         UUID encounterId = buf.readUUID();
         ChallengeResponse response = PacketBounds.readEnum(buf, ChallengeResponse.class)
                 .orElseThrow(() -> new DecoderException("Unknown challenge response"));
-        return new GuardChallengeResponseC2SPacket(encounterId, response);
+        long revision = buf.readVarLong();
+        if (revision < 0L) throw new DecoderException("Negative challenge revision");
+        return new GuardChallengeResponseC2SPacket(encounterId, response, revision);
     }
 
     public static void handle(GuardChallengeResponseC2SPacket msg, Supplier<NetworkEvent.Context> ctx) {
         ServerPacketGuard.accept(ctx, RequestBudget.Category.CHALLENGE,
-                sender -> GuardChallengeService.respond(sender, msg.encounterId(), msg.response()));
+                sender -> GuardChallengeService.respond(sender, msg.encounterId(), msg.revision(), msg.response()));
     }
 }

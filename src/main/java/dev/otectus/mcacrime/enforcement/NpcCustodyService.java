@@ -14,8 +14,10 @@ import dev.otectus.mcacrime.jail.HoldingCell;
 import dev.otectus.mcacrime.jail.HoldingCellService;
 import dev.otectus.mcacrime.jail.JailAnchor;
 import dev.otectus.mcacrime.jail.JailService;
+import dev.otectus.mcacrime.jail.SafeCustodyDestination;
 import dev.otectus.mcacrime.ledger.SentenceResolutionService;
 import dev.otectus.mcacrime.state.world.CrimeWorldData;
+import dev.otectus.mcacrime.state.world.ServerMutationGate;
 import dev.otectus.mcacrime.util.CrimeDebug;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.MinecraftServer;
@@ -59,14 +61,10 @@ public final class NpcCustodyService {
     private static final Map<UUID, Escort> ESCORTS = new ConcurrentHashMap<>();
 
     private static final class Escort {
-        private long startedAt;
         private long nextNavAt;
         /** When the escort lost its guard, or 0 while it still has one. */
         private long orphanSince;
 
-        private Escort(long startedAt) {
-            this.startedAt = startedAt;
-        }
     }
 
     private NpcCustodyService() {
@@ -79,20 +77,19 @@ public final class NpcCustodyService {
         if (level == null || thief == null || guard == null) {
             return;
         }
-        ESCORTS.put(thief.getUUID(), new Escort(level.getGameTime()));
+        ESCORTS.put(thief.getUUID(), new Escort());
     }
 
     /**
      * Picks up every lawful NPC custody record a restart inherited.
      *
      * <p>Only the memory-side bookkeeping is rebuilt; the record itself already says who holds the
-     * prisoner and how much of the sentence is left. An escort that was halfway to a cell before the
-     * shutdown starts its timeout again from here, which is the forgiving reading — the alternative
-     * is a prisoner instantly declared orphaned by a clock that ran while the server was down.
+     * prisoner and how much of the sentence is left. Loaded escort time also persists, so a restart
+     * pauses its deadline instead of resetting it or charging time while the server was down.
      */
     public static void reconcile(MinecraftServer server) {
         ESCORTS.clear();
-        if (server == null) {
+        if (server == null || !ServerMutationGate.allows(server)) {
             return;
         }
         int found = 0;
@@ -102,7 +99,7 @@ public final class NpcCustodyService {
             }
             found++;
             if (record.getOwner().type() == CustodyOwnerType.GUARD) {
-                ESCORTS.put(record.getCaptive(), new Escort(server.overworld().getGameTime()));
+                ESCORTS.put(record.getCaptive(), new Escort());
             }
             inferLegacySentenceMembership(server, record.getCaptive());
         }
@@ -120,20 +117,22 @@ public final class NpcCustodyService {
      * here because a server start is the only moment an NPC sentence is looked at as a whole.
      */
     private static void inferLegacySentenceMembership(MinecraftServer server, UUID captiveId) {
-        HoldingCell cell = HoldingCellService.existingFor(server, captiveId);
-        if (cell == null || cell.sentenceId() == null || cell.isLegacyBound()) {
-            return; // an escort still on the road; the cell and its id are minted on arrival
-        }
         CrimeWorldData data = CrimeWorldData.get(server);
-        if (!data.casesForSentence(captiveId, cell.sentenceId()).isEmpty()) {
-            return;
-        }
-        List<UUID> bound = data.bindLegacySentence(captiveId, cell.sentenceId(),
-                server.overworld().getGameTime());
+        CustodyRecord custody = data.getCustody(captiveId);
+        if (custody == null || custody.getSentenceId() != null) return;
+        HoldingCell cell = HoldingCellService.existingFor(server, captiveId);
+        UUID sentenceId = cell == null || cell.sentenceId() == null ? UUID.randomUUID() : cell.sentenceId();
+        custody.setSentenceId(sentenceId);
+        data.setDirty();
+        List<UUID> bound = (cell != null && cell.isLegacyBound())
+                || !data.casesForSentence(captiveId, sentenceId).isEmpty() ? List.of()
+                : data.bindLegacySentence(captiveId, sentenceId, server.overworld().getGameTime());
         // Stamped whether or not anything was bound, and stamped on the cell because a villager has no
         // capability of its own. Same rule as the player side: a one-time upgrade guess runs once.
-        cell.setLegacyBound(true);
-        data.putHoldingCell(cell);
+        if (cell != null) {
+            cell.setLegacyBound(true);
+            data.putHoldingCell(cell);
+        }
         if (!bound.isEmpty()) {
             CrimeDebug.crime("bound {} pre-0.6.0 case(s) to the sentence {} is serving", bound.size(),
                     captiveId);
@@ -157,7 +156,7 @@ public final class NpcCustodyService {
      *                     the raw tick, so a sentence is served in scan-sized steps
      */
     public static void tick(MinecraftServer server, long elapsedTicks) {
-        if (server == null || elapsedTicks <= 0L) {
+        if (server == null || elapsedTicks <= 0L || !ServerMutationGate.allows(server)) {
             return;
         }
         CrimeWorldData data = CrimeWorldData.get(server);
@@ -167,10 +166,15 @@ public final class NpcCustodyService {
             }
             ServerLevel level = JailService.resolveLevel(server, record.getHoldDim());
             if (level == null) {
+                CustodyService.release(server, record.getCaptive(), CustodyReleaseReason.ADMIN);
+                ThiefBehaviorService.markReleased(record.getCaptive());
+                ESCORTS.remove(record.getCaptive());
+                JailEscortNavigation.forget(record.getCaptive());
                 continue;
             }
+            inferLegacySentenceMembership(server, record.getCaptive());
             switch (record.getOwner().type()) {
-                case GUARD -> tickEscort(server, data, level, record);
+                case GUARD -> tickEscort(server, data, level, record, elapsedTicks);
                 case JAIL -> tickSentence(server, data, level, record, elapsedTicks);
                 default -> {
                     // AUTHORITY / NONE: nothing is walking anywhere and no clock is running. Left
@@ -182,24 +186,34 @@ public final class NpcCustodyService {
 
     /** The walk to the cell, and everything that can go wrong on the way. */
     private static void tickEscort(MinecraftServer server, CrimeWorldData data, ServerLevel level,
-                                   CustodyRecord record) {
+                                   CustodyRecord record, long elapsedTicks) {
         UUID captiveId = record.getCaptive();
         if (!(level.getEntity(captiveId) instanceof LivingEntity thief) || !thief.isAlive()) {
             return; // unloaded or dead; the record waits, and death releases it elsewhere
         }
         long now = level.getGameTime();
-        Escort escort = ESCORTS.computeIfAbsent(captiveId, id -> new Escort(now));
+        record.setRealTicksHeld(record.getRealTicksHeld() > Long.MAX_VALUE - elapsedTicks
+                ? Long.MAX_VALUE : record.getRealTicksHeld() + elapsedTicks);
+        data.setDirty();
+        Escort escort = ESCORTS.computeIfAbsent(captiveId, id -> new Escort());
 
         UUID guardId = record.getOwner().ownerUuid().orElse(null);
         LivingEntity guard = guardId != null && level.getEntity(guardId) instanceof LivingEntity found
-                && found.isAlive() ? found : null;
+                && dev.otectus.mcacrime.ai.NpcAwareness.isAwake(found) ? found : null;
         int timeout = McaCrimeConfig.COMMON.arrestEscortTimeoutTicks.get();
-        boolean overdue = timeout > 0 && now - escort.startedAt > timeout;
-        if (guard == null || overdue) {
+        boolean overdue = escortOverdue(record.getRealTicksHeld(), timeout);
+        if (overdue) {
+            JailAnchor anchor = nearestAnchor(data, level, thief.blockPosition());
+            commit(server, data, level, record, thief, guard,
+                    anchor == null ? thief.blockPosition() : anchor.pos());
+            return;
+        }
+        if (guard == null) {
             handleOrphan(server, data, level, record, thief, escort, now);
             return;
         }
         escort.orphanSince = 0L;
+        LawHold.hold(guard.getUUID(), now + 3L * Math.max(1, McaCrimeConfig.COMMON.guardScanIntervalTicks.get()));
 
         JailAnchor anchor = nearestAnchor(data, level, thief.blockPosition());
         if (anchor == null) {
@@ -213,12 +227,11 @@ public final class NpcCustodyService {
             commit(server, data, level, record, thief, guard, target);
             return;
         }
-        if (now < escort.nextNavAt) {
+        JailEscortNavigation.Progress progress = JailEscortNavigation.advance(level, guard, thief, anchor);
+        if (progress.arrived() || progress.stuck()) {
+            commit(server, data, level, record, thief, guard, target);
             return;
         }
-        escort.nextNavAt = now + Math.max(1, McaCrimeConfig.COMMON.escortNavigationIntervalTicks.get());
-        McaCompat.moveVillagerTo(guard, target.getX() + 0.5D, target.getY(), target.getZ() + 0.5D,
-                McaCrimeConfig.COMMON.escortWalkSpeed.get());
         McaCompat.leashTo(thief, guard); // re-secured: a leash does not survive a chunk round-trip
     }
 
@@ -230,7 +243,6 @@ public final class NpcCustodyService {
             CustodyService.transferLawfulCustody(server, record.getCaptive(),
                     CustodyOwner.guard(replacement.getUUID()));
             McaCompat.leashTo(thief, replacement);
-            escort.startedAt = now;
             escort.nextNavAt = 0L;
             escort.orphanSince = 0L;
             CrimeDebug.crime("escort of {} was handed to guard {}", record.getCaptive(),
@@ -261,16 +273,33 @@ public final class NpcCustodyService {
                                CustodyRecord record, LivingEntity thief, @Nullable LivingEntity guard,
                                BlockPos near) {
         UUID captiveId = record.getCaptive();
-        // The cell and the sentence share one id, so the cases charged under it can be found again at
-        // release from the only thing that persists about an NPC sentence: the cell it is served in.
-        UUID sentenceId = UUID.randomUUID();
+        // The cell projects the custody sentence. Its absence never loses the assessed cases.
+        UUID sentenceId = record.getSentenceId();
+        if (sentenceId == null) return; // reconcile assigns legacy identity before this path
         HoldingCell cell = HoldingCellService.provision(level, near, captiveId, sentenceId);
-        BlockPos hold = cell == null ? near : cell.anchor();
-        data.bindSentence(captiveId, sentenceId, level.getGameTime());
+        BlockPos hold = SafeCustodyDestination.validate(level, cell == null ? near : cell.anchor(), 4)
+                .orElseGet(() -> SafeCustodyDestination.validate(level, thief.blockPosition(), 4).orElse(null));
+        if (hold == null) {
+            CustodyService.release(server, captiveId, CustodyReleaseReason.ADMIN);
+            HoldingCellService.releaseAndDismantle(server, captiveId);
+            CrimeReactionService.endCaptive(level, captiveId);
+            ThiefBehaviorService.markReleased(captiveId);
+            ESCORTS.remove(captiveId);
+            JailEscortNavigation.forget(captiveId);
+            return;
+        }
+        if (cell != null) {
+            cell.setLegacyBound(true);
+            data.putHoldingCell(cell);
+        }
         OptionalInt village = guard == null ? McaCompat.getHomeVillageId(thief)
                 : McaCompat.getHomeVillageId(guard);
         CustodyService.transferLawfulCustody(server, captiveId,
                 CustodyOwner.jail(village.orElse(-1), hold, level.dimension().location()));
+        if (guard != null) {
+            LawHold.clear(guard.getUUID());
+            McaCompat.stopModNavigation(guard);
+        }
         McaCompat.clearLeash(thief);
         McaCompat.stopModNavigation(thief);
         thief.teleportTo(hold.getX() + 0.5D, hold.getY(), hold.getZ() + 0.5D);
@@ -278,6 +307,7 @@ public final class NpcCustodyService {
         data.setDirty();
         RestraintSync.broadcast(thief);
         ESCORTS.remove(captiveId);
+        JailEscortNavigation.forget(captiveId);
         CrimeDebug.crime("thief {} is serving {} ticks at {}", captiveId, record.getRemainingJailTicks(), hold);
     }
 
@@ -291,11 +321,9 @@ public final class NpcCustodyService {
             return;
         }
         UUID captiveId = record.getCaptive();
-        // Read before the cell comes down: dismantling it is what destroys the only record of which
-        // sentence this thief was serving.
-        HoldingCell cell = HoldingCellService.existingFor(server, captiveId);
-        if (cell != null && cell.sentenceId() != null) {
-            SentenceResolutionService.markServed(server, captiveId, cell.sentenceId());
+        // Custody, rather than a generated structure, owns the sentence identity.
+        if (record.getSentenceId() != null) {
+            SentenceResolutionService.markServed(server, captiveId, record.getSentenceId());
         }
         CustodyService.release(server, captiveId, CustodyReleaseReason.SENTENCE_SERVED);
         HoldingCellService.releaseAndDismantle(server, captiveId);
@@ -304,6 +332,7 @@ public final class NpcCustodyService {
         // of jail still a thief, and goes back to work after its ordinary cooldown.
         ThiefBehaviorService.markReleased(captiveId);
         ESCORTS.remove(captiveId);
+        JailEscortNavigation.forget(captiveId);
         CrimeDebug.crime("thief {} served its sentence and was released", captiveId);
     }
 
@@ -332,7 +361,10 @@ public final class NpcCustodyService {
         LivingEntity best = null;
         double bestDistance = Double.MAX_VALUE;
         for (LivingEntity candidate : level.getEntitiesOfClass(LivingEntity.class, box,
-                entity -> entity != thief && entity.isAlive() && EntitySelectors.isResponder(entity))) {
+                entity -> entity != thief && entity.isAlive() && EntitySelectors.isAvailableResponder(entity))) {
+            if (!candidate.hasLineOfSight(thief)
+                    || ResponderAssignments.isEscorting(level.getServer(), candidate.getUUID(), thief.getUUID())
+                    || NpcCriminalPursuit.isAssignedElsewhere(candidate.getUUID(), thief.getUUID())) continue;
             double distance = candidate.distanceToSqr(thief);
             if (distance < bestDistance) {
                 bestDistance = distance;
@@ -340,5 +372,10 @@ public final class NpcCustodyService {
             }
         }
         return best;
+    }
+
+    /** Total loaded escort time is persisted; guard replacement/restart never restarts the deadline. */
+    public static boolean escortOverdue(long elapsed, long timeout) {
+        return timeout <= 0L || elapsed >= timeout;
     }
 }

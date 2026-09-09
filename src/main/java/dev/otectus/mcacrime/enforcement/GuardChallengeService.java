@@ -9,11 +9,14 @@ import dev.otectus.mcacrime.detect.EntitySelectors;
 import dev.otectus.mcacrime.dialogue.CrimeDialogueService;
 import dev.otectus.mcacrime.dialogue.DialogueEvents;
 import dev.otectus.mcacrime.economy.FineService;
+import dev.otectus.mcacrime.economy.DispositionService;
 import dev.otectus.mcacrime.economy.SettlementPolicy;
 import dev.otectus.mcacrime.economy.SettlementQuote;
 import dev.otectus.mcacrime.economy.SurrenderService;
 import dev.otectus.mcacrime.engine.CrimeState;
 import dev.otectus.mcacrime.ledger.CrimeRecord;
+import dev.otectus.mcacrime.justice.JusticeService;
+import dev.otectus.mcacrime.justice.LegalDecision;
 import dev.otectus.mcacrime.memory.ReportService;
 import dev.otectus.mcacrime.network.CrimeNetwork;
 import dev.otectus.mcacrime.network.GuardChallengeS2CPacket;
@@ -98,7 +101,7 @@ public final class GuardChallengeService {
             return false;
         }
         MinecraftServer server = level.getServer();
-        if (server == null || player.isSpectator() || !player.isAlive()) {
+        if (server == null || player.isSpectator() || !player.isAlive() || !validGuard(level, guard, player)) {
             return false;
         }
         long now = level.getGameTime();
@@ -118,27 +121,26 @@ public final class GuardChallengeService {
             return false; // already answered, and answered no; escalation owns this player now
         }
 
-        List<CrimeRecord> open = CrimeWorldData.get(server).actionableFor(player.getUUID());
-        CrimeCommunityKey jurisdiction = ReportService.jurisdictionOf(level, guard);
-        // A guard with nothing to say does not open a screen. Without this a challenge could be issued
-        // on proximity alone, producing a panel that read "0 charge(s) outstanding" and an answer of
-        // "the guard checks, and finds nothing against you" -- while the window kept running, and
-        // letting it expire still counted as refusing. Being confronted about nothing and then
-        // penalised for not answering is the worst possible version of this feature.
-        if (!ChallengeBasis.hasBasis(open.size(),
-                ReportService.warrantExists(server, player.getUUID(), jurisdiction, now),
-                LegalTarget.isEscapedPrisoner(player), LegalTarget.isHoldingCaptive(player))) {
+        LegalDecision decision = JusticeService.forGuard(level, guard, player);
+        List<CrimeRecord> open = decision.cases();
+        CrimeCommunityKey jurisdiction = decision.jurisdiction();
+        // Proximity alone is insufficient. Wanted Heat is a standalone detention basis, including
+        // Heat set by a command, but it does not reveal any private or remote ledger cases.
+        if (!decision.mayChallenge()) {
             return false;
         }
         // The screen quotes the settlement rather than the whole-Heat price. They are not the same
         // number: the price is the sum of the cases the payment would actually close, and offering one
         // figure while charging the other is how a guard came to offer a murder for pocket change.
-        SettlementQuote quote = SettlementPolicy.quote(CrimeWorldData.get(server), player.getUUID(),
-                CrimeState.getHeat(player), CrimeState.getBand(player), now);
+        DispositionService.Offer offer = DispositionService.offer(CrimeWorldData.get(server), decision,
+                CrimeState.getHeat(player), CrimeState.getBand(player), now, SettlementPolicy.Settings.fromConfig(),
+                dev.otectus.mcacrime.economy.Currencies.active().id().toString());
+        SettlementQuote quote = offer.quote();
 
         GuardChallenge challenge = new GuardChallenge(UUID.randomUUID(), guard.getUUID(), player.getUUID(),
                 jurisdiction, open.size(), quote.amount(), quote.ok(), now,
-                now + McaCrimeConfig.COMMON.guardChallengeWindowTicks.get());
+                now + Math.max(GuardChallenge.MIN_RESPONSE_TICKS,
+                        McaCrimeConfig.COMMON.guardChallengeWindowTicks.get()), 0L, offer).awaitDisplay();
         OPEN.put(player.getUUID(), challenge);
         ArrestStates.begin(player, guard.getUUID(), challenge.encounterId());
 
@@ -146,9 +148,19 @@ public final class GuardChallengeService {
         CrimeDialogueService.speak(guard, player, DialogueEvents.GUARD_CHALLENGE,
                 CrimeDialogueService.context(level, guard, player, challenge.encounterId(),
                         DialogueEvents.GUARD_CHALLENGE));
+        if (open.isEmpty()) sendCharges(player, challenge);
         CrimeNetwork.sendGuardChallenge(player, GuardChallengeS2CPacket.open(challenge, now,
                 McaCompat.getVillagerDisplayName(guard), Jurisdictions.label(level, jurisdiction)));
         return true;
+    }
+
+    public static void menuDisplayed(ServerPlayer player, UUID encounterId) {
+        GuardChallenge challenge = OPEN.get(player.getUUID());
+        if (challenge == null || !challenge.encounterId().equals(encounterId) || !challenge.awaitingDisplay()
+                || ArrestStates.phaseOf(player) != ArrestPhase.CONFRONTED
+                || !conversationValid(player, challenge)) return;
+        long now = player.level().getGameTime();
+        if (!challenge.expired(now)) OPEN.put(player.getUUID(), challenge.displayed(now));
     }
 
     /**
@@ -157,6 +169,11 @@ public final class GuardChallengeService {
      * check {@code /crime surrender} would.
      */
     public static void respond(ServerPlayer player, UUID encounterId, ChallengeResponse response) {
+        GuardChallenge challenge = open(player.getUUID());
+        if (challenge != null) respond(player, encounterId, challenge.revision(), response);
+    }
+
+    public static void respond(ServerPlayer player, UUID encounterId, long revision, ChallengeResponse response) {
         if (ArrestStates.phaseOf(player) != ArrestPhase.CONFRONTED) {
             // The encounter has already been answered, or was never this player's to answer. A replayed
             // or forged response must not be able to re-enter the surrender path against an arrest that
@@ -164,18 +181,25 @@ public final class GuardChallengeService {
             return;
         }
         GuardChallenge challenge = OPEN.get(player.getUUID());
-        if (challenge == null || !challenge.encounterId().equals(encounterId)) {
+        if (challenge == null || !challenge.accepts(encounterId, revision)) {
             // A stale screen, a replay, or an encounter that already closed. Silently ignored: telling
             // the player their click missed would only invite them to click again faster.
             return;
         }
         long now = player.level().getGameTime();
+        if (!conversationValid(player, challenge)) {
+            standDownAndRecover(player, null);
+            return;
+        }
         if (challenge.expired(now)) {
             close(player, ChallengeResponse.REFUSE);
             return;
         }
         switch (response) {
-            case ASK_CHARGES -> sendCharges(player, challenge);
+            case ASK_CHARGES -> {
+                GuardChallenge refreshed = refreshIfChanged(player, challenge, now);
+                sendCharges(player, refreshed);
+            }
             case SURRENDER -> {
                 // Order is the whole fix. close() used to run first, clearing both the open encounter
                 // and the resisting flag; if the surrender then failed for want of an authority, a
@@ -188,23 +212,67 @@ public final class GuardChallengeService {
                 standDownNear(player);
             }
             case PAY_FINE -> {
-                if (!challenge.canPay()) {
-                    player.sendSystemMessage(Component.translatable("mcacrime.challenge.not_finable"));
-                    return; // the window stays open: being told no is not an answer
-                }
-                FineService.Payment payment = FineService.pay(player, List.of(), true);
-                if (payment.paid()) {
-                    close(player, ChallengeResponse.PAY_FINE);
-                    CrimeSounds.paid(player);
-                    standDownNear(player);
-                } else {
-                    // Could not pay after all. That is a refusal in effect, and pretending otherwise
-                    // would let an empty purse be a way of ending challenges for free.
-                    close(player, ChallengeResponse.REFUSE);
-                }
+                payFine(player, encounterId, revision);
             }
             case REFUSE -> close(player, ChallengeResponse.REFUSE);
         }
+    }
+
+    /** Commands and the Crime action menu answer the same displayed offer during an encounter. */
+    public static FineService.Payment payFine(ServerPlayer player, UUID encounterId, long revision) {
+        GuardChallenge challenge = open(player.getUUID());
+        long now = player.level().getGameTime();
+        if (challenge == null || !challenge.accepts(encounterId, revision)
+                || ArrestStates.phaseOf(player) != ArrestPhase.CONFRONTED)
+            return paymentRefused(player, "mcacrime.fine.stale");
+        if (!conversationValid(player, challenge)) {
+            standDownAndRecover(player, null);
+            return paymentRefused(player, "mcacrime.fine.stale");
+        }
+        if (challenge.expired(now)) return paymentRefused(player, "mcacrime.fine.stale");
+        GuardChallenge refreshed = refreshIfChanged(player, challenge, now);
+        if (refreshed.revision() != revision) return paymentRefused(player, "mcacrime.fine.stale");
+        if (!challenge.canPay() || challenge.offer() == null) {
+            sendChallenge(player, challenge, now);
+            return paymentRefused(player, "mcacrime.challenge.not_finable");
+        }
+        FineService.Payment payment = FineService.pay(player, challenge.offer().quote());
+        if (payment.paid()) {
+            close(player, ChallengeResponse.PAY_FINE);
+            CrimeSounds.paid(player);
+            standDownNear(player);
+        } else {
+            // Acknowledge failure so the client can re-enable payment and keep surrender reachable.
+            sendChallenge(player, challenge, now);
+        }
+        return payment;
+    }
+
+    private static FineService.Payment paymentRefused(ServerPlayer player, String key) {
+        player.sendSystemMessage(Component.translatable(key));
+        long heat = CrimeState.getHeat(player);
+        return new FineService.Payment(false, null, List.of(), 0L, heat, heat, key);
+    }
+
+    private static GuardChallenge refreshIfChanged(ServerPlayer player, GuardChallenge challenge, long now) {
+        ServerLevel level = player.serverLevel();
+        LivingEntity guard = (LivingEntity) level.getEntity(challenge.guardId());
+        DispositionService.Offer live = DispositionService.offer(CrimeWorldData.get(level.getServer()),
+                JusticeService.forGuard(level, guard, player), CrimeState.getHeat(player), CrimeState.getBand(player),
+                now, SettlementPolicy.Settings.fromConfig(),
+                dev.otectus.mcacrime.economy.Currencies.active().id().toString());
+        if (DispositionService.current(challenge.offer(), live, now)) return challenge;
+        GuardChallenge updated = challenge.refresh(live);
+        OPEN.put(player.getUUID(), updated);
+        sendChallenge(player, updated, now);
+        return updated;
+    }
+
+    private static void sendChallenge(ServerPlayer player, GuardChallenge challenge, long now) {
+        ServerLevel level = player.serverLevel();
+        if (level.getEntity(challenge.guardId()) instanceof LivingEntity guard)
+            CrimeNetwork.sendGuardChallenge(player, GuardChallengeS2CPacket.open(challenge, now,
+                    McaCompat.getVillagerDisplayName(guard), Jurisdictions.label(level, challenge.jurisdiction())));
     }
 
     /**
@@ -259,9 +327,10 @@ public final class GuardChallengeService {
         if (server == null) {
             return;
         }
-        List<CrimeRecord> open = CrimeWorldData.get(server).actionableFor(player.getUUID());
+        List<CrimeRecord> open = challenge.offer() == null ? List.of() : challenge.offer().decision().cases();
         if (open.isEmpty()) {
-            player.sendSystemMessage(Component.translatable("mcacrime.challenge.no_charges"));
+            player.sendSystemMessage(GuardChallengeText.detentionReason(
+                    challenge.offer() == null ? null : challenge.offer().decision()));
             return;
         }
         player.sendSystemMessage(Component.translatable("mcacrime.challenge.charges_header", open.size()));
@@ -299,7 +368,9 @@ public final class GuardChallengeService {
                 OPEN.remove(challenge.playerId());
                 continue;
             }
-            if (challenge.expired(player.level().getGameTime())) {
+            if (!conversationValid(player, challenge)) {
+                standDownAndRecover(player, null);
+            } else if (challenge.expired(player.level().getGameTime())) {
                 close(player, ChallengeResponse.REFUSE);
             }
         }
@@ -337,12 +408,44 @@ public final class GuardChallengeService {
         for (LivingEntity guard : level.getEntitiesOfClass(LivingEntity.class,
                 player.getBoundingBox().inflate(radius), EntitySelectors::isResponder)) {
             McaCompat.clearGuardTarget(guard, player);
-            LawHold.clear(guard.getUUID());
+            if (!ResponderAssignments.isEscorting(level.getServer(), guard.getUUID(), player.getUUID())
+                    && !NpcCriminalPursuit.isAssignedElsewhere(guard.getUUID(), player.getUUID()))
+                LawHold.clear(guard.getUUID());
         }
         CrimeSounds.standDown(player);
     }
 
     /** Drops every encounter. Called on server stop. */
+    private static boolean validGuard(ServerLevel level, LivingEntity guard, ServerPlayer player) {
+        double radius = McaCrimeConfig.COMMON.guardChallengeRadius.get();
+        return guard != null && guard.isAlive() && guard.level() == level && player.level() == level
+                && EntitySelectors.isAvailableResponder(guard) && guard.distanceToSqr(player) <= radius * radius
+                && !CrimeWorldData.get(level.getServer()).isCaptive(guard.getUUID())
+                && guard.hasLineOfSight(player)
+                && !ResponderAssignments.isEscorting(level.getServer(), guard.getUUID(), player.getUUID())
+                && !NpcCriminalPursuit.isAssignedElsewhere(guard.getUUID(), player.getUUID());
+    }
+
+    /** Keep the speaking guard facing the player throughout the response window. */
+    public static void holdConversations(MinecraftServer server) {
+        for (GuardChallenge challenge : OPEN.values()) {
+            ServerPlayer player = server.getPlayerList().getPlayer(challenge.playerId());
+            if (player == null || !(player.serverLevel().getEntity(challenge.guardId()) instanceof LivingEntity guard)
+                    || !dev.otectus.mcacrime.ai.NpcAwareness.isAwake(guard)) continue;
+            LawHold.hold(guard.getUUID(), player.level().getGameTime() + 2L);
+            McaCompat.clearGuardTarget(guard, player);
+            McaCompat.holdPosition(guard);
+            McaCompat.faceEntity(guard, player);
+        }
+    }
+
+    private static boolean conversationValid(ServerPlayer player, GuardChallenge challenge) {
+        if (!(player.level() instanceof ServerLevel level) || !player.isAlive() || player.isSpectator()
+                || !(level.getEntity(challenge.guardId()) instanceof LivingEntity guard)
+                || !validGuard(level, guard, player)) return false;
+        return JusticeService.forGuard(level, guard, player).mayChallenge();
+    }
+
     public static void clearAll() {
         OPEN.clear();
     }

@@ -32,7 +32,8 @@ ai/thief   autonomous thief controller, target selection, guard evasion
 mug/npc    NPC mugging sessions, theft planning, stolen-goods recovery
 economy/fence  contraband pricing, goods registry, trading UI
 compat integration locksreforged mcaquests  optional companions; degrade at runtime
-client mixin  client-only; common code must never import these
+client mixin/client  client-only; common code must never import these
+mixin      common vanilla equipment capture; no static MCA dependencies
 network item audio command config util  plumbing
 ```
 
@@ -54,9 +55,9 @@ Build note: `compat/mcaquests` compiles only when `../MCAQuests/build/classes/ja
 - Config is hand-written `ForgeConfigSpec`, **COMMON + CLIENT only, no SERVER spec**: common is
   server-authoritative, client is presentation only. `config/ConfigValidator` runs at setup and
   on every reload.
-- Exactly one mixin: `mixin/client/RestraintPoseMixin`, targeting `LivingEntityRenderer.render`,
-  one `@Inject` at AFTER `EntityModel.setupAnim`, guarded by `MixinConfigTest`. **MixinExtras is
-  neither declared nor used** - no `@WrapOperation`.
+- Two narrowly scoped mixins: common `mixin/MobDeathEquipmentMixin` observes `Mob.setItemSlot`
+  before MCA clears dying villagers' equipment; client-only `mixin/client/RestraintPoseMixin` poses
+  restrained arms. `MixinConfigTest` verifies side separation and registration. No MixinExtras.
 - All MCA access is `MethodHandle` lookups in `compat/mca/McaBinding` behind the `compat/McaCompat`
   facade, because MCA's package root has moved between releases; missing members degrade to stubs.
   `NoMcaStaticLinkTest` fails the build if static linkage returns, and `McaBindingProbeTest` replays

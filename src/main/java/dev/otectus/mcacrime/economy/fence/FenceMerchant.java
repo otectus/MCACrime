@@ -146,7 +146,7 @@ public final class FenceMerchant implements Merchant {
         if (!(player instanceof ServerPlayer) || player != tradingPlayer) {
             return false;
         }
-        if (!fence.isAlive() || fence.level() != player.level()) {
+        if (!dev.otectus.mcacrime.ai.NpcAwareness.isAwake(fence) || fence.level() != player.level()) {
             return false;
         }
         if (fence.distanceToSqr(player) > TRADE_RANGE * TRADE_RANGE) {

@@ -26,6 +26,20 @@ class JailTickTest {
     }
 
     @Test
+    void escapePausesSentenceAndCapUntilThePrisonerReturns() {
+        JailState jail = new JailState(2L, null, null, 0, JailContainmentMode.PHYSICAL);
+        jail.setEscaped(true);
+        for (int i = 0; i < 100; i++) assertNull(JailService.advanceTick(jail, 1L));
+        assertEquals(2L, jail.getRemainingOnlineTicks());
+        assertEquals(0L, jail.getRealOnlineTicksServed());
+        JailState loaded = JailState.load(jail.save());
+        assertNull(JailService.advanceTick(loaded, 1L));
+        loaded.setEscaped(false);
+        assertNull(JailService.advanceTick(loaded, 100L));
+        assertEquals(ReleaseReason.SENTENCE_SERVED, JailService.advanceTick(loaded, 100L));
+    }
+
+    @Test
     void eachTickDecrementsExactlyOne() {
         JailState j = jail(5);
         assertNull(JailService.advanceTick(j, 1_000_000L)); // 5 -> 4

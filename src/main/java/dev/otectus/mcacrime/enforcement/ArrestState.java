@@ -44,6 +44,7 @@ public final class ArrestState {
      * walk, or a logout mid-escort, quietly shortened a sentence that had already been assessed.
      */
     private long sentenceTicks;
+    private boolean surrenderCredited;
     /** Minted once here and shared with the holding cell and the sentence, so the three can be matched. */
     private UUID sentenceId = UUID.randomUUID();
     /** Escort timeout, or recovery expiry, on the player's own online clock. */
@@ -104,6 +105,9 @@ public final class ArrestState {
     public long getSentenceTicks() {
         return sentenceTicks;
     }
+
+    public boolean isSurrenderCredited() { return surrenderCredited; }
+    public void setSurrenderCredited(boolean credited) { surrenderCredited = credited; }
 
     public void setSentenceTicks(long sentenceTicks) {
         this.sentenceTicks = Math.max(0L, sentenceTicks);
@@ -173,6 +177,7 @@ public final class ArrestState {
         c.anchorDim = anchorDim;       // ResourceLocation is immutable
         c.anchorRadius = anchorRadius;
         c.sentenceTicks = sentenceTicks;
+        c.surrenderCredited = surrenderCredited;
         c.sentenceId = sentenceId;
         c.deadlineOnlineTick = deadlineOnlineTick;
         c.lastNavigationTick = lastNavigationTick;
@@ -201,6 +206,7 @@ public final class ArrestState {
         }
         tag.putInt("aradius", anchorRadius);
         tag.putLong("sentence", sentenceTicks);
+        if (surrenderCredited) tag.putBoolean("surrenderCredited", true);
         tag.putUUID("sentenceId", sentenceId);
         tag.putLong("deadline", deadlineOnlineTick);
         if (lastSeenPos != null) {
@@ -224,6 +230,7 @@ public final class ArrestState {
         s.anchorDim = tag.contains("adim") ? ResourceLocation.tryParse(tag.getString("adim")) : null;
         s.anchorRadius = tag.getInt("aradius");
         s.sentenceTicks = Math.max(0L, tag.getLong("sentence"));
+        s.surrenderCredited = tag.getBoolean("surrenderCredited");
         if (tag.hasUUID("sentenceId")) {
             s.sentenceId = tag.getUUID("sentenceId");
         }

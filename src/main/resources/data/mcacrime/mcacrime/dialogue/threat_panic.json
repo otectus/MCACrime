@@ -1,0 +1,7 @@
+{
+  "event": "mcacrime:threat_panic",
+  "fallback": "dialogue.mcacrime.threat_panic.generic",
+  "variants": [
+    { "priority": 0, "when": {}, "lines": ["dialogue.mcacrime.threat_panic.generic"] }
+  ]
+}

@@ -36,10 +36,8 @@ import java.util.function.Supplier;
  */
 public final class CrimeNetwork {
 
-    // 8: every message is now registered with an explicit direction, counts are rejected rather than
-    // clamped, and the guard response travels as a name instead of an ordinal. A 7 client would send an
-    // ordinal that decodes as a string of the wrong length, which is a dropped connection at best.
-    private static final String PROTOCOL_VERSION = "8";
+    // 11 adds the one-shot challenge display acknowledgment. Update clients and server together.
+    private static final String PROTOCOL_VERSION = "11";
 
     public static final SimpleChannel CHANNEL = NetworkRegistry.newSimpleChannel(
             new ResourceLocation(McaCrime.MOD_ID, "main"),
@@ -95,6 +93,9 @@ public final class CrimeNetwork {
         toClient(CriminalJobSyncS2CPacket.class,
                 CriminalJobSyncS2CPacket::encode, CriminalJobSyncS2CPacket::decode,
                 CriminalJobSyncS2CPacket::handle);
+        toServer(GuardChallengeDisplayedC2SPacket.class,
+                GuardChallengeDisplayedC2SPacket::encode, GuardChallengeDisplayedC2SPacket::decode,
+                GuardChallengeDisplayedC2SPacket::handle);
     }
 
     /**

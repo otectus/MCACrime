@@ -15,6 +15,7 @@ import dev.otectus.mcacrime.crime.type.CrimeIds;
 import dev.otectus.mcacrime.detect.CrimeDetector;
 import dev.otectus.mcacrime.detect.WitnessChecker;
 import dev.otectus.mcacrime.jail.JailService;
+import dev.otectus.mcacrime.ledger.SentenceAssignmentService;
 import dev.otectus.mcacrime.network.ActionProgressS2CPacket;
 import dev.otectus.mcacrime.network.CrimeNetwork;
 import dev.otectus.mcacrime.state.CrimeCapabilities;
@@ -332,7 +333,7 @@ public final class CustodyService {
      * a release-then-capture would fire the public events twice and momentarily leave the player free.
      */
     public static boolean transferLawfulCustody(MinecraftServer server, UUID captiveUuid, CustodyOwner owner) {
-        if (server == null || owner == null) {
+        if (server == null || owner == null || !ServerMutationGate.allows(server)) {
             return false;
         }
         CrimeWorldData data = CrimeWorldData.get(server);
@@ -354,6 +355,7 @@ public final class CustodyService {
             return; // the guard that makes double-release a no-op
         }
         data.removeCustody(captiveUuid);
+        dev.otectus.mcacrime.enforcement.JailEscortNavigation.forget(captiveUuid);
         data.removeRansom(captiveUuid);
         ActionSessionManager.clearFor(captiveUuid, CancelReason.TARGET_GONE);
         UUID formerCaptor = record.getOwner().ownerUuid().orElse(null);
@@ -371,6 +373,10 @@ public final class CustodyService {
         }
 
         ServerPlayer captivePlayer = record.isCaptivePlayer() ? server.getPlayerList().getPlayer(captiveUuid) : null;
+        if (record.isLawful() && (!record.isCaptivePlayer()
+                || (captivePlayer != null && !JailService.isJailed(captivePlayer)))) {
+            SentenceAssignmentService.cancel(data, captiveUuid, record.getSentenceId());
+        }
         if (captivePlayer != null) {
             CrimeCapabilities.get(captivePlayer).ifPresent(d -> d.setHeldByRef(null));
             // Re-derived rather than simply lifted: a player released from a kidnapper's rope straight
@@ -429,9 +435,11 @@ public final class CustodyService {
             return false;
         }
         CustodyRecord record = CrimeWorldData.get(server).getCustody(captive.getUUID());
-        if (record == null || record.isLawful()) {
+        if (record == null) {
             return false;
         }
+        if (CuffEscapeService.usesMinigame(captive)) return CuffEscapeService.start(captive, record);
+        if (record.isLawful()) return false;
         long now = captive.level().getGameTime();
         if (record.isEscapeActive()) {
             captive.sendSystemMessage(Component.translatable("mcacrime.captive.escape.already",
@@ -489,7 +497,9 @@ public final class CustodyService {
             return;
         }
         UUID captorId = record.getOwner().ownerUuid().orElse(null);
-        if (record.isCaptivePlayer() && captorId != null) {
+        if (record.isCaptivePlayer() && captorId != null
+                && (record.getOwner().type() == CustodyOwnerType.KIDNAPPER
+                || record.getOwner().type() == CustodyOwnerType.BOUNTY_HUNTER)) {
             ServerPlayer captor = server.getPlayerList().getPlayer(captorId);
             long now = captive.level().getGameTime();
             if (captor != null) {
@@ -505,6 +515,12 @@ public final class CustodyService {
         }
         if (record.isEscapeActive()) {
             int progress = record.getEscapeProgress() + 1;
+            if (CuffEscapeService.usesMinigame(captive)) {
+                record.setEscapeActive(false);
+                record.setEscapeProgress(0);
+                world.setDirty();
+                return;
+            }
             record.setEscapeProgress(progress);
             int required = escapeWorkTicks(record.getRestraint());
             if (progress >= required) {
@@ -620,7 +636,7 @@ public final class CustodyService {
             case NONE -> 1;
             case ROPE -> c.escapeWorkTicksRope.get();
             case CUFFS -> c.escapeWorkTicksCuffs.get();
-            case LOCKED_CUFFS -> Integer.MAX_VALUE;
+            case LOCKED_CUFFS -> c.escapeWorkTicksLockedCuffs.get();
         };
     }
 

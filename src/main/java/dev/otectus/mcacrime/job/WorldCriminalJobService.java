@@ -104,10 +104,11 @@ public final class WorldCriminalJobService implements CriminalJobService {
                     existing == null ? wildOrigin : existing.wildOrigin(),
                     existing == null ? seedFor(villager) : existing.personalitySeed(),
                     existing == null ? null : existing.previousProfessionId());
-            world.putCriminalVillager(record);
+            if (!world.putCriminalVillager(record).stored()) return;
             applyPresentation(villager);
             CrimeDebug.crime("Criminal job {} assigned to {} (wild={})", job, villager, record.wildOrigin());
         }
+        refreshBehavior(villager, job);
         MinecraftForge.EVENT_BUS.post(new CriminalJobChangedEvent(villager, previous, job));
         broadcast(villager, job);
     }
@@ -159,6 +160,21 @@ public final class WorldCriminalJobService implements CriminalJobService {
             } else {
                 revertPresentation(record.villager(), record);
             }
+        }
+    }
+
+    /** Reconnect loaded thieves after enable/disable changes without waiting for a chunk reload. */
+    public void refreshBehaviors() {
+        if (server == null || !ServerMutationGate.allows(server)) return;
+        for (CriminalVillagerRecord record : all()) refreshBehavior(record.villager(), record.job());
+    }
+
+    private void refreshBehavior(UUID villager, CriminalJob job) {
+        if (job == CriminalJob.THIEF && McaCrimeConfig.COMMON.enableThieves.get()) {
+            if (findLoaded(villager) instanceof net.minecraft.world.entity.LivingEntity living)
+                dev.otectus.mcacrime.ai.thief.ThiefBehaviorService.track(living);
+        } else {
+            dev.otectus.mcacrime.ai.thief.ThiefTicker.stop(villager);
         }
     }
 

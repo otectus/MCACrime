@@ -16,6 +16,23 @@ public final class VillagerCrimeProfile {
     private final VillagerPurse purse;
     private final Map<UUID, OffenderMemory> offenders = new LinkedHashMap<>();
     private long recoveryUntil;
+    private final Map<String, VictimCrimeMemory> crimeMemories = new LinkedHashMap<>();
+
+    public java.util.List<VictimCrimeMemory> crimeMemories() { return java.util.List.copyOf(crimeMemories.values()); }
+    public void remember(VictimCrimeMemory memory, int limit, long now, double decay) {
+        crimeMemories.entrySet().removeIf(e -> e.getValue().importance(now, decay) < 0.28
+                && now - e.getValue().timestamp() > e.getValue().duration());
+        crimeMemories.merge(memory.key(), memory, (old, next) -> old.merge(next, now, decay));
+        while (crimeMemories.size() > Math.max(1, Math.min(64, limit))) {
+            String weakest = crimeMemories.values().stream()
+                    .min(java.util.Comparator.comparingDouble(m -> m.importance(now, decay))).orElseThrow().key();
+            crimeMemories.remove(weakest);
+        }
+    }
+    public void replaceMemory(VictimCrimeMemory memory) {
+        if (crimeMemories.containsKey(memory.key())) crimeMemories.put(memory.key(), memory);
+    }
+    public void clearMemories(UUID offender) { crimeMemories.values().removeIf(m -> m.perpetrator().equals(offender)); }
 
     public VillagerCrimeProfile(UUID villager, VillagerPurse purse) {
         this.villager = villager;
@@ -51,6 +68,9 @@ public final class VillagerCrimeProfile {
         CompoundTag memoryTag = new CompoundTag();
         offenders.forEach((uuid, memory) -> memoryTag.put(uuid.toString(), memory.save()));
         tag.put("offenders", memoryTag);
+        net.minecraft.nbt.ListTag crimeTag = new net.minecraft.nbt.ListTag();
+        crimeMemories.values().forEach(memory -> crimeTag.add(memory.save()));
+        tag.put("crimeMemories", crimeTag);
         return tag;
     }
 
@@ -63,10 +83,19 @@ public final class VillagerCrimeProfile {
         profile.recoveryUntil = Math.max(0L, tag.getLong("recoveryUntil"));
         CompoundTag memories = tag.getCompound("offenders");
         for (String key : memories.getAllKeys()) {
+            if (profile.offenders.size() >= MAX_OFFENDERS) break;
             try {
                 profile.offenders.put(UUID.fromString(key), OffenderMemory.load(memories.getCompound(key)));
             } catch (IllegalArgumentException ignored) {
                 // Skip one corrupt identity without discarding the purse or other memories.
+            }
+        }
+        for (Tag memory : tag.getList("crimeMemories", Tag.TAG_COMPOUND)) {
+            try {
+                VictimCrimeMemory parsed = VictimCrimeMemory.load((CompoundTag) memory);
+                profile.remember(parsed, 64, parsed.updatedAt(), 1);
+            } catch (IllegalArgumentException ignored) {
+                // One malformed memory must not discard the purse or valid identities.
             }
         }
         return profile;

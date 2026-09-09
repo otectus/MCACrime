@@ -1,0 +1,7 @@
+{
+  "event": "mcacrime:threat_defy",
+  "fallback": "dialogue.mcacrime.threat_defy.generic",
+  "variants": [
+    { "priority": 0, "when": {}, "lines": ["dialogue.mcacrime.threat_defy.generic"] }
+  ]
+}

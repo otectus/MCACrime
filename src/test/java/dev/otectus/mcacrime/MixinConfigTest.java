@@ -18,43 +18,24 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-/**
- * The mixin config, asserted rather than assumed.
- *
- * <p>This mod shipped without mixins on purpose until 0.4.0, and the one it now has is client-only —
- * it poses a restrained player's arms and does nothing else. Two properties have to stay true, and
- * neither is visible by reading the code that uses them:
- *
- * <ul>
- *   <li>Every mixin is in the {@code client} array and none is in {@code mixins}, which is what makes
- *       an accidental dedicated-server install inert: Mixin never loads the class outside
- *       {@code Dist.CLIENT}, so there is nothing to fail.</li>
- *   <li>The config and the source directory agree in <em>both</em> directions. A mixin listed but
- *       absent is a crash at load; a mixin present but unlisted silently never applies, which is far
- *       worse — the feature simply does not work and nothing says so.</li>
- * </ul>
- */
+/** Verify common loot capture and client-only rendering stay correctly registered and isolated. */
 class MixinConfigTest {
 
     private static final Path CONFIG =
             Path.of("src", "main", "resources", "mcacrime.mixins.json");
     private static final Path MIXIN_SOURCE_ROOT =
-            Path.of("src", "main", "java", "dev", "otectus", "mcacrime", "mixin", "client");
+            Path.of("src", "main", "java", "dev", "otectus", "mcacrime", "mixin");
 
     @Test
-    void everyMixinIsClientOnlySoADedicatedServerLoadsNone() {
-        JsonObject config = config();
-        assertTrue(config.has("mixins"), "the mixins array must be present, even when empty");
-        assertEquals(0, config.getAsJsonArray("mixins").size(),
-                "a common-side mixin would be loaded on a dedicated server, where none of this mod's "
-                        + "rendering exists");
-        assertFalse(clientMixins().isEmpty(), "the config exists to carry at least one client mixin");
+    void onlyEquipmentCaptureLoadsOnADedicatedServer() {
+        assertEquals(List.of("MobDeathEquipmentMixin"), mixins("mixins"));
+        assertEquals(List.of("client.RestraintPoseMixin"), mixins("client"));
     }
 
     @Test
     void everyListedMixinExistsOnDisk() {
-        for (String name : clientMixins()) {
-            Path source = MIXIN_SOURCE_ROOT.resolve(name + ".java");
+        for (String name : allMixins()) {
+            Path source = MIXIN_SOURCE_ROOT.resolve(name.replace('.', '/') + ".java");
             assertTrue(Files.exists(source),
                     "mcacrime.mixins.json lists " + name + " but " + source + " does not exist");
         }
@@ -63,7 +44,7 @@ class MixinConfigTest {
     /** The direction that actually bites: a mixin nobody listed applies to nothing and says nothing. */
     @Test
     void everyMixinOnDiskIsListed() {
-        List<String> listed = clientMixins();
+        List<String> listed = allMixins();
         for (String name : sourceNames()) {
             assertTrue(listed.contains(name),
                     name + " exists under mixin/client but is not named in mcacrime.mixins.json, so it "
@@ -74,7 +55,7 @@ class MixinConfigTest {
     @Test
     void thePackageMatchesTheDirectoryAndTheToolchain() {
         JsonObject config = config();
-        assertEquals("dev.otectus.mcacrime.mixin.client", config.get("package").getAsString());
+        assertEquals("dev.otectus.mcacrime.mixin", config.get("package").getAsString());
         assertEquals("JAVA_17", config.get("compatibilityLevel").getAsString());
         assertEquals("mcacrime.refmap.json", config.get("refmap").getAsString(),
                 "the refmap name must match the one build.gradle asks the annotation processor for, or "
@@ -89,8 +70,8 @@ class MixinConfigTest {
         }
     }
 
-    private static List<String> clientMixins() {
-        JsonArray array = config().getAsJsonArray("client");
+    private static List<String> mixins(String side) {
+        JsonArray array = config().getAsJsonArray(side);
         List<String> names = new ArrayList<>();
         if (array != null) {
             array.forEach(element -> names.add(element.getAsString()));
@@ -98,12 +79,18 @@ class MixinConfigTest {
         return names;
     }
 
+    private static List<String> allMixins() {
+        List<String> all = new ArrayList<>(mixins("mixins"));
+        all.addAll(mixins("client"));
+        return all;
+    }
+
     private static List<String> sourceNames() {
         if (!Files.isDirectory(MIXIN_SOURCE_ROOT)) {
             return List.of();
         }
-        try (Stream<Path> paths = Files.list(MIXIN_SOURCE_ROOT)) {
-            return paths.map(path -> path.getFileName().toString())
+        try (Stream<Path> paths = Files.walk(MIXIN_SOURCE_ROOT)) {
+            return paths.map(path -> MIXIN_SOURCE_ROOT.relativize(path).toString().replace('\\', '.').replace('/', '.'))
                     .filter(name -> name.endsWith(".java"))
                     .map(name -> name.substring(0, name.length() - ".java".length()))
                     .toList();

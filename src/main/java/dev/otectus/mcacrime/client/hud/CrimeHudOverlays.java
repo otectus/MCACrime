@@ -39,7 +39,7 @@ public final class CrimeHudOverlays {
     private static final int BAR_W = 122;
     /** The one channel label that is somebody else's action against this player. */
     private static final String NPC_MUG_LABEL = "gui.mcacrime.action.npc_mug";
-    private static final int PAD = 4;
+    private static final int PAD = 3;
 
     private CrimeHudOverlays() {
     }
@@ -51,8 +51,6 @@ public final class CrimeHudOverlays {
                 (gui, graphics, partialTick, width, height) -> renderChannel(graphics, width, height));
         event.registerAbove(VanillaGuiOverlay.HOTBAR.id(), "crime_status",
                 (gui, graphics, partialTick, width, height) -> renderStatus(graphics, width, height));
-        event.registerAbove(VanillaGuiOverlay.HOTBAR.id(), "crime_custody",
-                (gui, graphics, partialTick, width, height) -> renderCustody(graphics, width, height));
     }
 
     /** True when the HUD should stay out of the way entirely. */
@@ -130,48 +128,53 @@ public final class CrimeHudOverlays {
 
     /** Standing, Heat and Wanted at a glance, so the player is never guessing what the law thinks. */
     private static void renderStatus(GuiGraphics graphics, int width, int height) {
-        if (suppressed() || !McaCrimeConfig.CLIENT.hudStatusIndicator.get()) return;
+        if (suppressed() || Minecraft.getInstance().screen instanceof net.minecraft.client.gui.screens.ChatScreen) return;
         // Nothing at all when there is nothing to say: a lawful player with no Heat should not have a
         // permanent badge telling them so.
         boolean interesting = ClientSelfData.heat() > 0 || ClientSelfData.wanted() || ClientSelfData.legalTarget();
-        if (!interesting) return;
+        boolean showHeat = interesting && McaCrimeConfig.CLIENT.hudStatusIndicator.get();
+        Component custody = McaCrimeConfig.CLIENT.hudCustodyIndicator.get() ? custodyLine() : null;
+        if (!showHeat && custody == null) return;
 
         Minecraft mc = Minecraft.getInstance();
         Component heat = Component.translatable("gui.mcacrime.hud.heat", ClientSelfData.heat());
         Component badge = ClientSelfData.legalTarget()
                 ? Component.translatable("gui.mcacrime.hud.legal_target")
                 : ClientSelfData.wanted() ? Component.translatable("gui.mcacrime.hud.wanted") : null;
+        if (badge != null) heat = heat.copy().append("  ").append(badge.copy().withStyle(
+                style -> style.withColor(NameColors.RED_RGB)));
 
-        int lineWidth = mc.font.width(heat);
-        if (badge != null) lineWidth = Math.max(lineWidth, mc.font.width(badge));
+        int lineWidth = showHeat ? mc.font.width(heat) : 0;
+        if (custody != null) lineWidth = Math.max(lineWidth, mc.font.width(custody));
         int boxW = lineWidth + PAD * 2;
-        int boxH = (badge == null ? 10 : 20) + PAD * 2;
+        int boxH = (showHeat && custody != null ? 20 : 10) + PAD * 2;
 
-        int x = anchor().x(width, boxW, offsetX());
-        int y = anchor().y(height, boxH, offsetY());
+        CrimeHudLayout.Placement place = CrimeHudLayout.place(anchor(), width, height, boxW, boxH,
+                offsetX(), offsetY());
+        graphics.pose().pushPose();
+        graphics.pose().translate(place.x(), place.y(), 0);
+        graphics.pose().scale(place.scale(), place.scale(), 1F);
+        int x = 0;
+        int y = 0;
 
         CrimeSprites.hudPlate(graphics, x, y, boxW, boxH);
         // The band line stays a fill: it is one pixel tall and carries a colour, so a sprite for it
         // would be the same pixels plus a texture bind.
         CrimeSprites.rule(graphics, x, y, boxW,
                 0xFF000000 | (NameColors.rgb(ClientSelfData.band()) & 0xFFFFFF));
-        graphics.drawString(mc.font, heat, x + PAD, y + PAD, 0xFFCCCCCC, false);
-        if (badge != null) {
-            graphics.drawString(mc.font, badge, x + PAD, y + PAD + 10, NameColors.RED_RGB, false);
-        }
+        if (showHeat) graphics.drawString(mc.font, heat, PAD, PAD, 0xFFCCCCCC, false);
+        if (custody != null) graphics.drawString(mc.font, custody, PAD, PAD + (showHeat ? 10 : 0), 0xFFFFB060, false);
+        graphics.pose().popPose();
     }
 
     // ------------------------------------------------------------------ custody countdown
 
     /** The jail sentence or captivity clock, which previously existed only on the inventory card. */
-    private static void renderCustody(GuiGraphics graphics, int width, int height) {
-        if (suppressed() || !McaCrimeConfig.CLIENT.hudCustodyIndicator.get()) return;
-
+    private static Component custodyLine() {
         long jailTicks = ClientSelfData.jailRemainingTicks();
         boolean captive = ClientCaptiveData.captive();
-        if (jailTicks <= 0 && !captive) return;
+        if (jailTicks <= 0 && !captive) return null;
 
-        Minecraft mc = Minecraft.getInstance();
         Component line;
         if (jailTicks > 0) {
             line = Component.translatable("gui.mcacrime.hud.jail", TickFormat.compact(jailTicks));
@@ -182,15 +185,6 @@ public final class CrimeHudOverlays {
             line = Component.translatable("gui.mcacrime.hud.captive");
         }
 
-        int boxW = mc.font.width(line) + PAD * 2;
-        int boxH = 10 + PAD * 2;
-        // Stacked one box further inward from the status box, so they never overlap. The anchor
-        // already counts a bottom offset upward, so this needs no sign of its own.
-        int stack = McaCrimeConfig.CLIENT.hudStatusIndicator.get() ? 30 : 0;
-        int x = anchor().x(width, boxW, offsetX());
-        int y = anchor().y(height, boxH, offsetY() + stack);
-
-        CrimeSprites.hudPlate(graphics, x, y, boxW, boxH);
-        graphics.drawString(mc.font, line, x + PAD, y + PAD, 0xFFFFB060, false);
+        return line;
     }
 }

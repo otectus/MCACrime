@@ -15,10 +15,8 @@ import java.util.concurrent.ConcurrentHashMap;
  * arrest layer would set a guard on an offender and the reaction layer would clear it twice as fast as
  * it could be re-applied, so a guard alternated between charging and forgetting.
  *
- * <p>The fix is a hold rather than a blanket "guards do not react". A guard who is <em>not</em>
- * enforcing should still be able to flee a mugging or report what they saw — §11.2's resisting state is
- * explicitly not guards-only. What must not happen is a reaction overriding an arrest already in
- * progress, and that is exactly the window this covers.
+ * <p>Responders are excluded from civilian fear/compliance by role. The hold also protects temporary
+ * law assignments and their navigation during conversations, pursuit and escorts.
  *
  * <p>Memory-only and deliberately so: an enforcement target is a fact about the current few seconds,
  * and a hold that survived a restart would describe an arrest nobody is making any more. Holds are

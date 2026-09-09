@@ -66,6 +66,11 @@ public final class McaHandles {
 
     // --- handles -------------------------------------------------------------------------------
     private static final MethodHandle H_BRAIN = R.handle(McaBinding.GET_VILLAGER_BRAIN);
+    private static final MethodHandle H_PERSONALITY = R.handle(McaBinding.GET_PERSONALITY);
+
+    public static String personalityName(Object entity) {
+        return isVillager(entity) ? enumName(ref(H_PERSONALITY, ref(H_BRAIN, entity))) : null;
+    }
     private static final MethodHandle H_RESIDENCY = R.handle(McaBinding.GET_RESIDENCY);
     private static final MethodHandle H_PROFESSION_ID = R.handle(McaBinding.GET_PROFESSION_ID);
     private static final MethodHandle H_AGE_STATE = R.handle(McaBinding.GET_AGE_STATE);

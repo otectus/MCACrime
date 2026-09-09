@@ -218,7 +218,8 @@ public final class CellBuilder {
     private static boolean siteIsClear(ServerLevel level, BlockPos anchor) {
         for (CellBlueprint.Placement placement : CellBlueprint.placements()) {
             BlockPos pos = anchor.offset(placement.dx(), placement.dy(), placement.dz());
-            if (!level.isLoaded(pos) || level.isOutsideBuildHeight(pos)) {
+            if (!level.isLoaded(pos) || level.isOutsideBuildHeight(pos)
+                    || !level.getWorldBorder().isWithinBounds(pos)) {
                 return false;
             }
             BlockState state = level.getBlockState(pos);
@@ -239,7 +240,11 @@ public final class CellBuilder {
             }
             return false;
         }
-        return true;
+        // Placement runs synchronously on the server thread, so no entity can walk into a site
+        // between this check and construction. Include the interior and a body-width edge margin.
+        return level.getEntitiesOfClass(net.minecraft.world.entity.LivingEntity.class,
+                CellBlueprint.bounds(anchor).inflate(0.35D, 0D, 0.35D),
+                net.minecraft.world.entity.Entity::isAlive).isEmpty();
     }
 
     /** True for the handful of block types a cell floor may be laid over. */

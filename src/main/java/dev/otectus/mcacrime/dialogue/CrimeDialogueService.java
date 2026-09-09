@@ -87,7 +87,8 @@ public final class CrimeDialogueService {
      */
     public static boolean speak(@Nullable LivingEntity speaker, ServerPlayer listener,
                                 ResourceLocation event, DialogueContext context, Object... args) {
-        if (!McaCrimeConfig.COMMON.enableDialogue.get() || listener == null) {
+        if (!McaCrimeConfig.COMMON.enableDialogue.get() || listener == null
+                || speaker != null && !dev.otectus.mcacrime.ai.NpcAwareness.isAwake(speaker)) {
             return false;
         }
         long now = listener.level().getGameTime();
@@ -165,6 +166,13 @@ public final class CrimeDialogueService {
         builder.put("band", CrimeState.getBand(player).name());
         builder.put("wanted", CrimeState.isWanted(player));
         builder.put("night", !level.isDay());
+        var crimeMemories = dev.otectus.mcacrime.memory.VictimMemoryService.memories(level.getServer(), villager.getUUID(), player.getUUID());
+        builder.put("crime_victim", crimeMemories.stream().anyMatch(m -> !m.indirect()));
+        builder.put("crime_family", crimeMemories.stream().anyMatch(m -> m.category().equals("FAMILY_HARM")));
+        builder.put("crime_witness", crimeMemories.stream().anyMatch(m -> m.category().equals("WITNESSED")));
+        builder.put("crime_restitution", crimeMemories.stream().anyMatch(m -> m.restitutionPaid()));
+        builder.putBand("crime_fear", (float) crimeMemories.stream().mapToDouble(m -> m.fear()).max().orElse(0));
+        builder.putBand("crime_anger", (float) crimeMemories.stream().mapToDouble(m -> m.anger()).max().orElse(0));
         if (profile != null) {
             long balance = profile.purse().balance();
             builder.put("purse", balance <= 0 ? "empty" : balance <= 4 ? "low" : "rich");

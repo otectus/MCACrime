@@ -32,6 +32,9 @@ public final class CustodyRecord {
     private long startTickOnline;
     /** Lawful custody only: the mirrored sentence (the authority is {@code JailService}; this is a projection). */
     private long remainingJailTicks;
+    /** Assigned at arrest, even when the sentence has no cases or no generated cell. */
+    @Nullable
+    private UUID sentenceId;
     /** Real online ticks the captive has been held, for the §7.2 captivity cap. */
     private long realTicksHeld;
     @Nullable
@@ -46,6 +49,12 @@ public final class CustodyRecord {
     private double escapeRoll = 1.0D;
     private int escapeAttempts;
     private long captorDisconnectedAt;
+    private byte[] cuffCombination = new byte[0];
+
+    public byte[] getCuffCombination() { return cuffCombination.clone(); }
+    public void setCuffCombination(byte[] pins) {
+        cuffCombination = CuffLockProgress.validCombination(pins) ? pins.clone() : new byte[0];
+    }
 
     public CustodyRecord() {
     }
@@ -100,8 +109,14 @@ public final class CustodyRecord {
     }
 
     public void setRemainingJailTicks(long remainingJailTicks) {
-        this.remainingJailTicks = remainingJailTicks;
+        this.remainingJailTicks = Math.max(0L, remainingJailTicks);
     }
+
+    @Nullable
+    public UUID getSentenceId() { return sentenceId; }
+
+    /** Null is reserved for custody written before arrest-time sentence assignment. */
+    public void setSentenceId(UUID sentenceId) { this.sentenceId = sentenceId; }
 
     public long getRealTicksHeld() {
         return realTicksHeld;
@@ -160,6 +175,7 @@ public final class CustodyRecord {
         c.restraint = restraint;
         c.startTickOnline = startTickOnline;
         c.remainingJailTicks = remainingJailTicks;
+        c.sentenceId = sentenceId;
         c.realTicksHeld = realTicksHeld;
         c.holdPos = holdPos; // BlockPos is immutable
         c.holdDim = holdDim; // ResourceLocation is immutable
@@ -170,6 +186,7 @@ public final class CustodyRecord {
         c.escapeRoll = escapeRoll;
         c.escapeAttempts = escapeAttempts;
         c.captorDisconnectedAt = captorDisconnectedAt;
+        c.cuffCombination = cuffCombination.clone();
         return c;
     }
 
@@ -184,6 +201,7 @@ public final class CustodyRecord {
         tag.putString("restraint", restraint.name());
         tag.putLong("start", startTickOnline);
         tag.putLong("remaining", remainingJailTicks);
+        if (sentenceId != null) tag.putUUID("sentenceId", sentenceId);
         tag.putLong("held", realTicksHeld);
         if (holdPos != null) {
             tag.putInt("hx", holdPos.getX());
@@ -200,6 +218,7 @@ public final class CustodyRecord {
         tag.putDouble("escapeRoll", escapeRoll);
         tag.putInt("escapeAttempts", escapeAttempts);
         tag.putLong("captorDisconnectedAt", captorDisconnectedAt);
+        if (cuffCombination.length > 0) tag.putByteArray("cuffCombination", cuffCombination);
         return tag;
     }
 
@@ -211,7 +230,8 @@ public final class CustodyRecord {
         r.owner = CustodyOwner.load(tag.getCompound("owner"));
         r.restraint = RestraintType.parse(tag.getString("restraint"));
         r.startTickOnline = tag.getLong("start");
-        r.remainingJailTicks = tag.getLong("remaining");
+        r.remainingJailTicks = Math.max(0L, tag.getLong("remaining"));
+        r.sentenceId = tag.hasUUID("sentenceId") ? tag.getUUID("sentenceId") : null;
         r.realTicksHeld = tag.getLong("held");
         if (tag.contains("hx") && tag.contains("hy") && tag.contains("hz")) {
             r.holdPos = new BlockPos(tag.getInt("hx"), tag.getInt("hy"), tag.getInt("hz"));
@@ -224,6 +244,7 @@ public final class CustodyRecord {
         r.escapeRoll = tag.contains("escapeRoll") ? Math.max(0.0D, Math.min(1.0D, tag.getDouble("escapeRoll"))) : 1.0D;
         r.escapeAttempts = Math.max(0, tag.getInt("escapeAttempts"));
         r.captorDisconnectedAt = Math.max(0L, tag.getLong("captorDisconnectedAt"));
+        r.setCuffCombination(tag.getByteArray("cuffCombination"));
         return r;
     }
 }

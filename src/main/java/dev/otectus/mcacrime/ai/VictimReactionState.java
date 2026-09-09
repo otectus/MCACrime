@@ -29,7 +29,10 @@ public enum VictimReactionState {
     /** Back on normal behaviour, but refusing or altering interaction with the offender. */
     RECOVERING("recovering", false, false),
     /** Held. Incompatible movement suppressed; captive reactions exposed instead. */
-    CAPTIVE("captive", true, false);
+    CAPTIVE("captive", true, false),
+    PANICKING("panicking", true, true),
+    STALLING("stalling", true, false),
+    DEFYING("defying", true, false);
 
     private final String lower;
     private final boolean ownsBehaviour;

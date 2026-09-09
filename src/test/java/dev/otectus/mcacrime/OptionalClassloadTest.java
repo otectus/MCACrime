@@ -35,6 +35,7 @@ class OptionalClassloadTest {
             "dev/otectus/mcareputation/",
             "dev/otectus/mcaquests/",
             "dev/otectus/mcaconversations/",
+            "melonslise/locks/",
             "dev/architectury/",
             "me/shedaniel/");
 
@@ -97,7 +98,8 @@ class OptionalClassloadTest {
         try (Stream<Path> files = Files.walk(root)) {
             for (Path file : files.filter(path -> path.toString().endsWith(".class")).toList()) {
                 String relative = normalise(root, file);
-                if (relative.startsWith(ADAPTER_PACKAGE) || relative.startsWith(QUESTS_ADAPTER_PACKAGE)) {
+                if (relative.startsWith(ADAPTER_PACKAGE) || relative.startsWith(QUESTS_ADAPTER_PACKAGE)
+                        || relative.startsWith("dev/otectus/mcacrime/compat/locksreforged/")) {
                     continue;
                 }
                 // The constant pool stores type names in internal form, so a plain byte-level scan

@@ -47,7 +47,8 @@ public final class EscapeActionHandler implements CrimeActionHandler {
         // CustodyService reports its own outcome — started, already working, cooldown, or locked — so
         // the caller must not send a second competing message on top of it.
         return CustodyService.attemptEscape(player)
-                ? ActionResult.accepted("mcacrime.captive.escape.started")
+                ? ActionResult.accepted(dev.otectus.mcacrime.captivity.CuffEscapeService.usesMinigame(player)
+                        ? "mcacrime.captive.escape.lock_started" : "mcacrime.captive.escape.started")
                 : ActionResult.rejected("mcacrime.action.feedback_sent");
     }
 

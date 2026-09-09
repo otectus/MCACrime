@@ -131,6 +131,10 @@ dependencies {
     // silent success. (MCA 7.7 drops Architectury entirely, which is why mods.toml no longer requires it.)
     runtimeOnly fg.deobf("dev.architectury:architectury-forge:${architectury_version}")
 
+    // Native cuff lockpicking menu, isolated behind LocksReforgedBridge. Never bundled or required
+    // at runtime. A pinned published artifact also makes standalone clones include the adapter.
+    compileOnly fg.deobf('maven.modrinth:locks-reforged:1.7.3')
+
     // MCA: Reputation — OPTIONAL integration, compile-only. The sibling mod is not published to a
     // Maven, so we compile against its dev-mapped class output; both mods use `official` 1.20.1
     // mappings, so the Minecraft type names line up and reobfJar remaps our own references for
@@ -262,7 +266,7 @@ tasks.register('checkJarContents') {
                          'dev/otectus/mcaconversations/', 'dev/architectury/',
                          'me/shedaniel/', 'forge/net/mca/', 'net/mca/',
                          'forge/net/conczin/mca/', 'net/conczin/mca/',
-                         'locks/']
+                         'locks/', 'melonslise/locks/']
         def jarFile = tasks.named('jar').get().archiveFile.get().asFile
         def offenders = []
         new java.util.zip.ZipFile(jarFile).withCloseable { zip ->

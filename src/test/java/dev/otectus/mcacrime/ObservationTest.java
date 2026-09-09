@@ -91,13 +91,13 @@ class ObservationTest {
     }
 
     @Test
-    void arrestNeedsConfidenceUnlessAResponderSawItThemselves() {
+    void arrestNeedsIdentifyingConfidenceEvenForAResponder() {
         CrimeReport heard = new CrimeReport(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
                 UUID.randomUUID(), UUID.randomUUID(), ACTION, null, 0L, 0L, 0.3F, false);
         CrimeReport guard = new CrimeReport(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
                 UUID.randomUUID(), UUID.randomUUID(), ACTION, null, 0L, 0L, 0.3F, true);
         assertFalse(heard.supportsArrest(0.6D), "a noise in the dark is grounds to investigate, not to arrest");
-        assertTrue(guard.supportsArrest(0.6D), "a responder who watched it happen needs no corroboration");
+        assertFalse(guard.supportsArrest(0.6D), "being a guard cannot turn an uncertain sighting into identification");
     }
 
     // ------------------------------------------------------------------ store

@@ -26,7 +26,7 @@ public final class ContainmentHandler {
         }
         CrimeCapabilities.get(player).ifPresent(data -> {
             JailState jail = data.getJail();
-            if (jail == null || jail.getModeSnapshot() == JailContainmentMode.PHYSICAL) {
+            if (jail == null || jail.isCuffEscape() || jail.getModeSnapshot() == JailContainmentMode.PHYSICAL) {
                 return; // not jailed, or breakable-walls mode
             }
             ResourceLocation posDim = player.level().dimension().location();

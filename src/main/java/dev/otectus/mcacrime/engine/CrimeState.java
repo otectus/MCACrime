@@ -145,6 +145,33 @@ public final class CrimeState {
 
     // ------------------------------------------------------------------ internals
 
+    /** Apply both incident values before any listener runs. The caller inserts the case first. */
+    public static void applyIncident(ServerPlayer player, long karma, long heat,
+                                     ResourceLocation source, String incidentId) {
+        CrimeCapabilities.get(player).ifPresent(data -> {
+            var c = McaCrimeConfig.COMMON;
+            long oldKarma = data.getKarma(), oldHeat = data.getHeat();
+            long newKarma = CrimeMath.clamp(dev.otectus.mcacrime.util.SafeMath.addSat(oldKarma, karma),
+                    c.karmaMin.get(), c.karmaMax.get());
+            long newHeat = CrimeMath.clamp(dev.otectus.mcacrime.util.SafeMath.addSat(oldHeat, heat), 0, c.heatMax.get());
+            Band oldBand = Band.fromKarma(oldKarma, c.karmaBlueThreshold.get(), c.karmaRedThreshold.get());
+            Band newBand = Band.fromKarma(newKarma, c.karmaBlueThreshold.get(), c.karmaRedThreshold.get());
+            boolean wasWanted = CrimeMath.isWanted(oldHeat, c.wantedHeatThreshold.get());
+            boolean nowWanted = CrimeMath.isWanted(newHeat, c.wantedHeatThreshold.get());
+            data.setKarma(newKarma);
+            data.setHeat(newHeat);
+            data.setCachedBand(newBand);
+            data.setWantedCached(nowWanted);
+            if (oldKarma != newKarma) dev.otectus.mcacrime.incident.IncidentNotifications.post(
+                    new KarmaChangedEvent(player, oldKarma, newKarma, oldBand, newBand, KarmaSource.CRIME));
+            if (oldHeat != newHeat) dev.otectus.mcacrime.incident.IncidentNotifications.post(
+                    new HeatChangedEvent(player, oldHeat, newHeat, source, incidentId));
+            if (wasWanted != nowWanted) dev.otectus.mcacrime.incident.IncidentNotifications.post(
+                    new WantedStatusChangedEvent(player, nowWanted, newHeat));
+            dev.otectus.mcacrime.incident.IncidentNotifications.run(() -> CrimeNetwork.sendSelfStatus(player));
+        });
+    }
+
     private static void applyKarma(ServerPlayer player, LongUnaryOperator op, KarmaSource source) {
         CrimeCapabilities.get(player).ifPresentOrElse(data -> {
             McaCrimeConfig.Common c = McaCrimeConfig.COMMON;

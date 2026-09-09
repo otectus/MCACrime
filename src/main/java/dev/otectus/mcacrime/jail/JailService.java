@@ -7,6 +7,9 @@ import dev.otectus.mcacrime.api.event.PlayerReleasedFromJailEvent;
 import dev.otectus.mcacrime.network.CrimeNetwork;
 import dev.otectus.mcacrime.state.CrimeCapabilities;
 import dev.otectus.mcacrime.ledger.SentenceResolutionService;
+import dev.otectus.mcacrime.ledger.SentenceAssignmentService;
+import dev.otectus.mcacrime.state.world.CrimeWorldData;
+import dev.otectus.mcacrime.state.world.ServerMutationGate;
 import dev.otectus.mcacrime.state.PlayerCrimeData;
 import dev.otectus.mcacrime.util.TickFormat;
 import net.minecraft.core.BlockPos;
@@ -84,6 +87,7 @@ public final class JailService {
      */
     public static boolean jail(ServerPlayer player, long ticks, @Nullable JailAnchor explicit,
                                @Nullable UUID sentenceId, boolean allowReduce) {
+        if (player == null || !ServerMutationGate.allows(player.getServer())) return false;
         Optional<PlayerCrimeData> opt = CrimeCapabilities.get(player);
         if (opt.isEmpty()) {
             return false;
@@ -97,7 +101,6 @@ public final class JailService {
                     mergeSentence(existing.getRemainingOnlineTicks(), clamped, allowReduce));
             // An extension is time added for charges that were not part of the original term, so those
             // charges join it. Without this they would be served alongside it and settled by nothing.
-            bindSentence(player, existing.getSentenceId());
             CrimeNetwork.sendSelfStatus(player);
             return true; // sentence update; no duplicate PlayerJailedEvent
         }
@@ -107,8 +110,14 @@ public final class JailService {
             return false; // no jail assigned and no fallback -> refuse, don't create a stuck state (§7.4)
         }
         JailContainmentMode mode = McaCrimeConfig.COMMON.jailContainmentMode.get();
+        var custody = CrimeWorldData.get(player.getServer()).getCustody(player.getUUID());
+        UUID intakeId = SentenceAssignmentService.intakeId(sentenceId,
+                custody == null ? null : custody.getSentenceId()).orElse(null);
+        if (intakeId == null) return false;
         JailState jail = new JailState(clamped, anchor.pos(), anchor.dim(), anchor.radius(), mode);
-        jail.setSentenceId(sentenceId); // no-op when null; the field initialiser already minted one
+        jail.setSentenceId(intakeId);
+        var arrestAtIntake = dev.otectus.mcacrime.enforcement.ArrestStates.of(player);
+        if (arrestAtIntake != null) jail.setSurrenderCredited(arrestAtIntake.isSurrenderCredited());
         // The move happens before the sentence is written, and a refusal ends the whole thing. A
         // sentence persisted around a prisoner still standing where they were arrested is a player
         // marked as jailed and confined to a jail they are not in -- which is worse than not jailing
@@ -117,10 +126,9 @@ public final class JailService {
             return false;
         }
         data.setJail(jail);
-        // The sentence is charged with what is standing against the player at this moment, and release
-        // settles exactly that set. Deciding it at release instead is how a sentence came to forgive
-        // crimes committed after it started.
+        // Arrest membership is already frozen. A direct administrative jailing assesses here once.
         bindSentence(player, jail.getSentenceId());
+        jail.setLegacyBound(true); // an empty assessment is final too; never infer later crimes on login
         // Also true for a sentence handed down by /crime jail with no arrest behind it: a prisoner is a
         // prisoner, and a guard has no business opening a confrontation screen through the bars.
         dev.otectus.mcacrime.enforcement.ArrestStates.transition(
@@ -132,14 +140,16 @@ public final class JailService {
         return true;
     }
 
-    /** Charges every unbound actionable case against this player under {@code sentenceId}. */
+    /** Administrative jailing assesses once; an arrest has already frozen its own membership. */
     private static void bindSentence(ServerPlayer player, UUID sentenceId) {
         MinecraftServer server = player.getServer();
         if (server == null) {
             return;
         }
-        dev.otectus.mcacrime.state.world.CrimeWorldData.get(server)
-                .bindSentence(player.getUUID(), sentenceId, server.overworld().getGameTime());
+        CrimeWorldData world = CrimeWorldData.get(server);
+        var custody = world.getCustody(player.getUUID());
+        if (custody != null && custody.getSentenceId() != null) return;
+        world.bindSentence(player.getUUID(), sentenceId, server.overworld().getGameTime());
     }
 
     private static Optional<JailAnchor> resolveAnchor(ServerPlayer player, @Nullable JailAnchor explicit) {
@@ -261,6 +271,7 @@ public final class JailService {
         dev.otectus.mcacrime.state.world.CrimeWorldData world =
                 dev.otectus.mcacrime.state.world.CrimeWorldData.get(server);
         if (!world.casesForSentence(player.getUUID(), jail.getSentenceId()).isEmpty()) {
+            jail.setLegacyBound(true);
             return;
         }
         long now = server.overworld().getGameTime();
@@ -282,6 +293,10 @@ public final class JailService {
         JailState jail = data.getJail();
         if (jail == null) {
             return;
+        }
+        if (jail.getModeSnapshot() == JailContainmentMode.PHYSICAL) {
+            // Account for a breakout before decrementing, rather than waiting for the confine scan.
+            JailConfine.tick(player, data);
         }
         long capTicks = (long) McaCrimeConfig.COMMON.maxCaptivityRealMinutes.get() * 1200L;
         ReleaseReason due = advanceTick(jail, capTicks);
@@ -314,8 +329,10 @@ public final class JailService {
      * the online-tick accounting (incl. the cap backstop) is unit-testable.
      */
     public static ReleaseReason advanceTick(JailState jail, long capTicks) {
-        jail.setRemainingOnlineTicks(jail.getRemainingOnlineTicks() - 1L);
-        jail.setRealOnlineTicksServed(jail.getRealOnlineTicksServed() + 1L);
+        if (jail.isEscaped()) return null;
+        jail.setRemainingOnlineTicks(Math.max(0L, jail.getRemainingOnlineTicks() - 1L));
+        if (jail.getRealOnlineTicksServed() < Long.MAX_VALUE)
+            jail.setRealOnlineTicksServed(jail.getRealOnlineTicksServed() + 1L);
         if (jail.getRemainingOnlineTicks() <= 0L) {
             return ReleaseReason.SENTENCE_SERVED;
         }
@@ -323,6 +340,49 @@ public final class JailService {
             return ReleaseReason.CAPTIVITY_CAP;
         }
         return null;
+    }
+
+    /** Preserve the sentence while a successful cuff escape ends physical custody. */
+    public static void escapeCuffs(ServerPlayer player) {
+        if (!ServerMutationGate.allows(player.getServer())) return;
+        var data = CrimeCapabilities.get(player).orElse(null);
+        if (data == null) return;
+        var arrest = dev.otectus.mcacrime.enforcement.ArrestStates.of(player);
+        JailState jail = data.getJail();
+        if (jail == null && arrest != null && arrest.anchor() != null && arrest.getSentenceTicks() > 0) {
+            // Preserve an assessed escort sentence without teleporting the escaping player into jail.
+            JailAnchor anchor = arrest.anchor();
+            jail = new JailState(arrest.getSentenceTicks(), anchor.pos(), anchor.dim(), anchor.radius(),
+                    McaCrimeConfig.COMMON.jailContainmentMode.get());
+            jail.setSentenceId(arrest.getSentenceId());
+            jail.setLegacyBound(true);
+            jail.setSurrenderCredited(arrest.isSurrenderCredited());
+            data.setJail(jail);
+        }
+        if (jail != null) {
+            jail.escapeCuffs();
+            SentenceResolutionService.markEscaped(player.getServer(), player.getUUID(), jail.getSentenceId());
+        }
+        UUID guard = dev.otectus.mcacrime.enforcement.ArrestStates.owningGuard(player);
+        dev.otectus.mcacrime.enforcement.EscortService.forget(player.getUUID());
+        if (guard != null) dev.otectus.mcacrime.enforcement.LawHold.clear(guard);
+        dev.otectus.mcacrime.enforcement.ArrestStates.clear(player);
+        dev.otectus.mcacrime.detect.CrimeDetector.commitDirect(player,
+                dev.otectus.mcacrime.crime.type.CrimeIds.JAILBREAK, null, player.serverLevel(),
+                dev.otectus.mcacrime.detect.WitnessResult.official(), "cuff_escape");
+        CrimeNetwork.sendSelfStatus(player);
+    }
+
+    /** Recapture resumes the existing term without granting another surrender discount. */
+    public static boolean recapture(ServerPlayer player) {
+        if (!ServerMutationGate.allows(player.getServer())) return false;
+        JailState jail = CrimeCapabilities.get(player).map(PlayerCrimeData::getJail).orElse(null);
+        if (jail == null) return false;
+        if (!jail.isEscaped()) return true;
+        if (!teleportToAnchor(player, jail)) return false;
+        jail.setEscaped(false);
+        CrimeNetwork.sendSelfStatus(player);
+        return true;
     }
 
     // ------------------------------------------------------------------ teleport / confinement helpers

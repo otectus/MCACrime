@@ -42,6 +42,13 @@ public final class ActiveIncidentRegistry {
     public record ActiveIncident(UUID incidentId, UUID offenderId, UUID victimId, ResourceKey<Level> dimension,
                                  long startedAt, EnumSet<CrimeFlag> flags, Phase phase) {
 
+        public ActiveIncident {
+            flags = flags == null ? EnumSet.noneOf(CrimeFlag.class) : flags.clone();
+        }
+
+        @Override
+        public EnumSet<CrimeFlag> flags() { return flags.clone(); }
+
         /** The same incident, one phase further on. */
         public ActiveIncident withPhase(Phase next) {
             return new ActiveIncident(incidentId, offenderId, victimId, dimension, startedAt, flags, next);

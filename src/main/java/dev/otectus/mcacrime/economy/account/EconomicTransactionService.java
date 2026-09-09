@@ -2,8 +2,10 @@ package dev.otectus.mcacrime.economy.account;
 
 import dev.otectus.mcacrime.McaCrime;
 import dev.otectus.mcacrime.economy.Currencies;
+import dev.otectus.mcacrime.economy.Currency;
 import dev.otectus.mcacrime.economy.TransactionReason;
 import dev.otectus.mcacrime.state.world.CrimeWorldData;
+import dev.otectus.mcacrime.state.world.ServerMutationGate;
 import net.minecraft.server.level.ServerPlayer;
 
 import javax.annotation.Nullable;
@@ -17,8 +19,8 @@ import java.util.UUID;
  * <p>The order below is the whole class, and it is the reverse of what the code used to do. A
  * transfer used to claim its id, debit, and then credit blind: the claim said "this will happen", the
  * credit was unchecked, and a credit that failed left an id marked as spent with the money nowhere.
- * Now the debit runs first, {@link TransactionReceipt.State#SOURCE_DEBITED} is written and the store
- * dirtied <em>before</em> anything is credited, and the outcome of the credit is what closes the
+ * A PREPARED receipt now reserves capacity before any provider call. SOURCE_DEBITED is written
+ * before credit, and the outcome of the credit is what closes the
  * receipt. A credit that fails or throws leaves {@link TransactionReceipt.State#NEEDS_RECONCILIATION}
  * and is never retried automatically — replaying a non-idempotent credit is how money is minted.
  *
@@ -44,8 +46,9 @@ public final class EconomicTransactionService {
                                                            @Nullable UUID to, long now) {
         TransactionReceipt prepared = new TransactionReceipt(transactionId,
                 TransactionReceipt.State.PREPARED, providerId, Math.max(0L, requested), reason, from, to,
-                payloadHash(transactionId, requested, from, to), now);
-        if (world == null || transactionId == null || access == null || requested <= 0L) {
+                payloadHash(transactionId, requested, from, to) ^ (allowPartial ? Long.MIN_VALUE : 0L), now);
+        if (!ServerMutationGate.allows(world) || transactionId == null || access == null || requested <= 0L
+                || providerId == null || reason == null) {
             return prepared.withState(TransactionReceipt.State.REJECTED, now);
         }
 
@@ -54,19 +57,34 @@ public final class EconomicTransactionService {
         // that must not be run a second time.
         TransactionReceipt existing = world.transaction(transactionId);
         if (existing != null) {
-            return existing;
+            return existing.payloadHash() == prepared.payloadHash() && existing.reason() == reason
+                    && java.util.Objects.equals(existing.providerId(), providerId)
+                    && java.util.Objects.equals(existing.from(), from) && java.util.Objects.equals(existing.to(), to)
+                    ? existing : prepared.withState(TransactionReceipt.State.REJECTED, now);
         }
         if (world.hasTransactionReceipt(transactionId)) {
             // A pre-0.6.0 id, recorded when only "used" could be expressed. Nothing more is knowable.
             return prepared.withState(TransactionReceipt.State.REJECTED, now);
         }
-        if (!allowPartial && access.available() < requested) {
-            return prepared.withState(TransactionReceipt.State.REJECTED, now);
+        if (!world.putTransaction(prepared).stored()) return prepared.withState(TransactionReceipt.State.REJECTED, now);
+        long debited;
+        try {
+            if (!allowPartial && access.available() < requested) {
+                world.cancelPreparedTransaction(prepared);
+                return prepared.withState(TransactionReceipt.State.REJECTED, now);
+            }
+            if (!prepared.equals(world.transaction(transactionId)))
+                return prepared.withState(TransactionReceipt.State.REJECTED, now);
+            debited = access.debit(requested, reason);
+        } catch (RuntimeException failure) {
+            var unknown = prepared.withState(TransactionReceipt.State.NEEDS_RECONCILIATION, now);
+            world.putTransaction(unknown);
+            McaCrime.LOGGER.error("Transfer {} failed before the debit returned; retaining its reservation", transactionId, failure);
+            return unknown;
         }
-
-        long debited = access.debit(requested, reason);
         if (debited <= 0L) {
             // Nothing moved, so nothing is persisted: the id stays free and the caller may re-quote.
+            world.cancelPreparedTransaction(prepared);
             return prepared.withState(TransactionReceipt.State.REJECTED, now);
         }
 
@@ -75,7 +93,12 @@ public final class EconomicTransactionService {
                 prepared.payloadHash(), now);
         world.putTransaction(debitedReceipt);
         world.recordTransactionReceipt(transactionId);
-        world.setDirty(); // the debit is durable before the credit is attempted, not after
+        world.setDirty(); // schedules saving; this is not an atomic commit with the provider
+        if (debited > requested || !allowPartial && debited != requested) {
+            var unknown = debitedReceipt.withState(TransactionReceipt.State.NEEDS_RECONCILIATION, now);
+            world.putTransaction(unknown);
+            return unknown;
+        }
 
         boolean credited;
         try {
@@ -109,7 +132,8 @@ public final class EconomicTransactionService {
         if (purse == null || player == null) {
             return 0;
         }
-        TransactionReceipt receipt = transfer(world, transactionId, reason, providerId(), purseAccess(purse, player),
+        Currency currency = Currencies.active();
+        TransactionReceipt receipt = transfer(world, transactionId, reason, currency.id().toString(), purseAccess(purse, player, currency),
                 requested, true, null, player.getUUID(), now);
         return receipt.delivered() ? (int) Math.min(Integer.MAX_VALUE, receipt.amount()) : 0;
     }
@@ -122,8 +146,9 @@ public final class EconomicTransactionService {
         if (player == null || world == null) {
             return false;
         }
-        return transfer(world, transactionId, reason, providerId(),
-                treasuryAccess(world, treasury, initialBalance, player), amount, false, null,
+        Currency currency = Currencies.active();
+        return transfer(world, transactionId, reason, currency.id().toString(),
+                treasuryAccess(world, treasury, initialBalance, player, currency), amount, false, null,
                 player.getUUID(), now).delivered();
     }
 
@@ -134,17 +159,14 @@ public final class EconomicTransactionService {
         if (payer == null || recipient == null) {
             return false;
         }
-        return transfer(world, transactionId, reason, providerId(), playerAccess(payer, recipient), amount,
+        Currency currency = Currencies.active();
+        return transfer(world, transactionId, reason, currency.id().toString(), playerAccess(payer, recipient, currency), amount,
                 false, payer.getUUID(), recipient.getUUID(), now).delivered();
     }
 
     // ------------------------------------------------------------------ bindings
 
-    private static String providerId() {
-        return Currencies.active().id().toString();
-    }
-
-    private static PurseAccess purseAccess(VillagerPurse purse, ServerPlayer player) {
+    private static PurseAccess purseAccess(VillagerPurse purse, ServerPlayer player, Currency currency) {
         return new PurseAccess() {
             @Override
             public long available() {
@@ -158,13 +180,13 @@ public final class EconomicTransactionService {
 
             @Override
             public boolean credit(long amount, TransactionReason reason) {
-                return Currencies.active().tryCredit(player, amount, reason);
+                return currency.tryCredit(player, amount, reason);
             }
         };
     }
 
     private static PurseAccess treasuryAccess(CrimeWorldData world, String treasury, long initialBalance,
-                                              ServerPlayer player) {
+                                              ServerPlayer player, Currency currency) {
         return new PurseAccess() {
             @Override
             public long available() {
@@ -178,26 +200,26 @@ public final class EconomicTransactionService {
 
             @Override
             public boolean credit(long amount, TransactionReason reason) {
-                return Currencies.active().tryCredit(player, amount, reason);
+                return currency.tryCredit(player, amount, reason);
             }
         };
     }
 
-    private static PurseAccess playerAccess(ServerPlayer payer, ServerPlayer recipient) {
+    private static PurseAccess playerAccess(ServerPlayer payer, ServerPlayer recipient, Currency currency) {
         return new PurseAccess() {
             @Override
             public long available() {
-                return Currencies.active().balance(payer);
+                return currency.balance(payer);
             }
 
             @Override
             public long debit(long amount, TransactionReason reason) {
-                return Currencies.active().tryCharge(payer, amount, reason) ? amount : 0L;
+                return currency.tryCharge(payer, amount, reason) ? amount : 0L;
             }
 
             @Override
             public boolean credit(long amount, TransactionReason reason) {
-                return Currencies.active().tryCredit(recipient, amount, reason);
+                return currency.tryCredit(recipient, amount, reason);
             }
         };
     }

@@ -9,7 +9,6 @@ import net.minecraft.world.entity.LivingEntity;
 import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.event.entity.EntityJoinLevelEvent;
 import net.minecraftforge.event.entity.EntityLeaveLevelEvent;
-import net.minecraftforge.event.entity.living.LivingDeathEvent;
 import net.minecraftforge.event.server.ServerStoppingEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
@@ -64,11 +63,13 @@ public final class ThiefTicker {
         }
     }
 
-    @SubscribeEvent
-    public static void onDeath(LivingDeathEvent event) {
-        if (!event.getEntity().level().isClientSide()) {
-            end(event.getEntity().getUUID(), NpcMugAbortReason.THIEF_DEAD);
-        }
+    public static void confirmedDeath(UUID entity) {
+        end(entity, NpcMugAbortReason.THIEF_DEAD);
+    }
+
+    /** Job removed/changed or thieves disabled: end the session before releasing its controller. */
+    public static void stop(UUID entity) {
+        end(entity, NpcMugAbortReason.CANCELLED);
     }
 
     /**

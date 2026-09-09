@@ -12,6 +12,7 @@ import dev.otectus.mcacrime.job.WorldCriminalJobService;
 import dev.otectus.mcacrime.mug.npc.NpcMugSession;
 import dev.otectus.mcacrime.mug.npc.NpcMuggingService;
 import dev.otectus.mcacrime.state.world.CriminalVillagerRecord;
+import dev.otectus.mcacrime.state.world.CrimeWorldData;
 import dev.otectus.mcacrime.util.CrimeDebug;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.resources.ResourceKey;
@@ -84,8 +85,10 @@ public final class ThiefBehaviorService {
         if (server == null || WorldCriminalJobService.of(server).get(thief.getUUID()) != CriminalJob.THIEF) {
             return;
         }
-        ACTIVE.computeIfAbsent(thief.getUUID(), id ->
+        ThiefBehaviorController controller = ACTIVE.computeIfAbsent(thief.getUUID(), id ->
                 new ThiefBehaviorController(id, level.dimension().location(), level.getGameTime()));
+        reconcileCustody(controller, CrimeWorldData.get(server).isCaptive(thief.getUUID()),
+                level.getGameTime(), ThiefPolicy.fromConfig().mugCooldownTicks());
     }
 
     /** Stops driving this villager and hands it back to MCA if it is still loaded. */
@@ -96,7 +99,8 @@ public final class ThiefBehaviorService {
         }
         MinecraftServer server = net.minecraftforge.server.ServerLifecycleHooks.getCurrentServer();
         ServerLevel level = levelOf(server, controller.dimension());
-        if (level != null && level.getEntity(thief) instanceof LivingEntity entity) {
+        if (level != null && level.getEntity(thief) instanceof LivingEntity entity
+                && !CrimeWorldData.get(server).isCaptive(thief)) {
             McaCompat.releaseVillagerControl(entity);
         }
     }
@@ -148,16 +152,14 @@ public final class ThiefBehaviorService {
     }
 
     /**
-     * A guard reached this thief. The state machine turns the flag into {@link ThiefState#ARRESTED}
-     * on the next think, and nothing drives the villager from there until custody releases it.
+     * A guard took this thief into custody. Enter ARRESTED immediately, before another controller tick.
      */
     public static void markArrested(UUID thief) {
         ThiefBehaviorController controller = thief == null ? null : ACTIVE.get(thief);
         if (controller == null) {
             return;
         }
-        controller.markGuardIntervention();
-        controller.thinkAsSoonAsPossible();
+        reconcileCustody(controller, true, gameTime(controller), 0L);
     }
 
     /**
@@ -189,13 +191,16 @@ public final class ThiefBehaviorService {
      * @return false when the entity is not a tracked thief, or is not in a state to start one
      */
     public static boolean forceTarget(LivingEntity thief, ServerPlayer victim) {
-        if (thief == null || victim == null) {
+        if (thief == null || !(thief.level() instanceof ServerLevel level)
+                || !NpcMuggingService.canTarget(level, thief, victim)
+                || NpcMuggingService.isVictim(victim.getUUID())
+                || NpcMuggingService.sessionForThief(thief.getUUID()).isPresent()) {
             return false;
         }
         track(thief);
         ThiefBehaviorController controller = ACTIVE.get(thief.getUUID());
         if (controller == null || controller.state() == ThiefState.ARRESTED
-                || controller.state() == ThiefState.DEAD) {
+                || controller.state() == ThiefState.DEAD || targetedByAnother(controller, victim.getUUID())) {
             return false;
         }
         long now = victim.level().getGameTime();
@@ -242,13 +247,25 @@ public final class ThiefBehaviorService {
             controller.scheduleThink(now, THINK_INTERVAL_TICKS);
 
             Entity entity = level.getEntity(controller.thiefId());
-            if (!(entity instanceof LivingEntity thief) || !thief.isAlive()) {
+            if (!(entity instanceof LivingEntity thief) || thief.isRemoved()) {
                 // Unloaded or dead. The criminal job lives in world data and is unaffected.
                 finished.add(controller.thiefId());
                 continue;
             }
-            if (!enabled) {
+            // A canceled death can leave zero health until a revival handler repairs it. Pause;
+            // confirmed-death cleanup or entity unload owns removal of this controller.
+            if (!thief.isAlive()) continue;
+            if (thief.isSleeping()) {
+                dev.otectus.mcacrime.ai.NpcAwareness.settleSleeping(thief);
+                NpcMuggingService.abort(controller.victimId(), dev.otectus.mcacrime.mug.npc.NpcMugAbortReason.CANCELLED);
+                controller.setVictim(null);
+                controller.setTransactionId(null);
+                if (controller.state() != ThiefState.ARRESTED) controller.enter(ThiefState.COOLDOWN, now);
+                continue;
+            }
+            if (!enabled || WorldCriminalJobService.of(server).get(thief.getUUID()) != CriminalJob.THIEF) {
                 // Switched off mid-session: stop cleanly rather than freezing a thief mid-approach.
+                ThiefTicker.stop(controller.thiefId());
                 finished.add(controller.thiefId());
                 continue;
             }
@@ -265,6 +282,8 @@ public final class ThiefBehaviorService {
     /** @return false when this thief should stop being driven. */
     private static boolean think(MinecraftServer server, ServerLevel level, ThiefBehaviorController controller,
                                  LivingEntity thief, ThiefPolicy policy, long now) {
+        if (reconcileCustody(controller, CrimeWorldData.get(server).isCaptive(thief.getUUID()),
+                now, policy.mugCooldownTicks())) return true;
         ServerPlayer victim = victimOf(server, level, controller);
         if (controller.shouldEvaluateRisk(now) && controller.state() != ThiefState.COOLDOWN) {
             controller.scheduleRisk(now, RISK_INTERVAL_TICKS);
@@ -273,6 +292,10 @@ public final class ThiefBehaviorService {
 
         ThiefState previous = controller.state();
         ThiefStateMachine.ThiefSignals signals = signals(server, level, controller, thief, victim, policy, now);
+        if (previous == ThiefState.SCOUTING && signals.victimInvalid()) {
+            // A relationship/config change between scan and approach must also release the reservation.
+            controller.setVictim(null);
+        }
         ThiefState next = ThiefStateMachine.next(previous, signals);
         if (next != previous) {
             controller.enter(next, now);
@@ -290,15 +313,32 @@ public final class ThiefBehaviorService {
         };
     }
 
+    /** Custody survives entity/controller reloads. A missed release callback recovers into cooldown. */
+    public static boolean reconcileCustody(ThiefBehaviorController controller, boolean held,
+                                            long now, long cooldownTicks) {
+        if (held) {
+            controller.consumeGuardIntervention();
+            controller.setVictim(null);
+            controller.setTransactionId(null);
+            controller.enter(ThiefState.ARRESTED, now);
+        } else if (controller.state() == ThiefState.ARRESTED) {
+            controller.consumeGuardIntervention();
+            controller.enter(ThiefState.COOLDOWN, now);
+            controller.setCooldownUntil(now + Math.max(0L, cooldownTicks));
+        }
+        return held;
+    }
+
     /** Every fact the pure state machine is allowed to see, read once. */
     private static ThiefStateMachine.ThiefSignals signals(MinecraftServer server, ServerLevel level,
                                                           ThiefBehaviorController controller, LivingEntity thief,
                                                           @Nullable ServerPlayer victim, ThiefPolicy policy,
                                                           long now) {
-        boolean victimFound = victim != null;
+        boolean victimInvalid = controller.victimId() != null
+                && (victim == null || !NpcMuggingService.canTarget(level, thief, victim));
+        boolean victimFound = victim != null && !victimInvalid;
         boolean inReach = victim != null && thief.distanceToSqr(victim) <= THREAT_REACH * THREAT_REACH;
         boolean victimArmed = victim != null && WeaponDetector.isArmed(victim);
-        boolean victimInvalid = controller.victimId() != null && victim == null;
         Optional<NpcMugSession> session = NpcMuggingService.sessionForThief(controller.thiefId());
         boolean timerDone = switch (controller.state()) {
             // The threat is over the moment the session exists; the session's own timer runs the mug.
@@ -429,6 +469,8 @@ public final class ThiefBehaviorService {
 
         List<MugTargetSelector.VictimCandidate> candidates = new ArrayList<>(nearby.size());
         for (ServerPlayer player : nearby) {
+            // Apply the same protections as the live session before reading a potential victim's wealth.
+            if (!NpcMuggingService.canTarget(level, thief, player)) continue;
             int crowd = 0;
             for (ServerPlayer other : nearby) {
                 if (other != player && other.distanceToSqr(player) <= CROWD_RADIUS * CROWD_RADIUS) {
@@ -469,7 +511,7 @@ public final class ThiefBehaviorService {
         Vec3 nearestPosition = null;
         double nearest = Double.MAX_VALUE;
         for (LivingEntity responder : level.getEntitiesOfClass(LivingEntity.class, box,
-                entity -> entity != thief && entity.isAlive() && EntitySelectors.isResponder(entity))) {
+                entity -> entity != thief && EntitySelectors.isAvailableResponder(entity))) {
             double distance = Math.sqrt(thief.distanceToSqr(responder));
             sightings.add(new GuardRiskEvaluator.GuardSighting(distance, responder.hasLineOfSight(thief)));
             if (distance < nearest) {

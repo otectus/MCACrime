@@ -24,7 +24,13 @@ import java.util.function.Supplier;
  */
 public record GuardChallengeS2CPacket(boolean open, UUID encounterId, Component guardName,
                                       Component jurisdiction, int chargeCount, long assessedFine,
-                                      boolean canPay, long remainingTicks) {
+                                      boolean canPay, long remainingTicks, long revision) {
+
+    public GuardChallengeS2CPacket(boolean open, UUID encounterId, Component guardName,
+                                  Component jurisdiction, int chargeCount, long assessedFine,
+                                  boolean canPay, long remainingTicks) {
+        this(open, encounterId, guardName, jurisdiction, chargeCount, assessedFine, canPay, remainingTicks, 0L);
+    }
 
     public GuardChallengeS2CPacket {
         encounterId = encounterId == null ? new UUID(0L, 0L) : encounterId;
@@ -53,7 +59,7 @@ public record GuardChallengeS2CPacket(boolean open, UUID encounterId, Component 
                                                Component guardName, Component jurisdiction) {
         return new GuardChallengeS2CPacket(true, challenge.encounterId(), guardName, jurisdiction,
                 challenge.chargeCount(), challenge.assessedFine(), challenge.canPay(),
-                challenge.remaining(now));
+                challenge.remaining(now), challenge.revision());
     }
 
     /** The close form: everything else is ignored by the client when {@code open} is false. */
@@ -71,12 +77,19 @@ public record GuardChallengeS2CPacket(boolean open, UUID encounterId, Component 
         buf.writeVarLong(msg.assessedFine);
         buf.writeBoolean(msg.canPay);
         buf.writeVarLong(msg.remainingTicks);
+        buf.writeVarLong(msg.revision);
     }
 
     public static GuardChallengeS2CPacket decode(FriendlyByteBuf buf) {
         return new GuardChallengeS2CPacket(buf.readBoolean(), buf.readUUID(), buf.readComponent(),
                 buf.readComponent(), buf.readVarInt(), buf.readVarLong(), buf.readBoolean(),
-                buf.readVarLong());
+                buf.readVarLong(), readRevision(buf));
+    }
+
+    private static long readRevision(FriendlyByteBuf buf) {
+        long value = buf.readVarLong();
+        if (value < 0L) throw new io.netty.handler.codec.DecoderException("Negative challenge revision");
+        return value;
     }
 
     public static void handle(GuardChallengeS2CPacket msg, Supplier<NetworkEvent.Context> ctx) {

@@ -18,13 +18,20 @@ import net.minecraft.resources.ResourceLocation;
  * </ul>
  */
 public record CrimeType(ResourceLocation id, long karmaDelta, long heatDelta,
-                        double witnessedMultiplier, String victimTag) {
+                        double witnessedMultiplier, String victimTag, CrimeAwareness awareness) {
+
+    public CrimeType(ResourceLocation id, long karmaDelta, long heatDelta,
+                     double witnessedMultiplier, String victimTag) {
+        this(id, karmaDelta, heatDelta, witnessedMultiplier, victimTag, CrimeAwareness.defaults(id));
+    }
 
     public static final Codec<CrimeType> CODEC = RecordCodecBuilder.create(instance -> instance.group(
             ResourceLocation.CODEC.fieldOf("id").forGetter(CrimeType::id),
             Codec.LONG.fieldOf("karmaDelta").forGetter(CrimeType::karmaDelta),
             Codec.LONG.fieldOf("heatDelta").forGetter(CrimeType::heatDelta),
             Codec.DOUBLE.optionalFieldOf("witnessedMultiplier", 1.0).forGetter(CrimeType::witnessedMultiplier),
-            Codec.STRING.optionalFieldOf("victimTag", "").forGetter(CrimeType::victimTag)
-    ).apply(instance, CrimeType::new));
+            Codec.STRING.optionalFieldOf("victimTag", "").forGetter(CrimeType::victimTag),
+            CrimeAwareness.optional(CrimeAwareness.CODEC, "awareness").forGetter(t -> java.util.Optional.of(t.awareness()))
+    ).apply(instance, (id, karma, heat, multiplier, tag, awareness) ->
+            new CrimeType(id, karma, heat, multiplier, tag, awareness.orElseGet(() -> CrimeAwareness.defaults(id)))));
 }

@@ -9,6 +9,10 @@ import dev.otectus.mcacrime.captivity.CustodyRegistry;
 import dev.otectus.mcacrime.captivity.CustodyService;
 import dev.otectus.mcacrime.compat.McaCompat;
 import dev.otectus.mcacrime.economy.SentenceCalculator;
+import dev.otectus.mcacrime.detect.EntitySelectors;
+import dev.otectus.mcacrime.ledger.CrimeRecord;
+import dev.otectus.mcacrime.ledger.SentenceAssignmentService;
+import dev.otectus.mcacrime.memory.ReportService;
 import dev.otectus.mcacrime.engine.CrimeState;
 import dev.otectus.mcacrime.jail.HoldingCell;
 import dev.otectus.mcacrime.jail.HoldingCellService;
@@ -18,6 +22,7 @@ import dev.otectus.mcacrime.jail.JailService;
 import dev.otectus.mcacrime.state.CrimeCapabilities;
 import dev.otectus.mcacrime.state.PlayerCrimeData;
 import dev.otectus.mcacrime.state.world.CrimeWorldData;
+import dev.otectus.mcacrime.state.world.ServerMutationGate;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
@@ -26,6 +31,7 @@ import net.minecraft.world.entity.LivingEntity;
 
 import javax.annotation.Nullable;
 import java.util.OptionalLong;
+import java.util.List;
 import java.util.UUID;
 
 /**
@@ -108,17 +114,34 @@ public final class ArrestService {
                                  Cause cause, OptionalLong sentencingHeat) {
         MinecraftServer server = player == null ? null : player.getServer();
         if (server == null || !(player.level() instanceof ServerLevel level)
-                || !player.isAlive() || player.isSpectator()) {
+                || !player.isAlive() || player.isSpectator() || !ServerMutationGate.allows(server)) {
             return Outcome.REFUSED;
         }
+        double authorityReach = cause == Cause.VOLUNTARY_SURRENDER
+                ? McaCrimeConfig.COMMON.surrenderNearRadius.get() : McaCrimeConfig.COMMON.guardChallengeRadius.get();
+        if (arrestingResponder != null && (!dev.otectus.mcacrime.ai.NpcAwareness.isAwake(arrestingResponder)
+                || arrestingResponder.level() != level || !EntitySelectors.isResponder(arrestingResponder)
+                || !arrestingResponder.hasLineOfSight(player)
+                || arrestingResponder.distanceToSqr(player) > authorityReach * authorityReach)) return Outcome.REFUSED;
+        if (cause == Cause.GUARD_INITIATED && arrestingResponder == null) return Outcome.REFUSED;
+        if (arrestingResponder != null && (ResponderAssignments.isEscorting(server,
+                arrestingResponder.getUUID(), player.getUUID()) || NpcCriminalPursuit.isAssignedElsewhere(
+                arrestingResponder.getUUID(), player.getUUID()))) return Outcome.REFUSED;
         CustodyRecord held = CrimeWorldData.get(server).getCustody(player.getUUID());
         if (held != null && !held.isLawful()) {
             // Being kidnapped is not a state you can be arrested out of. Somebody else is holding them
             // against the law, and the answer to that is a rescue, not a second set of chains.
             return Outcome.REFUSED;
         }
+        if (held != null && held.getOwner().type() != CustodyOwnerType.BOUNTY_HUNTER
+                && !JailService.isJailed(player)) return Outcome.REFUSED;
 
-        int charges = CrimeWorldData.get(server).actionableFor(player.getUUID()).size();
+        List<CrimeRecord> assessed = CrimeWorldData.get(server).actionableFor(player.getUUID());
+        if (arrestingResponder != null) {
+            assessed = dev.otectus.mcacrime.justice.JusticeService.forGuard(level, arrestingResponder, player).cases();
+        }
+        List<UUID> assessedCaseIds = assessed.stream().map(CrimeRecord::id).toList();
+        int charges = assessedCaseIds.size();
         if (cause == Cause.GUARD_INITIATED && !hasBasis(server, level, player, arrestingResponder, charges)) {
             return abort(player, Outcome.REFUSED, null);
         }
@@ -139,18 +162,15 @@ public final class ArrestService {
             // The waiver belongs in the number, not in an edit applied to a sentence afterwards.
             sentence = SentenceCalculator.afterSurrender(sentence, c.surrenderSentenceReductionPct.get());
         }
-        if (charges <= 0 && heat <= 0L) {
-            return abort(player, Outcome.NO_SENTENCE, null);
-        }
         if (JailService.isJailed(player)) {
-            // Extend-only, except for a surrender, which is the one caller entitled to shorten a term.
-            // The refusal is propagated rather than discarded: a sentence that could not be written is
-            // a surrender that must not report itself as accepted, or the caller banks the discount for
-            // a term nobody is serving.
-            if (!JailService.jail(player, sentence, null, null, voluntary)) {
+            // Recapture resumes the assessed sentence. Repeated arrest never re-prices or expands it.
+            if (!JailService.recapture(player)) {
                 return abort(player, Outcome.NO_CELL, "mcacrime.arrest.no_cell");
             }
             return Outcome.ALREADY_SERVING;
+        }
+        if (charges <= 0 && heat <= 0L) {
+            return abort(player, Outcome.NO_SENTENCE, null);
         }
 
         // Record the arrest before anything can fail, so no failure path can leave the player marked as
@@ -158,6 +178,7 @@ public final class ArrestService {
         ArrestStates.surrendered(player, arrestingResponder == null ? null : arrestingResponder.getUUID(),
                 null);
         ArrestState state = ArrestStates.of(player);
+        if (state != null) state.setSurrenderCredited(voluntary);
         UUID sentenceId = state == null ? UUID.randomUUID() : state.getSentenceId();
 
         JailAnchor destination = resolveDestination(server, level, player, arrestingResponder, sentenceId);
@@ -180,6 +201,15 @@ public final class ArrestService {
             // The custody record is what the sentence, the escort and the release all hang off. An
             // arrest that carried on without one used to arm the escort anyway, and the discarded
             // refusal became a player walking to a cell nothing believed they were being taken to.
+            HoldingCellService.releaseAndDismantle(server, player.getUUID());
+            return abort(player, Outcome.NO_CUSTODY, "mcacrime.arrest.no_custody");
+        }
+
+        if (!SentenceAssignmentService.assign(CrimeWorldData.get(server), player.getUUID(),
+                sentenceId, assessedCaseIds, level.getGameTime())) {
+            CustodyService.release(server, player.getUUID(),
+                    dev.otectus.mcacrime.captivity.CustodyReleaseReason.ADMIN);
+            HoldingCellService.releaseAndDismantle(server, player.getUUID());
             return abort(player, Outcome.NO_CUSTODY, "mcacrime.arrest.no_custody");
         }
         // Surrendering ends the resistance. Whatever the player did a moment ago, they are complying now.
@@ -188,7 +218,9 @@ public final class ArrestService {
         ArrestStates.arm(player, destination, sentence, c.arrestEscortTimeoutTicks.get());
         ArrestStates.transition(player, ArrestPhase.RESTRAINED);
 
-        EscortService.begin(player, arrestingResponder, destination, sentence);
+        if (!EscortService.beginChecked(player, arrestingResponder, destination, sentence)) {
+            return abort(player, Outcome.NO_CELL, "mcacrime.arrest.no_cell");
+        }
         player.sendSystemMessage(Component.translatable("mcacrime.arrest.taken"));
         if (hunter != null) {
             // The delivery is only real once the arrest is: a hunter who walks an outlaw past a guard
@@ -261,11 +293,10 @@ public final class ArrestService {
      */
     private static boolean hasBasis(MinecraftServer server, ServerLevel level, ServerPlayer player,
                                     @Nullable LivingEntity responder, int charges) {
-        boolean warrant = dev.otectus.mcacrime.memory.ReportService.warrantExists(server, player.getUUID(),
-                responder == null ? null : dev.otectus.mcacrime.memory.ReportService.jurisdictionOf(level, responder),
-                level.getGameTime());
-        return ChallengeBasis.hasBasis(charges, warrant,
-                LegalTarget.isEscapedPrisoner(player), LegalTarget.isHoldingCaptive(player));
+        // The assessment already checked testimony against live cases. A stale report is not a charge.
+        return ChallengeBasis.hasBasis(charges, false,
+                LegalTarget.isEscapedPrisoner(player), LegalTarget.isHoldingCaptive(player),
+                CrimeState.isWanted(player), LegalTarget.isResistingArrest(player));
     }
 
     /**

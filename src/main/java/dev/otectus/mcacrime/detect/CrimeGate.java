@@ -1,7 +1,6 @@
 package dev.otectus.mcacrime.detect;
 
 import dev.otectus.mcacrime.McaCrimeConfig;
-import dev.otectus.mcacrime.compat.McaCompat;
 import dev.otectus.mcacrime.enforcement.OutlawResolver;
 import dev.otectus.mcacrime.enforcement.OutlawStatus;
 import net.minecraft.server.level.ServerLevel;
@@ -9,7 +8,6 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
-import net.minecraft.world.entity.raid.Raid;
 import net.minecraftforge.common.util.FakePlayer;
 
 import java.util.Optional;
@@ -54,7 +52,7 @@ public final class CrimeGate {
         }
         // 2. Resolve the true attacker (arrow -> shooter). No responsible entity => environmental/indirect
         //    (lava, dispenser, fall, suffocation, mob-knockback-into-hazard) => not a crime.
-        Entity responsible = source.getEntity();
+        Entity responsible = responsibleActor(source);
         if (responsible == null) {
             return Optional.empty();
         }
@@ -81,17 +79,16 @@ public final class CrimeGate {
                 return Optional.empty();
             }
         }
-        // 7. Raid grace: an accidental cleave on a villager mid-raid is not a crime.
-        if (McaCrimeConfig.COMMON.raidGrace.get()) {
-            Raid raid = level.getRaidAt(victim.blockPosition());
-            if (raid != null && raid.isActive()) {
-                return Optional.empty();
-            }
-        }
-        // 8. Self-defense: if the villager is already targeting the attacker, retaliation is lawful.
-        if (McaCompat.getMcaTarget(victim).map(target -> target == player).orElse(false)) {
-            return Optional.empty();
-        }
+        // Combat provenance and limited raid grace are evaluated after damage finality.
+        // An AI attack target is never evidence that its opponent did not provoke it.
         return Optional.of(player);
+    }
+
+    /** Projectile owners are supplied by DamageSource; a loaded tame animal can name its owner. */
+    public static Entity responsibleActor(DamageSource source) {
+        Entity actor = source.getEntity();
+        if (actor instanceof net.minecraft.world.entity.TamableAnimal pet
+                && pet.getOwner() instanceof ServerPlayer owner) return owner;
+        return actor;
     }
 }

@@ -68,6 +68,24 @@ public final class McaCrimeConfig {
         public final ForgeConfigSpec.IntValue witnessRadius;
         public final ForgeConfigSpec.IntValue harmCooldownTicks;
         public final ForgeConfigSpec.IntValue maxStoredWitnesses;
+        public final ForgeConfigSpec.BooleanValue enableWitnessSystem;
+        public final ForgeConfigSpec.DoubleValue visualWitnessRadiusMultiplier;
+        public final ForgeConfigSpec.DoubleValue auditoryWitnessRadiusMultiplier;
+        public final ForgeConfigSpec.BooleanValue enableWitnessGossip;
+        public final ForgeConfigSpec.BooleanValue enableDynamicCompliance;
+        public final ForgeConfigSpec.BooleanValue enablePanic;
+        public final ForgeConfigSpec.BooleanValue enableStalling;
+        public final ForgeConfigSpec.BooleanValue enablePleading;
+        public final ForgeConfigSpec.IntValue threatReevaluationTicks;
+        public final ForgeConfigSpec.DoubleValue meleeThreatRange;
+        public final ForgeConfigSpec.DoubleValue rangedThreatRange;
+        public final ForgeConfigSpec.BooleanValue enableVictimMemory;
+        public final ForgeConfigSpec.BooleanValue enableFamilyMemory;
+        public final ForgeConfigSpec.BooleanValue enableMemoryRestitution;
+        public final ForgeConfigSpec.BooleanValue enableApologies;
+        public final ForgeConfigSpec.DoubleValue memoryDecayMultiplier;
+        public final ForgeConfigSpec.IntValue maximumMemoriesPerVillager;
+        public final ForgeConfigSpec.IntValue apologyCooldownTicks;
 
         // observations and reports (§12) — the identity-carrying replacement for the witness count
         public final ForgeConfigSpec.BooleanValue enableObservations;
@@ -162,6 +180,8 @@ public final class McaCrimeConfig {
         public final ForgeConfigSpec.IntValue captorDisconnectGraceTicks;
         public final ForgeConfigSpec.IntValue escapeWorkTicksRope;
         public final ForgeConfigSpec.IntValue escapeWorkTicksCuffs;
+        public final ForgeConfigSpec.IntValue escapeWorkTicksLockedCuffs;
+        public final ForgeConfigSpec.BooleanValue cuffEscapeRequiresLockpick;
         public final ForgeConfigSpec.IntValue escapeAttemptCooldownTicks;
 
         // NPC crime (§9) — skeleton
@@ -187,6 +207,7 @@ public final class McaCrimeConfig {
         // criminalJobs.thief (0.5.1) -- read by the ai/thief package through ThiefPolicy
         public final ForgeConfigSpec.IntValue thiefMugDurationTicks;
         public final ForgeConfigSpec.IntValue thiefMugCooldownTicks;
+        public final ForgeConfigSpec.IntValue thiefMugProtectionHearts;
         public final ForgeConfigSpec.IntValue thiefScanIntervalTicks;
         public final ForgeConfigSpec.DoubleValue thiefTargetSearchRadius;
         public final ForgeConfigSpec.DoubleValue thiefGuardAvoidRadius;
@@ -306,6 +327,9 @@ public final class McaCrimeConfig {
         public final ForgeConfigSpec.BooleanValue enableMugging;
         public final ForgeConfigSpec.IntValue muggingBaseLoot;
         public final ForgeConfigSpec.BooleanValue enableProfessionDeathDrops;
+        public final ForgeConfigSpec.BooleanValue dropVillagerEquipment;
+        public final ForgeConfigSpec.BooleanValue dropVillagerTradeStock;
+        public final ForgeConfigSpec.IntValue maxTradeDeathDropStacks;
         public final ForgeConfigSpec.IntValue muggingChannelTicks;
         public final ForgeConfigSpec.IntValue muggingAttemptCooldownTicks;
         public final ForgeConfigSpec.IntValue muggingVictimRecoveryTicks;
@@ -367,7 +391,9 @@ public final class McaCrimeConfig {
                     .defineInRange("karmaBlueThreshold", 100, -1_000_000, 1_000_000);
             karmaRedThreshold = b.comment("Karma at or below this is the Red (outlaw) band. Must be < blueThreshold.")
                     .defineInRange("karmaRedThreshold", -100, -1_000_000, 1_000_000);
-            wantedHeatThreshold = b.comment("Heat at or above this makes a player Wanted (actively pursued).")
+            wantedHeatThreshold = b.comment(
+                    "Heat at or above this makes a player Wanted. Nearby available guards and archers",
+                    "pursue and challenge them even without a crime report, including Heat set by commands.")
                     .defineInRange("wantedHeatThreshold", 50, 0, 1_000_000);
             b.pop();
 
@@ -493,6 +519,32 @@ public final class McaCrimeConfig {
                     .defineInRange("complianceHelpThreshold", 0.5, 0.0, 1.0);
             b.pop();
 
+            b.push("crimeAwareness");
+            enableWitnessSystem = b.define("enableWitnessSystem", true);
+            visualWitnessRadiusMultiplier = b.defineInRange("visualWitnessRadiusMultiplier", 1.0, 0.0, 2.0);
+            auditoryWitnessRadiusMultiplier = b.defineInRange("auditoryWitnessRadiusMultiplier", 1.0, 0.0, 2.0);
+            enableWitnessGossip = b.comment("Allow a direct witness to inform one nearby relative after a delay.")
+                    .define("enableWitnessGossip", true);
+            b.pop();
+            b.push("intimidation");
+            enableDynamicCompliance = b.define("enableDynamicCompliance", true);
+            enablePanic = b.define("enablePanic", true);
+            enableStalling = b.define("enableStalling", true);
+            enablePleading = b.define("enablePleading", true);
+            threatReevaluationTicks = b.defineInRange("threatReevaluationTicks", 10, 5, 100);
+            meleeThreatRange = b.defineInRange("meleeThreatRange", 6.0, 1.0, 12.0);
+            rangedThreatRange = b.defineInRange("rangedThreatRange", 24.0, 4.0, 64.0);
+            b.pop();
+            b.push("victimMemory");
+            enableVictimMemory = b.define("enableVictimMemory", true);
+            enableFamilyMemory = b.define("enableFamilyMemory", true);
+            enableMemoryRestitution = b.define("enableRestitution", true);
+            enableApologies = b.define("enableApologies", true);
+            memoryDecayMultiplier = b.defineInRange("memoryDecayMultiplier", 1.0, 0.0, 10.0);
+            maximumMemoriesPerVillager = b.defineInRange("maximumMemoriesPerVillager", 24, 1, 64);
+            apologyCooldownTicks = b.defineInRange("apologyCooldownTicks", 24000, 1200, 168000);
+            b.pop();
+
             b.comment("Data-driven villager lines. The server picks the line; the client renders the key.")
                     .push("dialogue");
             enableDialogue = b.define("enableDialogue", true);
@@ -509,7 +561,7 @@ public final class McaCrimeConfig {
 
             b.push("enforcement");
             pvpCountsAsCrime = b.define("pvpCountsAsCrime", false);
-            raidGrace = b.comment("Suppress crime detection during an active village raid.")
+            raidGrace = b.comment("Forgive one nonlethal indirect explosion against a protected non-player, non-responder per combat encounter during an active raid. Direct/repeated attacks and killing remain crimes.")
                     .define("raidGrace", true);
             redIsLegalTarget = b.define("redIsLegalTarget", false);
             allowKillingRed = b.define("allowKillingRed", false);
@@ -524,13 +576,15 @@ public final class McaCrimeConfig {
             villagerFleeRadius = b.comment("How close (blocks) a Red player must be for villagers to flee.")
                     .defineInRange("villagerFleeRadius", 10.0, 1.0, 64.0);
             enableGuardChallenge = b.comment(
-                    "A guard with a report challenges before it attacks: it states the charge and opens a",
-                    "window to surrender, pay, or refuse. Off returns guards to attacking a Wanted player",
+                    "Guards and archers challenge Wanted players or reported suspects before attacking.",
+                    "They state the reason and open a window to surrender, pay, or refuse.",
+                    "Off returns guards to attacking a Wanted player",
                     "on sight, which is the behaviour this replaces.")
                     .define("enableGuardChallenge", true);
             guardChallengeWindowTicks = b.comment(
-                    "How long a challenged player has to answer. No answer is a refusal, not a pardon.")
-                    .defineInRange("guardChallengeWindowTicks", 200, 20, 12000);
+                    "How long a challenged player has to answer. No answer is a refusal, not a pardon.",
+                    "At least 300 ticks (15 seconds), starting when the menu is displayed; delivery grace is bounded.")
+                    .defineInRange("guardChallengeWindowTicks", 300, 300, 12000);
             guardChallengeRadius = b.comment("How close a guard must be to issue or keep a challenge.")
                     .defineInRange("guardChallengeRadius", 6.0, 1.0, 32.0);
             resistingArrestTicks = b.comment(
@@ -628,11 +682,12 @@ public final class McaCrimeConfig {
             restraintEscapeChanceRope = b.comment("Per-attempt chance a captive breaks free of each restraint.")
                     .defineInRange("restraintEscapeChanceRope", 0.25, 0.0, 1.0);
             restraintEscapeChanceCuffs = b.defineInRange("restraintEscapeChanceCuffs", 0.08, 0.0, 1.0);
-            restraintEscapeChanceLockedCuffs = b.comment("Locked cuffs: 0 means escape needs a key/rescue (Phase 7), not a roll.")
+            restraintEscapeChanceLockedCuffs = b.comment("Without Locks Reforged, 0 disables timed escape from locked cuffs. With Locks installed, cuffs use its minigame instead.")
                     .defineInRange("restraintEscapeChanceLockedCuffs", 0.0, 0.0, 1.0);
             captiveTetherBlocks = b.comment("How far (blocks) a captive may stray from the hold point before being tethered back or (if allowed) escaping.")
                     .defineInRange("captiveTetherBlocks", 6.0, 1.0, 128.0);
-            captiveCanEscapeByDistance = b.comment("If true, a kidnapping captive who strays past the tether escapes (no crime); if false they are pulled back.")
+            captiveCanEscapeByDistance = b.comment("If true, a kidnapping captive who strays past the tether escapes (no crime); if false they are pulled back.",
+                            "Cuffs always tether back when Locks Reforged is installed: self-escape requires solving their lock.")
                     .define("captiveCanEscapeByDistance", true);
             npcCaptiveVirtualizeWhenUnloaded = b.comment("If true, an NPC captive in an unloaded chunk is virtually contained instead of force-loading the chunk.")
                     .define("npcCaptiveVirtualizeWhenUnloaded", true);
@@ -644,6 +699,11 @@ public final class McaCrimeConfig {
                     .defineInRange("escapeWorkTicksRope", 200, 1, 72000);
             escapeWorkTicksCuffs = b.comment("Continuous escape work required for ordinary cuffs.")
                     .defineInRange("escapeWorkTicksCuffs", 600, 1, 72000);
+            escapeWorkTicksLockedCuffs = b.comment("Work duration for locked cuffs when Locks Reforged is absent and their escape chance is nonzero.")
+                    .defineInRange("escapeWorkTicksLockedCuffs", 1200, 1, 72000);
+            cuffEscapeRequiresLockpick = b.comment("With Locks Reforged installed, require a lockpick anywhere in the inventory for cuff lockpicking.",
+                    "False permits the native minigame without an item. Both cuff types always require winning the minigame when Locks is present.")
+                    .define("cuffEscapeRequiresLockpick", false);
             enableRescue = b.comment(
                     "Let a third party free somebody else's captive. This is the counterplay to kidnapping:",
                     "with it off, only the captor or the captive can ever end a captivity.")
@@ -708,6 +768,12 @@ public final class McaCrimeConfig {
                     .defineInRange("mugDurationTicks", 80, 20, 600);
             thiefMugCooldownTicks = b.comment("How long a thief waits after one mugging before looking for another.")
                     .defineInRange("mugCooldownTicks", 12000, 0, 240000);
+            thiefMugProtectionHearts = b.comment(
+                    "A villager will not mug a player whose MCA relationship hearts with that villager",
+                    "are at or above this threshold. Checked during approach and throughout the mug,",
+                    "including before theft. 0 protects neutral and positive relationships; -1 disables",
+                    "only this relationship protection. Uses hearts, not Karma or village reputation.")
+                    .defineInRange("mugProtectionHearts", 50, -1, 1000);
             thiefScanIntervalTicks = b.comment("Ticks between a scouting thief's target scans.")
                     .defineInRange("scanIntervalTicks", 30, 10, 200);
             thiefTargetSearchRadius = b.comment("How far a thief will consider a victim.")
@@ -902,8 +968,8 @@ public final class McaCrimeConfig {
                     "potion effect, so it is not visible, not dispellable with milk, and emits no particles.")
                     .defineInRange("escortSpeedPenalty", 0.35, 0.0, 0.9);
             escortWalkSpeed = b.comment(
-                    "How fast the guard walks while escorting a prisoner. Below 1.0 reads as a deliberate",
-                    "march rather than a chase, and keeps the guard inside the leash radius.")
+                    "Walking pace relative to normal villager navigation. MCA's raw navigation multiplier",
+                    "is halved, with an effective movement cap; the guard waits before the lead gets taut.")
                     .defineInRange("escortWalkSpeed", 0.9, 0.1, 2.0);
             escortNavigationIntervalTicks = b.comment(
                     "How often the escort reissues its walk order. MCA villagers run their own brain, so a",
@@ -911,8 +977,9 @@ public final class McaCrimeConfig {
                     "reissued on a cadence and whenever the previous path finishes.")
                     .defineInRange("escortNavigationIntervalTicks", 20, 1, 200);
             escortStuckScans = b.comment(
-                    "How many consecutive escort scans may pass without the prisoner getting closer to the",
-                    "jail before the arrest is completed by teleport instead. This is the door, terrain and",
+                    "How many consecutive escort scans may pass without either guard or prisoner moving toward the",
+                    "next part of the route before intake completes by teleport. Detours count as progress.",
+                    "This is the door, terrain and",
                     "pathfinding failsafe: a guard that cannot find its way must never be able to cancel a",
                     "sentence, only to finish it less gracefully.")
                     .defineInRange("escortStuckScans", 6, 1, 100);
@@ -987,9 +1054,9 @@ public final class McaCrimeConfig {
             weaponTriggerAllowOffHand = b.comment("Also open the menu for an off-hand weapon interaction.")
                     .define("allowOffHand", true);
             requireWeaponForCrimeMenu = b.comment(
-                    "Require a drawn weapon before the Crime menu will open, however it was reached --",
-                    "including the button on MCA's own interaction screen. Turning this off makes every",
-                    "coercive action available with empty hands.")
+                    "Require a drawn weapon for coercive entries in the Crime menu, however it was reached.",
+                    "Peaceful options such as apologies remain reachable with empty hands. Turning this",
+                    "off removes the menu weapon gate; individual action requirements still apply.")
                     .define("requireWeaponForCrimeMenu", true);
             b.pop();
 
@@ -1051,11 +1118,20 @@ public final class McaCrimeConfig {
                     .defineInRange("villageTreasuryInitialBalance", 64, 0, 1_000_000);
             b.pop();
 
+            b.push("loot");
+            dropVillagerEquipment = b.comment("Drop actual equipped items on MCA villager death, preserving item data and respecting vanishing enchantments. MCA owns carried inventory drops.")
+                    .define("dropEquipment", true);
+            dropVillagerTradeStock = b.comment("Drop one purchase worth of output from each unlocked, non-exhausted trade on MCA villager death, including fence goods. Respects doMobLoot.")
+                    .define("dropTradeStock", true);
+            maxTradeDeathDropStacks = b.comment("Maximum item stacks from trade stock per death. Bounds unusually large modded offers; equipment is separate.")
+                    .defineInRange("maxTradeDropStacks", 128, 1, 4096);
+            b.pop();
+
             b.push("mugging");
             enableMugging = b.define("enableMugging", true);
             muggingBaseLoot = b.comment("Emeralds a villager 'pays' on a successful mugging.")
                     .defineInRange("muggingBaseLoot", 4, 0, 1_000_000);
-            enableProfessionDeathDrops = b.comment("If true, a villager killed while resisting a mugging drops profession loot; default false favors robbery over murder (§8.6).")
+            enableProfessionDeathDrops = b.comment("Legacy small profession drops for player kills, only when loot.dropTradeStock is disabled. Actual equipment and trade stock use the loot section.")
                     .define("enableProfessionDeathDrops", false);
             muggingChannelTicks = b.comment("Overt threat channel duration before a mugging resolves.")
                     .defineInRange("muggingChannelTicks", 60, 1, 6000);
@@ -1197,6 +1273,7 @@ public final class McaCrimeConfig {
         public final ForgeConfigSpec.BooleanValue showNpcMuggingHud;
         public final ForgeConfigSpec.EnumValue<CrimeButtonAnchor> crimeButtonAnchor;
         public final ForgeConfigSpec.EnumValue<dev.otectus.mcacrime.client.hud.HudAnchor> hudAnchor;
+        public final ForgeConfigSpec.IntValue hudLayoutVersion;
         public final ForgeConfigSpec.IntValue hudOffsetX;
         public final ForgeConfigSpec.IntValue hudOffsetY;
 
@@ -1242,8 +1319,11 @@ public final class McaCrimeConfig {
                     "Show the bar and the hint line while a thief is mugging you. Presentation only --",
                     "with it off the mugging still runs, and drawing a weapon still stops it.")
                     .define("showNpcMuggingHud", true);
-            hudAnchor = b.comment("Which screen corner or edge the status and custody boxes sit against.",
-                            "Bottom anchors are lifted clear of the hotbar and health rows automatically.",
+            hudLayoutVersion = b.comment("HUD migration marker; managed automatically.")
+                    .defineInRange("hudLayoutVersion", 0, 0, 1);
+            hudAnchor = b.comment("Which screen corner or edge the combined Heat and Sentence panel sits against.",
+                            "BOTTOM_LEFT fits below chat and to the left of the hotbar, scaling down if needed.",
+                            "The panel hides while typing in chat. Other bottom anchors clear the health rows.",
                             "The channel bar always sits above the hotbar, where the eye already is.")
                     .defineEnum("hudAnchor", dev.otectus.mcacrime.client.hud.HudAnchor.BOTTOM_LEFT);
             hudOffsetX = b.comment("Horizontal nudge inward from the anchored edge, in pixels -- right from a",

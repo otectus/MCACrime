@@ -226,6 +226,7 @@ public final class McaBinding {
     public static final Member GET_MEMORIES_FOR_PLAYER = virtual(C_BRAIN, "getMemoriesForPlayer", Object.class, 1);
     public static final Member REWARD_HEARTS = virtual(C_BRAIN, "rewardHearts", void.class, 2);
     public static final Member GET_HEARTS = virtual(C_MEMORIES, "getHearts", int.class, 0);
+    public static final Member GET_PERSONALITY = optionalVirtual(C_BRAIN, "getPersonality", Object.class, 0);
 
     // Residency / Village — the per-village reputation key -------------------------------------------
     public static final Member GET_HOME_VILLAGE = virtual(C_RESIDENCY, "getHomeVillage", Object.class, 0);
@@ -292,7 +293,7 @@ public final class McaBinding {
     public static final List<Member> MANIFEST = List.of(
             VILLAGER_CLASS, VILLAGER_LIKE_CLASS,
             GET_VILLAGER_BRAIN, GET_RESIDENCY, GET_PROFESSION_ID, GET_AGE_STATE,
-            GET_MEMORIES_FOR_PLAYER, REWARD_HEARTS, GET_HEARTS,
+            GET_MEMORIES_FOR_PLAYER, REWARD_HEARTS, GET_HEARTS, GET_PERSONALITY,
             GET_HOME_VILLAGE, VILLAGE_GET_ID,
             VILLAGE_GET_NAME, VILLAGE_MANAGER_GET, VILLAGE_MANAGER_GET_OR_EMPTY,
             VILLAGE_GET_RESIDENTS, VILLAGE_GET_POPULATION, VILLAGE_IS_VILLAGE,

@@ -103,14 +103,15 @@ public final class CrimeReactionService {
         if (!McaCrimeConfig.COMMON.enableVillagerReactions.get() || level == null || villager == null) {
             return null;
         }
-        if (!McaCompat.isMcaVillager(villager) || !villager.isAlive()) {
+        if (!McaCompat.isMcaVillager(villager) || !NpcAwareness.isAwake(villager)) {
             return null;
         }
-        if (LawHold.isHeld(villager.getUUID(), level.getGameTime())) {
-            // This villager is a responder mid-arrest. A reaction controller would take over its
-            // navigation and, on its way out, clear the enforcement target -- which it would do twice
-            // as often as the guard scan could re-apply it. Enforcement outranks reaction; the guard
-            // reacts normally again the moment the hold lapses.
+        if (initial != VictimReactionState.CAPTIVE && dev.otectus.mcacrime.state.world.CrimeWorldData
+                .get(level.getServer()).isCaptive(villager.getUUID())) return null;
+        if (!ReactionControlPolicy.mayControl(EntitySelectors.isResponder(villager),
+                LawHold.isHeld(villager.getUUID(), level.getGameTime()), initial)) {
+            // Law roles retain enforcement/combat AI, even while injured or facing an armed suspect.
+            // A civilian fear controller must not take over their route or clear their combat target.
             return null;
         }
         ActiveCrimeReactionController existing = ACTIVE.get(villager.getUUID());
@@ -118,6 +119,7 @@ public final class CrimeReactionService {
             // A second offender takes over an already-panicking villager rather than queueing behind
             // the first: whoever is threatening them right now is what they are reacting to.
             existing.retarget(offender);
+            existing.carryObservation(observationId);
             transition(level, existing, initial, durationOf(initial));
             return existing;
         }
@@ -157,7 +159,7 @@ public final class CrimeReactionService {
         if (level != null) {
             release(level, villager);
         }
-        MinecraftForge.EVENT_BUS.post(new WitnessReactionChangedEvent(villager, controller.offenderId(),
+        dev.otectus.mcacrime.incident.IncidentNotifications.post(new WitnessReactionChangedEvent(villager, controller.offenderId(),
                 controller.state(), VictimReactionState.CALM));
     }
 
@@ -195,6 +197,11 @@ public final class CrimeReactionService {
         if (ACTIVE.isEmpty() || server == null) {
             return;
         }
+        if (!McaCrimeConfig.COMMON.enableVillagerReactions.get()
+                || !dev.otectus.mcacrime.state.world.ServerMutationGate.allows(server)) {
+            clearAll(server);
+            return;
+        }
         int thinkInterval = McaCrimeConfig.COMMON.reactionTickIntervalTicks.get();
         List<UUID> finished = new ArrayList<>();
 
@@ -213,9 +220,20 @@ public final class CrimeReactionService {
                     : thinkInterval);
 
             Entity entity = level.getEntity(controller.villagerId());
-            if (!(entity instanceof LivingEntity villager) || !villager.isAlive()) {
+            if (!(entity instanceof LivingEntity villager) || villager.isRemoved()) {
                 // Unloaded or dead. Either way the controller has nothing to drive; memory of the
                 // offender lives in world data and is unaffected.
+                finished.add(controller.villagerId());
+                continue;
+            }
+            if (!villager.isAlive()) continue; // Await confirmed death or revival without forgetting the reaction.
+            if (villager.isSleeping()) {
+                NpcAwareness.settleSleeping(villager);
+                finished.add(controller.villagerId());
+                continue;
+            }
+            if (!ReactionControlPolicy.mayControl(EntitySelectors.isResponder(villager),
+                    LawHold.isHeld(villager.getUUID(), now), controller.state())) {
                 finished.add(controller.villagerId());
                 continue;
             }
@@ -231,7 +249,7 @@ public final class CrimeReactionService {
                 if (level != null) {
                     release(level, villager);
                 }
-                MinecraftForge.EVENT_BUS.post(new WitnessReactionChangedEvent(villager,
+                dev.otectus.mcacrime.incident.IncidentNotifications.post(new WitnessReactionChangedEvent(villager,
                         controller.offenderId(), controller.state(), VictimReactionState.CALM));
             }
         }
@@ -245,7 +263,8 @@ public final class CrimeReactionService {
             case THREATENED -> tickThreatened(level, controller, villager, offender, now);
             case COMPLYING -> tickComplying(level, controller, villager, offender, now);
             case RESISTING -> tickResisting(level, controller, villager, offender, now);
-            case FLEEING -> tickFleeing(level, controller, villager, offender, now);
+            case FLEEING, PANICKING -> tickFleeing(level, controller, villager, offender, now);
+            case STALLING, DEFYING -> tickDeliberating(level, controller, villager, offender, now);
             case SEEKING_HELP -> tickSeekingHelp(level, controller, villager, offender, now);
             case REPORTING -> tickReporting(level, controller, villager, now);
             case HIDING -> tickHiding(level, controller, villager, offender, now);
@@ -277,6 +296,9 @@ public final class CrimeReactionService {
         ArmedResolver.ArmedStatus armed = ArmedResolver.classify(villager);
         // Only an unarmed villager is ever slowed. A guard who is about to swing does not shuffle.
         controller.setCivilian(!armed.armed());
+        if (c.enableDynamicCompliance.get()) {
+            return decideDynamic(level, controller, villager, offender, now, coercive.isPresent());
+        }
 
         // Order matters: fighting is a choice about this moment, fetching a guard is a choice about
         // what happens next, and running is what is left. Checking them the other way round would make
@@ -329,6 +351,12 @@ public final class CrimeReactionService {
                                          LivingEntity villager, @Nullable ServerPlayer offender, long now) {
         Optional<ActionSession> coercive = ActionSessionManager.activeCoerciveAgainst(controller.villagerId());
         if (coercive.isPresent()) {
+            if (offender == null) return transition(level, controller, VictimReactionState.RECOVERING, durationOf(VictimReactionState.RECOVERING));
+            if (McaCrimeConfig.COMMON.enableDynamicCompliance.get() && controller.shouldEvaluateThreat(now)) {
+                if (offender == null) return transition(level, controller, VictimReactionState.FLEEING, durationOf(VictimReactionState.FLEEING));
+                decideDynamic(level, controller, villager, offender, now, true);
+                if (controller.state() != VictimReactionState.COMPLYING) return true;
+            }
             holdComplying(villager, offender);
             // No timeout while somebody is still holding them: the session owns this state's lifetime.
             return true;
@@ -405,7 +433,8 @@ public final class CrimeReactionService {
             return transition(level, controller, VictimReactionState.HIDING,
                     durationOf(VictimReactionState.HIDING));
         }
-        if (controller.destination() != null && McaCompat.navigationDone(villager)) {
+        if (controller.destination() != null && villager.distanceToSqr(
+                net.minecraft.world.phys.Vec3.atBottomCenterOf(controller.destination())) <= 4D) {
             return transition(level, controller, VictimReactionState.HIDING,
                     durationOf(VictimReactionState.HIDING));
         }
@@ -445,9 +474,12 @@ public final class CrimeReactionService {
     private static boolean tickReporting(ServerLevel level, ActiveCrimeReactionController controller,
                                          LivingEntity villager, long now) {
         if (!controller.reported()) {
-            controller.markReported();
             LivingEntity responder = nearestResponder(level, villager, controller.offenderId());
-            ReportService.deliver(level, villager, responder, controller.observationId());
+            if (responder == null || villager.distanceToSqr(responder) > REPORT_REACH * REPORT_REACH
+                    || !villager.hasLineOfSight(responder)) {
+                return transition(level, controller, VictimReactionState.SEEKING_HELP, durationOf(VictimReactionState.SEEKING_HELP));
+            }
+            if (ReportService.deliver(level, villager, responder, controller.observationId()).isPresent()) controller.markReported();
         }
         if (controller.timedOut(now)) {
             return transition(level, controller, VictimReactionState.RECOVERING,
@@ -485,6 +517,11 @@ public final class CrimeReactionService {
         if (!controller.shouldRepath(now)) {
             return;
         }
+        // Keep a successful route while it still leads away from danger; choosing a new point every
+        // half-second makes a frightened villager zigzag around the same patch of ground.
+        if (controller.destination() != null && !McaCompat.navigationDone(villager)
+                && (offender == null || controller.destination().distSqr(offender.blockPosition())
+                > villager.blockPosition().distSqr(offender.blockPosition()))) return;
         controller.scheduleRepath(now, McaCrimeConfig.COMMON.reactionNavigationIntervalTicks.get());
         List<SafeDestinationSelector.Candidate> candidates =
                 sampleDestinations(level, villager, offender, preferShelter);
@@ -555,6 +592,7 @@ public final class CrimeReactionService {
                         (int) Math.round(self.getX() + dirX * 12.0),
                         self.getY(),
                         (int) Math.round(self.getZ() + dirZ * 12.0));
+                if (!level.isLoaded(sample)) continue;
                 candidates.add(candidate(level.getHeightmapPos(
                                 net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, sample),
                         SafeDestinationSelector.Kind.OPEN_GROUND, self, threat));
@@ -589,6 +627,8 @@ public final class CrimeReactionService {
         ServerPlayer offender = offenderOf(level, controller);
         Entity entity = level.getEntity(controller.villagerId());
         if (entity instanceof LivingEntity subject) {
+            // Direct FLEEING/SEEKING_HELP entries do not pass through tickThreatened.
+            controller.setCivilian(!ArmedResolver.classify(subject).armed());
             // Applied on entry to the states that steer, taken off on entry to every other state. Doing
             // it here rather than at each call site is what makes "no state can leak the modifier" a
             // property of the transition rather than a rule every future state has to remember.
@@ -602,7 +642,7 @@ public final class CrimeReactionService {
         if (offender != null && entity instanceof LivingEntity villager) {
             speakFor(level, villager, offender, controller, next);
         }
-        MinecraftForge.EVENT_BUS.post(new WitnessReactionChangedEvent(controller.villagerId(),
+        dev.otectus.mcacrime.incident.IncidentNotifications.post(new WitnessReactionChangedEvent(controller.villagerId(),
                 controller.offenderId(), previous, next));
         return true;
     }
@@ -611,6 +651,10 @@ public final class CrimeReactionService {
     private static void speakFor(ServerLevel level, LivingEntity villager, ServerPlayer offender,
                                  ActiveCrimeReactionController controller, VictimReactionState state) {
         ResourceLocation event = switch (state) {
+            case COMPLYING -> McaCrimeConfig.COMMON.enablePleading.get() ? dev.otectus.mcacrime.McaCrime.id("threat_plead") : null;
+            case STALLING -> dev.otectus.mcacrime.McaCrime.id("threat_stall");
+            case DEFYING -> dev.otectus.mcacrime.McaCrime.id("threat_defy");
+            case PANICKING -> dev.otectus.mcacrime.McaCrime.id("threat_panic");
             case RESISTING -> DialogueEvents.MUG_RESIST;
             case SEEKING_HELP -> DialogueEvents.MUG_WITNESSED;
             case RECOVERING -> DialogueEvents.MUG_RECOVERY;
@@ -628,9 +672,8 @@ public final class CrimeReactionService {
      * Stops this mod's navigation and clears its target, handing the villager back to MCA.
      *
      * <p>A villager under a {@link LawHold} keeps its target: it is a responder that took an
-     * enforcement target while a reaction was running, and dropping that here would undo an arrest
-     * from a code path that knows nothing about arrests. Its navigation is still stopped, because the
-     * reaction is genuinely over and the enforcement layer reissues its own pathing on the next scan.
+     * enforcement target while a reaction was running. Both its target and its route are preserved:
+     * stopping either here would interrupt an arrest this controller no longer owns.
      */
     private static void release(ServerLevel level, UUID villagerId) {
         Entity entity = level.getEntity(villagerId);
@@ -642,8 +685,8 @@ public final class CrimeReactionService {
             // never asks whether one was applied.
             ReactionSpeedModifier.remove(living);
         }
-        if (LawHold.isHeld(villagerId, level.getGameTime())) {
-            McaCompat.stopModNavigation(entity);
+        if (LawHold.isHeld(villagerId, level.getGameTime())
+                || entity instanceof LivingEntity living && EntitySelectors.isResponder(living)) {
             return;
         }
         McaCompat.releaseVillagerControl(entity);
@@ -653,9 +696,9 @@ public final class CrimeReactionService {
         McaCrimeConfig.Common c = McaCrimeConfig.COMMON;
         return switch (state) {
             case THREATENED -> c.reactionThreatenedTicks.get();
-            case COMPLYING -> c.reactionThreatenedTicks.get();
+            case COMPLYING, STALLING, DEFYING -> c.reactionThreatenedTicks.get();
             case RESISTING -> c.reactionThreatenedTicks.get() * 2L;
-            case FLEEING -> c.reactionFleeTicks.get();
+            case FLEEING, PANICKING -> c.reactionFleeTicks.get();
             case SEEKING_HELP -> c.reactionSeekHelpTicks.get();
             case REPORTING -> REPORT_DELIVERY_TICKS;
             case HIDING -> c.reactionHideTicks.get();
@@ -688,7 +731,7 @@ public final class CrimeReactionService {
         LivingEntity best = null;
         double bestDistance = Double.MAX_VALUE;
         for (LivingEntity candidate : level.getEntitiesOfClass(LivingEntity.class, box,
-                entity -> entity != villager && entity.isAlive() && EntitySelectors.isResponder(entity))) {
+                entity -> entity != villager && EntitySelectors.isAvailableResponder(entity))) {
             if (offender != null && offender.equals(candidate.getUUID())) {
                 continue;
             }
@@ -708,7 +751,7 @@ public final class CrimeReactionService {
         LivingEntity best = null;
         double bestDistance = Double.MAX_VALUE;
         for (LivingEntity candidate : level.getEntitiesOfClass(LivingEntity.class, box,
-                entity -> entity != villager && entity.isAlive() && McaCompat.isMcaVillager(entity)
+                entity -> entity != villager && NpcAwareness.isAwake(entity) && McaCompat.isMcaVillager(entity)
                         && McaCompat.isAdult(entity))) {
             double distance = villager.distanceToSqr(candidate);
             if (distance < bestDistance) {
@@ -758,5 +801,37 @@ public final class CrimeReactionService {
     /** Exposed for the debug command: a snapshot of who is reacting and how. */
     public static List<ActiveCrimeReactionController> snapshot() {
         return List.copyOf(ACTIVE.values());
+    }
+
+    private static boolean decideDynamic(ServerLevel level, ActiveCrimeReactionController controller,
+                                          LivingEntity villager, ServerPlayer offender, long now, boolean coercive) {
+        var context = ThreatContexts.build(villager, offender, coercive);
+        var evaluated = ThreatEvaluator.evaluate(context, ThreatContexts.options());
+        int interval = McaCrimeConfig.COMMON.threatReevaluationTicks.get();
+        controller.evaluatedThreat(now, interval, evaluated);
+        var next = ThreatEvaluator.stabilize(controller.state(), evaluated.response(), controller.ticksInState(now), interval);
+        // A stalling victim eventually surrenders if the threat stays focused and no help arrives.
+        if (next == VictimReactionState.STALLING && (controller.finishedStalling()
+                || controller.state() == next && controller.ticksInState(now) >= 60)) {
+            controller.finishStalling();
+            next = VictimReactionState.COMPLYING;
+        }
+        if (next == VictimReactionState.COMPLYING || next == VictimReactionState.STALLING) {
+            controller.markCoerced(ActionSessionManager.activeCoerciveAgainst(villager.getUUID()).map(ActionSession::sessionId).orElse(null));
+        }
+        transition(level, controller, next, durationOf(next));
+        if (next == VictimReactionState.COMPLYING || next == VictimReactionState.STALLING) holdComplying(villager, offender);
+        return true;
+    }
+
+    private static boolean tickDeliberating(ServerLevel level, ActiveCrimeReactionController controller,
+                                             LivingEntity villager, ServerPlayer offender, long now) {
+        boolean coerced = ActionSessionManager.activeCoerciveAgainst(villager.getUUID()).isPresent();
+        if (offender == null || !coerced || !ThreatContexts.aimedAt(offender, villager))
+            return transition(level, controller, VictimReactionState.FLEEING, durationOf(VictimReactionState.FLEEING));
+        if (controller.shouldEvaluateThreat(now)) decideDynamic(level, controller, villager, offender, now, coerced);
+        if (controller.state() == VictimReactionState.STALLING) holdComplying(villager, offender);
+        else McaCompat.faceEntity(villager, offender);
+        return true;
     }
 }

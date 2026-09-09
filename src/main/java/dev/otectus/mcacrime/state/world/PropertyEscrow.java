@@ -1,56 +1,79 @@
 package dev.otectus.mcacrime.state.world;
 
-import java.util.List;
+import dev.otectus.mcacrime.McaCrime;
+import dev.otectus.mcacrime.economy.TransactionReason;
+import dev.otectus.mcacrime.economy.account.TransactionReceipt;
+import net.minecraft.nbt.CompoundTag;
+
+import java.nio.charset.StandardCharsets;
+import java.util.Objects;
 import java.util.UUID;
 
-/**
- * Hands {@link PropertyLot}s to their owners, and keeps whatever would not fit.
- *
- * <p>The whole method is the two-line rule that a delivery either happens or is still owed: a lot is
- * only forgotten once the handover says everything arrived, and a partial handover shrinks the lot
- * rather than closing it. That is the property worth having, and it is stated here — away from
- * inventories, players and the login event — so it can be asserted with a lambda that refuses to
- * accept anything.
- */
+/** Delivers saved property with bounded reentry protection and explicit ambiguous outcomes. */
 public final class PropertyEscrow {
+    private PropertyEscrow() {}
 
-    private PropertyEscrow() {
-    }
-
-    /**
-     * One attempt at giving a lot to its owner.
-     *
-     * <p>Returns what is <em>still owed</em>: an empty result means everything arrived. The server
-     * binding pushes an item through {@code Inventory.add}, which shrinks the stack it is given and
-     * leaves the overflow in it, so the remainder is exactly what that call did not take.
-     */
     @FunctionalInterface
     public interface Handover {
+        /** Return the exact remainder; the original lot means no transfer. Null is an unknown outcome. */
         PropertyLot deliver(PropertyLot lot);
     }
 
-    /**
-     * Delivers everything owed to {@code owner}.
-     *
-     * @return how many lots were closed completely
-     */
+    /** A distinct persisted attempt for each remaining payload, stable across save/reload. */
+    public static UUID deliveryId(PropertyLot lot) {
+        return UUID.nameUUIDFromBytes(("property_delivery:" + lot.save()).getBytes(StandardCharsets.UTF_8));
+    }
+
     public static int deliverPending(CrimeWorldData data, UUID owner, Handover handover) {
-        if (data == null || owner == null || handover == null || !ServerMutationGate.allows(data)) {
-            return 0;
-        }
-        List<PropertyLot> owed = data.propertyEscrowFor(owner);
+        return deliverPending(data, owner, handover, 0L);
+    }
+
+    public static int deliverPending(CrimeWorldData data, UUID owner, Handover handover, long now) {
+        if (!ServerMutationGate.allows(data) || owner == null || handover == null) return 0;
         int closed = 0;
-        for (PropertyLot lot : owed) {
-            PropertyLot left = handover.deliver(lot);
-            if (left == null || left.empty()) {
-                data.removePropertyLot(lot.lotId());
-                closed++;
-            } else if (!left.equals(lot)) {
-                // Only rewrite when something actually moved: an owner with no room at all must not
-                // dirty the store once per login for the rest of the save.
-                data.putPropertyLot(left);
+        for (PropertyLot lot : data.propertyEscrowFor(owner)) {
+            if (!lot.equals(data.propertyLot(lot.lotId()))) continue;
+            UUID id = deliveryId(lot);
+            TransactionReceipt previous = data.transaction(id);
+            // A pending/ambiguous external operation must never be attempted a second time.
+            if (previous != null && previous.state() != TransactionReceipt.State.REJECTED
+                    || previous == null && data.hasTransactionReceipt(id)) continue;
+            var attempt = new TransactionReceipt(id, TransactionReceipt.State.DELIVERY_PENDING,
+                    lot.providerId(), lot.currency(), TransactionReason.RECOVERY, null, owner,
+                    lot.hashCode(), Math.max(now, lot.createdAt()));
+            if (!data.putTransaction(attempt).stored()) continue;
+            try {
+                PropertyLot left = handover.deliver(lot);
+                if (left == null || !lot.equals(data.propertyLot(lot.lotId())) || !validRemainder(lot, left)) {
+                    data.putTransaction(attempt.withState(TransactionReceipt.State.NEEDS_RECONCILIATION, attempt.stamp()));
+                    McaCrime.LOGGER.warn("Property delivery {} returned an unknown result; retaining its receipt for reconciliation", id);
+                    continue;
+                }
+                if (left.equals(lot)) {
+                    data.putTransaction(attempt.withState(TransactionReceipt.State.REJECTED, attempt.stamp()));
+                    continue; // No room/provider unavailable; a later ordinary attempt is allowed.
+                }
+                if (left.empty()) {
+                    data.removePropertyLot(lot.lotId()); closed++;
+                } else data.putPropertyLot(left);
+                data.putTransaction(attempt.withState(TransactionReceipt.State.DELIVERED, attempt.stamp()));
+            } catch (RuntimeException exception) {
+                data.putTransaction(attempt.withState(TransactionReceipt.State.NEEDS_RECONCILIATION, attempt.stamp()));
+                McaCrime.LOGGER.error("Property delivery {} failed; automatic retry is suspended", id, exception);
             }
         }
         return closed;
+    }
+
+    private static boolean validRemainder(PropertyLot original, PropertyLot left) {
+        if (original.equals(left)) return true;
+        if (!original.remaining(left.stackTag(), left.currency()).equals(left)
+                || left.currency() > original.currency()) return false;
+        if (!left.hasStack()) return true;
+        if (!original.hasStack()) return false;
+        CompoundTag before = original.stackTag(), after = left.stackTag();
+        int beforeCount = before.getByte("Count"), afterCount = after.getByte("Count");
+        before.remove("Count"); after.remove("Count");
+        return afterCount > 0 && afterCount <= beforeCount && Objects.equals(before, after);
     }
 }

@@ -7,7 +7,7 @@ package dev.otectus.mcacrime.jail;
  *   <li>{@link #CONTAINMENT} — anti-grief default: prisoners can't break jail-region blocks; a strayed
  *       prisoner is teleported back (soft-confine).</li>
  *   <li>{@link #PHYSICAL} — hardcore/roleplay: walls are breakable and a genuine breakout is legitimate,
- *       flagging a {@code jailbreak} crime (Heat + escaped Legal Target); the sentence continues.</li>
+ *       flagging a {@code jailbreak} crime (Heat + escaped Legal Target); sentence credit pauses.</li>
  *   <li>{@link #REINFORCED} — raised block resistance. In v0.1.0 this behaves like {@link #CONTAINMENT}
  *       (the resistance raise is deferred).</li>
  * </ul>

@@ -7,109 +7,83 @@ import dev.otectus.mcacrime.audio.CrimeSounds;
 import dev.otectus.mcacrime.captivity.CustodyOwner;
 import dev.otectus.mcacrime.captivity.CustodyRecord;
 import dev.otectus.mcacrime.captivity.CustodyRegistry;
+import dev.otectus.mcacrime.captivity.CustodyReleaseReason;
 import dev.otectus.mcacrime.captivity.CustodyService;
 import dev.otectus.mcacrime.captivity.RestraintType;
 import dev.otectus.mcacrime.compat.McaCompat;
 import dev.otectus.mcacrime.crime.type.CrimeIds;
-import dev.otectus.mcacrime.detect.CrimeDetector;
-import dev.otectus.mcacrime.detect.WitnessChecker;
+import dev.otectus.mcacrime.detect.EntitySelectors;
 import dev.otectus.mcacrime.ledger.CrimeFlag;
+import dev.otectus.mcacrime.ledger.CrimeRecord;
+import dev.otectus.mcacrime.ledger.SentenceAssignmentService;
+import dev.otectus.mcacrime.memory.ReportService;
 import dev.otectus.mcacrime.mug.npc.NpcMugAbortReason;
 import dev.otectus.mcacrime.mug.npc.NpcMugSession;
 import dev.otectus.mcacrime.mug.npc.NpcMuggingService;
 import dev.otectus.mcacrime.mug.npc.StolenGoodsReturn;
 import dev.otectus.mcacrime.state.world.CrimeWorldData;
+import dev.otectus.mcacrime.state.world.ServerMutationGate;
 import dev.otectus.mcacrime.util.CrimeDebug;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.phys.AABB;
 
 import javax.annotation.Nullable;
 import java.util.EnumSet;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
-/**
- * The arrest of a criminal villager (spec §"Guards and thief arrests").
- *
- * <p>The NPC counterpart of {@code ArrestService}, and a separate class rather than an overload of it
- * because that one is {@code ServerPlayer}-typed all the way down: it writes a jail sentence into a
- * player capability, opens a challenge screen, and sends packets. A villager has none of those. What
- * the two share is the outcome — restrained, held, escorted, jailed — and that lives in {@code
- * CustodyRecord}, which has always been able to hold either.
- *
- * <p>Order is load-bearing. The mug is aborted <em>first</em>, before anything else happens, because
- * spec §"Player mugging interaction" requires guard intervention to beat the theft rather than race
- * it: once the session is gone, {@code NpcMuggingService.complete} can never run, so no property can
- * move afterwards no matter how the rest of this method goes.
- */
+/** NPC arrest authority: live evidence, successful capture, then controller and sentence changes. */
 public final class NpcArrestService {
+    private NpcArrestService() { }
 
-    private NpcArrestService() {
-    }
-
-    /**
-     * Takes a criminal villager into lawful custody.
-     *
-     * @param incident the incident the guard reacted to, or null when the guard is acting on a filed
-     *                 report rather than on something it watched happen
-     * @return false when the thief was already held, or when custody could not be written
-     */
+    /** Takes an NPC into custody for the case the guard pursued. Null or stale evidence is refused. */
     public static boolean arrest(ServerLevel level, LivingEntity thief, LivingEntity guard,
                                  @Nullable ActiveIncidentRegistry.ActiveIncident incident) {
         MinecraftServer server = level == null ? null : level.getServer();
-        if (server == null || thief == null || guard == null || !thief.isAlive()) {
-            return false;
-        }
+        if (server == null || thief == null || !thief.isAlive() || !validGuard(level, guard)
+                || thief.level() != level || thief == guard || thief.isInvisible()
+                || !guard.hasLineOfSight(thief) || guard.distanceToSqr(thief) > 4.0D
+                || !ServerMutationGate.allows(server)) return false;
         UUID thiefId = thief.getUUID();
         UUID guardId = guard.getUUID();
-        if (CustodyRegistry.isCaptive(server, thiefId)) {
-            return false; // idempotent: a second guard arriving does not arrest twice
-        }
+        if (CustodyRegistry.isCaptive(server, thiefId)) return false;
+        if (ResponderAssignments.isEscorting(server, guardId, thiefId)
+                || NpcCriminalPursuit.isAssignedElsewhere(guardId, thiefId)) return false;
 
-        // 1. The mug stops before anything else. Everything below can fail; this cannot be allowed to.
-        // The pursuing guard already aborted the mug when it spotted this thief, which also closed the
-        // incident, so the caller's copy is the fallback: an attempt a guard watched happen is still
-        // charged even though the session and the registry entry are long gone by the time it is caught.
-        Optional<ActiveIncidentRegistry.ActiveIncident> open = ActiveIncidentRegistry.get(thiefId)
-                .or(() -> Optional.ofNullable(incident));
-        Optional<NpcMugSession> session = NpcMuggingService.sessionForThief(thiefId);
-        session.ifPresent(s -> NpcMuggingService.abort(s.victimId(), NpcMugAbortReason.GUARD_INTERVENTION));
-        ThiefBehaviorService.markArrested(thiefId);
-
-        // 2. The villager stops being a thief the reaction system is driving and starts being a captive.
-        CrimeReactionService.clear(level, thiefId);
-        CrimeReactionService.markCaptive(level, thief, guardId);
-
-        // 3. Custody, restraints, and the physical hold.
-        if (!CustodyService.captureNpcLawful(server, thief, CustodyOwner.guard(guardId), RestraintType.CUFFS,
-                thief.blockPosition(), level.dimension().location()).ok()) {
-            return false;
+        ActiveIncidentRegistry.ActiveIncident basis = incident;
+        if (basis != null && basis.phase() == ActiveIncidentRegistry.Phase.THREAT) {
+            basis = observeIntervention(level, guard, basis).orElse(null);
         }
         CrimeWorldData data = CrimeWorldData.get(server);
-        CustodyRecord record = data.getCustody(thiefId);
-        if (record != null) {
-            record.setRemainingJailTicks(McaCrimeConfig.COMMON.thiefJailTicks.get());
-            data.setDirty();
+        CrimeRecord charge = admissibleCase(level, guard, basis).orElse(null);
+        if (charge == null || !charge.offender().equals(thiefId)) return false;
+        if (!CustodyService.captureNpcLawful(server, thief, CustodyOwner.guard(guardId), RestraintType.CUFFS,
+                thief.blockPosition(), level.dimension().location()).ok()) return false;
+        if (!SentenceAssignmentService.assign(data, thiefId, UUID.randomUUID(),
+                List.of(charge.id()), level.getGameTime())) {
+            CustodyService.release(server, thiefId, CustodyReleaseReason.ADMIN);
+            return false;
         }
+        CustodyRecord record = data.getCustody(thiefId);
+        record.setRemainingJailTicks(McaCrimeConfig.COMMON.thiefJailTicks.get());
+        data.setDirty();
+
+        // A declined capture must not leave the NPC's controller in the arrested/captive state.
+        NpcMuggingService.sessionForThief(thiefId).ifPresent(s ->
+                NpcMuggingService.abort(s.victimId(), NpcMugAbortReason.GUARD_INTERVENTION));
+        ThiefBehaviorService.markArrested(thiefId);
+        CrimeReactionService.clear(level, thiefId);
+        CrimeReactionService.markCaptive(level, thief, guardId);
         McaCompat.leashTo(thief, guard);
         CrimeSounds.restrainApplied(thief);
-
-        // 4. Property goes back to whoever is standing here to receive it, before the walk to the cell.
         StolenGoodsReturn.onArrest(server, level, thiefId, thief.position());
-
-        // 5. The record. Only when the guard actually caught something in progress: a thief taken on a
-        //    report has already had its `mugging` record written by the mugging itself, and writing an
-        //    `attempted_mugging` beside it would charge the same crime twice.
-        if (open.isPresent()) {
-            commitAttempt(level, thief, open.get(), session.orElse(null));
-        }
         ActiveIncidentRegistry.close(thiefId);
-
-        // 6. The escort begins.
         NpcCustodyService.beginEscort(level, thief, guard);
         CrimeDebug.crime("guard intervention against thief {} by guard {}", thiefId, guardId);
         announce(level, thief);
@@ -117,30 +91,59 @@ public final class NpcArrestService {
     }
 
     /**
-     * Files the attempted mugging the guard interrupted.
-     *
-     * <p>{@code CrimeIds.ATTEMPTED_MUGGING} rather than {@code MUGGING}, because nothing was taken —
-     * that is the point of intervening. It still carries {@link CrimeFlag#CAUGHT_IN_ACT} and {@link
-     * CrimeFlag#MANDATORY_CUSTODY}: spec §"Guards and thief arrests" says a thief caught in the act is
-     * always jail-eligible, and {@code GuardChallengeService.finable} reads exactly that flag.
+     * Records a threat the guard actually sees, before aborting that attempt. A report-based pursuit
+     * resolves its existing case instead. Pursuit failure therefore cannot erase a witnessed attempt,
+     * and successful report-based arrest cannot fabricate another one.
      */
-    private static void commitAttempt(ServerLevel level, LivingEntity thief,
-                                      ActiveIncidentRegistry.ActiveIncident incident,
-                                      @Nullable NpcMugSession session) {
-        MinecraftServer server = level.getServer();
-        UUID victimId = incident.victimId() != null ? incident.victimId()
-                : session == null ? null : session.victimId();
-        ServerPlayer victim = victimId == null || server == null ? null
-                : server.getPlayerList().getPlayer(victimId);
-        EnumSet<CrimeFlag> flags = EnumSet.copyOf(incident.flags());
-        flags.add(CrimeFlag.NPC_OFFENDER);
-        flags.add(CrimeFlag.CAUGHT_IN_ACT);
-        flags.add(CrimeFlag.MANDATORY_CUSTODY);
-        CrimeDetector.commitNpc(thief, CrimeIds.ATTEMPTED_MUGGING, victim, level,
-                WitnessChecker.resolve(level, victim == null ? thief : victim), "guard", flags);
+    public static Optional<ActiveIncidentRegistry.ActiveIncident> observeIntervention(
+            ServerLevel level, LivingEntity guard, ActiveIncidentRegistry.ActiveIncident incident) {
+        if (level == null || incident == null || !validGuard(level, guard)
+                || !incident.dimension().equals(level.dimension())
+                || !ServerMutationGate.allows(level.getServer())) return Optional.empty();
+        if (incident.phase() == ActiveIncidentRegistry.Phase.COMMITTED) {
+            return admissibleCase(level, guard, incident).map(record -> new ActiveIncidentRegistry.ActiveIncident(
+                    record.id(), record.offender(), record.victim(), level.dimension(), incident.startedAt(),
+                    CrimeFlag.decode(record.context().get(CrimeFlag.CONTEXT_KEY)),
+                    ActiveIncidentRegistry.Phase.COMMITTED));
+        }
+        NpcMugSession session = NpcMuggingService.sessionForThief(incident.offenderId()).orElse(null);
+        if (!NpcArrestEvidence.isCurrentThreat(incident,
+                ActiveIncidentRegistry.get(incident.offenderId()).orElse(null),
+                session == null ? null : session.transactionId())) return Optional.empty();
+        if (!(level.getEntity(incident.offenderId()) instanceof LivingEntity thief)) return Optional.empty();
+        ServerPlayer victim = level.getServer().getPlayerList().getPlayer(session.victimId());
+        double radius = McaCrimeConfig.COMMON.guardThiefResponseRadius.get();
+        if (victim == null || victim.level() != level || !victim.isAlive() || !thief.isAlive()
+                || thief.isInvisible() || !guard.hasLineOfSight(thief) || !guard.hasLineOfSight(victim)
+                || guard.distanceToSqr(thief) > radius * radius) return Optional.empty();
+        // Consume the live incident before callbacks; a reentrant or second guard cannot record it again.
+        ActiveIncidentRegistry.close(thief.getUUID());
+        var committed = dev.otectus.mcacrime.incident.IncidentService.commitNpc(
+                session.transactionId(), thief, CrimeIds.ATTEMPTED_MUGGING, victim, level, "guard",
+                EnumSet.of(CrimeFlag.NPC_OFFENDER, CrimeFlag.CAUGHT_IN_ACT, CrimeFlag.MANDATORY_CUSTODY));
+        NpcMuggingService.abort(victim.getUUID(), NpcMugAbortReason.GUARD_INTERVENTION);
+        return committed.map(view -> new ActiveIncidentRegistry.ActiveIncident(view.id(), thief.getUUID(),
+                victim.getUUID(), level.dimension(), level.getGameTime(),
+                EnumSet.of(CrimeFlag.NPC_OFFENDER, CrimeFlag.CAUGHT_IN_ACT, CrimeFlag.MANDATORY_CUSTODY),
+                ActiveIncidentRegistry.Phase.COMMITTED));
     }
 
-    /** Tells anybody near enough to have watched it happen. */
+    static Optional<CrimeRecord> admissibleCase(ServerLevel level, LivingEntity guard,
+                                                ActiveIncidentRegistry.ActiveIncident incident) {
+        if (incident == null || !incident.dimension().equals(level.dimension())) return Optional.empty();
+        return NpcArrestEvidence.caseFor(CrimeWorldData.get(level.getServer()), incident)
+                .filter(record -> (CrimeFlag.decode(record.context().get(CrimeFlag.CONTEXT_KEY))
+                        .contains(CrimeFlag.CAUGHT_IN_ACT) && record.witnessIds().contains(guard.getUUID()))
+                        || ReportService.knownCase(level.getServer(), record,
+                        ReportService.jurisdictionOf(level, guard), level.getGameTime()));
+    }
+
+    private static boolean validGuard(ServerLevel level, LivingEntity guard) {
+        return guard != null && guard.isAlive() && guard.level() == level
+                && EntitySelectors.isAvailableResponder(guard) && !McaCompat.isVillagerSleeping(guard)
+                && !guard.hasEffect(MobEffects.BLINDNESS);
+    }
+
     private static void announce(ServerLevel level, LivingEntity thief) {
         double radius = McaCrimeConfig.COMMON.guardThiefResponseRadius.get();
         AABB box = thief.getBoundingBox().inflate(radius);

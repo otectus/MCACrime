@@ -14,6 +14,11 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraftforge.event.entity.EntityLeaveLevelEvent;
 import net.minecraftforge.event.entity.living.LivingDeathEvent;
 import net.minecraftforge.event.entity.living.LivingHurtEvent;
+import net.minecraftforge.event.entity.living.LivingDamageEvent;
+import net.minecraftforge.event.TickEvent;
+import net.minecraftforge.event.server.ServerStoppedEvent;
+import net.minecraftforge.eventbus.api.EventPriority;
+import net.minecraft.world.entity.LivingEntity;
 import net.minecraftforge.event.entity.player.PlayerEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
@@ -60,20 +65,27 @@ public final class CrimeDetectionHandlers {
             ActionSessionManager.clearFor(event.getEntity().getUUID(), CancelReason.DAMAGED);
             CustodyService.interruptEscape(event.getEntity().getUUID(), hurtLevel.getServer());
         }
-        if (!McaCrimeConfig.COMMON.enableCrimeDetection.get()) {
-            return;
-        }
-        if (event.getEntity().level() instanceof ServerLevel level) {
-            guarded("hurt detection", () ->
-                    CrimeDetector.onHarm(event.getEntity(), event.getSource(), event.getAmount(), level));
+    }
+
+    @SubscribeEvent(priority = EventPriority.LOWEST, receiveCanceled = true)
+    public static void onLivingDamage(LivingDamageEvent event) {
+        if (McaCrimeConfig.COMMON.enableCrimeDetection.get()
+                && event.getEntity().level() instanceof ServerLevel level) {
+            guarded("damage sampling", () -> DamageIncidentService.damage(event, level));
         }
     }
 
-    @SubscribeEvent
+    @SubscribeEvent(priority = EventPriority.LOWEST, receiveCanceled = true)
     public static void onLivingDeath(LivingDeathEvent event) {
-        if (event.getEntity().level() instanceof ServerLevel deathLevel) {
-            var server = deathLevel.getServer();
-            var dead = event.getEntity().getUUID();
+        if (event.getEntity().level() instanceof ServerLevel level) {
+            guarded("death sampling", () -> DamageIncidentService.death(event, level));
+        }
+    }
+
+    /** Cleanup shares confirmed death finality, so downstream death cancellation cannot free a captive. */
+    static void confirmedDeath(LivingEntity victim, ServerLevel level) {
+            var server = level.getServer();
+            var dead = victim.getUUID();
             CaptureChannels.clearFor(dead);
             ActionSessionManager.clearFor(dead, CancelReason.DEATH);
             if (CustodyRegistry.isCaptive(server, dead)) {
@@ -82,13 +94,23 @@ public final class CrimeDetectionHandlers {
             for (CustodyRecord held : CustodyRegistry.byOwner(server, dead)) {
                 CustodyService.release(server, held.getCaptive(), CustodyReleaseReason.CAPTOR_GONE);
             }
-        }
-        if (!McaCrimeConfig.COMMON.enableCrimeDetection.get()) {
-            return;
-        }
-        if (event.getEntity().level() instanceof ServerLevel level) {
-            guarded("kill detection", () -> CrimeDetector.onKill(event.getEntity(), event.getSource(), level));
-        }
+    }
+
+    @SubscribeEvent(priority = EventPriority.LOWEST)
+    public static void onServerTick(TickEvent.ServerTickEvent event) {
+        if (event.phase == TickEvent.Phase.END)
+            reconcileBeforePlayerSave(event.getServer());
+    }
+
+    /** Also called before vanilla saves/logs out or copies a player's crime capability. */
+    public static void reconcileBeforePlayerSave(net.minecraft.server.MinecraftServer server) {
+        if (server != null) guarded("damage reconciliation", () -> DamageIncidentService.flush(server));
+    }
+
+    @SubscribeEvent
+    public static void onServerStopped(ServerStoppedEvent event) {
+        DamageIncidentService.clear(event.getServer());
+        detectionDisabled = false;
     }
 
     /**
@@ -116,11 +138,14 @@ public final class CrimeDetectionHandlers {
         java.util.UUID mover = event.getEntity().getUUID();
         ActionSessionManager.clearFor(mover, CancelReason.DIMENSION_CHANGED);
         CaptureChannels.clearFor(mover);
+        // Combat provenance expires after disengagement; a quick portal trip must not reset who attacked first.
     }
 
     @SubscribeEvent
     public static void onLogout(PlayerEvent.PlayerLoggedOutEvent event) {
-        CrimeDetector.clearAttacker(event.getEntity().getUUID());
+        if (event.getEntity() instanceof net.minecraft.server.level.ServerPlayer player)
+            reconcileBeforePlayerSave(player.getServer());
+        // Keep bounded recent aggression until its normal expiry; relogging cannot legalize retaliation.
         CaptureChannels.clearFor(event.getEntity().getUUID()); // drop any in-progress channel by/of this player
         MuggingService.onLogout(event.getEntity().getUUID()); // drop any pending mug markers
         ActionSessionManager.clearFor(event.getEntity().getUUID(), CancelReason.ACTOR_GONE);

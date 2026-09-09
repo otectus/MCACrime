@@ -142,6 +142,18 @@ public final class SurrenderService {
         }
         Authority authority = findAuthority(player, level, c.surrenderNearRadius.get());
         SurrenderState before = read(player);
+        if (before.jailed() && before.escaped() && authority.present()) {
+            // Return to the original sentence, without another heat reduction or sentence waiver.
+            ArrestService.Outcome resumed = arrester.arrest(player, authority.responder(),
+                    ArrestService.Cause.VOLUNTARY_SURRENDER, OptionalLong.empty());
+            if (resumed == ArrestService.Outcome.ALREADY_SERVING) {
+                GuardChallengeService.standDown(player);
+                player.sendSystemMessage(Component.translatable("mcacrime.surrender.done"));
+                return 1;
+            }
+            player.sendSystemMessage(Component.translatable("mcacrime.surrender.failed"));
+            return 0;
+        }
         Decision decision = decide(before, authority.present(), c.surrenderHeatReduction.get(),
                 c.jailableHeatThreshold.get());
         if (!decision.proceed()) {
@@ -224,12 +236,22 @@ public final class SurrenderService {
      * {@code responderEntities} can be surrendered to as well as fled from.
      */
     private static Authority findAuthority(ServerPlayer player, ServerLevel level, double radius) {
+        ArrestPhase phase = ArrestStates.phaseOf(player);
+        java.util.UUID encounterGuard = phase == ArrestPhase.CONFRONTED || phase == ArrestPhase.SURRENDERED
+                ? ArrestStates.owningGuard(player) : null;
         AABB box = player.getBoundingBox().inflate(radius);
         LivingEntity nearest = null;
         double best = Double.MAX_VALUE;
         for (LivingEntity candidate : level.getEntitiesOfClass(LivingEntity.class, box,
-                EntitySelectors::isResponder)) {
+                EntitySelectors::isAvailableResponder)) {
+            // Answering a challenge must not silently select a closer guard from another jurisdiction.
+            if (encounterGuard != null && !encounterGuard.equals(candidate.getUUID())) continue;
             double distance = candidate.distanceToSqr(player);
+            if (!candidate.isAlive() || !candidate.hasLineOfSight(player) || distance > radius * radius
+                    || dev.otectus.mcacrime.enforcement.ResponderAssignments.isEscorting(
+                    level.getServer(), candidate.getUUID(), player.getUUID())
+                    || dev.otectus.mcacrime.enforcement.NpcCriminalPursuit.isAssignedElsewhere(
+                    candidate.getUUID(), player.getUUID())) continue;
             if (distance < best) {
                 best = distance;
                 nearest = candidate;
@@ -238,6 +260,7 @@ public final class SurrenderService {
         if (nearest != null) {
             return new Authority(nearest, false);
         }
+        if (encounterGuard != null) return new Authority(null, false);
         ResourceLocation dim = level.dimension().location();
         if (player.getServer() != null) {
             for (JailAnchor anchor : JailRegistry.all(player.getServer())) {

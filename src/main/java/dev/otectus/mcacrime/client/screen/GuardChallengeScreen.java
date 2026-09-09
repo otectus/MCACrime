@@ -40,6 +40,9 @@ public final class GuardChallengeScreen extends Screen {
     private ChallengePanelLayout layout = ChallengePanelLayout.of(4);
     private int panelLeft;
     private int panelTop;
+    private long revision;
+    private Button payButton;
+    private boolean paymentPending;
 
     public GuardChallengeScreen() {
         super(Component.translatable("gui.mcacrime.challenge.title"));
@@ -47,6 +50,7 @@ public final class GuardChallengeScreen extends Screen {
 
     @Override
     protected void init() {
+        payButton = null;
         var challenge = ClientChallengeData.current();
         if (challenge == null) {
             onClose();
@@ -60,6 +64,7 @@ public final class GuardChallengeScreen extends Screen {
         panelTop = (height - layout.panelHeight()) / 2;
 
         UUID encounter = challenge.encounterId();
+        revision = challenge.revision();
         int index = 0;
         addResponse(encounter, ChallengeResponse.SURRENDER,
                 Component.translatable(ChallengeResponse.SURRENDER.labelKey()), index++);
@@ -75,10 +80,20 @@ public final class GuardChallengeScreen extends Screen {
     }
 
     private void addResponse(UUID encounter, ChallengeResponse response, Component label, int index) {
-        addRenderableWidget(Button.builder(label, b -> respond(encounter, response))
+        Button button = addRenderableWidget(Button.builder(label, b -> respond(encounter, response))
                 .bounds(panelLeft + layout.contentLeft(), panelTop + layout.buttonY(index),
                         layout.buttonWidth(), layout.buttonHeight())
                 .build());
+        if (response == ChallengeResponse.PAY_FINE) {
+            payButton = button;
+            payButton.active = !paymentPending;
+        }
+    }
+
+    /** Called on a new offer or a payment failure acknowledgment for the same encounter. */
+    public void refreshOffer() {
+        paymentPending = false;
+        rebuildWidgets();
     }
 
     /**
@@ -86,8 +101,13 @@ public final class GuardChallengeScreen extends Screen {
      * point of asking is to decide afterwards.
      */
     private void respond(UUID encounter, ChallengeResponse response) {
-        CrimeNetwork.CHANNEL.sendToServer(new GuardChallengeResponseC2SPacket(encounter, response));
-        if (response.closesEncounter() && minecraft != null) {
+        if (response == ChallengeResponse.PAY_FINE) {
+            if (paymentPending) return;
+            paymentPending = true;
+            if (payButton != null) payButton.active = false;
+        }
+        CrimeNetwork.CHANNEL.sendToServer(new GuardChallengeResponseC2SPacket(encounter, response, revision));
+        if (response != ChallengeResponse.PAY_FINE && response.closesEncounter() && minecraft != null) {
             minecraft.setScreen(null);
         }
     }
@@ -109,6 +129,22 @@ public final class GuardChallengeScreen extends Screen {
             return;
         }
         renderBackground(graphics);
+
+        super.render(graphics, mouseX, mouseY, partialTick);
+
+        // Draw the countdown after the widgets so they cannot cover it. Acknowledge the menu only
+        // after the complete frame; background drawing must never render widgets or start the timer.
+        drawStatusLine(graphics, ClientChallengeData.current());
+        ClientChallengeData.menuDisplayed();
+    }
+
+    /**
+     * Draw only the background and panel. Forge 1.20.1 needs the explicit call from render();
+     * 1.21.1 calls its background hook from Screen.render(), so calling render() here would recurse.
+     */
+    @Override
+    public void renderBackground(GuiGraphics graphics) {
+        super.renderBackground(graphics);
         var challenge = ClientChallengeData.current();
         CrimeSprites.panel(graphics, panelLeft, panelTop, layout.panelWidth(), layout.panelHeight());
 
@@ -122,16 +158,11 @@ public final class GuardChallengeScreen extends Screen {
             graphics.drawString(font, challenge.guardName(), panelLeft + 10,
                     panelTop + layout.guardNameY(), PanelColours.TEXT_MUTED, false);
             graphics.drawString(font,
-                    Component.translatable("gui.mcacrime.challenge.charges", challenge.chargeCount()),
+                    challenge.chargeCount() > 0
+                            ? Component.translatable("gui.mcacrime.challenge.charges", challenge.chargeCount())
+                            : Component.translatable("gui.mcacrime.challenge.detention"),
                     panelLeft + 10, panelTop + layout.chargesY(), PanelColours.TEXT, false);
         }
-
-        super.render(graphics, mouseX, mouseY, partialTick);
-
-        // Drawn after the widgets, not before. The countdown used to sit under the Refuse button in
-        // both senses — the wrong y, and the wrong draw order — so the one number the player needs in
-        // order to decide was the one thing they could not see.
-        drawStatusLine(graphics, challenge);
     }
 
     /** The jurisdiction on the left and the countdown on the right, sharing one line above the buttons. */

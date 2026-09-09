@@ -1,6 +1,5 @@
 package dev.otectus.mcacrime.bounty;
 
-import dev.otectus.mcacrime.McaCrime;
 import dev.otectus.mcacrime.McaCrimeConfig;
 import dev.otectus.mcacrime.api.event.BountyResolvedEvent;
 import dev.otectus.mcacrime.captivity.CustodyOwner;
@@ -33,9 +32,6 @@ import net.minecraft.world.entity.projectile.Projectile;
 import net.minecraft.world.phys.AABB;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.common.util.FakePlayer;
-import net.minecraftforge.event.entity.living.LivingDeathEvent;
-import net.minecraftforge.eventbus.api.SubscribeEvent;
-import net.minecraftforge.fml.common.Mod;
 
 import javax.annotation.Nullable;
 import java.util.ArrayList;
@@ -44,7 +40,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 /**
- * Pays bounties, exactly once each (0.5.1).
+ * Reserves bounty entitlements and delivers confirmed payments with retained remainders.
  *
  * <p>The spec opens this section by naming the implementation it does not want:
  *
@@ -61,7 +57,6 @@ import java.util.UUID;
  * above {@code killMultiplier} so restraints, escorts and cells are the profitable way to hunt, and
  * the delivery in {@link #tick} is what turns a held outlaw into money: bring them to a guard.
  */
-@Mod.EventBusSubscriber(modid = McaCrime.MOD_ID)
 public final class BountyService {
 
     /** How often the delivery scan runs. Delivery is a walk, not a reflex. */
@@ -176,8 +171,8 @@ public final class BountyService {
         long heatSum = 0L;
         long fines = 0L;
         for (CrimeRecord record : unresolved) {
-            heatSum += Math.max(0L, record.heatGenerated());
-            fines += Math.max(0L, record.fineAmount());
+            heatSum = dev.otectus.mcacrime.util.SafeMath.addSat(heatSum, Math.max(0L, record.heatGenerated()));
+            fines = dev.otectus.mcacrime.util.SafeMath.addSat(fines, Math.max(0L, record.fineAmount()));
         }
         ServerPlayer online = server.getPlayerList().getPlayer(offender);
         int priorWarrants = online == null ? 0
@@ -189,38 +184,47 @@ public final class BountyService {
 
     // ------------------------------------------------------------------ the kill route
 
-    @SubscribeEvent
-    public static void onDeath(LivingDeathEvent event) {
-        if (!(event.getEntity() instanceof ServerPlayer victim) || victim instanceof FakePlayer) {
-            return;
-        }
-        McaCrimeConfig.Common c = McaCrimeConfig.COMMON;
-        if (!c.bountyEnabled.get() || !c.payForKills.get()) {
-            return;
-        }
-        MinecraftServer server = victim.getServer();
-        if (server == null) {
-            return;
-        }
-        // Eligibility is read at the moment of death, which is the spec's "authoritative timing
-        // policy": an outlaw whose Heat decayed out a tick before the killing blow is not an outlaw,
-        // and their killer is a murderer rather than a hunter.
-        if (!OutlawResolver.resolve(victim).bountyEligible()) {
-            return;
-        }
-        Optional<UUID> claimantId = attribute(view(event.getSource(), victim));
-        if (claimantId.isEmpty()) {
-            return;
-        }
-        ServerPlayer claimant = server.getPlayerList().getPlayer(claimantId.get());
-        if (claimant == null || claimant instanceof FakePlayer) {
-            return;
-        }
-        WarrantService.open(server, victim.getUUID()).ifPresent(warrant ->
-                pay(server, claimant, victim, warrant, BountyResolutionType.KILLED,
-                        c.killMultiplier.get(), "mcacrime.bounty.paid"));
+    /** Immutable offer sampled at the death hook. It never adopts a later warrant or higher price. */
+    public record KillOffer(BountyClaimKey key, UUID claimant, long asking, String currencyId,
+                            boolean bountyEligible, boolean lethalForceLawful, String targetName) {}
+
+    @Nullable
+    public static KillOffer prepareKill(LivingEntity entity, DamageSource source) {
+        if (!(entity instanceof ServerPlayer victim) || victim instanceof FakePlayer || source == null) return null;
+        var c = McaCrimeConfig.COMMON;
+        var server = victim.getServer();
+        if (!c.bountyEnabled.get() || !c.payForKills.get() || !ServerMutationGate.allows(server)) return null;
+        var status = OutlawResolver.resolve(victim);
+        var claimant = attribute(view(source, victim)).orElse(null);
+        var warrant = WarrantService.open(server, victim.getUUID()).orElse(null);
+        if (claimant == null || warrant == null || !status.bountyEligible() || !status.lethalForceLawful()) return null;
+        long asking = dev.otectus.mcacrime.util.SafeMath.mulSat(price(server, victim.getUUID()), c.killMultiplier.get());
+        return new KillOffer(BountyClaimKey.of(warrant), claimant, Math.max(0, asking),
+                Currencies.active().id().toString(), true, true, victim.getDisplayName().getString());
     }
 
+    /** Testable claim boundary used only after the shared finality check has confirmed death. */
+    public static Payout claimKill(CrimeWorldData data, KillOffer offer, boolean confirmedDeath,
+                                  boolean enabled, String currencyId, long now) {
+        if (!confirmedDeath || !enabled || !ServerMutationGate.allows(data) || offer == null
+                || offer.key() == null || !offer.bountyEligible() || !offer.lethalForceLawful()
+                || !java.util.Objects.equals(offer.currencyId(), currencyId)) return new Payout(false, 0);
+        Warrant live = data.warrant(offer.key().target());
+        if (live == null || !live.open() || !BountyClaimKey.of(live).equals(offer.key())) return new Payout(false, 0);
+        return pay(data, offer.key(), offer.claimant(), offer.asking(), now, BountyResolutionType.KILLED, currencyId);
+    }
+
+    public static void confirmKill(MinecraftServer server, @Nullable KillOffer offer) {
+        if (server == null || offer == null) return;
+        ServerPlayer claimant = server.getPlayerList().getPlayer(offer.claimant());
+        if (claimant == null || claimant instanceof FakePlayer) return;
+        var currency = Currencies.active();
+        var c = McaCrimeConfig.COMMON;
+        Payout payout = claimKill(CrimeWorldData.get(server), offer, true, c.bountyEnabled.get() && c.payForKills.get(),
+                currency.id().toString(), server.overworld().getGameTime());
+        if (payout.claimed()) collect(claimant);
+        else claimant.sendSystemMessage(Component.translatable("mcacrime.bounty.not_reserved"));
+    }
     // ------------------------------------------------------------------ the alive route
 
     /**
@@ -255,31 +259,28 @@ public final class BountyService {
 
     // ------------------------------------------------------------------ payment
 
-    /**
-     * Claims, then pays. In that order, and the order is the whole guarantee.
-     *
-     * <p>{@link BountyClaimLedger#tryClaim} writes the claim into world data before a single unit of
-     * currency moves, so the worst a crash between the two can do is cost the hunter a payout. The
-     * reverse order would let a crash pay the same warrant revision twice.
-     */
-    /** Whether the claim was taken, and what it turned out to be worth once it was. */
+    /** Whether the entitlement was reserved, and its principal; this does not assert delivery. */
     public record Payout(boolean claimed, long amount) {
     }
 
     /**
      * Claims one warrant revision and says what it pays, against a ledger rather than a server.
      *
-     * <p>The claim-before-credit order lives here, which is the point of pulling it out: the guarantee
-     * is a property of the ledger, not of the currency, and it can be asserted without one. The server
-     * overload keeps everything that is genuinely about a player — the credit, the karma, the message,
-     * the event — and does all of it only when this says the claim was taken.
+     * <p>This legacy overload does not know the provider, so its reserved payment cannot automatically
+     * collect. Live callers use the provider-bearing overload. Completion rewards/events follow
+     * confirmed delivery, which can happen later on login or explicit collection.
      *
      * @param asking what the warrant is worth to this claimant before the ledger has had its say;
      *               what is returned is that less whatever the same warrant has already paid out
      */
     public static Payout pay(CrimeWorldData data, BountyClaimKey key, UUID claimant, long asking, long now,
                              BountyResolutionType type) {
-        if (!ServerMutationGate.allows(data)) {
+        return pay(data, key, claimant, asking, now, type, "");
+    }
+
+    public static Payout pay(CrimeWorldData data, BountyClaimKey key, UUID claimant, long asking, long now,
+                             BountyResolutionType type, String provider) {
+        if (!ServerMutationGate.allows(data) || key == null) {
             // The claim row is the anti-double-pay mechanism. Paying without being able to record it
             // would pay the same head again on the next kill, and again after that.
             return new Payout(false, 0L);
@@ -290,7 +291,7 @@ public final class BountyService {
         // a head that has only become slightly more expensive (0.6.0, audit finding B09).
         long consumed = BountyClaimLedger.alreadyPaid(data, key.target(), key.warrantId(), price);
         long principal = Math.max(0L, price - consumed);
-        if (!BountyClaimLedger.tryClaim(data, key, claimant, principal, now, type)) {
+        if (!BountyPayments.reserve(data, key, claimant, principal, now, type, provider)) {
             return new Payout(false, 0L);
         }
         return new Payout(true, principal);
@@ -302,24 +303,79 @@ public final class BountyService {
         BountyClaimKey key = BountyClaimKey.of(warrant);
         long asking = Math.max(0L, Math.round(price(server, target.getUUID()) * Math.max(0.0D, multiplier)));
         long now = server.overworld().getGameTime();
-        Payout payout = pay(CrimeWorldData.get(server), key, claimant.getUUID(), asking, now, type);
+        var currency = Currencies.active();
+        Payout payout = pay(CrimeWorldData.get(server), key, claimant.getUUID(), asking, now, type, currency.id().toString());
         if (!payout.claimed()) {
             return false; // already paid for this warrant revision, or a self-claim
         }
-        long principal = payout.amount();
-        if (principal > 0L) {
-            Currencies.active().credit(claimant, principal, TransactionReason.BOUNTY);
-        }
+        collect(claimant);
+        return true; // Entitlement accepted; inventory/provider delivery can finish later.
+    }
+
+    private static boolean finishPayment(ServerPlayer claimant, UUID targetId, Component targetName, BountyClaimKey key,
+            long principal, BountyResolutionType type, String messageKey, dev.otectus.mcacrime.economy.Currency currency) {
+
         int karma = McaCrimeConfig.COMMON.bountyKarmaReward.get();
         if (karma > 0) {
             CrimeState.addKarma(claimant, karma, KarmaSource.BOUNTY);
         }
         claimant.sendSystemMessage(Component.translatable(messageKey,
-                Currencies.active().format(principal), target.getDisplayName()));
+                currency.format(principal), targetName));
         CrimeDebug.crime("bounty {}/{} claimed by {}", key.target(), key.revision(), claimant.getUUID());
-        MinecraftForge.EVENT_BUS.post(new BountyResolvedEvent(new BountyResolution(key, target.getUUID(),
+        MinecraftForge.EVENT_BUS.post(new BountyResolvedEvent(new BountyResolution(key, targetId,
                 claimant.getUUID(), principal, type)));
         return true;
+    }
+
+    /** Login and explicit collection retry only payments with a known undelivered remainder. */
+    public static int collect(ServerPlayer player) {
+        var server = player.getServer();
+        if (!ServerMutationGate.allows(server) || !player.isAlive() || player instanceof FakePlayer) return 0;
+        var data = CrimeWorldData.get(server);
+        int delivered = 0;
+        boolean pending = false;
+        for (var claim : data.bountyClaims().values()) {
+            if (!player.getUUID().equals(claim.claimant())) continue;
+            var key = BountyPayments.key(claim);
+            var queued = data.transaction(BountyPayments.id(key));
+            if (queued == null || queued.state().terminal()) continue;
+            var currency = Currencies.byId(net.minecraft.resources.ResourceLocation.tryParse(queued.providerId())).orElse(null);
+            if (currency == null) { pending = true; continue; }
+            if (BountyPayments.deliver(data, key, player.getUUID(), currency.id().toString(),
+                    amount -> creditReward(player, currency, amount), server.overworld().getGameTime())) {
+                var target = server.getPlayerList().getPlayer(claim.target());
+                finishPayment(player, claim.target(), target == null ? Component.literal(claim.target().toString())
+                        : target.getDisplayName(), key, claim.reward(), claim.type(),
+                        claim.type() == BountyResolutionType.CAPTURED_ALIVE ? "mcacrime.bounty.paid_alive" : "mcacrime.bounty.paid", currency);
+                delivered++;
+            }
+            var receipt = data.transaction(BountyPayments.id(key));
+            pending |= receipt != null && !receipt.state().terminal();
+        }
+        if (pending) player.sendSystemMessage(Component.translatable("mcacrime.bounty.pending"));
+        return delivered;
+    }
+
+    private static long creditReward(ServerPlayer player, dev.otectus.mcacrime.economy.Currency currency, long amount) {
+        if (currency instanceof dev.otectus.mcacrime.economy.EmeraldCurrency) {
+            // Bounded by main-inventory capacity, with no fallible ground-drop handoff for overflow.
+            long left = amount;
+            for (int i = 0; i < player.getInventory().items.size() && left > 0; i++) {
+                var stack = player.getInventory().items.get(i);
+                if (stack.isEmpty()) {
+                    int give = (int) Math.min(net.minecraft.world.item.Items.EMERALD.getMaxStackSize(), left);
+                    player.getInventory().items.set(i, new net.minecraft.world.item.ItemStack(net.minecraft.world.item.Items.EMERALD, give));
+                    left -= give;
+                } else if (stack.is(net.minecraft.world.item.Items.EMERALD) && !stack.hasTag()) {
+                    int give = (int) Math.min(Math.max(0, stack.getMaxStackSize() - stack.getCount()), left);
+                    stack.grow(give); left -= give;
+                }
+            }
+            player.getInventory().setChanged();
+            player.containerMenu.broadcastChanges();
+            return left;
+        }
+        return currency.tryCredit(player, amount, TransactionReason.BOUNTY) ? 0 : -1;
     }
 
     // ------------------------------------------------------------------ delivery
@@ -374,7 +430,7 @@ public final class BountyService {
     private static LivingEntity responderNear(ServerLevel level, ServerPlayer captive, double radius) {
         AABB box = captive.getBoundingBox().inflate(radius);
         for (LivingEntity candidate : level.getEntitiesOfClass(LivingEntity.class, box,
-                entity -> entity.isAlive() && EntitySelectors.isResponder(entity))) {
+                entity -> entity.isAlive() && EntitySelectors.isAvailableResponder(entity))) {
             return candidate;
         }
         return null;

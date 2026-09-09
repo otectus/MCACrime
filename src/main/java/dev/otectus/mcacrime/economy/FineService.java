@@ -56,24 +56,43 @@ public final class FineService {
      * Pays a fine, settling either the given cases or the oldest actionable ones.
      *
      * @param requestedCaseIds exact cases to settle, or empty to let the server choose oldest-first
-     * @param payAll           settle everything outstanding and clear all Heat
+     * @param payAll           clear all Heat only for an automatic whole-record selection outside an encounter
      */
     public static Payment pay(ServerPlayer player, List<UUID> requestedCaseIds, boolean payAll) {
+        var encounter = dev.otectus.mcacrime.enforcement.GuardChallengeService.open(player.getUUID());
+        if (encounter != null && !encounter.acceptsSelection(requestedCaseIds)) {
+            player.sendSystemMessage(Component.translatable("mcacrime.fine.stale"));
+            return refused(CrimeState.getHeat(player), "mcacrime.fine.stale");
+        }
+        if (encounter != null)
+            return dev.otectus.mcacrime.enforcement.GuardChallengeService.payFine(player,
+                    encounter.encounterId(), encounter.revision());
+        MinecraftServer server = player.getServer();
+        long now = server == null ? 0L : server.overworld().getGameTime();
+        return pay(player, SettlementPolicy.quote(server == null ? null : CrimeWorldData.get(server),
+                player.getUUID(), CrimeState.getHeat(player), CrimeState.getBand(player), requestedCaseIds, payAll, now));
+    }
+
+    /** Charges the server's already displayed and revalidated offer. */
+    public static Payment pay(ServerPlayer player, SettlementQuote quote) {
         MinecraftServer server = player.getServer();
         CrimeWorldData data = server == null ? null : CrimeWorldData.get(server);
         long now = server == null ? 0L : server.overworld().getGameTime();
-        if (data != null && !ServerMutationGate.allows(data)) {
+        if (server == null || !server.isSameThread() || !ServerMutationGate.allows(data)) {
             player.sendSystemMessage(Component.translatable("mcacrime.readonly"));
             return refused(CrimeState.getHeat(player), "mcacrime.readonly");
         }
+        if (quote == null || !player.getUUID().equals(quote.offender()) || quote.heat() != CrimeState.getHeat(player)) {
+            player.sendSystemMessage(Component.translatable("mcacrime.fine.stale"));
+            return refused(CrimeState.getHeat(player), "mcacrime.fine.stale");
+        }
         // Minted before the charge, not after, because the receipt the charge writes has to name it.
         UUID transactionId = UUID.randomUUID();
-        Payment payment = pay(data, now,
-                SettlementPolicy.quote(data, player.getUUID(), CrimeState.getHeat(player),
-                        CrimeState.getBand(player), requestedCaseIds, payAll, now),
+        List<CrimeCaseService.Resolved> notifications = new ArrayList<>();
+        Payment payment = pay(data, now, quote,
                 amount -> charge(data, transactionId, player, amount, now),
                 CrimeCaseService.ResolutionGate.ALLOW_ALL, transactionId,
-                CrimeCaseService.ResolutionSink.forServer(server));
+                notifications::add);
         if (!payment.paid()) {
             // The amount is only interesting on the one refusal that quotes a price back at the player.
             player.sendSystemMessage("mcacrime.fine.need".equals(payment.messageKey())
@@ -83,6 +102,7 @@ public final class FineService {
         }
         CrimeState.setHeat(player, payment.newHeat(), McaCrime.id("fine"), "fine:" + payment.transactionId());
         RelationshipConsequences.applyRestitution(player, payment.amount()); // §11.3: a fine repairs some community standing
+        announce(notifications, CrimeCaseService.ResolutionSink.forServer(server));
 
         MinecraftForge.EVENT_BUS.post(new FinePaidEvent(player, payment.transactionId(),
                 payment.settledCaseIds(), payment.amount(), payment.oldHeat(), payment.newHeat()));
@@ -160,12 +180,15 @@ public final class FineService {
         if (quote == null) {
             return refused(0L, SettlementQuote.RejectReason.NOTHING_OWED.messageKey());
         }
+        if (!ServerMutationGate.allows(data)) return refused(quote.heat(), "mcacrime.readonly");
         if (quote.reject().isPresent()) {
             return refused(quote.heat(), quote.reject().get().messageKey());
         }
         if (quote.expired(now) || !current(data, quote)) {
             return refused(quote.heat(), SettlementQuote.RejectReason.STALE.messageKey());
         }
+        List<CrimeRecord> beforePreflight = quote.caseIds().stream()
+                .map(id -> data.recordById(id).orElseThrow()).toList();
         for (SettlementQuote.CaseRef ref : quote.cases()) {
             CrimeRecord record = data == null ? null : data.recordById(ref.id()).orElse(null);
             if (record != null && gate != null && !gate.allow(record, Resolution.FINED)) {
@@ -174,13 +197,18 @@ public final class FineService {
                 return refused(quote.heat(), "mcacrime.fine.notfinable");
             }
         }
+        // Preflight callbacks may mutate a case; never charge a quote invalidated by a callback.
+        if (!current(data, quote) || beforePreflight.stream().anyMatch(record ->
+                !data.recordById(record.id()).filter(record::equals).isPresent()))
+            return refused(quote.heat(), SettlementQuote.RejectReason.STALE.messageKey());
         if (!purse.charge(quote.amount())) {
             return new Payment(false, null, List.of(), quote.amount(), quote.heat(), quote.heat(),
                     "mcacrime.fine.need");
         }
 
         // Charged exactly once, above. Everything below is bookkeeping on state we now own.
-        List<UUID> settled = settleCases(data, now, quote.caseIds(), transactionId, gate, sink);
+        List<UUID> settled = settleCases(data, now, quote.caseIds(), transactionId,
+                CrimeCaseService.ResolutionGate.ALLOW_ALL, sink);
 
         long newHeat = Math.max(0L, quote.heat() - quote.heatCleared());
         return new Payment(true, transactionId, settled, quote.amount(), quote.heat(), newHeat,
@@ -241,7 +269,9 @@ public final class FineService {
         }
         for (SettlementQuote.CaseRef ref : quote.cases()) {
             CrimeRecord record = data.recordById(ref.id()).orElse(null);
-            if (record == null || !record.actionable() || record.resolutionRevision() != ref.revision()) {
+            if (record == null || !record.offender().equals(quote.offender()) || !record.actionable()
+                    || SettlementPolicy.mandatoryCustody(record) || record.sentenceId() != null
+                    || record.resolutionRevision() != ref.revision()) {
                 return false;
             }
         }
@@ -256,14 +286,27 @@ public final class FineService {
             return List.of();
         }
         List<UUID> settled = new ArrayList<>(caseIds.size());
+        List<CrimeCaseService.Resolved> announcements = new ArrayList<>();
         for (UUID caseId : caseIds) {
             CrimeCaseService.Result result = CrimeCaseService.resolve(data, now, caseId, Resolution.FINED,
                     McaCrime.id("fine"), "fine:" + transactionId, null,
-                    Map.of(CrimeContext.FINE_TRANSACTION, transactionId.toString()), false, gate, sink);
+                    Map.of(CrimeContext.FINE_TRANSACTION, transactionId.toString()), false, gate, announcements::add);
             if (result.successful()) {
                 settled.add(caseId);
             }
         }
+        // Announce only after every selected case has committed, so listeners see the whole settlement.
+        announce(announcements, sink);
         return settled;
+    }
+
+    private static void announce(List<CrimeCaseService.Resolved> announcements, CrimeCaseService.ResolutionSink sink) {
+        if (sink != null) for (CrimeCaseService.Resolved announcement : announcements) {
+            try { sink.announce(announcement); }
+            catch (RuntimeException failure) {
+                McaCrime.LOGGER.error("Fine committed but resolution notification failed for {}",
+                        announcement.after().id(), failure);
+            }
+        }
     }
 }

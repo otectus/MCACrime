@@ -56,6 +56,31 @@ class NpcMugSessionTest {
     }
 
     @Test
+    void completionCannotSkipTheTimerOrReleaseTheVictimClaim() {
+        NpcMugSession session = session(UUID.randomUUID(), UUID.randomUUID(), 3);
+        assertTrue(NpcMuggingService.claim(session));
+        session.advance();
+        NpcMuggingService.complete(session);
+        assertTrue(session.running());
+        assertEquals(1, session.progress());
+        assertEquals(session, NpcMuggingService.sessionFor(session.victimId()).orElseThrow());
+    }
+
+    @Test
+    void missingParticipantsAtCompletionAbortInsteadOfReportingSuccess() {
+        NpcMugSession session = session(UUID.randomUUID(), UUID.randomUUID(), 1);
+        assertTrue(NpcMuggingService.claim(session));
+        session.advance();
+        // There is no running server/player in the unit suite: this reaches the final recheck.
+        NpcMuggingService.complete(session);
+        assertEquals(NpcMugSession.Phase.ABORTED, session.phase());
+        assertFalse(NpcMuggingService.isVictim(session.victimId()));
+        assertTrue(NpcMuggingService.sessionForThief(session.thiefId()).isEmpty());
+        NpcMuggingService.complete(session);
+        assertEquals(NpcMugSession.Phase.ABORTED, session.phase());
+    }
+
+    @Test
     void onlyOneThiefCanClaimAVictim() {
         UUID victim = UUID.randomUUID();
         NpcMugSession first = session(UUID.randomUUID(), victim, 20);

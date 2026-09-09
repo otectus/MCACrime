@@ -24,13 +24,13 @@ public final class OffenderMemory {
         lastAttempt = now;
         fearUntil = Math.max(fearUntil, now + Math.max(0L, fearDuration));
         panicUntil = Math.max(panicUntil, now + Math.max(0L, panicDuration));
-        attempts = Math.min(Integer.MAX_VALUE, attempts + 1);
+        if (attempts < Integer.MAX_VALUE) attempts++;
         pendingReport = true;
     }
 
     public void recordSuccess(long now, long amount) {
         lastSuccess = now;
-        stolenValue = Math.max(0L, stolenValue + Math.max(0L, amount));
+        stolenValue = dev.otectus.mcacrime.util.SafeMath.addSat(stolenValue, Math.max(0L, amount));
     }
 
     public void clearPendingReport() {

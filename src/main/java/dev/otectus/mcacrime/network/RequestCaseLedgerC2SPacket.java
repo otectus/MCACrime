@@ -61,8 +61,10 @@ public record RequestCaseLedgerC2SPacket() {
         }
         // The same quote the guard screen shows and the payment charges. The dossier used to print
         // FineCalculator's whole-Heat figure, which was not what /crime payfine took off the player.
-        SettlementQuote quote = SettlementPolicy.quote(data, player.getUUID(), CrimeState.getHeat(player),
-                CrimeState.getBand(player), server.overworld().getGameTime());
+        var challenge = dev.otectus.mcacrime.enforcement.GuardChallengeService.open(player.getUUID());
+        SettlementQuote quote = challenge != null && challenge.offer() != null ? challenge.offer().quote()
+                : SettlementPolicy.quote(data, player.getUUID(), CrimeState.getHeat(player),
+                        CrimeState.getBand(player), server.overworld().getGameTime());
         return new CaseLedgerS2CPacket(rows, open, quote.amount());
     }
 }

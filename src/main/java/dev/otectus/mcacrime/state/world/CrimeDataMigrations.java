@@ -56,8 +56,11 @@ public final class CrimeDataMigrations {
      */
     public static final int SCHEMA_0_6_0 = 8;
 
-    /** The schema this build writes. */
-    public static final int CURRENT_SCHEMA = SCHEMA_0_6_0;
+    /** The expanded 0.6.0 witness/memory schema; schema 8 remains a supported development save. */
+    public static final int SCHEMA_WITNESS_MEMORY = 9;
+    /** Queued bounty delivery and durable operator decisions; old builds must not erase the audit trail. */
+    public static final int SCHEMA_RECONCILIATION = 10;
+    public static final int CURRENT_SCHEMA = SCHEMA_RECONCILIATION;
 
     /** Root NBT key holding the schema integer. Absent means 0. */
     public static final String TAG_SCHEMA = "schema";

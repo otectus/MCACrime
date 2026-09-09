@@ -95,11 +95,29 @@ class PacketBoundsTest {
     void everyChallengeResponseRoundTrips() {
         for (ChallengeResponse response : ChallengeResponse.values()) {
             GuardChallengeResponseC2SPacket sent =
-                    new GuardChallengeResponseC2SPacket(UUID.randomUUID(), response);
+                    new GuardChallengeResponseC2SPacket(UUID.randomUUID(), response, 37L);
             FriendlyByteBuf buf = buffer();
             GuardChallengeResponseC2SPacket.encode(sent, buf);
             assertEquals(sent, GuardChallengeResponseC2SPacket.decode(buf));
         }
+    }
+
+    @Test
+    void negativeChallengeRevisionIsRejected() {
+        FriendlyByteBuf packet = buffer();
+        GuardChallengeResponseC2SPacket.encode(new GuardChallengeResponseC2SPacket(
+                UUID.randomUUID(), ChallengeResponse.PAY_FINE, -1L), packet);
+        assertThrows(DecoderException.class, () -> GuardChallengeResponseC2SPacket.decode(packet));
+    }
+
+    @Test
+    void challengeOfferRevisionRoundTrips() {
+        var sent = new dev.otectus.mcacrime.network.GuardChallengeS2CPacket(true, UUID.randomUUID(),
+                net.minecraft.network.chat.Component.literal("Guard"),
+                net.minecraft.network.chat.Component.literal("Village"), 2, 45L, true, 200L, 37L);
+        FriendlyByteBuf packet = buffer();
+        dev.otectus.mcacrime.network.GuardChallengeS2CPacket.encode(sent, packet);
+        assertEquals(sent, dev.otectus.mcacrime.network.GuardChallengeS2CPacket.decode(packet));
     }
 
     @Test

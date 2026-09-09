@@ -35,6 +35,13 @@ public final class ChallengeBasis {
      */
     public static boolean hasBasis(int actionableCases, boolean warrant,
                                    boolean escapedPrisoner, boolean holdingCaptive) {
-        return actionableCases > 0 || warrant || escapedPrisoner || holdingCaptive;
+        return hasBasis(actionableCases, warrant, escapedPrisoner, holdingCaptive, false, false);
+    }
+
+    /** Wanted Heat and an active refusal remain enforceable without a reported ledger case. */
+    public static boolean hasBasis(int actionableCases, boolean warrant,
+                                   boolean escapedPrisoner, boolean holdingCaptive,
+                                   boolean wanted, boolean resistingArrest) {
+        return actionableCases > 0 || warrant || escapedPrisoner || holdingCaptive || wanted || resistingArrest;
     }
 }

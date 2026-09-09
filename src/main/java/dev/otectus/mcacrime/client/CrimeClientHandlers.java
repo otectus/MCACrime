@@ -81,13 +81,13 @@ public final class CrimeClientHandlers {
         ClientChallengeData.update(msg);
         Minecraft minecraft = Minecraft.getInstance();
         if (msg.open()) {
-            // A repeat of the encounter already on screen refreshes the cache without rebuilding the
-            // screen. The player may be mid-click, and taking a panel away from under a cursor to put
-            // an identical one back is indistinguishable from the panel not working.
+            // Refresh the existing screen's controls for requotes and payment acknowledgments.
             boolean sameEncounter = previous != null && previous.open()
                     && previous.encounterId().equals(msg.encounterId());
             if (!sameEncounter || !(minecraft.screen instanceof GuardChallengeScreen)) {
                 minecraft.setScreen(new GuardChallengeScreen());
+            } else if (minecraft.screen instanceof GuardChallengeScreen screen) {
+                screen.refreshOffer();
             }
         } else if (minecraft.screen instanceof GuardChallengeScreen) {
             minecraft.setScreen(null);

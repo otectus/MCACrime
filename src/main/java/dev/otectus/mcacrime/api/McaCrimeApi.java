@@ -70,6 +70,13 @@ public final class McaCrimeApi {
         return API_VERSION;
     }
 
+    /** Memory-sensitive dialogue and quest context for this villager/player pair only. */
+    public static List<dev.otectus.mcacrime.api.model.VictimMemoryView> victimMemories(
+            MinecraftServer server, UUID villager, UUID player) {
+        try { return dev.otectus.mcacrime.memory.VictimMemoryService.memories(server, villager, player); }
+        catch (RuntimeException e) { return List.of(); }
+    }
+
     // ------------------------------------------------------------------ existing surface (unchanged)
 
     public static long getKarma(ServerPlayer player) {
@@ -241,22 +248,24 @@ public final class McaCrimeApi {
             return CrimeCapabilities.get(player)
                     .map(PlayerCrimeData::getJail)
                     .filter(jail -> jail != null)
-                    .map(McaCrimeApi::toView);
+                    .map(jail -> toView(jail, CrimeWorldData.get(player.getServer()), player.getUUID()));
         } catch (Throwable t) {
             McaCrime.LOGGER.debug("MCA: Crime — sentence lookup failed; returning empty", t);
             return Optional.empty();
         }
     }
 
-    private static JailSentenceView toView(JailState jail) {
+    static JailSentenceView toView(JailState jail, CrimeWorldData world, UUID offender) {
         return new JailSentenceView(
-                Optional.empty(),
+                Optional.of(jail.getSentenceId()),
                 jail.getRemainingOnlineTicks(),
                 jail.getRealOnlineTicksServed(),
                 Optional.ofNullable(jail.getJailDim()),
                 jail.isEscaped(),
                 jail.getModeSnapshot(),
-                Set.of());
+                world.casesForSentence(offender, jail.getSentenceId()).stream()
+                        .map(dev.otectus.mcacrime.ledger.CrimeRecord::id)
+                        .collect(java.util.stream.Collectors.toUnmodifiableSet()));
     }
 
     // ------------------------------------------------------------------ communities
