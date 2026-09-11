@@ -161,7 +161,7 @@ public final class CustodyService {
 
         // The captor is the criminal: commit the kidnap crime (Karma/Heat + ledger + witnessed events).
         CrimeDetector.commitDirect(captor, CrimeIds.KIDNAP, captiveEntity, level,
-                WitnessChecker.resolve(level, captiveEntity), "custody");
+                WitnessChecker.resolve(level, captor, captiveEntity), "custody");
 
         CrimeSounds.restrainApplied(captiveEntity);
         NeoForge.EVENT_BUS.post(new EntityKidnappedEvent(captiveUuid, captiveIsPlayer, captor.getUUID(),
@@ -377,6 +377,10 @@ public final class CustodyService {
         }
         if (captivePlayer != null) {
             CrimeAttachments.get(captivePlayer).setHeldByRef(null);
+            // Released from somebody's custody is the same vulnerable moment as released from a cell,
+            // and a player let go of by a kidnapper is owed the same grace (0.7.0).
+            dev.otectus.mcacrime.mug.npc.MugProtection.grant(captivePlayer,
+                    dev.otectus.mcacrime.McaCrimeConfig.COMMON.releaseMugProtectionTicks.get());
             // Re-derived rather than simply lifted: a player released from a kidnapper's rope straight
             // into an arrest is still restrained, and taking the penalty off here would hand them a
             // free sprint the moment a guard reached them.
@@ -387,11 +391,38 @@ public final class CustodyService {
             CrimeNetwork.sendSelfStatus(captivePlayer);
             CrimeNetwork.sendCaptiveStatus(captivePlayer); // record already removed -> clears the client
             captivePlayer.sendSystemMessage(Component.translatable(releaseKey(reason)));
-        } else if (!record.isCaptivePlayer()) {
-            Entity npc = resolveEntity(server, record.getHoldDim(), captiveUuid);
-            if (npc != null) {
-                McaCompat.clearLeash(npc); // never delete the captive (§8.4) — only free it
-            }
+        }
+        if (!record.isCaptivePlayer()) {
+            // Three things have to come off together, in this order, and none of them is removal. The
+            // lead first, then MCA's own control of the villager -- released rather than merely cleared,
+            // because an arrest pointed their brain at a destination and leaving it there is how a freed
+            // villager walks back to the jail on its own. The distraction last: a relative let out of a
+            // cell is not still making a scene, and an effect that outlived its owner's custody would go
+            // on shrinking somebody's witness set with nobody left to blame for it.
+            Entity freed = resolveEntity(server, record.getHoldDim(), captiveUuid);
+            NpcReleaseEffects.apply(new NpcReleaseEffects.Effects() {
+                @Override
+                public void clearLeash() {
+                    McaCompat.clearLeash(freed);
+                }
+
+                @Override
+                public void releaseControl() {
+                    McaCompat.releaseVillagerControl(freed);
+                }
+
+                @Override
+                public void clearDistraction() {
+                    dev.otectus.mcacrime.detect.WitnessModifiers.remove(captiveUuid,
+                            dev.otectus.mcacrime.detect.WitnessModifiers.Kind.DISTRACTION);
+                }
+
+                @Override
+                public void notifyFamily() {
+                    dev.otectus.mcacrime.enforcement.AccompliceService.notifyFamily(server, captiveUuid,
+                            "mcacrime.msg.family.released");
+                }
+            }, freed != null, record.isLawful());
         }
         if (!record.isCaptivePlayer()) {
             // By id, not by entity: the record may outlive the loaded villager, and a client that saw
@@ -520,7 +551,12 @@ public final class CustodyService {
                 return;
             }
             record.setEscapeProgress(progress);
-            int required = escapeWorkTicks(record.getRestraint());
+            // A relative causing a scene outside makes the restraint come off sooner. Applied to the
+            // target rather than to the increment because progress is whole ticks: see
+            // AccompliceService.escapeWorkDivisor for why adding the bonus per tick would not scale.
+            int required = (int) Math.max(1L, Math.round(escapeWorkTicks(record.getRestraint())
+                    / dev.otectus.mcacrime.enforcement.AccompliceService.escapeWorkDivisor(
+                            captive.getUUID(), captive.level().getGameTime())));
             if (progress >= required) {
                 record.setEscapeActive(false);
                 record.setEscapeProgress(0);

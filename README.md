@@ -29,9 +29,9 @@ what the **law** does about you, on two separate axes that never read each other
 - **Heat** is short-term law-enforcement pressure. At 50 you are **Wanted** and guards come for
   you. It bleeds off per online minute, so lying low genuinely works — and lying logged out does
   not, because every clock in this mod counts online time only.
-- **Crimes are data.** Seven ship as JSON — theft, harming a villager, assaulting a guard,
-  jailbreak, kidnapping, killing a villager, and murder during a robbery — each with its own karma
-  and Heat cost. A datapack can retune all seven or add its own.
+- **Crimes are data.** Fourteen ship as JSON — theft, harming a villager, assaulting a guard,
+  jailbreak, kidnapping, killing a villager, murder during a robbery, among others — each with its
+  own karma and Heat cost. A datapack can retune any of them or add its own.
 - **Witnesses** see or hear crimes within offense-specific ranges. Walls block sight; sound alone
   identifies no suspect. Civilians carry their information to guards, and only sufficiently confident
   reports create public consequences. Local family conversations can spread uncertain accounts.
@@ -87,10 +87,14 @@ what the **law** does about you, on two separate axes that never read each other
 
 ## What it deliberately does not do
 
-No hearts replacement. No trials. No positive karma for trading, gifting, or clicking through
-dialogue; those are farmable and belong to systems that already own them. No crime between NPCs —
-a villager with the Thief occupation robs players, never another villager. No mixins anywhere except
-one client-side mixin, for restraint pose rendering, no per-tick village scans, no AI text
+No hearts replacement. No trials. Villagers still never decide to commit a crime on their own — a
+villager with the Thief occupation robs players, never another villager. A player can recruit an
+eligible relative as an accomplice, though: that villager is then individually wanted, arrestable,
+and bailable by family for what they did. No positive karma for trading, gifting, or clicking
+through dialogue; those are farmable and belong to systems that already own them. Two narrowly
+scoped mixins only: common `MobDeathEquipmentMixin`, which observes `Mob.setItemSlot` before
+MCA clears a dying villager's equipment, and client-only `RestraintPoseMixin`, which poses
+restrained arms. No per-tick village scans, no AI text
 generation, no telemetry, no outbound network calls. Turning a subsystem off changes behaviour only,
 and deletes nothing; time-based retention does — stale criminal-villager records, expired bounty
 contracts, and claims past their retention window are dropped on a timer.
@@ -125,7 +129,7 @@ Each add-on works alone, and any combination works.
 
 | Installed | What you get |
 |---|---|
-| **Crime** alone | Karma and Heat, the seven crimes, witnesses, guards, jail, kidnapping, ransom, mugging, fines, the ledger, and a built-in per-village standing store |
+| **Crime** alone | Karma and Heat, the fourteen shipped crimes, witnesses, guards, jail, kidnapping, ransom, mugging, fines, the ledger, and a built-in per-village standing store |
 | **+ MCA: Reputation** | Crime becomes the single producer for villager assault and killing; every case becomes a public incident the village can gossip about, and paying a fine or serving a sentence reads publicly as making good |
 
 Nothing here depends on MCA: Reputation at compile time, and removing it leaves this mod working

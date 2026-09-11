@@ -3,6 +3,7 @@ package dev.otectus.mcacrime.client.network;
 import dev.otectus.mcacrime.client.CrimeClientHandlers;
 import dev.otectus.mcacrime.network.ActionMenuS2CPacket;
 import dev.otectus.mcacrime.network.ActionProgressS2CPacket;
+import dev.otectus.mcacrime.network.BailQuoteS2CPacket;
 import dev.otectus.mcacrime.network.BandBulkSyncS2CPacket;
 import dev.otectus.mcacrime.network.BandSyncS2CPacket;
 import dev.otectus.mcacrime.network.CaptiveStatusS2CPacket;
@@ -83,5 +84,10 @@ public final class CrimeClientPayloadHandler implements CrimeClientPayloadRouter
     @Override
     public void onCriminalJob(CriminalJobSyncS2CPacket payload) {
         CrimeClientHandlers.onCriminalJob(payload);
+    }
+
+    @Override
+    public void onBailQuote(BailQuoteS2CPacket payload) {
+        CrimeClientHandlers.onBailQuote(payload);
     }
 }

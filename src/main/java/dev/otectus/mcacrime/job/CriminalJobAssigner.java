@@ -93,6 +93,21 @@ public final class CriminalJobAssigner {
     }
 
     /**
+     * Whether a jurisdiction has room for another thief (0.7.0).
+     *
+     * <p>{@code criminalAssignmentCooldownDays} throttles how <em>often</em> a village produces a
+     * criminal, which is not the same promise: a village that has been played in for a month
+     * accumulates thieves one at a time and nothing ever counts them. This is the count, and it is a
+     * pure function so the boundary (at the cap, not above it) is pinned by a test rather than by a
+     * reading of the sweep.
+     *
+     * @param maxActiveThieves the configured cap; 0 means no thief may be assigned to a jurisdiction
+     */
+    public static boolean jurisdictionAllows(int activeThieves, int maxActiveThieves) {
+        return activeThieves < maxActiveThieves;
+    }
+
+    /**
      * Whether this village has produced a criminal too recently.
      *
      * <p>A clock that has gone backwards (a restored backup, a {@code /time set}) reads as "not on

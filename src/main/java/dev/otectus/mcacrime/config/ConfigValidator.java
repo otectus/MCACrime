@@ -3,6 +3,7 @@ package dev.otectus.mcacrime.config;
 import dev.otectus.mcacrime.McaCrimeConfig;
 import dev.otectus.mcacrime.compat.CrimeIncidentMapping;
 import dev.otectus.mcacrime.crime.type.CrimeTypeRegistry;
+import dev.otectus.mcacrime.relationship.FamilyTier;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.core.Registry;
 import net.minecraft.core.registries.BuiltInRegistries;
@@ -120,6 +121,181 @@ public final class ConfigValidator {
     }
 
     /**
+     * The contraband list and the search settings, as a pure function of the values.
+     *
+     * <p>Mirrors {@link #validateWeapons} because it is the same kind of list, and non-fatal for the
+     * same reason: one mistyped line must not take a server owner's whole contraband list, or their
+     * config load, down with it. Tags are deliberately <em>not</em> checked here - item tags do not
+     * exist while the config loads, so a tag entry can only be confirmed once they are bound, which is
+     * what {@code ContrabandPolicy} does on {@code TagsUpdatedEvent}.
+     */
+    public static List<String> validateContraband(boolean enabled, List<? extends String> illegalItems,
+                                                  String discoveryMode, double searchChance,
+                                                  int searchIntervalTicks, double searchRadius) {
+        List<String> problems = new ArrayList<>();
+        checkIds("contraband.illegalItems", illegalItems, "item", false, problems);
+        if (!isKnownDiscoveryMode(discoveryMode)) {
+            problems.add("contraband.discoveryMode must be GUARD_PATROL, ARREST_ONLY or BOTH, not '"
+                    + discoveryMode + "'.");
+        }
+        if (!enabled) {
+            return problems;
+        }
+        if (searchChance <= 0.0D && !"ARREST_ONLY".equalsIgnoreCase(String.valueOf(discoveryMode).trim())) {
+            problems.add("contraband.searchChance is 0 with patrol searches enabled, so no guard on patrol "
+                    + "will ever search anybody; only an arrest can find contraband.");
+        }
+        if (searchIntervalTicks < 1) {
+            problems.add("contraband.searchIntervalTicks (" + searchIntervalTicks + ") must be at least 1.");
+        }
+        if (searchRadius <= 0.0D) {
+            problems.add("contraband.searchRadius (" + searchRadius + ") must be greater than 0, or no "
+                    + "guard is ever near enough to search anybody.");
+        }
+        return problems;
+    }
+
+    /** The three values {@code contraband.discoveryMode} accepts, case-insensitively. */
+    public static boolean isKnownDiscoveryMode(String mode) {
+        if (mode == null) {
+            return false;
+        }
+        String trimmed = mode.trim();
+        return "GUARD_PATROL".equalsIgnoreCase(trimmed) || "ARREST_ONLY".equalsIgnoreCase(trimmed)
+                || "BOTH".equalsIgnoreCase(trimmed);
+    }
+
+    /**
+     * The victim-scoped mugging limits added in 0.7.0.
+     *
+     * <p>Ranges are enforced by {@code defineInRange}. What is worth reporting is the pair that parses
+     * and then gives back exactly the behaviour these keys exist to end: no daily cap at all, and a
+     * shared protection window shorter than the thief's own cooldown, which would leave the thief's
+     * limit as the binding one again.
+     */
+    public static List<String> validateMugging(boolean enableNpcMugging, int maxMuggingsPerPlayerPerDay,
+                                               int playerMugProtectionTicks, int mugCooldownTicks,
+                                               int maxActiveThievesPerJurisdiction) {
+        List<String> problems = new ArrayList<>();
+        if (!enableNpcMugging) {
+            return problems;
+        }
+        if (maxMuggingsPerPlayerPerDay == 0) {
+            problems.add("criminalJobs.thief.maxMuggingsPerPlayerPerDay is 0, so there is no daily limit "
+                    + "on how often one player may be robbed. That is a supported setting, only rarely "
+                    + "intended alongside enableNpcMugging.");
+        }
+        if (playerMugProtectionTicks < mugCooldownTicks) {
+            problems.add("criminalJobs.thief.playerMugProtectionTicks (" + playerMugProtectionTicks
+                    + ") is shorter than mugCooldownTicks (" + mugCooldownTicks + "), so the thief's own "
+                    + "cooldown is the binding one again and a second thief may rob the same player "
+                    + "immediately.");
+        }
+        if (maxActiveThievesPerJurisdiction == 0) {
+            problems.add("criminalJobs.thief.maxActiveThievesPerJurisdiction is 0, so no village will ever "
+                    + "be assigned a thief; only wilderness thieves remain.");
+        }
+        return problems;
+    }
+
+    /**
+     * The family-loyalty lists, as a pure function of the values.
+     *
+     * <p>Separate for the reason {@link #validateWeapons} is, and non-fatal for the same reason: an
+     * unknown tier name is dropped from the scope and reported, because one mistyped line must not
+     * take a server owner's whole loyalty scope down with it. A personality named in both lists is the
+     * one combination that parses cleanly and then means nothing — the bonus and the penalty cancel,
+     * so the entry silently does nothing at all.
+     */
+    public static List<String> validateFamilyLoyalty(boolean enabled, List<? extends String> scope,
+                                                     List<? extends String> loyalPersonalities,
+                                                     List<? extends String> lawfulPersonalities,
+                                                     int threshold, double heartsWeight) {
+        List<String> problems = new ArrayList<>();
+        if (!enabled) {
+            return problems;
+        }
+        int known = 0;
+        for (String tier : scope) {
+            if (tier == null || tier.isBlank()) {
+                problems.add("relationship.familyLoyalty.familyLoyaltyScope contains a blank entry.");
+            } else if (FamilyTier.parse(tier).isEmpty()) {
+                problems.add("relationship.familyLoyalty.familyLoyaltyScope has an unknown family tier: '"
+                        + tier + "'. Valid tiers are SPOUSE, PARENT, CHILD, SIBLING, EXTENDED, IN_LAW.");
+            } else {
+                known++;
+            }
+        }
+        if (known == 0) {
+            problems.add("enableFamilyLoyalty is on but familyLoyaltyScope names no valid tier, so no "
+                    + "relative can ever decline to report a crime and the setting does nothing.");
+        }
+        for (String personality : loyalPersonalities) {
+            if (personality != null && !personality.isBlank() && contains(lawfulPersonalities, personality)) {
+                problems.add("relationship.familyLoyalty lists '" + personality + "' in both "
+                        + "loyalPersonalities and lawfulPersonalities. The bonus and the penalty cancel, "
+                        + "so the entry has no effect either way.");
+            }
+        }
+        if (threshold == 0 && heartsWeight >= 0.0) {
+            problems.add("loyaltyThreshold is 0, so every relative in scope keeps quiet about every "
+                    + "crime regardless of hearts. That is a supported setting, only rarely intended.");
+        }
+        return problems;
+    }
+
+    /**
+     * The accomplice and family-bail settings, as a pure function of the values.
+     *
+     * <p>Non-fatal for the reason {@link #validateFamilyLoyalty} is: an unknown tier name is dropped
+     * from the scope and reported, because one mistyped line must not stop a server owner's relatives
+     * helping with anything at all. The bail bounds are checked because a minimum above a maximum is
+     * the one combination that parses, clamps cleanly, and then quotes every relative the same price
+     * whatever their sentence.
+     */
+    public static List<String> validateAccomplices(boolean enabled, List<? extends String> scope,
+                                                   boolean familyBail, int bailMin, int bailMax,
+                                                   int accompliceJailTicks) {
+        List<String> problems = new ArrayList<>();
+        if (!enabled) {
+            return problems;
+        }
+        int known = 0;
+        for (String tier : scope) {
+            if (tier == null || tier.isBlank()) {
+                problems.add("npccrime.accomplices.accompliceScope contains a blank entry.");
+            } else if (FamilyTier.parse(tier).isEmpty()) {
+                problems.add("npccrime.accomplices.accompliceScope has an unknown family tier: '" + tier
+                        + "'. Valid tiers are SPOUSE, PARENT, CHILD, SIBLING, EXTENDED, IN_LAW.");
+            } else {
+                known++;
+            }
+        }
+        if (known == 0) {
+            problems.add("enableAccomplices is on but accompliceScope names no valid tier, so no relative "
+                    + "can ever be recruited and the setting does nothing.");
+        }
+        if (familyBail && bailMin > bailMax) {
+            problems.add("bailMin (" + bailMin + ") is above bailMax (" + bailMax + "), so every bail quote "
+                    + "clamps to the same price regardless of how much sentence is left.");
+        }
+        if (familyBail && accompliceJailTicks == 0) {
+            problems.add("enableFamilyBail is on with accompliceJailTicks 0, so an arrested relative is "
+                    + "released before anybody can be quoted a price for them.");
+        }
+        return problems;
+    }
+
+    private static boolean contains(List<? extends String> names, String wanted) {
+        for (String name : names) {
+            if (name != null && name.trim().equalsIgnoreCase(wanted.trim())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
      * Pure validation of the observation, reaction and enforcement blocks added in 0.4.0.
      *
      * <p>Separate again for the same reason {@link #validateIntegrations} is: the existing signature
@@ -149,8 +325,10 @@ public final class ConfigValidator {
             problems.add("enableBail is on with bailCostPerMinute 0, so every sentence can be ended for free.");
         }
         if (npcCrime) {
-            problems.add("enableNpcCrime is on, but NPC-committed crime is not implemented in this release. "
-                    + "The setting is a declared seam and turning it on changes nothing.");
+            problems.add("enableNpcCrime is on, but NPC-initiated crime is not implemented in this release: "
+                    + "no villager decides to commit a crime of its own accord, and the setting is a declared "
+                    + "seam that changes nothing. The shipped villager-crime feature is player-initiated -- see "
+                    + "npccrime.accomplices.enableAccomplices, which is on by default and independent of this.");
         }
         if (rescue && !kidnappingNpc) {
             problems.add("enableRescue is on but enableKidnappingNpc is off, so there will rarely be an "
@@ -738,6 +916,37 @@ public final class ConfigValidator {
                 c.enableRescue.get(),
                 c.enableKidnappingNpc.get()));
 
+        problems.addAll(validateFamilyLoyalty(
+                c.enableFamilyLoyalty.get(),
+                c.familyLoyaltyScope.get(),
+                c.loyalPersonalities.get(),
+                c.lawfulPersonalities.get(),
+                c.loyaltyThreshold.get(),
+                c.loyaltyHeartsWeight.get()));
+
+        problems.addAll(validateAccomplices(
+                c.enableAccomplices.get(),
+                c.accompliceScope.get(),
+                c.enableFamilyBail.get(),
+                c.bailMin.get(),
+                c.bailMax.get(),
+                c.accompliceJailTicks.get()));
+
+        problems.addAll(validateMugging(
+                c.enableNpcMugging.get(),
+                c.maxMuggingsPerPlayerPerDay.get(),
+                c.playerMugProtectionTicks.get(),
+                c.thiefMugCooldownTicks.get(),
+                c.maxActiveThievesPerJurisdiction.get()));
+
+        problems.addAll(validateContraband(
+                c.enableContraband.get(),
+                c.illegalItems.get(),
+                c.contrabandDiscoveryMode.get(),
+                c.contrabandSearchChance.get(),
+                c.contrabandSearchIntervalTicks.get(),
+                c.contrabandSearchRadius.get()));
+
         problems.addAll(validateWeapons(
                 c.weaponWhitelist.get(),
                 c.weaponBlacklist.get(),
@@ -751,6 +960,8 @@ public final class ConfigValidator {
                 "an entity type", problems);
         registryCheck("weapons.whitelist", c.weaponWhitelist.get(), BuiltInRegistries.ITEM, "an item", problems);
         registryCheck("weapons.blacklist", c.weaponBlacklist.get(), BuiltInRegistries.ITEM, "an item", problems);
+        registryCheck("contraband.illegalItems", c.illegalItems.get(), BuiltInRegistries.ITEM, "an item",
+                problems);
 
         // Jail / fine sanity (spec §6, §7, §12.3).
         if (c.jailableHeatThreshold.get() < c.wantedHeatThreshold.get()) {

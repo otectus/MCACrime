@@ -1,5 +1,7 @@
 package dev.otectus.mcacrime.ai.thief;
 
+import dev.otectus.mcacrime.mug.npc.MugProtectionRules;
+
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
@@ -33,7 +35,23 @@ public final class MugTargetSelector {
     public record VictimCandidate(UUID id, double distance, boolean armed, boolean creativeOrSpectator,
                                   boolean invulnerable, boolean alreadyTargeted, boolean immune,
                                   boolean lineOfSight, int nearbyPlayers, long wealthHint,
-                                  int recentFailures) {
+                                  int recentFailures, long protectedUntilTick, long pairCooldownUntilTick,
+                                  int muggingsToday, int dailyCap, long now) {
+
+        /**
+         * A candidate with no victim-scoped protection at all (0.7.0).
+         *
+         * <p>The five protection facts arrived after the other eleven, and the callers that predate
+         * them - the debug command, and every test written against the selection matrix - are asking a
+         * question that does not involve them. Defaulting to "unprotected" keeps those call sites
+         * honest rather than making them pass five zeroes each.
+         */
+        public VictimCandidate(UUID id, double distance, boolean armed, boolean creativeOrSpectator,
+                               boolean invulnerable, boolean alreadyTargeted, boolean immune,
+                               boolean lineOfSight, int nearbyPlayers, long wealthHint, int recentFailures) {
+            this(id, distance, armed, creativeOrSpectator, invulnerable, alreadyTargeted, immune,
+                    lineOfSight, nearbyPlayers, wealthHint, recentFailures, 0L, 0L, 0, 0, 0L);
+        }
     }
 
     /** A candidate that passed the gate, with the opportunity score that ordered it. */
@@ -43,9 +61,18 @@ public final class MugTargetSelector {
     private MugTargetSelector() {
     }
 
-    /** Whether this candidate may be robbed at all, before any question of whether it is worth it. */
+    /**
+     * Whether this candidate may be robbed at all, before any question of whether it is worth it.
+     *
+     * <p>The three victim-scoped rules added in 0.7.0 sit here with the rest of the hard gate rather
+     * than in the score, because that is exactly what was wrong with NPC mugging: a protection that
+     * only lowered a number would still be outvoted by a rich player standing close enough.
+     */
     public static boolean eligible(VictimCandidate candidate, ThiefPolicy policy) {
         return candidate != null
+                && MugProtectionRules.eligible(candidate.protectedUntilTick(),
+                        candidate.pairCooldownUntilTick(), candidate.muggingsToday(), candidate.dailyCap(),
+                        candidate.now())
                 && !candidate.armed()
                 && !candidate.creativeOrSpectator()
                 && !candidate.invulnerable()

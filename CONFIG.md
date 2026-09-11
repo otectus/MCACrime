@@ -314,6 +314,33 @@ not depend on the thief being shown as an MCA profession. Other victim protectio
 to apply when the threshold is disabled. If MCA's heart lookup is unavailable, it returns 0,
 following the compatibility layer's existing fallback.
 
+**Mugging frequency (0.7.0).** Every cooldown above belongs to the thief; the keys below belong
+to the *victim*, and are therefore shared by every thief in the world. Without them, one player
+could be robbed by several different thieves in quick succession, each of them well inside its
+own limit.
+
+| Option | Default | Range | What it does |
+|---|---|---|---|
+| `enableNpcMugging` | `true` | — | Villagers may mug players. Off leaves thieves and fences in place as occupations; they simply never rob anybody. |
+| `muggingFrequencyMultiplier` | `1.0` | `0.1 … 10` | Scales every victim-scoped cooldown below. Above 1 means muggings happen more often (the windows get shorter); below 1 means less often. |
+| `playerMugProtectionTicks` | `36000` | `0 … 1728000` | How long after any mugging, successful or not, no thief may rob this player again. 30 in-game minutes by default. |
+| `respawnMugProtectionTicks` | `6000` | `0 … 1728000` | Grace period after respawning. |
+| `loginMugProtectionTicks` | `1200` | `0 … 1728000` | Grace period after logging in. |
+| `releaseMugProtectionTicks` | `12000` | `0 … 1728000` | Grace period after release from a cell or from custody. |
+| `thiefVictimRepeatCooldownTicks` | `72000` | `0 … 1728000` | How long before the same thief may rob the same player again. Longer than the shared protection above on purpose. |
+| `maxMuggingsPerPlayerPerDay` | `2` | `0 … 64` | Most muggings one player may suffer in an in-game day. Only completed muggings count. `0` disables the cap. |
+| `maxActiveThievesPerJurisdiction` | `2` | `0 … 64` | Most thieves one village may have at once. `criminalAssignmentCooldownDays` throttles how often a village produces a thief; this is the live count nothing previously kept. |
+
+A grant never shortens an existing protection window — the longest one already in effect always
+wins, whichever of the grants above produced it.
+
+**Changed defaults (0.7.0).** Three defaults were retuned to reduce how often a player is
+mugged: `villageThiefChance` `0.025` → `0.01`; `assignmentScanIntervalTicks` `1200` → `2400`
+(both under `[criminalJobs]`); `mugCooldownTicks` `12000` → `24000` (this table). All three are
+unchanged keys with new default values — nothing was renamed or removed. See
+[the verification doc](docs/FAMILY_CONTRABAND_MUGGING_VERIFICATION.md) for why the old values let
+one player be mugged repeatedly in a short span.
+
 ### `[criminalJobs.fence]`
 
 | Option | Default | Range | What it does |
@@ -333,16 +360,86 @@ The fence occupation's own master switch, `enableFences` (`true`), is not a key 
 declared one level up, under `[criminalJobs]`, alongside `enableThieves`. Off, `FenceTradeActionHandler`
 refuses fence trades and the criminal-job sweep never assigns a fence.
 
-## `[npccrime]` — declared, not yet wired
+## `[npccrime]` — `enableNpcCrime` declared, not yet wired
 
-| Option | Default | Range |
-|---|---|---|
-| `enableNpcCrime` | `false` | — |
-| `maxActiveNpcCrimesPerVillage` | `2` | `0 … 1000` |
-| `minTimeBetweenNpcCrimes` | `6000` | `0 … 1000000` |
+| Option | Default | Range | What it does |
+|---|---|---|---|
+| `enableNpcCrime` | `false` | — | Declared, not wired; see below. |
+| `maxActiveNpcCrimesPerVillage` | `2` | `0 … 1000` | Declared, not wired; see below. |
+| `minTimeBetweenNpcCrimes` | `6000` | `0 … 1000000` | Declared, not wired; see below. |
+| `npcMugHudUpdateIntervalTicks` | `3` | `1 … 20` | Ticks between progress packets for a thief's mugging bar during an NPC-initiated mugging (`NpcMuggingService`). The client interpolates between updates, so this is packet volume rather than smoothness. |
+| `npcMugWeaponCheckIntervalTicks` | `1` | `1 … 10` | Ticks between checks of whether a mugging victim has drawn a weapon. `1` checks every tick, so drawing a weapon stops the mug immediately rather than on the next scheduled check. |
 
-Villagers do not commit crimes against each other in this version. The master switch is off and the
-throttles have no effect.
+Villagers still do not decide to commit a crime of their own accord — `enableNpcCrime` and its two
+throttles (`maxActiveNpcCrimesPerVillage`, `minTimeBetweenNpcCrimes`) remain a declared seam that
+changes nothing, and turning `enableNpcCrime` on produces a validator warning saying so.
+`npcMugHudUpdateIntervalTicks` and `npcMugWeaponCheckIntervalTicks` are the exception: they are read
+by `NpcMuggingService` for the mugging sessions a Thief villager already starts, so they are wired
+regardless of `enableNpcCrime`. That is separate again from `[npccrime.accomplices]` below, which
+**is** shipped: it is player-initiated crime with a villager accomplice, not NPC-initiated crime, so
+it is not gated on `enableNpcCrime` at all.
+
+### `[npccrime.accomplices]`
+
+Family who help commit a crime, and family who can buy an arrested relative out of jail again. A
+relative only ever acts because a player asked them to; the villager is individually wanted,
+arrestable and bailable for what they did, exactly as a thief is. On by default.
+
+| Option | Default | Range | What it does |
+|---|---|---|---|
+| `enableAccomplices` | `true` | — | Master switch for the whole feature. |
+| `accompliceScope` | `["SPOUSE","CHILD","SIBLING"]` | `SPOUSE, PARENT, CHILD, SIBLING, EXTENDED, IN_LAW` | Which relatives may be recruited. |
+| `accompliceHeartsRequired` | `65` | `0 … 100` | MCA relationship hearts needed before a relative will help at all. |
+| `accompliceRecruitCooldownTicks` | `6000` | `0 … 240000` | Ticks a relative waits after helping before they will be asked again. |
+| `lookoutDurationTicks` | `2400` | `200 … 24000` | How long a lookout watches the street for you. |
+| `lookoutWitnessRadiusMultiplier` | `0.6` | `0.1 … 1.0` | Witness radius multiplier while a lookout is posted. Lower is safer. |
+| `lookoutWarnRadius` | `24.0` | `4 … 64` | How far a lookout looks for an approaching guard, in blocks. |
+| `lookoutWarnCooldownTicks` | `100` | `20 … 1200` | Minimum ticks between two warnings from the same lookout. |
+| `distractionDurationTicks` | `600` | `100 … 6000` | How long a distraction holds ordinary villagers' attention. |
+| `distractionRadius` | `10.0` | `2 … 32` | Blocks around the distraction inside which a civilian sees nothing else. Guards are never distracted. |
+| `escapeHelpDurationTicks` | `400` | `100 … 6000` | How long a relative's interference keeps guards off you. |
+| `escapeHelpEscapeBonus` | `0.5` | `0.0 … 5.0` | Applied as a divisor on the work required to get out of a restraint, not as extra progress per tick: `0.5` means the requirement is divided by `1.5`, so it comes off a third faster while the window is open. |
+| `implicateOnPrincipalArrest` | `true` | — | If true, arresting the player also makes any active accomplice wanted. |
+| `accompliceJailTicks` | `6000` | `0 … 240000` | Sentence served by an arrested accomplice, separate from `thiefJailTicks`. |
+| `notifyFamilyOnArrest` | `true` | — | Tell online relatives of an accomplice when they are arrested and when they are released. |
+| `enableFamilyBail` | `true` | — | Let a relative buy an arrested accomplice out of the rest of their sentence. |
+| `bailBase` | `64` | `0 … 1000000` | Flat part of the bail price, in emeralds. |
+| `bailPerThousandTicks` | `8.0` | `0.0 … 1000` | Emeralds added per thousand ticks of sentence still to serve. |
+| `bailMin` | `16` | `0 … 1000000` | Floor on the quoted price. |
+| `bailMax` | `4096` | `0 … 1000000` | Ceiling on the quoted price. |
+| `bailRepeatMultiplier` | `1.5` | `1.0 … 10` | Price multiplier compounded once per prior arrest of that relative. |
+
+**The three actions.** Each is reached from the Crime menu's `Conspire` category and requires the
+target to be family within `accompliceScope`, at or above `accompliceHeartsRequired`, and not
+already an active accomplice on cooldown (`AccompliceGate`):
+
+- **Ask for a lookout** — while posted, the offender's witness radius is multiplied by
+  `lookoutWitnessRadiusMultiplier` for `lookoutDurationTicks`, so fewer villagers are ever
+  considered as witnesses at all; the lookout also warns the player once a responder comes within
+  `lookoutWarnRadius`, at most once per `lookoutWarnCooldownTicks`.
+- **Ask for a distraction** — the relative walks a short distance off and holds the attention of
+  every ordinary villager within `distractionRadius` for `distractionDurationTicks`; those
+  villagers cannot become witnesses for the duration. Guards are never distracted.
+- **Ask for escape help** — one-shot: every responder currently pursuing the player immediately
+  loses its target, and for `escapeHelpDurationTicks` afterward guards do not re-acquire them and
+  a worn restraint comes off faster (see `escapeHelpEscapeBonus` above).
+
+**Exposure.** An accomplice is not automatically safe. Whenever an effect fires, any nearby
+villager who is neither loyal to the player nor another accomplice is checked with the same
+perception rules a crime's own witnesses are — if one of them sees the act, the relative is charged
+with `mcacrime:aiding_a_criminal` and becomes wanted. Separately, if `implicateOnPrincipalArrest` is
+on and the principal player is jailed while the agreement is still active, every relative currently
+helping them is implicated at once. A relative already wanted is never exposed a second time.
+
+**Arrest and bail.** A wanted accomplice is arrested through the same NPC custody path a thief is
+— nothing new was built for it — and serves `accompliceJailTicks` rather than `thiefJailTicks`. With
+`enableFamilyBail` on, a family member can pay to release a lawfully held relative: the price is
+`clamp(round(bailBase + bailPerThousandTicks × remainingTicks/1000) × bailRepeatMultiplier^priorArrests, bailMin, bailMax)`,
+priced on the sentence still to serve rather than the original term, and compounding once per prior
+arrest of that same relative. The quote is sent to the client as a `BailQuoteS2CPacket`; paying uses
+the same currency sink as a player's own self-bail. If the player's balance is below the quoted
+cost, or the relative has already been released between the quote and the payment, nothing is
+charged. Without payment, custody simply runs to the end of the sentence like any other arrest.
 
 ## `[jail]`
 
@@ -567,6 +664,83 @@ the old `mugging.enableProfessionDeathDrops` key remains a separate, disabled le
 The victim's persisted purse is debited before the player is credited. Repetition cannot exceed the
 finite source or actor/village windows; even an interrupted threat leaves its cooldown and memory.
 
+## `[contraband]`
+
+Items an operator has made illegal to carry, and how guards find them. **Off with an empty list by
+default** — what counts as contraband is a pack's decision and not this mod's, and a list that
+shipped with guesses in it would confiscate somebody's inventory on first launch.
+
+| Option | Default | Range | What it does |
+|---|---|---|---|
+| `enableContraband` | `false` | — | Master switch. |
+| `illegalItems` | `[]` | ids or `#tags` | The list itself. See worked examples below. |
+| `contrabandHeat` | `-1` | `-1 … 100000` | Heat one contraband charge adds. `-1` uses the crime type's own value. |
+| `contrabandKarma` | `-1` | `-1 … 100000` | Karma one contraband charge applies. `-1` uses the crime type's own value; a positive number here is still applied as the crime type would apply it. |
+| `perItemStackHeat` | `false` | — | Charge once per distinct illegal item id found rather than once for the whole search. |
+| `discoveryMode` | `BOTH` | `GUARD_PATROL`, `ARREST_ONLY`, `BOTH` | When a search may happen. |
+| `searchRadius` | `4.0` | `1 … 16` | How close a guard must be to search a player. |
+| `searchIntervalTicks` | `40` | `10 … 1200` | Server ticks between patrol search passes. Never per tick per player. |
+| `searchLosTicksRequired` | `40` | `0 … 1200` | Ticks of unbroken line of sight a guard must accumulate before it searches, added in `searchIntervalTicks`-sized steps each pass. `0` means a glance is enough; at the defaults, one pass with line of sight is already enough. |
+| `searchChance` | `0.15` | `0.0 … 1.0` | Chance a qualifying guard actually searches on a pass. |
+| `searchRequiresSuspicion` | `true` | — | Only search players the guards already have a reason to stop. Off searches anybody. |
+| `includeEquipped` | `true` | — | Worn armour is searched. |
+| `includeOffhand` | `true` | — | The offhand slot is searched. |
+| `searchNestedContainers` | `true` | — | Shulker boxes and bundles are opened, one level deep, hard-capped in code at that depth. |
+| `rechargeTicks` | `24000` | `0 … 1728000` | How long before the same unchanged haul may be charged again. An in-game day by default, so carrying the same illegal item past ten guards is one crime. |
+| `confiscateOnDiscovery` | `false` | — | A guard takes what it finds. **Destructive**: see below. |
+
+**Entries and worked examples.** Each entry in `illegalItems` is either `namespace:path` for a
+single item or `#namespace:path` for an item tag. A vanilla example: `minecraft:tnt`. A modded
+example: `create:schematic` — if that mod is not installed, the id is not registered, so it simply
+never matches anything a player can carry, and `/crime validate` reports it as an unregistered item
+rather than failing the load. The tag example this mod ships is `#mcacrime:illicit_goods`
+(`data/mcacrime/tags/item/illicit_goods.json` — 1.21's item tags live under the singular `item`
+folder), which lists `minecraft:tnt`, `minecraft:fire_charge`, `minecraft:gunpowder`,
+`minecraft:wither_skeleton_skull`, `minecraft:spyglass`, `minecraft:tripwire_hook`,
+`minecraft:ender_pearl`, `minecraft:golden_apple`, `minecraft:name_tag`, and this mod's own
+restraint items — a starting point for a pack, not a default: `illegalItems` itself ships empty and
+this tag is not added to it automatically.
+
+**Tags are validated late, on purpose.** Item tags do not exist while the config loads, so a
+`#tag` entry cannot be checked at config-load time at all. `ContrabandPolicy` provisionally accepts
+it, then checks once tags actually bind — on NeoForge's `TagsUpdatedEvent`, by asking
+`BuiltInRegistries.ITEM.getTag(...)` — and an entry naming a tag nobody registered is dropped from
+the active list at that point, with one log line naming it, and the rest of the list keeps working.
+Nothing about a malformed or unknown entry is ever fatal.
+
+**Scanning.** `includeEquipped` and `includeOffhand` add worn armour and the offhand slot to the
+main inventory scan. With `searchNestedContainers` on, a shulker box or bundle in the scanned slots
+is opened and its contents checked too — but only **one level deep**; that depth is hard-capped in
+code (`ContrabandInventoryScanner.MAX_NESTED_DEPTH = 1`), so a shulker inside a shulker is not
+opened further. In 1.21 both container shapes are read from data components rather than NBT: a
+shulker box's `DataComponents.CONTAINER` and a bundle's `DataComponents.BUNDLE_CONTENTS`.
+
+**Discovery.** Mere possession never charges anybody by itself — only a guard search does, and a
+search itself is deliberately hard to trigger. On a `GUARD_PATROL`/`BOTH` pass, all of the following
+must hold: the feature is enabled; the mode allows patrol searches; a guard is within
+`searchRadius`; that guard has accumulated `searchLosTicksRequired` ticks of unbroken line of
+sight, added in `searchIntervalTicks`-sized steps each pass (so at the defaults of 40/40, a
+single pass with line of sight already satisfies it); `searchRequiresSuspicion` is off or the
+player is already wanted/suspicious; and a
+`searchChance` roll succeeds. `ARREST_ONLY` mode skips patrol searches entirely and searches only
+from the arrest hook — and there, a search always runs, with no line-of-sight requirement and no
+chance roll, because somebody being arrested is already in a guard's hands. One guard searches at
+most one candidate per pass.
+
+**Charging and dedupe.** A find is charged as `mcacrime:possess_contraband`, once per haul unless
+`perItemStackHeat` is on (then once per distinct item id). The same unchanged haul — an
+order-independent fingerprint over the listed items' ids and counts, stored per player on the
+`mcacrime:player_crime` data attachment — is not charged again within `rechargeTicks` of the last
+charge; a haul that changes (a different item, a different count) is charged immediately regardless
+of the recharge window.
+
+**Confiscation.** `confiscateOnDiscovery` is off by default. When on, every listed **top-level**
+stack (main inventory, and armour/offhand if those toggles are on) is removed outright; nested
+items inside a shulker or bundle still produce the charge but are not taken, because emptying one
+would mean rewriting its data components. There is no recovery ledger for a confiscated item — it
+is gone. Feedback never announces what a guard did not find: the `searched` message is sent only
+when a search ran and found nothing, and the `found`/`confiscated` messages name the item.
+
 ## `[relationship]`
 
 MCA hearts moved when a crime or a good deed lands. All of these are counts of hearts.
@@ -585,6 +759,51 @@ MCA hearts moved when a crime or a good deed lands. All of these are counts of h
 
 Every one of these goes through the MCA adapter and fails safe: a differing MCA version means the
 hearts change does not happen, not that anything crashes.
+
+### `[relationship.familyLoyalty]`
+
+Family who look the other way. A relative who declines to report is removed from the crime's
+witness set itself (`WitnessLoyaltyFilter`), so the crime is un-witnessed for Heat, community
+standing and family heart loss alike — they still remember it and can talk about it. On by default.
+
+| Option | Default | Range | What it does |
+|---|---|---|---|
+| `enableFamilyLoyalty` | `true` | — | Master switch. |
+| `familyLoyaltyScope` | `["SPOUSE","PARENT","CHILD","SIBLING"]` | `SPOUSE, PARENT, CHILD, SIBLING, EXTENDED, IN_LAW` | Which relatives may decline to report. |
+| `familyLoyaltyGenerations` | `1` | `1 … 3` | How many generations out `EXTENDED` reaches. |
+| `loyaltyHeartsWeight` | `1.0` | `0.0 … 10` | Loyalty score added per MCA relationship heart with the offender. |
+| `loyaltyThreshold` | `50` | `0 … 1000` | Score at or above which a relative stays quiet. |
+| `loyaltyTierBonusSpouse` | `25` | `-500 … 500` | Score bonus for a spouse. |
+| `loyaltyTierBonusImmediate` | `10` | `-500 … 500` | Applied to a parent, child or sibling. |
+| `loyaltyTierBonusExtended` | `0` | `-500 … 500` | Applied to an extended relative or an in-law. |
+| `loyalPersonalities` | `[]` | MCA personality names | Personalities that add `personalityLoyaltyBonus`. |
+| `lawfulPersonalities` | `[]` | MCA personality names | Personalities that subtract `personalityLoyaltyPenalty`. A personality named in both lists cancels out and does nothing; `/crime validate` says so. |
+| `personalityLoyaltyBonus` | `20` | `0 … 500` | |
+| `personalityLoyaltyPenalty` | `20` | `0 … 500` | |
+| `loyaltyMaxCrimeHeat` | `60` | `0 … 100000` | Family never cover for an offender whose Heat is above this. |
+| `notifyOnLoyalWitness` | `true` | — | Tell the offender that a relative saw it and said nothing. |
+
+**The decision (`FamilyLoyalty.evaluate`).** Deterministic, no RNG: two identical crimes minutes
+apart produce the same answer. The score is `loyaltyHeartsWeight × hearts + tierBonus +
+personalityModifier`, and a relative stays quiet when that score is at or above `loyaltyThreshold`
+**and** none of six hard exclusions apply — an exclusion always wins, however high the score:
+
+1. the witness is the victim;
+2. the victim is the witness's own relative;
+3. the witness is a guard or archer (a responder);
+4. the witness is not an adult;
+5. their family tier is not in `familyLoyaltyScope`;
+6. the offender's Heat at the time exceeds `loyaltyMaxCrimeHeat`.
+
+MCA's own `Mood` is deliberately not an input: mood is transient, so a mood-weighted decision would
+flip between two identical crimes minutes apart, which would read as a bug rather than as a family
+choosing sides.
+
+**What loyal witnesses become.** A loyal relative is removed from the crime's witness set before
+Heat, community standing and family heart loss are computed from it, so a crime seen only by loyal
+family produces none of those. It is not forgotten, though: a parallel observation is recorded for
+each loyal relative with report state `WITHHELD` — distinct from intimidation's `SUPPRESSED` — which
+is never filed and never relayed by gossip, but remains available so dialogue can reference it.
 
 ## `[messages]`
 

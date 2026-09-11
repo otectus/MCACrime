@@ -14,6 +14,11 @@ public enum NpcMugAbortReason {
     VICTIM_ARMED,
     /** The villager's relationship with this player now meets the configured protection threshold. */
     RELATIONSHIP_PROTECTED,
+    /**
+     * The victim is inside a mugging protection window, in a pair cooldown with this thief, or has
+     * already been mugged as often today as the daily cap allows (0.7.0).
+     */
+    VICTIM_PROTECTED,
     /** A guard reached the thief before the timer did (Phase 8 calls this). */
     GUARD_INTERVENTION,
     /** The thief died mid-threat. */

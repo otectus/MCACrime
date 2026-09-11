@@ -59,7 +59,10 @@ public final class WitnessSocialService {
             if (McaCrimeConfig.COMMON.enableWitnessGossip.get()
                     && !dev.otectus.mcacrime.action.ActionSessionManager.activeCoerciveAgainst(speaker.getUUID()).isPresent()) {
                 for (var observation : observations) {
-                    if (observation.relayed() || !observation.identifiesActor() || !observation.sawAct()
+                    // A withheld observation is never passed on: a relative who declined to report the
+                    // crime has not agreed to gossip it into somebody who will.
+                    if (observation.relayed() || observation.reportState() == ReportState.WITHHELD
+                            || !observation.identifiesActor() || !observation.sawAct()
                             || observation.role() == ObserverRole.INFORMED || now - observation.observedAt() < 200) continue;
                     for (UUID relative : VictimMemoryService.familyOf(speaker)) {
                         if (!(level.getEntity(relative) instanceof LivingEntity listener) || !dev.otectus.mcacrime.ai.NpcAwareness.isAwake(listener)

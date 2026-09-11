@@ -40,8 +40,8 @@ import java.util.UUID;
  */
 public final class CrimeNetwork {
 
-    // 11 adds the one-shot challenge display acknowledgment. Update clients and server together.
-    private static final String PROTOCOL_VERSION = "11";
+    // 12 covers the 0.7.0 family packets. Update clients and server together.
+    private static final String PROTOCOL_VERSION = "12";
 
     private CrimeNetwork() {
     }
@@ -88,6 +88,8 @@ public final class CrimeNetwork {
                 CrimeClientPayloadRouter::handleWeaponPolicy);
         registrar.playToClient(CriminalJobSyncS2CPacket.TYPE, CriminalJobSyncS2CPacket.STREAM_CODEC,
                 CrimeClientPayloadRouter::handleCriminalJob);
+        registrar.playToClient(BailQuoteS2CPacket.TYPE, BailQuoteS2CPacket.STREAM_CODEC,
+                CrimeClientPayloadRouter::handleBailQuote);
     }
 
     // The registrar runs the server-bound handlers on the main thread, which is the same guarantee the
@@ -139,6 +141,11 @@ public final class CrimeNetwork {
 
     /** Pushes a guard challenge, or its closure, to the challenged player alone. */
     public static void sendGuardChallenge(ServerPlayer player, GuardChallengeS2CPacket packet) {
+        PacketDistributor.sendToPlayer(player, packet);
+    }
+
+    /** Answers a player's own bail enquiry. Never sent unsolicited, and never about anybody else. */
+    public static void sendBailQuote(ServerPlayer player, BailQuoteS2CPacket packet) {
         PacketDistributor.sendToPlayer(player, packet);
     }
 

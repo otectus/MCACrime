@@ -622,6 +622,15 @@ public final class McaCompat {
     }
 
     /**
+     * The villager's MCA personality name (upper-case enum name), or null when it cannot be read.
+     * Used by the family-loyalty score, which treats a null as "no personality adjustment" rather than
+     * as a reason to refuse the decision.
+     */
+    public static String getPersonalityName(Entity entity) {
+        return McaHandles.personalityName(entity);
+    }
+
+    /**
      * Whether the entity is an adult (so adult-child ransom gating is correct, spec §8.5). Players/unknown
      * are treated as adults so a missing age never wrongly excludes a valid payer. Safe default: {@code true}
      * — which is also what a null age name means, covering both "not an MCA villager" and "unreadable".

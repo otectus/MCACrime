@@ -3,14 +3,19 @@ package dev.otectus.mcacrime.event;
 import dev.otectus.mcacrime.McaCrime;
 import dev.otectus.mcacrime.McaCrimeConfig;
 import dev.otectus.mcacrime.api.event.CrimeWitnessedEvent;
+import dev.otectus.mcacrime.compat.McaCompat;
 import dev.otectus.mcacrime.crime.Band;
+import dev.otectus.mcacrime.detect.WitnessResult;
 import net.minecraft.network.chat.Component;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.entity.LivingEntity;
 import net.neoforged.neoforge.event.entity.player.PlayerEvent;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
 
 import java.util.Locale;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -63,6 +68,34 @@ public final class AmbientMessages {
             return;
         }
         player.sendSystemMessage(Component.translatable("mcacrime.msg.witnessed"));
+    }
+
+    /**
+     * "Your sister saw it and said nothing" (throttled). Called from the commit tail with the witness
+     * result, because the loyal set is not on {@link CrimeWitnessedEvent} — by design: that event fires
+     * for crimes that <em>were</em> reported, and a crime only family saw was not.
+     *
+     * <p>The relative is named when the server can still resolve them; when it cannot, nothing is sent
+     * rather than a blank name, and nobody who was not there is ever named.
+     */
+    public static void loyalWitness(ServerPlayer player, WitnessResult witnesses) {
+        if (!enabled() || !McaCrimeConfig.COMMON.notifyOnLoyalWitness.get() || player == null
+                || witnesses == null || witnesses.loyalIds().isEmpty()
+                || !(player.level() instanceof ServerLevel level) || throttled(player, "familyloyal")) {
+            return;
+        }
+        Component name = null;
+        for (UUID loyalId : witnesses.loyalIds()) {
+            if (level.getEntity(loyalId) instanceof LivingEntity relative) {
+                name = McaCompat.getVillagerDisplayName(relative);
+                break;
+            }
+        }
+        if (name == null) {
+            return;
+        }
+        player.sendSystemMessage(Component.translatable("mcacrime.msg.family.loyal", name,
+                witnesses.loyalIds().size() - 1));
     }
 
     /** Guard-pursuit reason message (throttled). Called from {@link dev.otectus.mcacrime.enforcement.GuardEnforcement}. */

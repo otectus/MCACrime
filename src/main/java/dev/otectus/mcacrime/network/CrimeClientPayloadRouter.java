@@ -78,6 +78,10 @@ public final class CrimeClientPayloadRouter {
         handler.onCriminalJob(payload);
     }
 
+    public static void handleBailQuote(BailQuoteS2CPacket payload, IPayloadContext context) {
+        handler.onBailQuote(payload);
+    }
+
     /** What the client side supplies. Every method defaults to doing nothing, which is what a server does. */
     public interface Handler {
 
@@ -118,6 +122,9 @@ public final class CrimeClientPayloadRouter {
         }
 
         default void onCriminalJob(CriminalJobSyncS2CPacket payload) {
+        }
+
+        default void onBailQuote(BailQuoteS2CPacket payload) {
         }
     }
 }

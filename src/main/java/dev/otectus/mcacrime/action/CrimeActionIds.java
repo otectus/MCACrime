@@ -16,6 +16,10 @@ public final class CrimeActionIds {
     public static final ResourceLocation RESCUE = McaCrime.id("rescue");
     public static final ResourceLocation BAIL = McaCrime.id("bail");
     public static final ResourceLocation FENCE_TRADE = McaCrime.id("fence_trade");
+    public static final ResourceLocation ASK_LOOKOUT = McaCrime.id("ask_lookout");
+    public static final ResourceLocation ASK_DISTRACTION = McaCrime.id("ask_distraction");
+    public static final ResourceLocation ASK_ESCAPE_HELP = McaCrime.id("ask_escape_help");
+    public static final ResourceLocation PAY_BAIL = McaCrime.id("pay_bail");
 
     private CrimeActionIds() {}
 }

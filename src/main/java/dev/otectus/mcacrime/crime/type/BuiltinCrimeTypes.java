@@ -33,6 +33,13 @@ public final class BuiltinCrimeTypes {
         // villager equivalents so a server that enables it does not get a second, harsher legal system.
         put(new CrimeType(CrimeIds.ASSAULT_PLAYER, -10L, 15L, 1.0, "player"));
         put(new CrimeType(CrimeIds.MURDER_PLAYER, -50L, 40L, 1.0, "player"));
+        // 0.7.0: contraband weighs the same as theft, because possession is the operator's own rule and
+        // no villager was harmed by it. There is no victim: a search is the community's own business.
+        put(new CrimeType(CrimeIds.POSSESS_CONTRABAND, -8L, 12L, 1.0, ""));
+        // 0.7.0: the accomplice's own charge. Zero on both scores for the same reason the NPC offences
+        // above are: the offender is a villager, and Karma and Heat belong to a player attachment. The
+        // record exists so the help is reportable, chargeable and bailable.
+        put(new CrimeType(CrimeIds.AIDING_A_CRIMINAL, 0L, 0L, 1.0, ""));
     }
 
     private BuiltinCrimeTypes() {

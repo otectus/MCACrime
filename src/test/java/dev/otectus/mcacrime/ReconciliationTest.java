@@ -98,10 +98,11 @@ class ReconciliationTest {
         var loaded = CrimeWorldData.load(old, net.minecraft.core.RegistryAccess.EMPTY);
         assertTrue(loaded.transactions().isEmpty()); assertTrue(loaded.reconciliationDecisions().isEmpty());
         assertNotNull(loaded.bountyClaim(KEY.asKey()));
-        assertEquals(10, loaded.save(new CompoundTag(), net.minecraft.core.RegistryAccess.EMPTY).getInt("schema"));
+        assertEquals(CrimeDataMigrations.CURRENT_SCHEMA,
+                loaded.save(new CompoundTag(), net.minecraft.core.RegistryAccess.EMPTY).getInt("schema"));
     }
     @Test void futureSchemaRejectsOperatorChangesAndKeepsOriginalData() {
-        var data = ambiguousBounty(); CompoundTag future = data.save(new CompoundTag(), net.minecraft.core.RegistryAccess.EMPTY); future.putInt("schema", 11);
+        var data = ambiguousBounty(); CompoundTag future = data.save(new CompoundTag(), net.minecraft.core.RegistryAccess.EMPTY); future.putInt("schema", CrimeDataMigrations.CURRENT_SCHEMA + 1);
         var frozen = CrimeWorldData.load(future, net.minecraft.core.RegistryAccess.EMPTY);
         assertEquals(READ_ONLY, ReconciliationService.resolve(frozen, BountyPayments.id(KEY), UUID.randomUUID(),
                 DELIVERED, "op", "verified", 1));

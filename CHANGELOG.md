@@ -5,6 +5,71 @@ All notable changes to MCA: Crime.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); this project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] — unreleased
+
+Family loyalty, family accomplices and bail, tighter mugging frequency, and configurable
+contraband.
+
+### Added
+
+- **Family loyalty.** A relative in `relationship.familyLoyalty.familyLoyaltyScope` who witnesses a
+  crime may decline to report it: a deterministic, RNG-free score against relationship hearts,
+  family tier and personality, with six hard exclusions (victim, the victim's own relative, a
+  responder, a minor, a tier out of scope, or Heat above `loyaltyMaxCrimeHeat`). A crime seen only
+  by loyal family is un-witnessed for Heat, community standing and family heart loss; the relative's
+  memory of it is still recorded, withheld rather than reported (`ReportState.WITHHELD`). On by
+  default.
+- **Family accomplices.** Three new actions in the Crime menu's `Conspire` category — Ask for a
+  Lookout, Ask for a Distraction, Ask for Escape Help — let a player recruit an eligible relative to
+  shrink the witness radius, hold civilians' attention elsewhere, or shake off pursuing guards for a
+  window. An accomplice can be exposed by a witness who is neither loyal nor in on it, or when the
+  principal is arrested while the agreement is active, and is then individually wanted, arrestable
+  through the existing NPC custody path, and jailed for `accompliceJailTicks`. On by default.
+- **Family bail.** With `enableFamilyBail`, a relative may buy a lawfully held accomplice out of
+  the rest of their sentence for a price based on time remaining and prior arrests of that same
+  relative, quoted to the client through a new `BailQuoteS2CPacket`. On by default.
+- **Mugging protection.** A per-player protection window, shared across every thief rather than
+  scoped to one, plus a longer repeat cooldown on the same thief/player pair, a daily mugging cap,
+  a live thief-per-jurisdiction cap, and an `enableNpcMugging` master switch. All of it is stored on
+  the `mcacrime:player_crime` data attachment as additive fields that read as zero on a save
+  written before this release.
+- **Configurable contraband.** A new `[contraband]` block lets an operator list illegal items and
+  tags; guards discover them through patrol searches or arrest searches, gated on suspicion, line
+  of sight and a chance roll. Nested shulker boxes and bundles are scanned one level deep, read
+  from their 1.21 data components (`DataComponents.CONTAINER`, `DataComponents.BUNDLE_CONTENTS`).
+  Off with an empty list by default.
+
+### Changed
+
+- Three defaults retuned to reduce excessive mugging: `criminalJobs.villageThiefChance` `0.025` →
+  `0.01`; `criminalJobs.assignmentScanIntervalTicks` `1200` → `2400`;
+  `criminalJobs.thief.mugCooldownTicks` `12000` → `24000`.
+- World data schema `10` → `11` (`SCHEMA_FAMILY`, additive: existing saves load unchanged, no new
+  field is required to be present).
+- Network protocol `11` → `12` (adds the `BailQuoteS2CPacket` S2C payload; a mismatched client is
+  refused).
+- NPC crime scope now includes player-recruited family accomplices — villagers still never decide
+  to commit a crime on their own; `enableNpcCrime` remains a declared, unwired seam.
+
+### Fixed
+
+- Repeated NPC mugging of the same player by several different thieves in quick succession. Every
+  existing cooldown was scoped to the thief, not the victim, so N thieves could each rob the same
+  player back to back while individually staying inside their own limit. See
+  [the verification doc](docs/FAMILY_CONTRABAND_MUGGING_VERIFICATION.md) for the diagnosis and the
+  regression coverage.
+
+### Notes
+
+- `PlayerCrimeData` is a NeoForge data attachment (`mcacrime:player_crime`); every field this
+  release adds is additive, so a legacy attachment (or one imported from the Forge capability) reads
+  every new field as its zero value rather than needing a migration step of its own.
+
+---
+
+Compatibility: Minecraft 1.21.1 on NeoForge; requires the MCA Reborn version pinned in
+`gradle.properties`. Optional: MCA: Reputation, MCA: Quests, Locks Reforged, NeoForge 1.21.1 builds.
+
 ## [0.6.4] — unreleased
 
 ### Fixed

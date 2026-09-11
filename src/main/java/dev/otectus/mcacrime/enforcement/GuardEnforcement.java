@@ -194,6 +194,12 @@ public final class GuardEnforcement {
         // got one guard slowly walked toward them and no aggression at all -- indefinitely, if that
         // guard's path failed. Once force is lawful, distance is MCA's problem: its guard package
         // includes SetWalkTargetFromAttackTargetIfTargetOutOfReach, so a targeted guard closes on its own.
+        // ...unless a relative is causing enough trouble that the guards cannot keep hold of anybody.
+        // The window is short and one-shot: this suppresses re-acquisition, it does not clear a target
+        // that is already set, which the action itself did once when it was asked for.
+        if (AccompliceService.escapeHelpActive(player.getUUID(), now)) {
+            return;
+        }
         boolean targeted = false;
         long holdUntil = now + 3L * Math.max(1, McaCrimeConfig.COMMON.guardScanIntervalTicks.get());
         for (LivingEntity guard : guards) {

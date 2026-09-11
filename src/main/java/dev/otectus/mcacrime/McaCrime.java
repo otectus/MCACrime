@@ -73,6 +73,9 @@ public final class McaCrime {
                     LOGGER.warn("MCA: Crime config reload: {}", problem));
             dev.otectus.mcacrime.detect.EntitySelectors.invalidate();
             dev.otectus.mcacrime.item.weapon.WeaponDetector.invalidate();
+            // The contraband list is compiled once and read per search pass, so a reload has to drop it.
+            // Tag entries are re-checked at the next TagsUpdatedEvent, which is the only time they can be.
+            dev.otectus.mcacrime.enforcement.ContrabandPolicy.invalidate();
             // The active currency is chosen by an id, so a reload that renames it must take effect
             // before the next fine is charged rather than at the next restart.
             Currencies.reload();

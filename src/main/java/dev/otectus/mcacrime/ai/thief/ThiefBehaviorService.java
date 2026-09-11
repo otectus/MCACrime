@@ -460,6 +460,10 @@ public final class ThiefBehaviorService {
      */
     private static void scan(ServerLevel level, ThiefBehaviorController controller, LivingEntity thief,
                              ThiefPolicy policy) {
+        if (!dev.otectus.mcacrime.McaCrimeConfig.COMMON.enableNpcMugging.get()) {
+            // Thieves and fences stay: a criminal job is an occupation, and only the robbing is off.
+            return;
+        }
         AABB box = thief.getBoundingBox().inflate(policy.targetSearchRadius());
         List<ServerPlayer> nearby = level.getEntitiesOfClass(ServerPlayer.class, box,
                 player -> player.isAlive() && !player.isSpectator());
@@ -467,8 +471,16 @@ public final class ThiefBehaviorService {
             return;
         }
 
+        long now = dev.otectus.mcacrime.mug.npc.MugProtection.now(level.getServer());
         List<MugTargetSelector.VictimCandidate> candidates = new ArrayList<>(nearby.size());
         for (ServerPlayer player : nearby) {
+            // The victim-scoped protections are read before line of sight and before the wealth hint,
+            // because a protected player is not a candidate at all and neither question is worth asking
+            // about them (0.7.0).
+            dev.otectus.mcacrime.mug.npc.MugProtection.Window window =
+                    dev.otectus.mcacrime.mug.npc.MugProtection.window(player, thief.getUUID(), now);
+            if (!dev.otectus.mcacrime.mug.npc.MugProtectionRules.eligible(window.protectedUntil(),
+                    window.pairCooldownUntil(), window.muggingsToday(), window.dailyCap(), now)) continue;
             // Apply the same protections as the live session before reading a potential victim's wealth.
             if (!NpcMuggingService.canTarget(level, thief, player)) continue;
             int crowd = 0;
@@ -487,7 +499,12 @@ public final class ThiefBehaviorService {
                     thief.hasLineOfSight(player),
                     crowd,
                     Currencies.active().balance(player),
-                    controller.failures()));
+                    controller.failures(),
+                    window.protectedUntil(),
+                    window.pairCooldownUntil(),
+                    window.muggingsToday(),
+                    window.dailyCap(),
+                    now));
         }
 
         Optional<MugTargetSelector.Scored> chosen =

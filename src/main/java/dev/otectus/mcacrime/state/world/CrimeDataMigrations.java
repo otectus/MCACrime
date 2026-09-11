@@ -60,7 +60,9 @@ public final class CrimeDataMigrations {
     public static final int SCHEMA_WITNESS_MEMORY = 9;
     /** Queued bounty delivery and durable operator decisions; old builds must not erase the audit trail. */
     public static final int SCHEMA_RECONCILIATION = 10;
-    public static final int CURRENT_SCHEMA = SCHEMA_RECONCILIATION;
+    /** Family loyalty: withheld observations and the optional tags around them, all absent-as-empty. */
+    public static final int SCHEMA_FAMILY = 11;
+    public static final int CURRENT_SCHEMA = SCHEMA_FAMILY;
 
     /** Root NBT key holding the schema integer. Absent means 0. */
     public static final String TAG_SCHEMA = "schema";
@@ -113,6 +115,9 @@ public final class CrimeDataMigrations {
         }
         if (schema < 8) {
             working = v7to8(working);
+        }
+        if (schema < 11) {
+            working = v10to11(working);
         }
         working.putInt(TAG_SCHEMA, CURRENT_SCHEMA);
         return working;
@@ -330,6 +335,25 @@ public final class CrimeDataMigrations {
     public static CompoundTag v7to8(CompoundTag tag) {
         CompoundTag out = tag.copy();
         out.putInt(TAG_SCHEMA, SCHEMA_0_6_0);
+        return out;
+    }
+
+    /**
+     * Stamps the 0.7.0 family schema and writes nothing, for the reason {@link #v7to8} writes nothing.
+     *
+     * <p>Everything family loyalty adds is optional and reads its absence as the legacy answer: an
+     * observation with no {@code report} tag is {@code PENDING}, and a world written before this
+     * release simply has no withheld observations in it, which is the truth — nobody declined to
+     * report anything before the code that lets them existed.
+     *
+     * <p>The temptation this step refuses is re-reading old crime records and marking the offender's
+     * relatives among their witnesses as having withheld. Those villagers <em>did</em> report: the
+     * crime was committed as witnessed and everything downstream already charged for it. Rewriting
+     * that afterwards would change a Heat total somebody already served for.
+     */
+    public static CompoundTag v10to11(CompoundTag tag) {
+        CompoundTag out = tag.copy();
+        out.putInt(TAG_SCHEMA, SCHEMA_FAMILY);
         return out;
     }
 

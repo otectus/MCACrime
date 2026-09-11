@@ -134,7 +134,33 @@ public final class ObservationService {
             }
         }
 
-        // 3. Everybody who heard it. One extra bounded scan, over a larger radius than sight, because
+        // 3. The offender's family who saw it and chose not to report it. They were filtered out of
+        //    the witness set at selection, so nothing above this point knows they were there — and
+        //    that is deliberate: Heat, community standing and family heart loss must all behave as
+        //    though the crime was unseen. What they do keep is the memory of it, stored WITHHELD so
+        //    it can never be filed or relayed but can still be spoken about.
+        for (UUID loyalId : witnesses.loyalIds()) {
+            if (!covered.add(loyalId)) {
+                continue;
+            }
+            Entity entity = level.getEntity(loyalId);
+            if (!(entity instanceof LivingEntity relative) || !dev.otectus.mcacrime.ai.NpcAwareness.isAwake(relative)) {
+                continue;
+            }
+            var perceived = dev.otectus.mcacrime.detect.WitnessChecker.perceive(relative, offender,
+                    victim == null ? offender : victim, awareness);
+            if (!perceived.aware()) continue;
+            CrimeObservation observation = new CrimeObservation(UUID.randomUUID(), incidentId, loyalId,
+                    ObserverRole.EYEWITNESS, perceived.identifiesActor() ? offender.getUUID() : null, victimId,
+                    crimeId, level.dimension().location(), where, now, perceived.confidence(),
+                    perceived.identifiesActor(), perceived.sawAct(), perceived.heardAct(),
+                    ReportState.WITHHELD, expiresAt, false);
+            if (store(server, observation)) {
+                stored.add(observation);
+            }
+        }
+
+        // 4. Everybody who heard it. One extra bounded scan, over a larger radius than sight, because
         //    a wall stops a line of sight and does not stop a scream.
         double hearingRadius = awareness.soundRadius() * McaCrimeConfig.COMMON.auditoryWitnessRadiusMultiplier.get();
         if (hearingRadius > 0) {

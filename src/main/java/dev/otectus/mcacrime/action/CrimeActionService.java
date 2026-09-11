@@ -2,6 +2,10 @@ package dev.otectus.mcacrime.action;
 
 import dev.otectus.mcacrime.McaCrimeConfig;
 import dev.otectus.mcacrime.action.handler.ApologizeActionHandler;
+import dev.otectus.mcacrime.action.handler.AskDistractionActionHandler;
+import dev.otectus.mcacrime.action.handler.AskEscapeHelpActionHandler;
+import dev.otectus.mcacrime.action.handler.AskLookoutActionHandler;
+import dev.otectus.mcacrime.action.handler.PayBailActionHandler;
 import dev.otectus.mcacrime.action.handler.EscapeActionHandler;
 import dev.otectus.mcacrime.action.handler.FenceTradeActionHandler;
 import dev.otectus.mcacrime.action.handler.MugActionHandler;
@@ -65,7 +69,11 @@ public final class CrimeActionService {
             CrimeActionIds.RELEASE_CAPTIVE,
             CrimeActionIds.RESCUE,
             CrimeActionIds.FENCE_TRADE,
-            CrimeActionIds.APOLOGIZE);
+            CrimeActionIds.APOLOGIZE,
+            CrimeActionIds.ASK_LOOKOUT,
+            CrimeActionIds.ASK_DISTRACTION,
+            CrimeActionIds.ASK_ESCAPE_HELP,
+            CrimeActionIds.PAY_BAIL);
 
     /** Actions offered to a player about their own situation — the captive panel and the player card. */
     private static final List<ResourceLocation> SELF_MENU = List.of(
@@ -91,6 +99,10 @@ public final class CrimeActionService {
         ActionHandlerRegistry.register(CrimeActionIds.RESCUE, new RescueActionHandler());
         ActionHandlerRegistry.register(CrimeActionIds.BAIL, new BailActionHandler());
         ActionHandlerRegistry.register(CrimeActionIds.FENCE_TRADE, new FenceTradeActionHandler());
+        ActionHandlerRegistry.register(CrimeActionIds.ASK_LOOKOUT, new AskLookoutActionHandler());
+        ActionHandlerRegistry.register(CrimeActionIds.ASK_DISTRACTION, new AskDistractionActionHandler());
+        ActionHandlerRegistry.register(CrimeActionIds.ASK_ESCAPE_HELP, new AskEscapeHelpActionHandler());
+        ActionHandlerRegistry.register(CrimeActionIds.PAY_BAIL, new PayBailActionHandler());
         bootstrapped = true;
     }
 
@@ -298,6 +310,19 @@ public final class CrimeActionService {
      */
     public static void forgetMenu(UUID actor) {
         MENUS.remove(actor);
+        PayBailActionHandler.forget(actor);
+    }
+
+    /**
+     * The menu this player currently has open.
+     *
+     * <p>Exposed for the one handler that has to send the client something the client then answers
+     * <em>through the same menu session</em>: a bail quote is only payable against the menu it was
+     * quoted from, and the alternative would be a second authorisation mechanism beside the one the
+     * action engine already validates.
+     */
+    public static java.util.Optional<ActionMenuSession> openMenuFor(UUID actor) {
+        return java.util.Optional.ofNullable(MENUS.get(actor));
     }
 
     /** Player-facing recovery valve for any authoritative custody record, including legacy orphan records. */
