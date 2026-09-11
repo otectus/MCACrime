@@ -106,6 +106,10 @@ public final class CrimeMaintenanceSweep {
         // Finished receipts only, and only past the retention window. Not reported in the result: a
         // receipt ageing out is bookkeeping, not something that happened in the world.
         data.pruneTransactions(gameTime);
+        // Accomplice agreements age out on the same pass as the criminal records they sit beside.
+        // Not reported in the result: a shift ending is not something that happened in the world, and
+        // a record anybody is still looking for is kept whatever its expiry says.
+        data.pruneExpiredAccomplices(gameTime);
         return new Result(stolen, criminals, claims, contracts, restock);
     }
 

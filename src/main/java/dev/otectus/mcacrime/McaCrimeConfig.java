@@ -191,6 +191,30 @@ public final class McaCrimeConfig {
         public final ForgeConfigSpec.IntValue npcMugHudUpdateIntervalTicks;
         public final ForgeConfigSpec.IntValue npcMugWeaponCheckIntervalTicks;
 
+        // family accomplices and family bail (0.7.0) -- [npccrime.accomplices]. Player-initiated, so
+        // deliberately not gated on enableNpcCrime: a recruited relative is the player's crime.
+        public final ForgeConfigSpec.BooleanValue enableAccomplices;
+        public final ForgeConfigSpec.ConfigValue<List<? extends String>> accompliceScope;
+        public final ForgeConfigSpec.IntValue accompliceHeartsRequired;
+        public final ForgeConfigSpec.IntValue accompliceRecruitCooldownTicks;
+        public final ForgeConfigSpec.IntValue lookoutDurationTicks;
+        public final ForgeConfigSpec.DoubleValue lookoutWitnessRadiusMultiplier;
+        public final ForgeConfigSpec.DoubleValue lookoutWarnRadius;
+        public final ForgeConfigSpec.IntValue lookoutWarnCooldownTicks;
+        public final ForgeConfigSpec.IntValue distractionDurationTicks;
+        public final ForgeConfigSpec.DoubleValue distractionRadius;
+        public final ForgeConfigSpec.IntValue escapeHelpDurationTicks;
+        public final ForgeConfigSpec.DoubleValue escapeHelpEscapeBonus;
+        public final ForgeConfigSpec.BooleanValue implicateOnPrincipalArrest;
+        public final ForgeConfigSpec.IntValue accompliceJailTicks;
+        public final ForgeConfigSpec.BooleanValue notifyFamilyOnArrest;
+        public final ForgeConfigSpec.BooleanValue enableFamilyBail;
+        public final ForgeConfigSpec.IntValue bailBase;
+        public final ForgeConfigSpec.DoubleValue bailPerThousandTicks;
+        public final ForgeConfigSpec.IntValue bailMin;
+        public final ForgeConfigSpec.IntValue bailMax;
+        public final ForgeConfigSpec.DoubleValue bailRepeatMultiplier;
+
         // criminal jobs (0.5.1) — read by the job package
         public final ForgeConfigSpec.BooleanValue enableThieves;
         public final ForgeConfigSpec.BooleanValue enableFences;
@@ -222,6 +246,35 @@ public final class McaCrimeConfig {
         public final ForgeConfigSpec.EnumValue<TheftPolicy.ItemTheftMode> thiefItemTheftMode;
         public final ForgeConfigSpec.IntValue thiefStolenGoodsPersistenceDays;
         public final ForgeConfigSpec.IntValue thiefJailTicks;
+
+        // criminalJobs.thief mugging frequency (0.7.0) -- read by mug/npc through MugProtection
+        public final ForgeConfigSpec.BooleanValue enableNpcMugging;
+        public final ForgeConfigSpec.DoubleValue muggingFrequencyMultiplier;
+        public final ForgeConfigSpec.IntValue playerMugProtectionTicks;
+        public final ForgeConfigSpec.IntValue respawnMugProtectionTicks;
+        public final ForgeConfigSpec.IntValue loginMugProtectionTicks;
+        public final ForgeConfigSpec.IntValue releaseMugProtectionTicks;
+        public final ForgeConfigSpec.IntValue thiefVictimRepeatCooldownTicks;
+        public final ForgeConfigSpec.IntValue maxMuggingsPerPlayerPerDay;
+        public final ForgeConfigSpec.IntValue maxActiveThievesPerJurisdiction;
+
+        // contraband (0.7.0) -- read by item/contraband and enforcement/Contraband*
+        public final ForgeConfigSpec.BooleanValue enableContraband;
+        public final ForgeConfigSpec.ConfigValue<List<? extends String>> illegalItems;
+        public final ForgeConfigSpec.LongValue contrabandHeat;
+        public final ForgeConfigSpec.LongValue contrabandKarma;
+        public final ForgeConfigSpec.BooleanValue perItemStackHeat;
+        public final ForgeConfigSpec.ConfigValue<String> contrabandDiscoveryMode;
+        public final ForgeConfigSpec.DoubleValue contrabandSearchRadius;
+        public final ForgeConfigSpec.IntValue contrabandSearchIntervalTicks;
+        public final ForgeConfigSpec.IntValue contrabandSearchLosTicksRequired;
+        public final ForgeConfigSpec.DoubleValue contrabandSearchChance;
+        public final ForgeConfigSpec.BooleanValue contrabandSearchRequiresSuspicion;
+        public final ForgeConfigSpec.BooleanValue contrabandIncludeEquipped;
+        public final ForgeConfigSpec.BooleanValue contrabandIncludeOffhand;
+        public final ForgeConfigSpec.BooleanValue contrabandSearchNestedContainers;
+        public final ForgeConfigSpec.IntValue contrabandRechargeTicks;
+        public final ForgeConfigSpec.BooleanValue confiscateOnDiscovery;
 
         // criminalJobs.fence (0.5.1) -- read by economy/fence through FencePolicy
         public final ForgeConfigSpec.DoubleValue fenceMaxKarmaDiscount;
@@ -354,6 +407,22 @@ public final class McaCrimeConfig {
         public final ForgeConfigSpec.IntValue villageRepRise;
         public final ForgeConfigSpec.IntValue restitutionHeartGain;
         public final ForgeConfigSpec.DoubleValue restitutionFractionOfFine;
+
+        // family loyalty (§ relationship.familyLoyalty) — read at witness selection by WitnessChecker
+        public final ForgeConfigSpec.BooleanValue enableFamilyLoyalty;
+        public final ForgeConfigSpec.ConfigValue<List<? extends String>> familyLoyaltyScope;
+        public final ForgeConfigSpec.IntValue familyLoyaltyGenerations;
+        public final ForgeConfigSpec.DoubleValue loyaltyHeartsWeight;
+        public final ForgeConfigSpec.IntValue loyaltyThreshold;
+        public final ForgeConfigSpec.IntValue loyaltyTierBonusSpouse;
+        public final ForgeConfigSpec.IntValue loyaltyTierBonusImmediate;
+        public final ForgeConfigSpec.IntValue loyaltyTierBonusExtended;
+        public final ForgeConfigSpec.ConfigValue<List<? extends String>> loyalPersonalities;
+        public final ForgeConfigSpec.ConfigValue<List<? extends String>> lawfulPersonalities;
+        public final ForgeConfigSpec.IntValue personalityLoyaltyBonus;
+        public final ForgeConfigSpec.IntValue personalityLoyaltyPenalty;
+        public final ForgeConfigSpec.LongValue loyaltyMaxCrimeHeat;
+        public final ForgeConfigSpec.BooleanValue notifyOnLoyalWitness;
 
         // ambient messages + chat coloring (§10.3) — read by AmbientMessages / ChatNameColor
         public final ForgeConfigSpec.BooleanValue ambientMessagesEnabled;
@@ -727,6 +796,52 @@ public final class McaCrimeConfig {
                     "Ticks between weapon checks on a mugging victim. 1 is every tick, which is what the",
                     "counterplay deserves: drawing a sword should stop the mug now, not in a moment.")
                     .defineInRange("npcMugWeaponCheckIntervalTicks", 1, 1, 10);
+
+            b.comment("Family who help you commit a crime, and family who can buy them out of jail again.",
+                            "This is player-initiated crime with a villager accomplice, so it is NOT gated on",
+                            "enableNpcCrime above: a relative only ever acts because a player asked them to.",
+                            "An accomplice is individually wanted, arrestable and bailable for what they did.")
+                    .push("accomplices");
+            enableAccomplices = b.define("enableAccomplices", true);
+            accompliceScope = b.comment("Which relatives may be recruited: SPOUSE, PARENT, CHILD, SIBLING, EXTENDED, IN_LAW.")
+                    .defineList("accompliceScope", List.of("SPOUSE", "CHILD", "SIBLING"), o -> o instanceof String);
+            accompliceHeartsRequired = b.comment("MCA relationship hearts needed before a relative will help at all.")
+                    .defineInRange("accompliceHeartsRequired", 65, 0, 100);
+            accompliceRecruitCooldownTicks = b.comment("Ticks a relative waits after helping before they will be asked again.")
+                    .defineInRange("accompliceRecruitCooldownTicks", 6000, 0, 240000);
+            lookoutDurationTicks = b.comment("How long a lookout watches the street for you.")
+                    .defineInRange("lookoutDurationTicks", 2400, 200, 24000);
+            lookoutWitnessRadiusMultiplier = b.comment("Witness radius multiplier while a lookout is posted. Lower is safer.")
+                    .defineInRange("lookoutWitnessRadiusMultiplier", 0.6D, 0.1D, 1.0D);
+            lookoutWarnRadius = b.comment("How far a lookout looks for an approaching guard, in blocks.")
+                    .defineInRange("lookoutWarnRadius", 24.0D, 4.0D, 64.0D);
+            lookoutWarnCooldownTicks = b.comment("Minimum ticks between two warnings from the same lookout.")
+                    .defineInRange("lookoutWarnCooldownTicks", 100, 20, 1200);
+            distractionDurationTicks = b.comment("How long a distraction holds ordinary villagers' attention.")
+                    .defineInRange("distractionDurationTicks", 600, 100, 6000);
+            distractionRadius = b.comment("Blocks around the distraction inside which a civilian sees nothing else. Guards are never distracted.")
+                    .defineInRange("distractionRadius", 10.0D, 2.0D, 32.0D);
+            escapeHelpDurationTicks = b.comment("How long a relative's interference keeps guards off you.")
+                    .defineInRange("escapeHelpDurationTicks", 400, 100, 6000);
+            escapeHelpEscapeBonus = b.comment("How much faster a restraint comes off during that window; 0.5 is half again as fast.")
+                    .defineInRange("escapeHelpEscapeBonus", 0.5D, 0.0D, 5.0D);
+            implicateOnPrincipalArrest = b.comment("If true, arresting the player also makes any active accomplice wanted.")
+                    .define("implicateOnPrincipalArrest", true);
+            accompliceJailTicks = b.comment("Sentence served by an arrested accomplice.")
+                    .defineInRange("accompliceJailTicks", 6000, 0, 240000);
+            notifyFamilyOnArrest = b.comment("Tell online relatives of an accomplice when they are arrested and when they are released.")
+                    .define("notifyFamilyOnArrest", true);
+            enableFamilyBail = b.comment("Let a relative buy an arrested accomplice out of the rest of their sentence.")
+                    .define("enableFamilyBail", true);
+            bailBase = b.comment("Flat part of the bail price, in emeralds.")
+                    .defineInRange("bailBase", 64, 0, 1_000_000);
+            bailPerThousandTicks = b.comment("Emeralds added per thousand ticks of sentence still to serve.")
+                    .defineInRange("bailPerThousandTicks", 8.0D, 0.0D, 1000.0D);
+            bailMin = b.defineInRange("bailMin", 16, 0, 1_000_000);
+            bailMax = b.defineInRange("bailMax", 4096, 0, 1_000_000);
+            bailRepeatMultiplier = b.comment("Price multiplier compounded once per prior arrest of that relative.")
+                    .defineInRange("bailRepeatMultiplier", 1.5D, 1.0D, 10.0D);
+            b.pop();
             b.pop();
 
             b.comment(
@@ -736,7 +851,7 @@ public final class McaCrimeConfig {
             enableThieves = b.define("enableThieves", true);
             enableFences = b.define("enableFences", true);
             villageThiefChance = b.comment("Chance an eligible village adult is made a thief when the sweep considers them.")
-                    .defineInRange("villageThiefChance", 0.025D, 0.0D, 1.0D);
+                    .defineInRange("villageThiefChance", 0.01D, 0.0D, 1.0D);
             villageFenceChance = b.comment("As above, for fences. Fences belong to settlements, not the wilderness.")
                     .defineInRange("villageFenceChance", 0.010D, 0.0D, 1.0D);
             wildThiefChance = b.comment("Chance for a villager with no home village. Independent criminals should be rare.")
@@ -746,7 +861,7 @@ public final class McaCrimeConfig {
             criminalAssignmentCooldownDays = b.comment("Days a village waits after producing one criminal before it may produce another.")
                     .defineInRange("criminalAssignmentCooldownDays", 3, 0, 365);
             assignmentScanIntervalTicks = b.comment("Server ticks between assignment passes.")
-                    .defineInRange("assignmentScanIntervalTicks", 1200, 200, 24000);
+                    .defineInRange("assignmentScanIntervalTicks", 2400, 200, 24000);
             presentFenceAsMcaProfession = b.comment(
                     "Show a fence as the 'mcacrime:fence' villager profession. On by default: a fence",
                     "nobody can identify is a shop with no sign. The previous profession is remembered and",
@@ -767,7 +882,7 @@ public final class McaCrimeConfig {
             thiefMugDurationTicks = b.comment("How long the victim's bar takes to fill. Four seconds by default.")
                     .defineInRange("mugDurationTicks", 80, 20, 600);
             thiefMugCooldownTicks = b.comment("How long a thief waits after one mugging before looking for another.")
-                    .defineInRange("mugCooldownTicks", 12000, 0, 240000);
+                    .defineInRange("mugCooldownTicks", 24000, 0, 240000);
             thiefMugProtectionHearts = b.comment(
                     "A villager will not mug a player whose MCA relationship hearts with that villager",
                     "are at or above this threshold. Checked during approach and throughout the mug,",
@@ -817,6 +932,43 @@ public final class McaCrimeConfig {
                     "How long an arrested thief serves. Ten minutes by default. A criminal job survives",
                     "the sentence: a thief comes out of jail still a thief.")
                     .defineInRange("thiefJailTicks", 12000, 200, 240_000);
+
+            enableNpcMugging = b.comment(
+                    "Villager thieves may mug players. Off leaves thieves and fences in place as",
+                    "occupations -- they simply never rob anybody.",
+                    "",
+                    "The keys below bound how often a player may be mugged at all. Every other cooldown",
+                    "in this block belongs to the thief; these belong to the victim, and are therefore",
+                    "shared by every thief in the world. Without them one player can be robbed by four",
+                    "different thieves in as many minutes, each of them well inside its own limit.")
+                    .define("enableNpcMugging", true);
+            muggingFrequencyMultiplier = b.comment(
+                    "Scales every victim-scoped cooldown below. Above 1 means muggings more often (the",
+                    "windows get shorter); below 1 means less often.")
+                    .defineInRange("muggingFrequencyMultiplier", 1.0D, 0.1D, 10.0D);
+            playerMugProtectionTicks = b.comment(
+                    "How long after any mugging, successful or not, no thief may rob this player again.",
+                    "30 in-game minutes by default.")
+                    .defineInRange("playerMugProtectionTicks", 36000, 0, 1_728_000);
+            respawnMugProtectionTicks = b.comment("Grace period after respawning.")
+                    .defineInRange("respawnMugProtectionTicks", 6000, 0, 1_728_000);
+            loginMugProtectionTicks = b.comment("Grace period after logging in.")
+                    .defineInRange("loginMugProtectionTicks", 1200, 0, 1_728_000);
+            releaseMugProtectionTicks = b.comment("Grace period after release from a cell or from custody.")
+                    .defineInRange("releaseMugProtectionTicks", 12000, 0, 1_728_000);
+            thiefVictimRepeatCooldownTicks = b.comment(
+                    "How long before the same thief may rob the same player again. Longer than the",
+                    "shared protection on purpose: being robbed twice by a face you recognise is the",
+                    "part that reads as harassment.")
+                    .defineInRange("thiefVictimRepeatCooldownTicks", 72000, 0, 1_728_000);
+            maxMuggingsPerPlayerPerDay = b.comment(
+                    "Most muggings one player may suffer in an in-game day. Only completed muggings",
+                    "count. 0 disables the cap.")
+                    .defineInRange("maxMuggingsPerPlayerPerDay", 2, 0, 64);
+            maxActiveThievesPerJurisdiction = b.comment(
+                    "Most thieves one village may have at once. The assignment cooldown throttles how",
+                    "often a village produces one; this is the count nothing used to keep.")
+                    .defineInRange("maxActiveThievesPerJurisdiction", 2, 0, 64);
             b.pop();
 
             b.comment(
@@ -1153,6 +1305,63 @@ public final class McaCrimeConfig {
                     .define("allowGameplayCommandFallback", true);
             b.pop();
 
+            b.comment(
+                    "Items an operator has made illegal to carry, and how guards find them.",
+                    "",
+                    "Off with an empty list by default: what counts as contraband is a pack's decision and",
+                    "not this mod's, and a list that shipped with guesses in it would confiscate somebody's",
+                    "inventory on first launch. Entries are 'namespace:path' for an item or '#namespace:path'",
+                    "for an item tag -- '#mcacrime:illicit_goods' is the tag this mod ships as an example.")
+                    .push("contraband");
+            enableContraband = b.define("enableContraband", false);
+            illegalItems = b.comment(
+                    "The list itself. A malformed entry is dropped and reported rather than taking the",
+                    "rest of the list with it; a tag that does not exist is dropped once tags are bound.")
+                    .defineList("illegalItems", List.of(), o -> o instanceof String);
+            contrabandHeat = b.comment(
+                    "Heat one contraband charge adds, or -1 to use the crime type's own value.")
+                    .defineInRange("contrabandHeat", -1L, -1L, 100000L);
+            contrabandKarma = b.comment(
+                    "Karma one contraband charge applies, or -1 to use the crime type's own value.",
+                    "A positive number here is still applied as the crime type would apply it.")
+                    .defineInRange("contrabandKarma", -1L, -1L, 100000L);
+            perItemStackHeat = b.comment(
+                    "Charge once per distinct illegal item found rather than once for the whole search.")
+                    .define("perItemStackHeat", false);
+            contrabandDiscoveryMode = b.comment(
+                    "When a search may happen: GUARD_PATROL, ARREST_ONLY, or BOTH.")
+                    .define("discoveryMode", "BOTH");
+            contrabandSearchRadius = b.comment("How close a guard must be to search a player.")
+                    .defineInRange("searchRadius", 4.0D, 1.0D, 16.0D);
+            contrabandSearchIntervalTicks = b.comment(
+                    "Server ticks between patrol search passes. Never per tick per player.")
+                    .defineInRange("searchIntervalTicks", 40, 10, 1200);
+            contrabandSearchLosTicksRequired = b.comment(
+                    "Consecutive search passes a guard must have had line of sight for before it looks.",
+                    "Measured in ticks of the pass interval, not in raw ticks.")
+                    .defineInRange("searchLosTicksRequired", 40, 0, 1200);
+            contrabandSearchChance = b.comment("Chance a qualifying guard actually searches on a pass.")
+                    .defineInRange("searchChance", 0.15D, 0.0D, 1.0D);
+            contrabandSearchRequiresSuspicion = b.comment(
+                    "Only search players the guards already have a reason to stop. Off searches anybody.")
+                    .define("searchRequiresSuspicion", true);
+            contrabandIncludeEquipped = b.comment("Worn armour is searched.")
+                    .define("includeEquipped", true);
+            contrabandIncludeOffhand = b.comment("The offhand slot is searched.")
+                    .define("includeOffhand", true);
+            contrabandSearchNestedContainers = b.comment(
+                    "Shulker boxes and bundles are opened. One level deep, hard-capped in code.")
+                    .define("searchNestedContainers", true);
+            contrabandRechargeTicks = b.comment(
+                    "How long before the same unchanged haul may be charged again. An in-game day by",
+                    "default, so carrying the same illegal item past ten guards is one crime.")
+                    .defineInRange("rechargeTicks", 24000, 0, 1_728_000);
+            confiscateOnDiscovery = b.comment(
+                    "A guard takes what it finds. DESTRUCTIVE: confiscated items are removed from the",
+                    "world and there is no recovery ledger for them.")
+                    .define("confiscateOnDiscovery", false);
+            b.pop();
+
             b.push("relationship");
             directVictimHeartLoss = b.comment("Hearts the victim loses toward an offender who harms/mugs/kills them (§10.1).")
                     .defineInRange("directVictimHeartLoss", 2, 0, 1000);
@@ -1166,6 +1375,37 @@ public final class McaCrimeConfig {
             restitutionHeartGain = b.defineInRange("restitutionHeartGain", 2, 0, 1000);
             restitutionFractionOfFine = b.comment("Fraction of a paid fine conceptually returned to the victim as relationship recovery (§11.3).")
                     .defineInRange("restitutionFractionOfFine", 0.5, 0.0, 1.0);
+
+            b.comment("Family who look the other way. A relative who declines to report is removed from the",
+                            "witness set itself, so the crime is un-witnessed for Heat, community standing and",
+                            "family heart loss alike; they still remember it and can talk about it.")
+                    .push("familyLoyalty");
+            enableFamilyLoyalty = b.define("enableFamilyLoyalty", true);
+            familyLoyaltyScope = b.comment("Which relatives may decline to report: SPOUSE, PARENT, CHILD, SIBLING, EXTENDED, IN_LAW.")
+                    .defineList("familyLoyaltyScope", List.of("SPOUSE", "PARENT", "CHILD", "SIBLING"),
+                            o -> o instanceof String);
+            familyLoyaltyGenerations = b.comment("How many generations out EXTENDED reaches.")
+                    .defineInRange("familyLoyaltyGenerations", 1, 1, 3);
+            loyaltyHeartsWeight = b.comment("Loyalty score added per MCA relationship heart with the offender.")
+                    .defineInRange("loyaltyHeartsWeight", 1.0, 0.0, 10.0);
+            loyaltyThreshold = b.comment("Score at or above which a relative stays quiet.")
+                    .defineInRange("loyaltyThreshold", 50, 0, 1000);
+            loyaltyTierBonusSpouse = b.defineInRange("loyaltyTierBonusSpouse", 25, -500, 500);
+            loyaltyTierBonusImmediate = b.comment("Applied to a parent, child or sibling.")
+                    .defineInRange("loyaltyTierBonusImmediate", 10, -500, 500);
+            loyaltyTierBonusExtended = b.comment("Applied to an extended relative or an in-law.")
+                    .defineInRange("loyaltyTierBonusExtended", 0, -500, 500);
+            loyalPersonalities = b.comment("MCA personality names that add personalityLoyaltyBonus.")
+                    .defineList("loyalPersonalities", List.of(), o -> o instanceof String);
+            lawfulPersonalities = b.comment("MCA personality names that subtract personalityLoyaltyPenalty.")
+                    .defineList("lawfulPersonalities", List.of(), o -> o instanceof String);
+            personalityLoyaltyBonus = b.defineInRange("personalityLoyaltyBonus", 20, 0, 500);
+            personalityLoyaltyPenalty = b.defineInRange("personalityLoyaltyPenalty", 20, 0, 500);
+            loyaltyMaxCrimeHeat = b.comment("Family never cover for an offender whose Heat is above this.")
+                    .defineInRange("loyaltyMaxCrimeHeat", 60L, 0L, 100_000L);
+            notifyOnLoyalWitness = b.comment("Tell the offender that a relative saw it and said nothing.")
+                    .define("notifyOnLoyalWitness", true);
+            b.pop();
             b.pop();
 
             b.push("messages");

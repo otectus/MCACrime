@@ -5,6 +5,7 @@ import dev.otectus.mcacrime.McaCrimeConfig;
 import dev.otectus.mcacrime.captivity.CustodyRegistry;
 import dev.otectus.mcacrime.compat.McaCompat;
 import dev.otectus.mcacrime.compat.mca.McaHandles;
+import dev.otectus.mcacrime.detect.CrimeCommunityResolver;
 import dev.otectus.mcacrime.api.model.CrimeCommunityKey;
 import dev.otectus.mcacrime.job.CriminalJobAssigner.AssignmentPolicy;
 import dev.otectus.mcacrime.job.CriminalJobAssigner.Candidate;
@@ -90,6 +91,8 @@ public final class CriminalJobAssignmentSweep {
         WorldCriminalJobService jobs = WorldCriminalJobService.of(server);
         CrimeWorldData world = CrimeWorldData.get(server);
         long today = server.overworld().getGameTime() / 24000L;
+        int maxThieves = McaCrimeConfig.COMMON.maxActiveThievesPerJurisdiction.get();
+        Map<String, Integer> liveThieves = thievesByCommunity(server, jobs);
         for (ServerLevel level : server.getAllLevels()) {
             if (level.players().isEmpty()) {
                 continue;
@@ -119,12 +122,52 @@ public final class CriminalJobAssignmentSweep {
                 if (rolled.isEmpty()) {
                     continue;
                 }
+                // The cap is counted, not merely rate-limited: the assignment cooldown says how often a
+                // village may produce a thief, and a village played in for a month accumulates them one
+                // at a time under a cooldown that is satisfied every time (0.7.0).
+                String community = rolled.get() == CriminalJob.THIEF && candidate.hasVillage()
+                        ? cooldownKey(level, village.getAsInt()) : null;
+                if (community != null && !CriminalJobAssigner.jurisdictionAllows(
+                        liveThieves.getOrDefault(community, 0), maxThieves)) {
+                    continue;
+                }
                 jobs.assign(id, rolled.get(), !candidate.hasVillage());
+                if (community != null) {
+                    liveThieves.merge(community, 1, Integer::sum);
+                }
                 if (candidate.hasVillage()) {
                     markAssigned(world, level, village.getAsInt(), today);
                 }
             }
         }
+    }
+
+    /**
+     * How many thieves each jurisdiction already has, counted from the persisted records (0.7.0).
+     *
+     * <p>A record holds no position, so the community is resolved from the villager itself where it is
+     * loaded. A thief in an unloaded chunk therefore does not count towards its village's cap: that is
+     * the honest answer rather than a guessed one, and the sweep only ever looks at villages a player is
+     * standing in anyway, which are precisely the loaded ones.
+     */
+    private static Map<String, Integer> thievesByCommunity(MinecraftServer server,
+                                                           WorldCriminalJobService jobs) {
+        Map<String, Integer> counts = new HashMap<>();
+        for (var record : jobs.all()) {
+            if (record.job() != CriminalJob.THIEF) {
+                continue;
+            }
+            for (ServerLevel level : server.getAllLevels()) {
+                Entity entity = level.getEntity(record.villager());
+                if (entity == null) {
+                    continue;
+                }
+                CrimeCommunityResolver.resolve(entity, level)
+                        .ifPresent(key -> counts.merge(COOLDOWN_KEY + key.asString(), 1, Integer::sum));
+                break;
+            }
+        }
+        return counts;
     }
 
     /**

@@ -217,6 +217,10 @@ public final class JailService {
         if (reason == ReleaseReason.SENTENCE_SERVED && player.getServer() != null && finished != null) {
             SentenceResolutionService.markServed(player.getServer(), player.getUUID(), finished.getSentenceId());
         }
+        // Walking out of a cell into a mugging is the version of NPC crime that reads as the mod
+        // punishing a player twice for the same sentence (0.7.0).
+        dev.otectus.mcacrime.mug.npc.MugProtection.grant(player,
+                McaCrimeConfig.COMMON.releaseMugProtectionTicks.get());
         dev.otectus.mcacrime.audio.CrimeSounds.released(player);
         MinecraftForge.EVENT_BUS.post(new PlayerReleasedFromJailEvent(player, reason));
         CrimeNetwork.sendSelfStatus(player);

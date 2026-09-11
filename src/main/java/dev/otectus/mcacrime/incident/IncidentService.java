@@ -52,6 +52,22 @@ public final class IncidentService {
     public static Optional<CrimeRecordView> commitPlayer(UUID incidentId, ServerPlayer offender,
             ResourceLocation crimeId, @Nullable LivingEntity victim, ServerLevel level,
             WitnessResult witnesses, String detection, Map<String, String> provenance) {
+        return commitPlayer(incidentId, offender, crimeId, victim, level, witnesses, detection, provenance,
+                null, null);
+    }
+
+    /**
+     * The same commit with Karma and Heat the caller has decided rather than the crime type has.
+     *
+     * <p>Contraband is why this exists: what carrying a banned item is worth is an operator's decision
+     * (0.7.0, {@code contraband.contrabandKarma} / {@code contrabandHeat}), and the alternative was
+     * either a second copy of this whole tail or a crime type mutated underneath the registry. A null
+     * override means "use the crime type", which is what every older caller passes.
+     */
+    public static Optional<CrimeRecordView> commitPlayer(UUID incidentId, ServerPlayer offender,
+            ResourceLocation crimeId, @Nullable LivingEntity victim, ServerLevel level,
+            WitnessResult witnesses, String detection, Map<String, String> provenance,
+            @Nullable Long karmaOverride, @Nullable Long heatOverride) {
         if (!available(level) || offender == null || offender.getServer() != level.getServer()
                 || CrimeCapabilities.get(offender).isEmpty()) return Optional.empty();
         var type = CrimeTypeRegistry.getOrBuiltin(crimeId).orElse(null);
@@ -61,8 +77,10 @@ public final class IncidentService {
                 ? witnesses == null ? WitnessResult.none() : witnesses
                 : WitnessChecker.resolve(level, offender, victim, awareness);
         var c = McaCrimeConfig.COMMON;
-        long karma = CrimeDetector.karmaFor(type, effective.witnessed(), c.unwitnessedKarmaFactor.get());
-        long heat = CrimeDetector.heatFor(type, effective.witnessed(), c.requireWitnessForHeat.get());
+        long karma = karmaOverride != null ? karmaOverride
+                : CrimeDetector.karmaFor(type, effective.witnessed(), c.unwitnessedKarmaFactor.get());
+        long heat = heatOverride != null ? heatOverride
+                : CrimeDetector.heatFor(type, effective.witnessed(), c.requireWitnessForHeat.get());
         Map<String, String> context = context(victim, effective, detection);
         context.putAll(provenance);
         CrimeRecord record = record(incidentId, offender, victim, crimeId, level, effective,
@@ -74,6 +92,7 @@ public final class IncidentService {
                     IncidentNotifications.safely(() -> CrimeIntegrationHooks.onCommitted(level.getServer(), record.view()));
                     if (effective.witnessed()) IncidentNotifications.post(new CrimeWitnessedEvent(offender,
                             crimeId, record.victim(), effective.totalWitnesses(), effective.witnessIds()));
+                    dev.otectus.mcacrime.event.AmbientMessages.loyalWitness(offender, effective);
                     IncidentNotifications.post(new CrimeCommittedEvent(offender, crimeId, record.victim(),
                             effective.witnessed(), karma, heat, incidentId, record.view()));
                 });

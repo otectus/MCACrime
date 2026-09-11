@@ -98,10 +98,10 @@ class ReconciliationTest {
         var loaded = CrimeWorldData.load(old);
         assertTrue(loaded.transactions().isEmpty()); assertTrue(loaded.reconciliationDecisions().isEmpty());
         assertNotNull(loaded.bountyClaim(KEY.asKey()));
-        assertEquals(10, loaded.save(new CompoundTag()).getInt("schema"));
+        assertEquals(CrimeDataMigrations.CURRENT_SCHEMA, loaded.save(new CompoundTag()).getInt("schema"));
     }
     @Test void futureSchemaRejectsOperatorChangesAndKeepsOriginalData() {
-        var data = ambiguousBounty(); CompoundTag future = data.save(new CompoundTag()); future.putInt("schema", 11);
+        var data = ambiguousBounty(); CompoundTag future = data.save(new CompoundTag()); future.putInt("schema", CrimeDataMigrations.CURRENT_SCHEMA + 1);
         var frozen = CrimeWorldData.load(future);
         assertEquals(READ_ONLY, ReconciliationService.resolve(frozen, BountyPayments.id(KEY), UUID.randomUUID(),
                 DELIVERED, "op", "verified", 1));

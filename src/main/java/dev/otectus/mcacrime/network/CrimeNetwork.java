@@ -36,8 +36,8 @@ import java.util.function.Supplier;
  */
 public final class CrimeNetwork {
 
-    // 11 adds the one-shot challenge display acknowledgment. Update clients and server together.
-    private static final String PROTOCOL_VERSION = "11";
+    // 12 covers the 0.7.0 family packets. Update clients and server together.
+    private static final String PROTOCOL_VERSION = "12";
 
     public static final SimpleChannel CHANNEL = NetworkRegistry.newSimpleChannel(
             new ResourceLocation(McaCrime.MOD_ID, "main"),
@@ -96,6 +96,13 @@ public final class CrimeNetwork {
         toServer(GuardChallengeDisplayedC2SPacket.class,
                 GuardChallengeDisplayedC2SPacket::encode, GuardChallengeDisplayedC2SPacket::decode,
                 GuardChallengeDisplayedC2SPacket::handle);
+        toClient(BailQuoteS2CPacket.class,
+                BailQuoteS2CPacket::encode, BailQuoteS2CPacket::decode, BailQuoteS2CPacket::handle);
+    }
+
+    /** Answers a player's own bail enquiry. Never sent unsolicited, and never about anybody else. */
+    public static void sendBailQuote(ServerPlayer player, BailQuoteS2CPacket packet) {
+        CHANNEL.send(PacketDistributor.PLAYER.with(() -> player), packet);
     }
 
     /**

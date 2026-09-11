@@ -30,6 +30,12 @@ public final class CrimeIds {
     public static final ResourceLocation ASSAULT_PLAYER = new ResourceLocation(McaCrime.MOD_ID, "assault_player");
     /** Killing another player, recorded only when {@code pvpCountsAsCrime} is enabled. */
     public static final ResourceLocation MURDER_PLAYER = new ResourceLocation(McaCrime.MOD_ID, "murder_player");
+    /** 0.7.0: carrying an item the operator's contraband list forbids, found by a guard's search. */
+    public static final ResourceLocation POSSESS_CONTRABAND =
+            new ResourceLocation(McaCrime.MOD_ID, "possess_contraband");
+    /** 0.7.0: a villager who helped a player commit a crime, charged individually for the help. */
+    public static final ResourceLocation AIDING_A_CRIMINAL =
+            new ResourceLocation(McaCrime.MOD_ID, "aiding_a_criminal");
 
     private CrimeIds() {
     }

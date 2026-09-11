@@ -95,7 +95,7 @@ public final class MugActionHandler implements CrimeActionHandler {
         CrimeMemoryService.recordMugAttempt(level.getServer(), target, actor.id(), now);
         MuggingService.markThreat(actor.id(), target.getUUID(), now);
         CrimeDetector.commitDirect(player, CrimeIds.THEFT, target, level,
-                WitnessChecker.resolve(level, target), "mug_attempt");
+                WitnessChecker.resolve(level, player, target), "mug_attempt");
 
         // The victim says something and the street hears it. Both are new: a mugging used to be a
         // silent progress bar that only the mugger could perceive at all.

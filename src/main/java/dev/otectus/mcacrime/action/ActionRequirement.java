@@ -25,7 +25,9 @@ public enum ActionRequirement {
     /** The actor must be able to pay in emeralds. */
     FUNDS("funds"),
     /** The actor has at least one unresolved case. */
-    OPEN_CASE("open_case");
+    OPEN_CASE("open_case"),
+    /** The target is one of the actor's own MCA relatives, inside the configured family scope. */
+    FAMILY("family");
 
     private final String lower;
 

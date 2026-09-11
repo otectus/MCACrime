@@ -2,6 +2,7 @@ package dev.otectus.mcacrime.client;
 
 import dev.otectus.mcacrime.McaCrimeConfig;
 import dev.otectus.mcacrime.action.ActionMenuKind;
+import dev.otectus.mcacrime.network.BailQuoteS2CPacket;
 import dev.otectus.mcacrime.network.BandBulkSyncS2CPacket;
 import dev.otectus.mcacrime.network.BandSyncS2CPacket;
 import dev.otectus.mcacrime.network.CaptiveStatusS2CPacket;
@@ -17,6 +18,7 @@ import dev.otectus.mcacrime.network.ActionMenuS2CPacket;
 import dev.otectus.mcacrime.network.ActionProgressS2CPacket;
 import dev.otectus.mcacrime.client.screen.CaptiveActionScreen;
 import dev.otectus.mcacrime.client.screen.CrimeInteractionScreen;
+import dev.otectus.mcacrime.client.screen.FamilyBailScreen;
 import dev.otectus.mcacrime.client.screen.GuardChallengeScreen;
 import net.minecraft.client.Minecraft;
 
@@ -62,6 +64,12 @@ public final class CrimeClientHandlers {
         minecraft.setScreen(captivePanel
                 ? new CaptiveActionScreen(msg, minecraft.screen)
                 : new CrimeInteractionScreen(msg, minecraft.screen));
+    }
+
+    /** A bail price the player asked for: shown on its own screen, never applied by the client. */
+    public static void onBailQuote(BailQuoteS2CPacket msg) {
+        Minecraft minecraft = Minecraft.getInstance();
+        minecraft.setScreen(new FamilyBailScreen(minecraft.screen, msg));
     }
 
     public static void onActionProgress(ActionProgressS2CPacket msg) {

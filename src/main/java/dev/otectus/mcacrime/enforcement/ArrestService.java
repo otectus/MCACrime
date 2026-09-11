@@ -222,6 +222,10 @@ public final class ArrestService {
             return abort(player, Outcome.NO_CELL, "mcacrime.arrest.no_cell");
         }
         player.sendSystemMessage(Component.translatable("mcacrime.arrest.taken"));
+        // The arrest search runs here rather than on the challenge or at the cell: this is the point an
+        // arrest is known to have succeeded, and a search that fired earlier would pat down players
+        // whose arrest was then refused (0.7.0).
+        ContrabandSearchService.onArrest(level, player, arrestingResponder);
         if (hunter != null) {
             // The delivery is only real once the arrest is: a hunter who walks an outlaw past a guard
             // and keeps going has delivered nothing.

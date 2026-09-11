@@ -19,14 +19,41 @@ import java.util.UUID;
  *       alternative — inventing a witness — is exactly what the privacy rules forbid.</li>
  *   <li>A record migrated from before identities were stored knows it was witnessed but not by whom.</li>
  * </ul>
+ *
+ * <p>{@code loyalIds} names the villagers who saw it and chose not to report it — the offender's own
+ * family (§ family loyalty). They are kept apart from {@code witnessIds} rather than simply dropped,
+ * because "your sister watched you do it and said nothing" is a fact dialogue and memory both need,
+ * while every consequence that keys on {@code witnessIds} — Heat, community standing, family heart
+ * loss — must behave as though nobody saw it. The two sets are disjoint by construction, and
+ * {@code totalWitnesses} counts the reporting side only.
  */
 public record WitnessResult(Set<UUID> witnessIds, boolean witnessed,
-                            int scannedCandidates, int totalWitnesses) {
+                            int scannedCandidates, int totalWitnesses, Set<UUID> loyalIds) {
 
     public WitnessResult {
         witnessIds = witnessIds == null ? Set.of() : Set.copyOf(witnessIds);
         scannedCandidates = Math.max(0, scannedCandidates);
         totalWitnesses = Math.max(witnessIds.size(), totalWitnesses);
+        loyalIds = disjoint(loyalIds, witnessIds);
+    }
+
+    /**
+     * The shape every caller written before family loyalty uses: no loyal witnesses. Kept as a
+     * constructor rather than pushed onto each call site, so adding the component changed no caller.
+     */
+    public WitnessResult(Set<UUID> witnessIds, boolean witnessed, int scannedCandidates, int totalWitnesses) {
+        this(witnessIds, witnessed, scannedCandidates, totalWitnesses, Set.of());
+    }
+
+    /** A reporting witness always wins the tie: the same id can never be in both sets. */
+    private static Set<UUID> disjoint(Set<UUID> loyal, Set<UUID> reporting) {
+        if (loyal == null || loyal.isEmpty()) {
+            return Set.of();
+        }
+        Set<UUID> copy = new java.util.LinkedHashSet<>(loyal);
+        copy.remove(null);
+        copy.removeAll(reporting);
+        return Set.copyOf(copy);
     }
 
     /** How many witness identities are stored. May be less than {@link #totalWitnesses} under the cap. */
@@ -43,6 +70,16 @@ public record WitnessResult(Set<UUID> witnessIds, boolean witnessed,
     public static WitnessResult of(Set<UUID> ids, int scannedCandidates, int totalWitnesses) {
         Set<UUID> copy = ids == null ? Set.of() : Set.copyOf(ids);
         return new WitnessResult(copy, !copy.isEmpty(), scannedCandidates, totalWitnesses);
+    }
+
+    /**
+     * The same case with a loyalty partition: witnessed exactly when somebody <em>reporting</em> was
+     * identified, so a crime seen only by the offender's family is un-witnessed.
+     */
+    public static WitnessResult of(Set<UUID> reporting, Set<UUID> loyal, int scannedCandidates,
+                                   int totalWitnesses) {
+        Set<UUID> copy = reporting == null ? Set.of() : Set.copyOf(reporting);
+        return new WitnessResult(copy, !copy.isEmpty(), scannedCandidates, totalWitnesses, loyal);
     }
 
     /** Nobody saw it. */

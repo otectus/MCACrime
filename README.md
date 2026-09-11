@@ -30,9 +30,9 @@ what the **law** does about you, on two separate axes that never read each other
 - **Heat** is short-term law-enforcement pressure. At 50 you are **Wanted** and guards come for
   you. It bleeds off per online minute, so lying low genuinely works — and lying logged out does
   not, because every clock in this mod counts online time only.
-- **Crimes are data.** Seven ship as JSON — theft, harming a villager, assaulting a guard,
+- **Crimes are data.** Fourteen ship as JSON — theft, harming a villager, assaulting a guard,
   jailbreak, kidnapping, killing a villager, and murder during a robbery — each with its own karma
-  and Heat cost. A datapack can retune all seven or add its own.
+  and Heat cost, among others. A datapack can retune all fourteen or add its own.
 - **Witnesses** see or hear crimes within offense-specific ranges. Walls block sight; sound alone
   identifies no suspect. Civilians carry their information to guards, and only sufficiently confident
   reports create public consequences. Local family conversations can spread uncertain accounts.
@@ -88,8 +88,10 @@ what the **law** does about you, on two separate axes that never read each other
 
 ## What it deliberately does not do
 
-No hearts replacement. No trials. No NPC-on-NPC crime — a villager thief steals only from players,
-never from another villager. No positive karma for trading, gifting, or clicking through dialogue;
+No hearts replacement. No trials. Villagers still never decide to commit a crime on their own — a
+thief targets only players. A player can recruit an eligible relative as an accomplice, though:
+that villager is then individually wanted, arrestable, and bailable by family for what they did. No
+positive karma for trading, gifting, or clicking through dialogue;
 those are farmable and belong to systems that already own them. One client-only mixin, for
 restraint pose rendering, and no others. No per-tick village scans, no AI text generation, no
 telemetry, no outbound network calls. Turning a subsystem off changes behaviour only, and deletes
@@ -121,7 +123,7 @@ Each add-on works alone, and any combination works.
 
 | Installed | What you get |
 |---|---|
-| **Crime** alone | Karma and Heat, the seven crimes, witnesses, guards, jail, kidnapping, ransom, mugging, fines, the ledger, and a built-in per-village standing store |
+| **Crime** alone | Karma and Heat, the fourteen crimes, witnesses, guards, jail, kidnapping, ransom, mugging, fines, the ledger, and a built-in per-village standing store |
 | **+ MCA: Reputation** | Crime becomes the single producer for villager assault and killing; every case becomes a public incident the village can gossip about, and paying a fine or serving a sentence reads publicly as making good |
 
 Nothing here depends on MCA: Reputation at compile time, and removing it leaves this mod working

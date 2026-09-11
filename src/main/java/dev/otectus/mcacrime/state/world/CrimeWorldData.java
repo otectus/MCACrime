@@ -95,6 +95,8 @@ public final class CrimeWorldData extends SavedData {
     private static final int MAX_REPORTS = 2048;
     /** Ceilings on the 0.5.1 collections. A malformed or hostile file must not allocate without bound. */
     private static final int MAX_CRIMINAL_VILLAGERS = 4096;
+    /** Ceiling on the 0.7.0 accomplice table, sized like the criminal one it mirrors. */
+    private static final int MAX_ACCOMPLICES = 4096;
     private static final int MAX_STOLEN_GOODS = 4096;
     private static final int MAX_WARRANTS = 4096;
     private static final int MAX_BOUNTY_CLAIMS = 8192;
@@ -159,6 +161,7 @@ public final class CrimeWorldData extends SavedData {
     private final Map<UUID, Map<String, DedupeEntry>> dedupe = new LinkedHashMap<>();
     /** Criminal occupations (§"criminal jobs"), keyed by villager. Authoritative over MCA's profession. */
     private final Map<UUID, CriminalVillagerRecord> criminalVillagers = new LinkedHashMap<>();
+    private final Map<UUID, AccompliceRecord> accomplices = new LinkedHashMap<>();
     /** Stolen goods awaiting recovery, keyed by transaction id. */
     private final Map<UUID, StolenGoodsRecord> stolenGoods = new LinkedHashMap<>();
     /** thief -> transaction ids. Rebuilt on load; derivable, so never serialised. */
@@ -1011,6 +1014,61 @@ public final class CrimeWorldData extends SavedData {
         return List.copyOf(criminalVillagers.values());
     }
 
+    // --- family accomplices (0.7.0) ---
+
+    @Nullable
+    public AccompliceRecord accomplice(UUID villager) {
+        return villager == null ? null : accomplices.get(villager);
+    }
+
+    public CapacityResult putAccomplice(AccompliceRecord record) {
+        if (record == null || frozen()) {
+            return CapacityResult.FULL;
+        }
+        if (atCapacity(accomplices, record.villager(), MAX_ACCOMPLICES, "accomplice")) {
+            return CapacityResult.FULL;
+        }
+        accomplices.put(record.villager(), record);
+        setDirty();
+        return CapacityResult.OK;
+    }
+
+    public void removeAccomplice(UUID villager) {
+        if (villager == null || frozen()) {
+            return;
+        }
+        if (accomplices.remove(villager) != null) {
+            setDirty();
+        }
+    }
+
+    /** Every accomplice agreement this world knows about. A copy: the sweep iterates it while pruning. */
+    public Collection<AccompliceRecord> accomplices() {
+        return List.copyOf(accomplices.values());
+    }
+
+    /**
+     * Forgets agreements that have run out and that nobody is looking for.
+     *
+     * <p>A wanted record is kept regardless of its expiry: the help finished, the warrant did not, and
+     * dropping it here would be an amnesty granted by the housekeeping pass. It is cleared when the
+     * accomplice is arrested, not when their shift ends.
+     */
+    public int pruneExpiredAccomplices(long now) {
+        int removed = 0;
+        for (AccompliceRecord record : List.copyOf(accomplices.values())) {
+            if (record.wanted() || record.active(now)) {
+                continue;
+            }
+            accomplices.remove(record.villager());
+            removed++;
+        }
+        if (removed > 0) {
+            setDirty();
+        }
+        return removed;
+    }
+
     @Nullable
     public StolenGoodsRecord stolenGoods(UUID transactionId) {
         return transactionId == null ? null : stolenGoods.get(transactionId);
@@ -1521,6 +1579,11 @@ public final class CrimeWorldData extends SavedData {
         ListTag criminalList = new ListTag();
         criminalVillagers.values().forEach(record -> criminalList.add(record.save()));
         tag.put("criminalVillagers", criminalList);
+        // Optional: a world with no accomplices writes an empty list, and an older jar that does not
+        // know the key keeps it verbatim through the reserved-tag path rather than dropping it.
+        ListTag accompliceList = new ListTag();
+        accomplices.values().forEach(record -> accompliceList.add(record.save()));
+        tag.put("accomplices", accompliceList);
         ListTag stolenList = new ListTag();
         stolenGoods.values().forEach(record -> stolenList.add(record.save()));
         tag.put("stolenGoods", stolenList);
@@ -1792,6 +1855,19 @@ public final class CrimeWorldData extends SavedData {
             }
         }
         warnOverflow("criminal villager", data.criminalVillagers.size(), MAX_CRIMINAL_VILLAGERS);
+
+        // Absent on every world written before 0.7.0, which reads as "nobody has ever been an
+        // accomplice" -- the truthful answer rather than something to synthesise.
+        ListTag accompliceList = tag.getList("accomplices", Tag.TAG_COMPOUND);
+        for (int i = 0; i < accompliceList.size(); i++) {
+            try {
+                AccompliceRecord record = AccompliceRecord.load(accompliceList.getCompound(i));
+                data.accomplices.put(record.villager(), record);
+            } catch (RuntimeException e) {
+                data.quarantine("accomplice: " + e.getMessage(), accompliceList.getCompound(i));
+            }
+        }
+        warnOverflow("accomplice", data.accomplices.size(), MAX_ACCOMPLICES);
 
         ListTag stolenList = tag.getList("stolenGoods", Tag.TAG_COMPOUND);
         for (int i = 0; i < stolenList.size(); i++) {

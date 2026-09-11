@@ -12,6 +12,8 @@ public enum ActionCategory {
     RESTRAIN("restrain"),
     /** Apologize, offer restitution, report, rescue, lawful arrest, settle a case. */
     RESOLVE("resolve"),
+    /** Ask a relative to act as a lookout, to make a distraction, or to help you get away. */
+    CONSPIRE("conspire"),
     /** Relationship-, profession-, case- or pack-defined actions. */
     SPECIAL("special");
 

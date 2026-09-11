@@ -71,7 +71,19 @@ public final class NpcArrestService {
             return false;
         }
         CustodyRecord record = data.getCustody(thiefId);
-        record.setRemainingJailTicks(McaCrimeConfig.COMMON.thiefJailTicks.get());
+        // A wanted accomplice serves the accomplice term, a thief serves the thief term. Read from the
+        // accomplice table rather than from the charge, so the thief path is untouched by construction:
+        // a villager with no accomplice record cannot reach the first branch at all.
+        dev.otectus.mcacrime.state.world.AccompliceRecord accomplice = data.accomplice(thiefId);
+        boolean asAccomplice = accomplice != null && accomplice.wanted();
+        record.setRemainingJailTicks(npcSentenceTicks(accomplice,
+                McaCrimeConfig.COMMON.thiefJailTicks.get(),
+                McaCrimeConfig.COMMON.accompliceJailTicks.get()));
+        if (asAccomplice) {
+            // The warrant is spent on the arrest and the arrest is counted, which is what makes bailing
+            // the same relative out a second time cost more than the first.
+            data.putAccomplice(accomplice.arrested());
+        }
         data.setDirty();
 
         // A declined capture must not leave the NPC's controller in the arrested/captive state.
@@ -87,7 +99,23 @@ public final class NpcArrestService {
         NpcCustodyService.beginEscort(level, thief, guard);
         CrimeDebug.crime("guard intervention against thief {} by guard {}", thiefId, guardId);
         announce(level, thief);
+        if (asAccomplice) {
+            AccompliceService.notifyFamily(server, thiefId, "mcacrime.msg.family.arrested");
+        }
         return true;
+    }
+
+    /**
+     * How long an arrested NPC serves.
+     *
+     * <p>Pure, and split out so the thief path can be pinned: a villager with no accomplice record, or
+     * with one nobody is looking for, serves exactly the term it served before accomplices existed. The
+     * accomplice term is reachable only through a standing warrant for aiding, which is the one thing a
+     * thief arrest never produces.
+     */
+    public static long npcSentenceTicks(@Nullable dev.otectus.mcacrime.state.world.AccompliceRecord accomplice,
+                                        long thiefTicks, long accompliceTicks) {
+        return accomplice != null && accomplice.wanted() ? accompliceTicks : thiefTicks;
     }
 
     /**

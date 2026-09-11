@@ -249,8 +249,11 @@ public final class NpcMuggingService {
         int threshold = McaCrimeConfig.COMMON.thiefMugProtectionHearts.get();
         if (threshold >= 0 && relationshipProtects(McaCompat.getHearts(victim, thief), threshold))
             return NpcMugAbortReason.RELATIONSHIP_PROTECTED;
+        if (!MugProtection.eligible(victim, thief.getUUID(), MugProtection.now(level.getServer())))
+            return NpcMugAbortReason.VICTIM_PROTECTED;
         CrimeWorldData data = CrimeWorldData.get(level.getServer());
-        if (!McaCrimeConfig.COMMON.enableThieves.get()
+        if (!McaCrimeConfig.COMMON.enableNpcMugging.get()
+                || !McaCrimeConfig.COMMON.enableThieves.get()
                 || WorldCriminalJobService.of(level.getServer()).get(thief.getUUID())
                     != dev.otectus.mcacrime.job.CriminalJob.THIEF
                 || data.isCaptive(thief.getUUID()) || data.isCaptive(victim.getUUID()))
@@ -288,7 +291,7 @@ public final class NpcMuggingService {
                 session.victimId(), CrimeIds.MUGGING, CrimeAttemptEvent.AttemptOutcome.ABORTED, reason.name()));
         CrimeDebug.crime("npc mug aborted ({}): thief {} victim {} at {}/{}", reason.name(), session.thiefId(),
                 session.victimId(), session.progress(), session.requiredTicks());
-        endThief(server, session);
+        endThief(server, session, false);
     }
 
     /**
@@ -362,7 +365,7 @@ public final class NpcMuggingService {
                 session.victimId(), CrimeIds.MUGGING, CrimeAttemptEvent.AttemptOutcome.COMMITTED, ""));
         CrimeDebug.crime("npc mug {} committed: currency={} item={}", session.transactionId(),
                 result.currency(), result.tookItem() ? result.stack() : "none");
-        endThief(server, session);
+        endThief(server, session, true);
     }
 
     /**
@@ -405,10 +408,18 @@ public final class NpcMuggingService {
 
     // ------------------------------------------------------------------ internals
 
-    /** Stamps the cooldown and hands the thief back to its own behaviour, whichever way this ended. */
-    private static void endThief(@Nullable MinecraftServer server, NpcMugSession session) {
+    /**
+     * Stamps both cooldowns and hands the thief back to its own behaviour, whichever way this ended.
+     *
+     * <p>Two cooldowns, because one of them was the whole bug: the thief's own stamp stops <em>this</em>
+     * villager coming back, and the victim's protection stops the next one taking its place. The daily
+     * counter moves only on {@code committed}, so a mugging a guard broke up costs the victim nothing
+     * out of their allowance.
+     */
+    private static void endThief(@Nullable MinecraftServer server, NpcMugSession session, boolean committed) {
         if (server != null) {
             WorldCriminalJobService.of(server).touchMug(session.thiefId(), server.overworld().getGameTime());
+            MugProtection.afterMugging(server, session.victimId(), session.thiefId(), committed);
         }
         ThiefBehaviorService.onMugEnded(session.thiefId());
     }
