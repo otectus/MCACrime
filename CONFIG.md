@@ -157,10 +157,17 @@ does one villager's worth of work.
 |---|---|---|---|
 | `enableDialogue` | `true` | — | Data-driven villager lines. The server picks the line and the client renders the key, so lines localise and no text crosses the wire. |
 | `dialogueCooldownTicks` | `40` | `0 … 12000` | Minimum ticks between spoken lines from one villager to one player. Per **pair**, not global, so a village reacting to a murder produces several villagers each saying something once. |
+| `dialogueMessageFormat` | `<%1$s> %2$s` | — | How a spoken line is laid out in chat. `%1$s` is the villager's name, `%2$s` the line. A template missing either placeholder falls back to `%1$s: %2$s`. |
+| `dialogueNameColor` | `#FFC34D` | — | Hex colour (`#RRGGBB`) for the villager's name in spoken lines. An unparseable value leaves the name uncoloured. |
+| `dialogueNameBold` | `true` | — | Whether the villager's name in spoken lines is bold. |
 
 Lines live in `data/<namespace>/mcacrime/dialogue/*.json` and reload with `/reload`. A pack replaces
 a pool by declaring the same `event`. Dialogue never determines an outcome: nothing downstream
 branches on what was said, so rewriting every line cannot change what happens.
+
+The `dialogueMessageFormat`/`dialogueNameColor`/`dialogueNameBold` defaults mirror MCA Conversations'
+`chatModeMessageFormat` and its bold gold name styling, so a villager reads the same whichever mod
+is speaking.
 
 ## `[antifarm]` — declared, not yet wired
 

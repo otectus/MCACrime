@@ -38,6 +38,10 @@ contraband.
   of sight and a chance roll. Nested shulker boxes and bundles are scanned one level deep, read
   from their 1.21 data components (`DataComponents.CONTAINER`, `DataComponents.BUNDLE_CONTENTS`).
   Off with an empty list by default.
+- **Configurable spoken-line format.** `dialogueMessageFormat`, `dialogueNameColor` and
+  `dialogueNameBold` under `[dialogue]` let an operator control how a villager's name and line are
+  laid out in chat. Defaults now match MCA Conversations' chat mode (`<Name> line`, bold gold name)
+  instead of the previous plain `Name: line`.
 
 ### Changed
 

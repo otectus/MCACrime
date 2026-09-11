@@ -102,7 +102,9 @@ public final class CrimeDialogueService {
 
         Component name = speaker == null ? Component.empty() : McaCompat.getVillagerDisplayName(speaker);
         Component text = Component.translatable(line(event, context), args);
-        listener.sendSystemMessage(Component.translatable("mcacrime.dialogue.line", name, text));
+        McaCrimeConfig.Common c = McaCrimeConfig.COMMON;
+        listener.sendSystemMessage(DialogueLineFormat.render(c.dialogueMessageFormat.get(),
+                DialogueLineFormat.styleName(name, c.dialogueNameColor.get(), c.dialogueNameBold.get()), text));
         return true;
     }
 
