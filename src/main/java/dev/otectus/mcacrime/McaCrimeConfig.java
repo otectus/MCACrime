@@ -114,6 +114,9 @@ public final class McaCrimeConfig {
         // dialogue (§16)
         public final ForgeConfigSpec.BooleanValue enableDialogue;
         public final ForgeConfigSpec.IntValue dialogueCooldownTicks;
+        public final ForgeConfigSpec.ConfigValue<String> dialogueMessageFormat;
+        public final ForgeConfigSpec.ConfigValue<String> dialogueNameColor;
+        public final ForgeConfigSpec.BooleanValue dialogueNameBold;
 
         // guard challenge (§13.2)
         public final ForgeConfigSpec.BooleanValue enableGuardChallenge;
@@ -619,6 +622,17 @@ public final class McaCrimeConfig {
             enableDialogue = b.define("enableDialogue", true);
             dialogueCooldownTicks = b.comment("Minimum ticks between spoken lines from one villager to one player.")
                     .defineInRange("dialogueCooldownTicks", 40, 0, 12000);
+            dialogueMessageFormat = b.comment(
+                    "How a spoken line is laid out in chat. %1$s is the villager's name, %2$s the line.",
+                    "The default matches MCA Conversations' chat mode so both mods read alike;",
+                    "a template missing either placeholder falls back to \"%1$s: %2$s\".")
+                    .define("dialogueMessageFormat", "<%1$s> %2$s");
+            dialogueNameColor = b.comment(
+                    "Hex colour for the villager's name in spoken lines, e.g. #FFC34D (Conversations' gold).",
+                    "An unparseable value leaves the name uncoloured.")
+                    .define("dialogueNameColor", "#FFC34D");
+            dialogueNameBold = b.comment("Whether the villager's name in spoken lines is bold.")
+                    .define("dialogueNameBold", true);
             b.pop();
 
             b.push("antifarm");

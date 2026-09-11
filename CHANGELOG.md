@@ -35,6 +35,10 @@ companion degrades to the built-in store rather than failing the load.
 - **Configurable contraband.** A new `[contraband]` block lets an operator list illegal items and
   tags; guards discover them through patrol searches or arrest searches, gated on suspicion, line
   of sight and a chance roll. Off with an empty list by default.
+- **Configurable spoken-line format.** `dialogueMessageFormat`, `dialogueNameColor` and
+  `dialogueNameBold` under `[dialogue]` let an operator control how a villager's name and line are
+  laid out in chat. Defaults now match MCA Conversations' chat mode (`<Name> line`, bold gold name)
+  instead of the previous plain `Name: line`.
 
 ### Changed
 
