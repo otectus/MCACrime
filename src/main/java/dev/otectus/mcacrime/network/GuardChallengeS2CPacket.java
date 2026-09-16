@@ -18,16 +18,21 @@ import java.util.UUID;
  * fine" when the server did not offer it gains nothing, because {@code GuardChallengeService} rechecks
  * the option before spending anything.
  *
+ * <p>The fine travels twice: as a number, which the mod's own logic compares and logs, and as the
+ * formatted line the button shows. The client cannot format money itself — the currency is a common
+ * config the client is forbidden to read — so a client-side {@code format} would always say emeralds.
+ *
  * <p>The countdown is sent as a remaining tick count rather than an absolute deadline, so the client
  * needs no clock synchronisation to render it and cannot be confused by a differing game time.
  */
 public record GuardChallengeS2CPacket(boolean open, UUID encounterId, Component guardName,
                                       Component jurisdiction, int chargeCount, long assessedFine,
-                                      boolean canPay, long remainingTicks, long revision) implements CustomPacketPayload {
+                                      boolean canPay, long remainingTicks, long revision,
+                                      Component assessedFineText) implements CustomPacketPayload {
 
     public static final Type<GuardChallengeS2CPacket> TYPE = new Type<>(McaCrime.id("guard_challenge"));
 
-    /** Nine fields, beyond what {@code StreamCodec.composite} carries, so written by hand. */
+    /** Ten fields, beyond what {@code StreamCodec.composite} carries, so written by hand. */
     public static final StreamCodec<RegistryFriendlyByteBuf, GuardChallengeS2CPacket> STREAM_CODEC =
             StreamCodec.of(GuardChallengeS2CPacket::write, GuardChallengeS2CPacket::read);
 
@@ -37,6 +42,13 @@ public record GuardChallengeS2CPacket(boolean open, UUID encounterId, Component 
         this(open, encounterId, guardName, jurisdiction, chargeCount, assessedFine, canPay, remainingTicks, 0L);
     }
 
+    public GuardChallengeS2CPacket(boolean open, UUID encounterId, Component guardName,
+                                  Component jurisdiction, int chargeCount, long assessedFine,
+                                  boolean canPay, long remainingTicks, long revision) {
+        this(open, encounterId, guardName, jurisdiction, chargeCount, assessedFine, canPay, remainingTicks,
+                revision, null);
+    }
+
     public GuardChallengeS2CPacket {
         encounterId = encounterId == null ? new UUID(0L, 0L) : encounterId;
         guardName = guardName == null ? Component.empty() : guardName;
@@ -44,6 +56,11 @@ public record GuardChallengeS2CPacket(boolean open, UUID encounterId, Component 
         chargeCount = Math.max(0, chargeCount);
         assessedFine = Math.max(0L, assessedFine);
         remainingTicks = Math.max(0L, remainingTicks);
+        // The price as the player reads it. Formatting it here would need the currency, and the
+        // currency is server state the client must never read; a bare number would say "45" in a
+        // sentence that used to say emeralds. The server sends the sentence.
+        assessedFineText = assessedFineText == null ? Component.literal(Long.toString(assessedFine))
+                : assessedFineText;
     }
 
     /**
@@ -64,7 +81,8 @@ public record GuardChallengeS2CPacket(boolean open, UUID encounterId, Component 
                                                Component guardName, Component jurisdiction) {
         return new GuardChallengeS2CPacket(true, challenge.encounterId(), guardName, jurisdiction,
                 challenge.chargeCount(), challenge.assessedFine(), challenge.canPay(),
-                challenge.remaining(now), challenge.revision());
+                challenge.remaining(now), challenge.revision(),
+                dev.otectus.mcacrime.economy.Currencies.active().format(challenge.assessedFine()));
     }
 
     /** The close form: everything else is ignored by the client when {@code open} is false. */
@@ -83,6 +101,7 @@ public record GuardChallengeS2CPacket(boolean open, UUID encounterId, Component 
         buf.writeBoolean(msg.canPay());
         buf.writeVarLong(msg.remainingTicks());
         CrimeStreamCodecs.NON_NEGATIVE_LONG.encode(buf, msg.revision());
+        ComponentSerialization.STREAM_CODEC.encode(buf, msg.assessedFineText());
     }
 
     private static GuardChallengeS2CPacket read(RegistryFriendlyByteBuf buf) {
@@ -90,7 +109,8 @@ public record GuardChallengeS2CPacket(boolean open, UUID encounterId, Component 
                 ComponentSerialization.STREAM_CODEC.decode(buf),
                 ComponentSerialization.STREAM_CODEC.decode(buf),
                 buf.readVarInt(), buf.readVarLong(), buf.readBoolean(), buf.readVarLong(),
-                CrimeStreamCodecs.NON_NEGATIVE_LONG.decode(buf));
+                CrimeStreamCodecs.NON_NEGATIVE_LONG.decode(buf),
+                ComponentSerialization.STREAM_CODEC.decode(buf));
     }
 
     @Override

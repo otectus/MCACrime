@@ -112,7 +112,7 @@ public final class RansomService {
             }
             settle(server, record, captor, victim, demandId, amount);
             stampCooldowns(world, victimId, null, villageId, now);
-            captor.sendSystemMessage(Component.translatable("mcacrime.ransom.village", amount));
+            captor.sendSystemMessage(Component.translatable("mcacrime.ransom.village", Currencies.active().format(amount)));
             return new Outcome(1, amount);
         }
 
@@ -122,10 +122,10 @@ public final class RansomService {
         world.putRansom(state);
         stampCooldowns(world, victimId, payer.uuid(), villageId, now);
 
-        captor.sendSystemMessage(Component.translatable("mcacrime.ransom.demanded", amount));
+        captor.sendSystemMessage(Component.translatable("mcacrime.ransom.demanded", Currencies.active().format(amount)));
         ServerPlayer payerPlayer = server.getPlayerList().getPlayer(payer.uuid());
         if (payerPlayer != null) {
-            payerPlayer.sendSystemMessage(Component.translatable("mcacrime.ransom.notice", amount));
+            payerPlayer.sendSystemMessage(Component.translatable("mcacrime.ransom.notice", Currencies.active().format(amount)));
         }
         return new Outcome(1, amount);
     }
@@ -175,8 +175,8 @@ public final class RansomService {
         state.setStatus(RansomStatus.PAID);
         settle(server, record, captor, victim, state.getDemandId(), state.getAmount());
         world.removeRansom(state.getVictim());
-        payer.sendSystemMessage(Component.translatable("mcacrime.ransom.paid", state.getAmount()));
-        captor.sendSystemMessage(Component.translatable("mcacrime.ransom.received", state.getAmount()));
+        payer.sendSystemMessage(Component.translatable("mcacrime.ransom.paid", Currencies.active().format(state.getAmount())));
+        captor.sendSystemMessage(Component.translatable("mcacrime.ransom.received", Currencies.active().format(state.getAmount())));
         return new Outcome(1, state.getAmount());
     }
 

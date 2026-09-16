@@ -278,7 +278,10 @@ public final class GuardEnforcement {
         double bestDistance = Double.MAX_VALUE;
         for (LivingEntity guard : guards) {
             double distance = guard.distanceToSqr(player);
-            if (distance <= limit && distance < bestDistance && guard.hasLineOfSight(player)) {
+            // Fresh selection, so it uses the sand-aware check: a blinded guard is not the one who
+            // spots a suspect across the square (0.7.2 §13.5). Guards already on a case keep it.
+            if (distance <= limit && distance < bestDistance
+                    && dev.otectus.mcacrime.ai.NpcAwareness.canSeeNow(guard, player)) {
                 bestDistance = distance;
                 best = guard;
             }
@@ -329,7 +332,8 @@ public final class GuardEnforcement {
             if (ResponderAssignments.isEscorting(level.getServer(), guard.getUUID(), offender.getUUID())
                     || NpcCriminalPursuit.isAssignedElsewhere(guard.getUUID(), offender.getUUID())) continue;
             double distance = guard.distanceToSqr(offender);
-            if (distance < bestDistance && guard.hasLineOfSight(offender)) {
+            if (distance < bestDistance
+                    && dev.otectus.mcacrime.ai.NpcAwareness.canSeeNow(guard, offender)) {
                 bestDistance = distance;
                 best = guard;
             }

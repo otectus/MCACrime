@@ -2,6 +2,7 @@ package dev.otectus.mcacrime;
 
 import dev.otectus.mcacrime.economy.Currencies;
 import dev.otectus.mcacrime.economy.Currency;
+import dev.otectus.mcacrime.economy.ItemCurrency;
 import dev.otectus.mcacrime.economy.TransactionReason;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
@@ -137,5 +138,121 @@ class CurrencyContractTest {
     void aRegisteredCurrencyIsFindableByItsOwnId() {
         Currencies.register(new FakeCurrency(0L));
         assertTrue(Currencies.byId(FakeCurrency.ID).isPresent());
+    }
+
+    // ------------------------------------------------------------------ the configurable item currency
+
+    private static final ResourceLocation EMERALD_CURRENCY =
+            ResourceLocation.fromNamespaceAndPath("mcacrime", "emerald");
+
+    @Test
+    void theItemCurrencyIsRegisteredAlongsideEmeralds() {
+        assertTrue(Currencies.byId(ItemCurrency.ID).isPresent(),
+                "'mcacrime:item' must exist without an economy mod, or the config option names nothing");
+    }
+
+    @Test
+    void selectingTheItemCurrencyPinsItToTheConfiguredItem() {
+        // The runner boots the game, so the item registry is real here and the configured item can be
+        // pinned: the active id names the item rather than the provider, which is what a receipt records.
+        try {
+            Currencies.reload("mcacrime:item", "minecraft:gold_nugget");
+            assertEquals(ItemCurrency.boundId(ResourceLocation.fromNamespaceAndPath("minecraft", "gold_nugget")),
+                    Currencies.active().id());
+        } finally {
+            Currencies.reload("mcacrime:emerald", "minecraft:emerald");
+        }
+    }
+
+    @Test
+    void anUnresolvableItemStillLeavesAWorkingCurrency() {
+        // A typo, or an item from a mod that is no longer installed. That must degrade to emeralds
+        // rather than throw: an exception on config load takes the whole mod down over one string.
+        try {
+            Currencies.reload("mcacrime:item", "nosuchmod:doubloon");
+            // Registries are live under the NeoForge test runner, so the provider stays selected and
+            // pins itself to the emerald item: the id names the fallback rather than the typo.
+            assertEquals(ItemCurrency.boundId(ResourceLocation.fromNamespaceAndPath("minecraft", "emerald")), Currencies.active().id());
+            assertEquals(ResourceLocation.fromNamespaceAndPath("minecraft", "emerald"), ItemCurrency.INSTANCE.itemId(),
+                    "an unresolved item degrades to emeralds");
+        } finally {
+            Currencies.reload("mcacrime:emerald", "minecraft:emerald");
+        }
+    }
+
+    @Test
+    void anUnknownProviderStillFallsBackToEmeralds() {
+        try {
+            Currencies.reload("nosuchmod:gold", "minecraft:emerald");
+            assertEquals(EMERALD_CURRENCY, Currencies.active().id());
+        } finally {
+            Currencies.reload("mcacrime:emerald", "minecraft:emerald");
+        }
+    }
+
+    // ------------------------------------------------------------------ per-item provider ids
+
+    @Test
+    void aBoundIdNamesExactlyOneItem() {
+        assertEquals(ResourceLocation.fromNamespaceAndPath("mcacrime", "item/minecraft/gold_nugget"),
+                ItemCurrency.boundId(ResourceLocation.fromNamespaceAndPath("minecraft", "gold_nugget")));
+    }
+
+    @Test
+    void aBoundIdSurvivesBeingWrittenToDiskAndReadBack() {
+        // This is the whole point: a provider id is stored as a string on a receipt, and must parse
+        // back into the same id so the equality checks in BountyPayments/CrimeReconciler still match.
+        ResourceLocation bound = ItemCurrency.boundId(
+                ResourceLocation.fromNamespaceAndPath("minecraft", "gold_nugget"));
+        assertEquals(bound, ResourceLocation.tryParse(bound.toString()));
+        assertEquals(ResourceLocation.fromNamespaceAndPath("minecraft", "gold_nugget"),
+                ItemCurrency.itemIdOf(bound).orElse(null));
+    }
+
+    @Test
+    void onlyABoundIdParsesAsOne() {
+        assertTrue(ItemCurrency.itemIdOf(ItemCurrency.ID).isEmpty());
+        assertTrue(ItemCurrency.itemIdOf(EMERALD_CURRENCY).isEmpty());
+        assertTrue(ItemCurrency.itemIdOf(
+                ResourceLocation.fromNamespaceAndPath("othermod", "item/minecraft/emerald")).isEmpty());
+        assertTrue(ItemCurrency.itemIdOf(
+                ResourceLocation.fromNamespaceAndPath("mcacrime", "item/emerald")).isEmpty());
+    }
+
+    @Test
+    void aBoundIdWhoseItemIsGoneResolvesToNothing() {
+        // The answer a removed mod gives, and the answer that keeps a queued payment pending instead
+        // of paying it in whatever the server charges in today.
+        assertTrue(Currencies.byId(ItemCurrency.boundId(
+                ResourceLocation.fromNamespaceAndPath("nosuchmod", "doubloon"))).isEmpty(),
+                "an item that cannot be looked up must defer the payment, not substitute another item");
+    }
+
+    @Test
+    void aBoundIdWhoseItemExistsResolvesToThatItem() {
+        Currency bound = Currencies.byId(ItemCurrency.boundId(
+                ResourceLocation.fromNamespaceAndPath("minecraft", "gold_nugget"))).orElse(null);
+        assertTrue(bound != null, "a registered item must be payable by its own provider id");
+        assertEquals(ResourceLocation.fromNamespaceAndPath("minecraft", "gold_nugget"),
+                bound.itemForm().orElse(null));
+    }
+
+    @Test
+    void theConfigProviderIdStillResolvesToTheConfiguredInstance() {
+        assertEquals(ItemCurrency.INSTANCE, Currencies.byId(ItemCurrency.ID).orElse(null));
+    }
+
+    @Test
+    void creditBoundedDefaultsToAllOrUnknown() {
+        // An abstract balance cannot overflow an inventory, so the default must report 0 (all arrived)
+        // rather than inventing a remainder a bounty receipt would then re-queue forever.
+        FakeCurrency currency = new FakeCurrency(0L);
+        assertEquals(0L, currency.creditBounded(null, 25L, TransactionReason.BOUNTY));
+        assertEquals(25L, currency.balance(null));
+    }
+
+    @Test
+    void anAbstractCurrencyHasNoItemFormToRecordOnAReceipt() {
+        assertTrue(new FakeCurrency(0L).itemForm().isEmpty());
     }
 }

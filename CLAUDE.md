@@ -30,14 +30,20 @@ crime engine state ledger memory   core value types, decay, cases, villager memo
 detect     classification, witness selection, community resolution
 enforcement jail captivity ransom  arrest, guards, restraints, cells, custody, kidnapping
 action ai dialogue economy mug relationship loot  gameplay behaviour and outcomes
-job        criminal occupation system (Thief, Fence); persisted, optionally MCA-visible
+job        criminal occupation system (Thief, Fence); Thief is a native profession with a worksite
+block      the Mask Station block and its registry; a village point of interest, no block entity
+menu       the Mask Station container menu, its layout, selection policy and denied click routes
+recipe     the mcacrime:mask_making recipe type, its JSON contract, craft plan and catalogue
+mask       mask concealment, deferred Heat, restyling and data-component transfer
+effect     sand blindness, exposure policy, recovery ledger and the sand incident path
+entity     the thrown Sand Bottle projectile and its registry
 bounty     warrant tracking, bounty payouts, claim ledgers, contract board
 ai/thief   autonomous thief controller, target selection, guard evasion
 mug/npc    NPC mugging sessions, theft planning, stolen-goods recovery
 economy/fence  contraband pricing, goods registry, trading UI
-compat integration locksreforged mcaquests  optional companions; degrade at runtime
+compat integration locksreforged mcaquests numismatic  optional companions; degrade at runtime
 client mixin/client  client-only; common code must never import these
-mixin      common vanilla equipment capture; no static MCA dependencies
+mixin      seven common vanilla-only mixins: equipment capture, Thief worksite and brain, sand sight
 network item audio command config util  plumbing
 ```
 
@@ -52,12 +58,22 @@ network item audio command config util  plumbing
 ## Conventions
 
 - Registration is imperative on the MOD bus in the `McaCrime` constructor. DeferredRegisters for items and creative tabs are attached in `item/CrimeItems.register`; villager professions are registered in `job/CriminalProfessions.register`. Gameplay handlers are `@EventBusSubscriber` (inherits FORGE bus) or on the mod bus. NeoForge uses a different annotation system; check the imports (`net.neoforged.*`).
-- Config is hand-written `ModConfigSpec`, **COMMON + CLIENT only, no SERVER spec**: common is server-authoritative, client is presentation only. `config/ConfigValidator` runs at setup and on every reload.
-- Two narrowly scoped mixins: common `mixin/MobDeathEquipmentMixin` observes `Mob.setItemSlot`
-  before MCA clears dying villagers' equipment; client-only `mixin/client/RestraintPoseMixin` poses
-  restrained arms. `MixinConfigTest` verifies side separation and registration. No MixinExtras.
+- Config is hand-written `ModConfigSpec`, **COMMON + CLIENT only, no SERVER spec**: common is server-authoritative, client is presentation only. `config/ConfigValidator` runs at setup and on every reload. 0.7.2 adds the common `[maskStation]` (`enableMaskStationCrafting`, `enableMaskRestyling`) and `[sandBottle]` sections, `memory.emptyHandApologyMode`, and client `sandParticles`.
+- Eight narrowly scoped mixins, every one of them on a vanilla class. Seven common:
+  `MobDeathEquipmentMixin` (`Mob.setItemSlot`, HEAD) observes equipment before MCA clears a dying
+  villager's; `MaskStationAcquisitionMixin` (`VillagerProfession.acquirableJobSite`, RETURN) hides the
+  Mask Station from every profession except Thief; `NativeJobAssignmentMixin`
+  (`AssignProfessionFromJobSite.create`, RETURN) routes Mask Station assignment through Crime;
+  `ThiefPoiValidationMixin` (`ValidateNearbyPoi.create`, RETURN) defers validation on uninspectable
+  chunks; `ThiefBrainMixin` (`Brain.tick`, HEAD) wraps this brain's `Activity.WORK` entries for
+  employed Thieves; `MerchantOffersAccessor` (`AbstractVillager.offers`) is a field accessor with no
+  behaviour; `SandSensingMixin` (`Sensing.hasLineOfSight`, HEAD) enforces sand blindness before the
+  cached-positive return. One client-only: `mixin/client/RestraintPoseMixin`
+  (`LivingEntityRenderer.render`) poses restrained arms. `MixinConfigTest` verifies side separation and
+  registration. No MixinExtras.
 - All MCA access is `MethodHandle` lookups in `compat/mca/McaBinding` behind the `compat/McaCompat` facade, because MCA's package root has moved between releases; missing members degrade to stubs. `NoMcaStaticLinkTest` fails the build if static linkage returns, and `McaBindingProbeTest` replays the binding against every jar in `mca_probe_versions`.
 - Optional integrations must degrade at runtime - `ModList.isLoaded` plus `Class.forName` into an isolated adapter (`compat/ReputationBridge` -> `compat/reputation/`) with an API-version handshake, never a `neoforge.mods.toml` range that would gate the game load.
+- `compat/EpicFightCompat` detects Epic Fight and its three MCA bridges - "MC-Epicly-A" (`mcea`), "EpicFight-MCA Patch" (`efmca`) and "MCA Skin x Epic Fight Compatibility" (`mcaefcompat`) - by id only; no type of any of them is named anywhere in the mod. `mcea` and `efmca` each set the blocked-damage verdict, `mcaefcompat` is reported only. Client-only `client/EpicFightInteractShim` forwards an interaction Epic Fight's battle mode cancelled at the use key, so MCA: Crime's menu (armed or restraint right-click) still opens; MCA's own screen is left to Epic Fight; `mcea`'s unconditional damage block on MCA villagers has no config that lifts it and is only reported, not worked around.
 - MCA is on `localRuntime` and `testRuntimeOnly` (build.gradle ~123-133) because ModDevGradle's unit-test runner must boot the mod loader with MCA present; MCA is absent only from `compileClasspath` and `testCompileClasspath`; `NoMcaStaticLinkTest` and `OptionalClassloadTest` verify bytecode references, not runtime absence, and `McaBindingProbeTest` uses a child-first classloader so each probe jar is genuinely the version tested.
 
 ## Testing

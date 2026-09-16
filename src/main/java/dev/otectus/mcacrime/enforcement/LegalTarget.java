@@ -49,21 +49,59 @@ public final class LegalTarget {
     public static boolean isLegalTarget(boolean wanted, Band band, boolean redIsLegalTarget,
                                         boolean escapedPrisoner, boolean holdingCaptive,
                                         boolean resistingArrest) {
+        return isLegalTarget(wanted, band, redIsLegalTarget, escapedPrisoner, holdingCaptive,
+                resistingArrest, false);
+    }
+
+    /**
+     * Pure: the same table with the masked-pursuit term (0.7.0).
+     *
+     * <p>A mask suppresses the Heat a crime would have generated, which is exactly why it needs a term
+     * of its own here: without one, a responder who watched a masked figure rob somebody in front of
+     * them would have no lawful reason to do anything about it. What the responder saw was a crime,
+     * not a name, and this is the only consequence that survives not knowing the name.
+     */
+    public static boolean isLegalTarget(boolean wanted, Band band, boolean redIsLegalTarget,
+                                        boolean escapedPrisoner, boolean holdingCaptive,
+                                        boolean resistingArrest, boolean maskedPursuit) {
         return wanted
                 || (band == Band.RED && redIsLegalTarget)
                 || escapedPrisoner
                 || holdingCaptive
-                || resistingArrest;
+                || resistingArrest
+                || maskedPursuit;
     }
 
     public static boolean isLegalTarget(ServerPlayer player) {
         return isLegalTarget(
                 CrimeState.isWanted(player),
                 CrimeState.getBand(player),
-                McaCrimeConfig.COMMON.redIsLegalTarget.get(),
+                redTargetingAllowed(player),
                 isEscapedPrisoner(player),
                 isHoldingCaptive(player),
-                isResistingArrest(player));
+                isResistingArrest(player),
+                isMaskedPursuit(player));
+    }
+
+    /** True while a responder who saw a masked crime is still hunting the figure they saw (0.7.0). */
+    public static boolean isMaskedPursuit(ServerPlayer player) {
+        return CrimeAttachments.get(player).isMaskedPursuit();
+    }
+
+    /**
+     * Whether the Red-band term applies to this player right now.
+     *
+     * <p>Ordinarily it is just {@code redIsLegalTarget}. The exception is {@code
+     * maskSuppressesRedBandTargeting}, which closes the hole an operator can otherwise fall into:
+     * masked crimes still cost Karma, so a masked murderer turns Red and becomes a lawful target for
+     * the reputation the mask was supposed to be hiding. The Wanted term is never suppressed this way
+     * — being Wanted is a live pursuit, not a reputation.
+     */
+    public static boolean redTargetingAllowed(ServerPlayer player) {
+        var c = McaCrimeConfig.COMMON;
+        return c.redIsLegalTarget.get()
+                && !(c.maskEnabled.get() && c.maskSuppressesRedBandTargeting.get()
+                     && dev.otectus.mcacrime.mask.Masks.isMasked(player));
     }
 
     /** True while the player's refusal of a guard challenge is still standing (spec §13.2). */
@@ -89,7 +127,16 @@ public final class LegalTarget {
                 && !isEscapedPrisoner(player)
                 && !isHoldingCaptive(player)
                 && !isResistingArrest(player);
-        return !redOnly || McaCrimeConfig.COMMON.allowKillingRed.get();
+        // The masked term gets the same treatment for the same reason: a responder chasing somebody
+        // they cannot name is chasing a suspicion, and whether a suspicion is a death sentence is a
+        // server's choice. When both soft bases hold, both switches have to be on.
+        boolean maskedOnly = isMaskedPursuit(player)
+                && !CrimeState.isWanted(player)
+                && !isEscapedPrisoner(player)
+                && !isHoldingCaptive(player)
+                && !isResistingArrest(player);
+        return (!redOnly || McaCrimeConfig.COMMON.allowKillingRed.get())
+                && (!maskedOnly || McaCrimeConfig.COMMON.maskedOffenderLethalForce.get());
     }
 
     public static boolean isEscapedPrisoner(ServerPlayer player) {
@@ -116,11 +163,20 @@ public final class LegalTarget {
      */
     public static LegalBasis basisOf(boolean wanted, boolean redBand, boolean escaped,
                                      boolean holdingCaptive, boolean resisting) {
+        return basisOf(wanted, redBand, escaped, holdingCaptive, resisting, false);
+    }
+
+    /** The same ordering with the masked-pursuit basis, which sits below a captor and above Wanted. */
+    public static LegalBasis basisOf(boolean wanted, boolean redBand, boolean escaped,
+                                     boolean holdingCaptive, boolean resisting, boolean maskedPursuit) {
         if (resisting) {
             return LegalBasis.RESISTING_ARREST;
         }
         if (holdingCaptive) {
             return LegalBasis.HOLDING_CAPTIVE;
+        }
+        if (maskedPursuit) {
+            return LegalBasis.MASKED_OFFENDER;
         }
         if (wanted) {
             return LegalBasis.WANTED;
@@ -138,9 +194,10 @@ public final class LegalTarget {
     public static String primaryReasonKey(ServerPlayer player) {
         return basisOf(
                 CrimeState.isWanted(player),
-                CrimeState.getBand(player) == Band.RED && McaCrimeConfig.COMMON.redIsLegalTarget.get(),
+                CrimeState.getBand(player) == Band.RED && redTargetingAllowed(player),
                 isEscapedPrisoner(player),
                 isHoldingCaptive(player),
-                isResistingArrest(player)).reasonKey();
+                isResistingArrest(player),
+                isMaskedPursuit(player)).reasonKey();
     }
 }

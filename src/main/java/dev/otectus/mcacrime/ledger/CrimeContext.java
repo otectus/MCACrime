@@ -46,6 +46,14 @@ public final class CrimeContext {
     public static final String LEGACY_SENTENCE_INFERRED = "legacy_sentence_inferred";
     /** Stamped when a duplicate record id was repaired on load; the value is the original id. */
     public static final String DUPLICATE_ID_REPAIRED = "duplicate_id_repaired";
+    /** {@code true} when the offender was wearing a mask at the moment of the act (0.7.0). */
+    public static final String MASKED = "masked";
+    /**
+     * The Heat a mask kept off the player's total, as a number. The record's own {@code heat()} keeps
+     * the full amount either way: what a crime is worth does not change because nobody saw a face, and
+     * a case that recorded 0 could never be told apart from one that genuinely cost nothing.
+     */
+    public static final String HEAT_DEFERRED = "heat_deferred";
     /** {@code npc} / {@code player} — what kind of offender the record names (0.5.1). */
     public static final String OFFENDER_KIND = "offender_kind";
     /** The encoded {@link CrimeFlag} set. The same string as {@link CrimeFlag#CONTEXT_KEY}. */

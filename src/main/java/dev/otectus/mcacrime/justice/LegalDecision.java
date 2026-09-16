@@ -12,7 +12,7 @@ import java.util.UUID;
 public record LegalDecision(UUID offender, @Nullable CrimeCommunityKey jurisdiction,
                             List<CrimeRecord> cases, Set<Basis> basis) {
     public enum Basis { REPORTED_CASE, EXPLICIT_CASE, LEGACY_CASE, ESCAPED_PRISONER, HOLDING_CAPTIVE,
-        WANTED, RESISTING_ARREST }
+        WANTED, RESISTING_ARREST, MASK_WORN }
 
     public LegalDecision {
         cases = List.copyOf(cases);
@@ -33,6 +33,9 @@ public record LegalDecision(UUID offender, @Nullable CrimeCommunityKey jurisdict
         if (basis.contains(Basis.ESCAPED_PRISONER)) return "mcacrime.challenge.reason.escaped";
         if (basis.contains(Basis.HOLDING_CAPTIVE)) return "mcacrime.challenge.reason.captive";
         if (basis.contains(Basis.WANTED)) return "mcacrime.challenge.reason.wanted";
+        // Last, because a covered face is the weakest of these: it is a reason to walk over and ask,
+        // never on its own a reason to detain somebody who has no charges against them.
+        if (basis.contains(Basis.MASK_WORN)) return "mcacrime.challenge.reason.masked";
         return "mcacrime.challenge.no_charges";
     }
 }

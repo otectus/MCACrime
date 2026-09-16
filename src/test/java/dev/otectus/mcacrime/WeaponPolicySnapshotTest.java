@@ -33,7 +33,8 @@ class WeaponPolicySnapshotTest {
     private static final List<String> MODS = List.of("tacz");
 
     private static WeaponPolicySnapshot snapshot() {
-        return new WeaponPolicySnapshot(false, WHITELIST, BLACKLIST, true, 4.5D, KEYWORDS, MODS, true);
+        return new WeaponPolicySnapshot(false, WHITELIST, BLACKLIST, true, 4.5D, KEYWORDS, MODS, true,
+                true, false);
     }
 
     /** The buffer every payload codec on this platform is written against. */
@@ -60,7 +61,8 @@ class WeaponPolicySnapshotTest {
     void theOffHandFlagSurvivesTheHop() {
         RegistryFriendlyByteBuf buf = buffer();
         WeaponPolicySnapshot.STREAM_CODEC.encode(buf,
-                new WeaponPolicySnapshot(true, List.of(), List.of(), false, 0.0D, List.of(), List.of(), true));
+                new WeaponPolicySnapshot(true, List.of(), List.of(), false, 0.0D, List.of(), List.of(), true,
+                        true, false));
         assertTrue(WeaponPolicySnapshot.STREAM_CODEC.decode(buf).allowOffHand());
     }
 
@@ -73,7 +75,8 @@ class WeaponPolicySnapshotTest {
     void theCrimeMenuGateSurvivesTheHop() {
         RegistryFriendlyByteBuf buf = buffer();
         WeaponPolicySnapshot.STREAM_CODEC.encode(buf,
-                new WeaponPolicySnapshot(true, List.of(), List.of(), false, 0.0D, List.of(), List.of(), false));
+                new WeaponPolicySnapshot(true, List.of(), List.of(), false, 0.0D, List.of(), List.of(), false,
+                        true, false));
         WeaponPolicySnapshot decoded = WeaponPolicySnapshot.STREAM_CODEC.decode(buf);
         assertFalse(decoded.requireWeaponForCrimeMenu());
         assertEquals(0, buf.readableBytes(), "decode must consume exactly what encode wrote");

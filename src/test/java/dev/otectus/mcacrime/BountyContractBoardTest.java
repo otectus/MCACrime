@@ -111,6 +111,27 @@ class BountyContractBoardTest {
     }
 
     @Test
+    void aTargetNeverSeesTheirOwnPosting() {
+        CrimeWorldData data = new CrimeWorldData();
+        BountyContract mine = BountyContractBoard.post(data, warrant(TARGET, WARRANT), "Target",
+                100L, true, true, 0L);
+        UUID otherWarrant = UUID.fromString("00000000-0000-0000-0000-0000000000d2");
+        BountyContract theirs = BountyContractBoard.post(data, warrant(OTHER, otherWarrant), "Other",
+                80L, true, true, 0L);
+
+        List<BountyContract> asTarget = BountyContractBoard.openContracts(data, TARGET);
+        assertEquals(1, asTarget.size(), "a wanted player was shown their own warrant");
+        assertEquals(theirs.contractId(), asTarget.get(0).contractId());
+
+        assertEquals(2, BountyContractBoard.openContracts(data, null).size(),
+                "no viewer should filter nothing");
+        UUID bystander = UUID.fromString("00000000-0000-0000-0000-0000000000c3");
+        assertEquals(2, BountyContractBoard.openContracts(data, bystander).size(),
+                "somebody with no warrant lost a posting");
+        assertFalse(mine.contractId().equals(theirs.contractId()));
+    }
+
+    @Test
     void aClaimAgainstAnOlderRevisionSettlesNothing() {
         CrimeWorldData data = new CrimeWorldData();
         Warrant open = warrant(TARGET, WARRANT);

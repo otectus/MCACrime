@@ -38,11 +38,13 @@ public final class OutlawResolver {
         return evaluate(
                 CrimeState.isWanted(target),
                 CrimeState.getBand(target),
-                McaCrimeConfig.COMMON.redIsLegalTarget.get(),
+                LegalTarget.redTargetingAllowed(target),
                 McaCrimeConfig.COMMON.allowKillingRed.get(),
                 LegalTarget.isEscapedPrisoner(target),
                 LegalTarget.isHoldingCaptive(target),
                 LegalTarget.isResistingArrest(target),
+                LegalTarget.isMaskedPursuit(target),
+                McaCrimeConfig.COMMON.maskedOffenderLethalForce.get(),
                 CrimeState.getHeat(target),
                 CrimeState.getKarma(target),
                 warrant,
@@ -62,17 +64,38 @@ public final class OutlawResolver {
                                         boolean holdingCaptive, boolean resistingArrest,
                                         long heat, long karma, @Nullable Warrant warrant,
                                         boolean bountyEnabled, boolean redBandBountyEligible) {
+        return evaluate(wanted, band, redIsLegalTarget, allowKillingRed, escapedPrisoner, holdingCaptive,
+                resistingArrest, false, false, heat, karma, warrant, bountyEnabled, redBandBountyEligible);
+    }
+
+    /**
+     * The same picture with the masked-pursuit terms (0.7.0).
+     *
+     * <p>A masked offender is a lawful target and is deliberately <em>not</em> bounty-eligible: a bounty
+     * is paid against a warrant, a warrant names a person, and the whole premise of the mask is that
+     * nobody could name one. {@code qualifyingBasis} is therefore left exactly as it was.
+     */
+    public static OutlawStatus evaluate(boolean wanted, Band band, boolean redIsLegalTarget,
+                                        boolean allowKillingRed, boolean escapedPrisoner,
+                                        boolean holdingCaptive, boolean resistingArrest,
+                                        boolean maskedPursuit, boolean maskedOffenderLethalForce,
+                                        long heat, long karma, @Nullable Warrant warrant,
+                                        boolean bountyEnabled, boolean redBandBountyEligible) {
         boolean lawfulCombatTarget = LegalTarget.isLegalTarget(
-                wanted, band, redIsLegalTarget, escapedPrisoner, holdingCaptive, resistingArrest);
+                wanted, band, redIsLegalTarget, escapedPrisoner, holdingCaptive, resistingArrest,
+                maskedPursuit);
 
         // The same "Red and nothing else" term isLethalForceLawful applies: a Wanted player or an
         // active kidnapper may be killed for what they are doing, whereas a Red player is only
         // carrying a reputation, and whether a reputation is a death sentence is a server's choice.
         boolean redOnly = band == Band.RED && !wanted && !escapedPrisoner && !holdingCaptive && !resistingArrest;
-        boolean lethalForceLawful = lawfulCombatTarget && (!redOnly || allowKillingRed);
+        boolean maskedOnly = maskedPursuit && !wanted && !escapedPrisoner && !holdingCaptive && !resistingArrest;
+        boolean lethalForceLawful = lawfulCombatTarget && (!redOnly || allowKillingRed)
+                && (!maskedOnly || maskedOffenderLethalForce);
 
         LegalBasis basis = LegalTarget.basisOf(
-                wanted, band == Band.RED && redIsLegalTarget, escapedPrisoner, holdingCaptive, resistingArrest);
+                wanted, band == Band.RED && redIsLegalTarget, escapedPrisoner, holdingCaptive,
+                resistingArrest, maskedPursuit);
 
         boolean qualifyingBasis = basis == LegalBasis.WANTED
                 || (redBandBountyEligible && basis == LegalBasis.RED_BAND);

@@ -19,6 +19,11 @@ import java.util.List;
  * the two sides build byte-identical rules and stay identical for every item, including items nobody
  * thought to test.
  *
+ * <p>{@code triggerEnabled} and {@code triggerRequireSneak} travel for the same reason as everything
+ * else here: they are the server's gate on the armed right-click, and a client that predicts the
+ * interaction from its own file — the Crime button, or the Epic Fight shim forwarding a swallowed use
+ * key — would otherwise predict it against rules the server is not using.
+ *
  * <p>{@code requireWeaponForCrimeMenu} travels with the lists for the same reason the lists do: a
  * server that has turned the weapon gate off entirely would otherwise be second-guessed by a client
  * whose own file still has it on, and the button would sit greyed out over a menu the server is
@@ -28,7 +33,8 @@ import java.util.List;
  */
 public record WeaponPolicySnapshot(boolean allowOffHand, List<String> whitelist, List<String> blacklist,
                                    boolean autoDetect, double minAttackDamage, List<String> gunKeywords,
-                                   List<String> weaponMods, boolean requireWeaponForCrimeMenu) {
+                                   List<String> weaponMods, boolean requireWeaponForCrimeMenu,
+                                   boolean triggerEnabled, boolean triggerRequireSneak) {
 
     /** Defensive copies: the lists come from a mutable config and go into a long-lived client field. */
     public WeaponPolicySnapshot {
@@ -49,7 +55,9 @@ public record WeaponPolicySnapshot(boolean allowOffHand, List<String> whitelist,
                 safeDouble(c.weaponAutoDetectMinAttackDamage, 3.0D),
                 strings(c.weaponGunKeywords),
                 strings(c.weaponMods),
-                safeBoolean(c.requireWeaponForCrimeMenu, true));
+                safeBoolean(c.requireWeaponForCrimeMenu, true),
+                safeBoolean(c.weaponTriggerEnabled, true),
+                safeBoolean(c.weaponTriggerRequireSneak, false));
     }
 
     /** The rules this policy compiles to. Identical on both sides by construction. */
@@ -58,7 +66,7 @@ public record WeaponPolicySnapshot(boolean allowOffHand, List<String> whitelist,
     }
 
     /**
-     * Eight fields, so this is written by hand rather than through {@code StreamCodec.composite},
+     * Ten fields, so this is written by hand rather than through {@code StreamCodec.composite},
      * which stops at six. Every count is checked before anything is allocated.
      */
     public static final StreamCodec<RegistryFriendlyByteBuf, WeaponPolicySnapshot> STREAM_CODEC =
@@ -73,6 +81,8 @@ public record WeaponPolicySnapshot(boolean allowOffHand, List<String> whitelist,
         writeStrings(buf, policy.gunKeywords());
         writeStrings(buf, policy.weaponMods());
         buf.writeBoolean(policy.requireWeaponForCrimeMenu());
+        buf.writeBoolean(policy.triggerEnabled());
+        buf.writeBoolean(policy.triggerRequireSneak());
     }
 
     private static WeaponPolicySnapshot read(RegistryFriendlyByteBuf buf) {
@@ -84,8 +94,10 @@ public record WeaponPolicySnapshot(boolean allowOffHand, List<String> whitelist,
         List<String> gunKeywords = readStrings(buf);
         List<String> weaponMods = readStrings(buf);
         boolean requireWeaponForCrimeMenu = buf.readBoolean();
+        boolean triggerEnabled = buf.readBoolean();
+        boolean triggerRequireSneak = buf.readBoolean();
         return new WeaponPolicySnapshot(allowOffHand, whitelist, blacklist, autoDetect, minAttackDamage,
-                gunKeywords, weaponMods, requireWeaponForCrimeMenu);
+                gunKeywords, weaponMods, requireWeaponForCrimeMenu, triggerEnabled, triggerRequireSneak);
     }
 
     private static void writeStrings(RegistryFriendlyByteBuf buf, List<String> values) {

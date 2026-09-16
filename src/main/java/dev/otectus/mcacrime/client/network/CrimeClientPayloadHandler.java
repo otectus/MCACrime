@@ -11,6 +11,7 @@ import dev.otectus.mcacrime.network.CaseLedgerS2CPacket;
 import dev.otectus.mcacrime.network.CrimeClientPayloadRouter;
 import dev.otectus.mcacrime.network.CriminalJobSyncS2CPacket;
 import dev.otectus.mcacrime.network.GuardChallengeS2CPacket;
+import dev.otectus.mcacrime.network.MaskSelectionS2CPacket;
 import dev.otectus.mcacrime.network.RestraintBulkSyncS2CPacket;
 import dev.otectus.mcacrime.network.RestraintSyncS2CPacket;
 import dev.otectus.mcacrime.network.SelfStatusS2CPacket;
@@ -89,5 +90,10 @@ public final class CrimeClientPayloadHandler implements CrimeClientPayloadRouter
     @Override
     public void onBailQuote(BailQuoteS2CPacket payload) {
         CrimeClientHandlers.onBailQuote(payload);
+    }
+
+    @Override
+    public void onMaskSelection(MaskSelectionS2CPacket payload) {
+        CrimeClientHandlers.onMaskSelection(payload);
     }
 }

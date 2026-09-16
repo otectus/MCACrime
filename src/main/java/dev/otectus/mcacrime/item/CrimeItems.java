@@ -1,10 +1,12 @@
 package dev.otectus.mcacrime.item;
 
 import dev.otectus.mcacrime.McaCrime;
+import dev.otectus.mcacrime.block.CrimeBlocks;
 import dev.otectus.mcacrime.captivity.RestraintReservation;
 import dev.otectus.mcacrime.captivity.RestraintType;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.network.chat.Component;
+import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.CreativeModeTab;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
@@ -14,6 +16,11 @@ import net.neoforged.neoforge.registries.DeferredHolder;
 import net.neoforged.neoforge.registries.DeferredItem;
 import net.neoforged.neoforge.registries.DeferredRegister;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.EnumMap;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -35,6 +42,53 @@ public final class CrimeItems {
     public static final DeferredItem<Item> RESTRAINT_LOCKED_CUFFS = ITEMS.register("restraint_locked_cuffs",
             () -> new RestraintItem(RestraintType.LOCKED_CUFFS, new Item.Properties().stacksTo(1)));
 
+    /**
+     * The sixteen mask styles (0.7.2 section 4.1), one registration each, keyed by the style itself.
+     *
+     * <p>A map rather than sixteen hand-written constants: the creative tab, the client colour handler,
+     * the tag test and the recipe test all want "every mask", and sixteen fields is sixteen chances to
+     * add the seventeenth style to three of those four places. {@code clay_mask} and {@code
+     * leather_mask} keep their original ids, so every saved stack, recipe and datapack reference that
+     * named them in 0.7.0 still resolves.
+     */
+    public static final Map<MaskVariant, DeferredItem<Item>> MASKS = registerMasks();
+
+    private static Map<MaskVariant, DeferredItem<Item>> registerMasks() {
+        Map<MaskVariant, DeferredItem<Item>> masks = new EnumMap<>(MaskVariant.class);
+        for (MaskVariant variant : MaskVariant.values()) {
+            masks.put(variant, ITEMS.register(variant.textureName(), () -> new MaskItem(variant)));
+        }
+        return Collections.unmodifiableMap(masks);
+    }
+
+    public static final DeferredItem<Item> CLAY_MASK = MASKS.get(MaskVariant.CLAY);
+    public static final DeferredItem<Item> LEATHER_MASK = MASKS.get(MaskVariant.LEATHER);
+
+    /** Every registered mask item, in family and then catalogue order. */
+    public static List<Item> masks() {
+        List<Item> items = new ArrayList<>();
+        for (MaskFamily family : MaskFamily.values()) {
+            for (MaskVariant variant : MaskVariant.of(family)) {
+                items.add(MASKS.get(variant).get());
+            }
+        }
+        return items;
+    }
+
+    /**
+     * A throwable bottle of sand (0.7.2 §13.1). Sixteen to a stack: it is a thrown disruption tool,
+     * not a drink and not an explosive, and a stack that size is a pocketful rather than an arsenal.
+     */
+    public static final DeferredItem<Item> SAND_BOTTLE = ITEMS.register("sand_bottle",
+            () -> new SandBottleItem(new Item.Properties().stacksTo(16)));
+
+    /**
+     * The Mask Station's block item (0.7.2 §6.1). Registered here rather than in {@code CrimeBlocks}
+     * so that every item this mod owns is in one registry list and the creative tab below can name it.
+     */
+    public static final DeferredItem<Item> MASK_STATION = ITEMS.register("mask_station",
+            () -> new BlockItem(CrimeBlocks.MASK_STATION.get(), new Item.Properties()));
+
     public static final DeferredHolder<CreativeModeTab, CreativeModeTab> TAB = TABS.register("crime", () ->
             CreativeModeTab.builder()
                     .title(Component.translatable("itemGroup.mcacrime"))
@@ -43,6 +97,9 @@ public final class CrimeItems {
                         output.accept(RESTRAINT_ROPE.get());
                         output.accept(RESTRAINT_CUFFS.get());
                         output.accept(RESTRAINT_LOCKED_CUFFS.get());
+                        masks().forEach(output::accept);
+                        output.accept(SAND_BOTTLE.get());
+                        output.accept(MASK_STATION.get());
                     })
                     .build());
 
@@ -52,6 +109,7 @@ public final class CrimeItems {
     public static void register(IEventBus modBus) {
         ITEMS.register(modBus);
         TABS.register(modBus);
+        MaskArmorMaterial.register(modBus);
     }
 
     /**

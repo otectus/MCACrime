@@ -30,6 +30,7 @@ class PayloadRegistrationTest {
         EXPECTED.put(GuardChallengeResponseC2SPacket.TYPE, "guard_challenge_response");
         EXPECTED.put(GuardChallengeDisplayedC2SPacket.TYPE, "guard_challenge_displayed");
         EXPECTED.put(RequestCaseLedgerC2SPacket.TYPE, "request_case_ledger");
+        EXPECTED.put(SelectMaskRecipeC2SPacket.TYPE, "select_mask_recipe");
         EXPECTED.put(SelfStatusS2CPacket.TYPE, "self_status");
         EXPECTED.put(BandSyncS2CPacket.TYPE, "band_sync");
         EXPECTED.put(BandBulkSyncS2CPacket.TYPE, "band_bulk_sync");
@@ -42,11 +43,13 @@ class PayloadRegistrationTest {
         EXPECTED.put(RestraintBulkSyncS2CPacket.TYPE, "restraint_bulk_sync");
         EXPECTED.put(WeaponPolicyS2CPacket.TYPE, "weapon_policy");
         EXPECTED.put(CriminalJobSyncS2CPacket.TYPE, "criminal_job_sync");
+        EXPECTED.put(BailQuoteS2CPacket.TYPE, "bail_quote");
+        EXPECTED.put(MaskSelectionS2CPacket.TYPE, "mask_selection");
     }
 
     @Test
-    void thereAreEighteenPayloads() {
-        assertEquals(18, EXPECTED.size());
+    void thereAreTwentyOnePayloads() {
+        assertEquals(21, EXPECTED.size());
     }
 
     @Test

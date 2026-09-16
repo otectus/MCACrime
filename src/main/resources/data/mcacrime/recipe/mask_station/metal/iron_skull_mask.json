@@ -1,0 +1,23 @@
+{
+  "type": "mcacrime:mask_making",
+  "operation": "craft",
+  "group": "mcacrime:metal_masks",
+  "material": {
+    "ingredient": {
+      "item": "minecraft:iron_ingot"
+    },
+    "count": 2
+  },
+  "binding": {
+    "ingredient": {
+      "item": "minecraft:leather"
+    },
+    "count": 1
+  },
+  "allow_dye": true,
+  "result": {
+    "id": "mcacrime:iron_skull_mask",
+    "count": 1
+  },
+  "sort_order": 0
+}

@@ -3,20 +3,29 @@ package dev.otectus.mcacrime.economy;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 
-import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
-/** The default emerald-based {@link Currency} (spec §11.5). Counts/consumes emeralds in the main inventory. */
+/**
+ * The default emerald-based {@link Currency} (spec §11.5). Counts/consumes emeralds in the main inventory.
+ *
+ * <p>Since 0.7.1 the body is {@link ItemStackCurrencySupport} bound to {@code minecraft:emerald}: this
+ * is {@code ItemCurrency} with the item fixed and the id kept, so the default currency cannot drift
+ * away from the configurable one. The id, the lang key and the behaviour are unchanged, which matters
+ * because {@code mcacrime:emerald} is written into every queued receipt already on disk.
+ */
 public final class EmeraldCurrency implements Currency {
 
     /** The id {@code integrations.currencyId} defaults to. */
     public static final ResourceLocation ID = ResourceLocation.fromNamespaceAndPath("mcacrime", "emerald");
 
     public static final EmeraldCurrency INSTANCE = new EmeraldCurrency();
+
+    private static final ResourceLocation ITEM_ID =
+            ResourceLocation.fromNamespaceAndPath("minecraft", "emerald");
 
     private EmeraldCurrency() {
     }
@@ -28,47 +37,24 @@ public final class EmeraldCurrency implements Currency {
 
     @Override
     public long balance(ServerPlayer player) {
-        long count = 0L;
-        Inventory inv = player.getInventory();
-        for (int i = 0; i < inv.items.size(); i++) {
-            ItemStack stack = inv.items.get(i);
-            if (stack.is(Items.EMERALD)) {
-                count += stack.getCount();
-            }
-        }
-        return count;
+        return player == null ? 0L : ItemStackCurrencySupport.count(player.getInventory(), Items.EMERALD);
     }
 
     @Override
     public long debit(ServerPlayer player, long requested, TransactionReason reason) {
-        if (requested <= 0L) {
-            return 0L;
-        }
-        long remaining = requested;
-        Inventory inv = player.getInventory();
-        for (int i = 0; i < inv.items.size() && remaining > 0L; i++) {
-            ItemStack stack = inv.items.get(i);
-            if (stack.is(Items.EMERALD)) {
-                int take = (int) Math.min(stack.getCount(), remaining);
-                stack.shrink(take);
-                remaining -= take;
-            }
-        }
-        inv.setChanged();
-        return requested - remaining;
+        return player == null ? 0L
+                : ItemStackCurrencySupport.remove(player.getInventory(), Items.EMERALD, requested);
     }
 
     @Override
     public void credit(ServerPlayer player, long amount, TransactionReason reason) {
-        long remaining = Math.max(0L, amount);
-        while (remaining > 0L) {
-            int stackSize = (int) Math.min(remaining, Items.EMERALD.getDefaultMaxStackSize());
-            ItemStack stack = new ItemStack(Items.EMERALD, stackSize);
-            if (!player.getInventory().add(stack)) {
-                player.drop(stack, false);
-            }
-            remaining -= stackSize;
-        }
+        ItemStackCurrencySupport.give(player, Items.EMERALD, amount);
+    }
+
+    @Override
+    public long creditBounded(ServerPlayer player, long amount, TransactionReason reason) {
+        return player == null ? amount
+                : ItemStackCurrencySupport.creditBounded(player.getInventory(), Items.EMERALD, amount);
     }
 
     @Override
@@ -78,20 +64,17 @@ public final class EmeraldCurrency implements Currency {
 
     @Override
     public long stacksNeeded(long amount) {
-        long perStack = Math.max(1, Items.EMERALD.getDefaultMaxStackSize());
-        return amount <= 0L ? 0L : (amount + perStack - 1L) / perStack;
+        return ItemStackCurrencySupport.stacksNeeded(Items.EMERALD, amount);
     }
 
     @Override
     public List<ItemStack> toStacks(long amount) {
-        List<ItemStack> stacks = new ArrayList<>();
-        long remaining = Math.max(0L, amount);
-        while (remaining > 0L) {
-            int stackSize = (int) Math.min(remaining, Items.EMERALD.getDefaultMaxStackSize());
-            stacks.add(new ItemStack(Items.EMERALD, stackSize));
-            remaining -= stackSize;
-        }
-        return stacks;
+        return ItemStackCurrencySupport.toStacks(Items.EMERALD, amount);
+    }
+
+    @Override
+    public Optional<ResourceLocation> itemForm() {
+        return Optional.of(ITEM_ID);
     }
 
     /**

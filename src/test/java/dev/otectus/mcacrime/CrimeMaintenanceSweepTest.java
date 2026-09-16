@@ -42,7 +42,7 @@ class CrimeMaintenanceSweepTest {
     private static final long TICKS_PER_DAY = 24000L;
 
     private static void criminal(CrimeWorldData data, UUID villager, CriminalJob job, long lastSeenDay) {
-        data.putCriminalVillager(new CriminalVillagerRecord(villager, job, 0L, 0L, lastSeenDay,
+        data.putCriminalVillager(CriminalVillagerRecord.of(villager, job, 0L, 0L, lastSeenDay,
                 false, 1L, null));
     }
 

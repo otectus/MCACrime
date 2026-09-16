@@ -4,7 +4,13 @@
   "package": "dev.otectus.mcacrime.mixin",
   "compatibilityLevel": "JAVA_21",
   "mixins": [
-    "MobDeathEquipmentMixin"
+    "MaskStationAcquisitionMixin",
+    "MerchantOffersAccessor",
+    "MobDeathEquipmentMixin",
+    "NativeJobAssignmentMixin",
+    "SandSensingMixin",
+    "ThiefBrainMixin",
+    "ThiefPoiValidationMixin"
   ],
   "client": [
     "client.RestraintPoseMixin"

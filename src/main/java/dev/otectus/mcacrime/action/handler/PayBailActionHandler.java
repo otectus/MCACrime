@@ -152,7 +152,7 @@ public final class PayBailActionHandler implements CrimeActionHandler {
                 CrimeSounds.paid(player);
                 AccompliceService.notifyFamily(server, captive, "mcacrime.msg.family.released");
                 player.sendSystemMessage(Component.translatable("mcacrime.bail.family_paid",
-                        McaCompat.getVillagerDisplayName(target), cost));
+                        McaCompat.getVillagerDisplayName(target), Currencies.active().format(cost)));
                 yield ActionResult.accepted("mcacrime.action.feedback_sent");
             }
         };
@@ -179,7 +179,7 @@ public final class PayBailActionHandler implements CrimeActionHandler {
                         + CrimeIds.AIDING_A_CRIMINAL.getPath(),
                 remaining, BailQuote.releaseConditionKey(remaining)));
         player.sendSystemMessage(Component.translatable("mcacrime.bail.quote",
-                McaCompat.getVillagerDisplayName(target), cost));
+                McaCompat.getVillagerDisplayName(target), Currencies.active().format(cost)));
         return true;
     }
 

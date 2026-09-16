@@ -25,10 +25,55 @@ class MixinConfigTest {
     private static final Path MIXIN_SOURCE_ROOT =
             TestPaths.sources("dev", "otectus", "mcacrime", "mixin");
 
+    /**
+     * Everything the 0.7.2 occupation work needs is common, and the one rendering mixin stays client.
+     *
+     * <p>The exact list matters more than its length: a mixin that drifted from {@code mixins} to
+     * {@code client} would apply on a single-player world and be absent from the dedicated server that
+     * actually owns the decision, which is the failure mode this file was written for.
+     */
     @Test
-    void onlyEquipmentCaptureLoadsOnADedicatedServer() {
-        assertEquals(List.of("MobDeathEquipmentMixin"), mixins("mixins"));
+    void everyOccupationMixinIsCommonAndOnlyRenderingIsClient() {
+        assertEquals(List.of(
+                "MaskStationAcquisitionMixin",
+                "MerchantOffersAccessor",
+                "MobDeathEquipmentMixin",
+                "NativeJobAssignmentMixin",
+                "SandSensingMixin",
+                "ThiefBrainMixin",
+                "ThiefPoiValidationMixin"), mixins("mixins"));
         assertEquals(List.of("client.RestraintPoseMixin"), mixins("client"));
+    }
+
+    /**
+     * The acquisition boundary is only a boundary if both halves are installed.
+     *
+     * <p>Filtering the acquirable predicate without wrapping native assignment would leave the
+     * rebinding path unguarded; wrapping assignment without the filter would leave generic acquisition
+     * unguarded. Naming both here means removing either one fails rather than half-working.
+     */
+    @Test
+    void bothHalvesOfTheAcquisitionBoundaryArePresent() {
+        List<String> listed = allMixins();
+        assertTrue(listed.contains("MaskStationAcquisitionMixin"),
+                "without this, any unemployed villager can claim a Mask Station natively");
+        assertTrue(listed.contains("NativeJobAssignmentMixin"),
+                "without this, native assignment can produce a visible Thief with no Crime occupation");
+    }
+
+    /**
+     * Sand has to blind a mob on the machine that owns the decision.
+     *
+     * <p>The sensing hook is the only reason a blinded vanilla mob stops tracking, and a dedicated
+     * server is where mob AI runs. Listed under {@code client} it would work in single player and
+     * silently do nothing on every multiplayer server, which is the exact failure this file exists to
+     * catch.
+     */
+    @Test
+    void theSandSensingHookIsCommon() {
+        assertTrue(mixins("mixins").contains("SandSensingMixin"),
+                "sand must block line of sight on the dedicated server, not only in single player");
+        assertFalse(mixins("client").contains("SandSensingMixin"));
     }
 
     @Test

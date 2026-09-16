@@ -11,8 +11,10 @@ import net.minecraft.network.chat.TextColor;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.neoforge.client.event.ClientPlayerNetworkEvent;
 import net.neoforged.neoforge.client.event.RenderNameTagEvent;
+import net.neoforged.bus.api.EventPriority;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
+import net.neoforged.neoforge.common.util.TriState;
 
 /**
  * Non-destructive nameplate coloring by band (spec §4.1, §10.3). Client + Forge bus only. GREY players
@@ -26,8 +28,30 @@ public final class CrimeNameRenderHandlers {
     private CrimeNameRenderHandlers() {
     }
 
+    /**
+     * A masked player has no nameplate (0.7.0). Presentation only, and client-side only: the server
+     * never stops sending the name, because a client that chose not to hide it must not end up in a
+     * different world from one that did.
+     *
+     * <p>{@code RenderNameTagEvent} carries a render tri-state rather than being cancelable, so this
+     * runs at HIGHEST and denies; the recolor below then has nothing left to colour and says so itself.
+     */
+    @SubscribeEvent(priority = EventPriority.HIGHEST)
+    public static void onMaskedNameTag(RenderNameTagEvent event) {
+        if (!McaCrimeConfig.CLIENT.maskHidesNameTag.get()) {
+            return;
+        }
+        if (event.getEntity() instanceof AbstractClientPlayer player
+                && dev.otectus.mcacrime.mask.Masks.isMasked(player)) {
+            event.setCanRender(TriState.FALSE);
+        }
+    }
+
     @SubscribeEvent
     public static void onRenderNameTag(RenderNameTagEvent event) {
+        if (event.canRender() == TriState.FALSE) {
+            return; // something (a mask, or another mod) has already said this name is not drawn
+        }
         if (!McaCrimeConfig.CLIENT.nameColorEnabled.get()) {
             return;
         }

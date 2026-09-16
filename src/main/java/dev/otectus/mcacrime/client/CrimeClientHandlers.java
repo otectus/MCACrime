@@ -123,4 +123,21 @@ public final class CrimeClientHandlers {
     public static void onCriminalJob(CriminalJobSyncS2CPacket msg) {
         ClientCriminalJobData.put(msg.villager(), msg.job());
     }
+
+    /**
+     * The server's word on which mask style this viewer's station has selected (0.7.2 §8.1).
+     *
+     * <p>Applied only to the menu the payload names, and only if that is still the open one: a payload
+     * that arrives after the player walked away, or that names a container id this client is no longer
+     * in, is dropped rather than written into whatever screen happens to be up.
+     */
+    public static void onMaskSelection(dev.otectus.mcacrime.network.MaskSelectionS2CPacket msg) {
+        net.minecraft.client.player.LocalPlayer player = Minecraft.getInstance().player;
+        if (player == null
+                || !(player.containerMenu instanceof dev.otectus.mcacrime.menu.MaskStationMenu menu)
+                || menu.containerId != msg.containerId()) {
+            return;
+        }
+        menu.acceptServerSelection(msg.recipeId(), msg.generation());
+    }
 }

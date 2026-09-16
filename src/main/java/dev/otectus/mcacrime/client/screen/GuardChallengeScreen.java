@@ -70,7 +70,7 @@ public final class GuardChallengeScreen extends Screen {
                 Component.translatable(ChallengeResponse.SURRENDER.labelKey()), index++);
         if (challenge.canPay()) {
             addResponse(encounter, ChallengeResponse.PAY_FINE,
-                    Component.translatable("gui.mcacrime.challenge.pay_fine.amount", challenge.assessedFine()),
+                    Component.translatable("gui.mcacrime.challenge.pay_fine.amount", challenge.assessedFineText()),
                     index++);
         }
         addResponse(encounter, ChallengeResponse.ASK_CHARGES,

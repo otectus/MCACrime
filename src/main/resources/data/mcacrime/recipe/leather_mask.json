@@ -1,0 +1,6 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "pattern": ["CCC", "C C"],
+  "key": { "C": { "item": "minecraft:leather" } },
+  "result": { "id": "mcacrime:leather_mask" }
+}

@@ -1,0 +1,21 @@
+{
+  "replace": false,
+  "values": [
+    "mcacrime:bandana",
+    "mcacrime:highwaymans_domino",
+    "mcacrime:wrapped_scarf",
+    "mcacrime:half_veil",
+    "mcacrime:leather_mask",
+    "mcacrime:raven_mask",
+    "mcacrime:jackal_mask",
+    "mcacrime:stitched_mask",
+    "mcacrime:hockey_mask",
+    "mcacrime:clay_mask",
+    "mcacrime:comedy_mask",
+    "mcacrime:tragedy_mask",
+    "mcacrime:iron_skull_mask",
+    "mcacrime:brigand_visor",
+    "mcacrime:owl_mask",
+    "mcacrime:blank_iron_mask"
+  ]
+}

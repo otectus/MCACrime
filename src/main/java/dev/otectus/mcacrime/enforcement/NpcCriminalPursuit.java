@@ -162,8 +162,12 @@ public final class NpcCriminalPursuit {
                 giveUp(guardId, guard, thief, "out of range");
                 continue;
             }
-            if (distanceSqr <= ARREST_REACH_SQR && guard.hasLineOfSight(thief) && !thief.isInvisible()) {
+            // Arrest reach is close contact, which sand never takes away: a blinded guard with their
+            // hand on the suspect still makes the arrest (0.7.2 §13.5).
+            if (distanceSqr <= ARREST_REACH_SQR
+                    && dev.otectus.mcacrime.ai.NpcAwareness.canSeeNow(guard, thief) && !thief.isInvisible()) {
                 if (NpcArrestService.arrest(level, thief, guard, pursuit.incident())) {
+                    lastSeen.remove(guardId);
                     ACTIVE.remove(guardId);
                     McaCompat.clearGuardTarget(guard, thief);
                 } else {
@@ -175,15 +179,28 @@ public final class NpcCriminalPursuit {
                 continue;
             }
             ACTIVE.replace(guardId, pursuit, pursuit.scheduled(now + REPATH_INTERVAL_TICKS));
-            McaCompat.faceEntity(guard, thief);
-            McaCompat.moveVillagerTo(guard, thief.getX(), thief.getY(), thief.getZ(), PURSUE_SPEED);
-            if (force && ArmedResolver.classify(thief).armed()) {
+            // A sanded guard does not get to re-read the suspect's live coordinates every repath.
+            // The pursuit is not dropped — the case and the identity survive — but the guard walks
+            // to where they last actually saw them and keeps walking there (0.7.2 §13.5, SAND-07).
+            boolean sighted = dev.otectus.mcacrime.ai.NpcAwareness.canSeeNow(guard, thief);
+            if (sighted) {
+                lastSeen.put(guardId, thief.position());
+                McaCompat.faceEntity(guard, thief);
+            }
+            net.minecraft.world.phys.Vec3 target = sighted ? thief.position()
+                    : lastSeen.getOrDefault(guardId, thief.position());
+            McaCompat.moveVillagerTo(guard, target.x, target.y, target.z, PURSUE_SPEED);
+            if (sighted && force && ArmedResolver.classify(thief).armed()) {
                 McaCompat.setGuardTarget(guard, thief);
             }
         }
     }
 
+    /** Where each pursuing guard last genuinely saw their suspect; only sand ever makes it stale. */
+    private static final Map<UUID, net.minecraft.world.phys.Vec3> lastSeen = new java.util.concurrent.ConcurrentHashMap<>();
+
     private static void giveUp(UUID guardId, LivingEntity guard, @Nullable LivingEntity thief, String why) {
+        lastSeen.remove(guardId);
         ACTIVE.remove(guardId);
         McaCompat.clearGuardTarget(guard, thief);
         McaCompat.releaseVillagerControl(guard);

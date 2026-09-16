@@ -50,6 +50,24 @@ public final class ClientWeaponPolicy {
     }
 
     /**
+     * Whether the server's armed right-click trigger is on at all.
+     *
+     * <p>True until told otherwise, matching the config default: an unknown policy predicts the
+     * trigger as present, so a forwarded interaction is at worst refused by the server rather than
+     * silently dropped by the client on a guess.
+     */
+    public static boolean triggerEnabled() {
+        WeaponPolicySnapshot current = policy;
+        return current == null || current.triggerEnabled();
+    }
+
+    /** Whether the server's trigger also demands a sneak. False until told otherwise, as the config is. */
+    public static boolean triggerRequireSneak() {
+        WeaponPolicySnapshot current = policy;
+        return current != null && current.triggerRequireSneak();
+    }
+
+    /**
      * Whether the server gates the Crime menu on a drawn weapon at all.
      *
      * <p>True until told otherwise: an unknown policy is treated as the stricter one, so the worst

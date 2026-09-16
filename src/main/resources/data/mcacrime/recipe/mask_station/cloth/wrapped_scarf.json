@@ -1,0 +1,23 @@
+{
+  "type": "mcacrime:mask_making",
+  "operation": "craft",
+  "group": "mcacrime:cloth_masks",
+  "material": {
+    "ingredient": {
+      "tag": "minecraft:wool"
+    },
+    "count": 1
+  },
+  "binding": {
+    "ingredient": {
+      "item": "minecraft:string"
+    },
+    "count": 1
+  },
+  "allow_dye": true,
+  "result": {
+    "id": "mcacrime:wrapped_scarf",
+    "count": 1
+  },
+  "sort_order": 2
+}

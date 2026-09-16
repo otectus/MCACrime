@@ -16,6 +16,7 @@ public enum LegalBasis {
 
     RESISTING_ARREST("mcacrime.msg.guardaggro.resisting"),
     HOLDING_CAPTIVE("mcacrime.msg.guardaggro.captor"),
+    MASKED_OFFENDER("mcacrime.msg.guardaggro.masked"),
     WANTED("mcacrime.msg.guardaggro.wanted"),
     ESCAPED_PRISONER("mcacrime.msg.guardaggro.escaped"),
     RED_BAND("mcacrime.msg.guardaggro.red"),

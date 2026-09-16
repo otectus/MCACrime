@@ -409,6 +409,85 @@ public final class ConfigValidator {
     }
 
     /**
+     * The mask block, as a pure function of the values (0.7.0).
+     *
+     * <p>Every combination here parses and every one of them is legal; what they have in common is
+     * that the operator almost certainly did not mean them. Two of the three describe Heat that is
+     * banked and can never be collected, and the third describes a mask that makes crime free.
+     */
+    public static List<String> validateMask(boolean enabled, boolean suppressesHeat, boolean defersHeat,
+                                            double removalWitnessRadius, int maskedPursuitTicks,
+                                            boolean guardsChallengeMaskWearers) {
+        List<String> problems = new ArrayList<>();
+        if (!enabled) {
+            return problems;
+        }
+        if (defersHeat && !suppressesHeat) {
+            problems.add("mask.maskDefersHeat is on but mask.maskSuppressesHeat is off, so masked crimes "
+                    + "apply their Heat immediately and there is never anything to defer.");
+        }
+        if (defersHeat && removalWitnessRadius <= 0.0) {
+            problems.add("mask.maskRemovalWitnessRadius is 0 while mask.maskDefersHeat is on, so an unmask "
+                    + "is never witnessed and deferred Heat is only ever collected at jail intake.");
+        }
+        if (suppressesHeat && maskedPursuitTicks <= 0 && !guardsChallengeMaskWearers) {
+            problems.add("mask.maskSuppressesHeat is on with mask.maskedPursuitTicks 0 and "
+                    + "mask.guardsChallengeMaskWearers off, so a witnessed masked crime has no consequence "
+                    + "at all: no Heat, no pursuit, and no challenge.");
+        }
+        return problems;
+    }
+
+    /**
+     * The Sand Bottle block, as a pure function of the values (0.7.2 §13.3).
+     *
+     * <p>Every range is already enforced by {@code defineInRange}. What is left are the combinations
+     * that parse and then describe something the operator cannot have meant: a splash that outlasts a
+     * direct hit, a duration under the minimum application so the effect is computed and then thrown
+     * away every time, and a radius of zero on a thrown area tool.
+     */
+    public static List<String> validateSandBottle(boolean enabled, int cooldownTicks, int directDurationTicks,
+                                                  int splashDurationTicks, double radius, int recoveryTicks,
+                                                  boolean affectsPlayers) {
+        List<String> problems = new ArrayList<>();
+        if (!enabled) {
+            return problems;
+        }
+        int minimum = dev.otectus.mcacrime.effect.SandExposurePolicy.MIN_APPLICATION_TICKS;
+        if (splashDurationTicks > directDurationTicks) {
+            problems.add("sandBottle.sandSplashDurationTicks (" + splashDurationTicks
+                    + ") is greater than sandBottle.sandDirectDurationTicks (" + directDurationTicks
+                    + "), so standing near the impact is worse than being hit by it.");
+        }
+        if (directDurationTicks < minimum) {
+            problems.add("sandBottle.sandDirectDurationTicks (" + directDurationTicks
+                    + ") is below the " + minimum + "-tick minimum application, so a direct hit is"
+                    + " raised to that minimum rather than being the value configured here.");
+        }
+        if (splashDurationTicks > 0 && splashDurationTicks < minimum) {
+            problems.add("sandBottle.sandSplashDurationTicks (" + splashDurationTicks
+                    + ") is below the " + minimum + "-tick minimum application, so no splash victim is"
+                    + " ever blinded and only direct hits do anything.");
+        }
+        if (radius <= 0.0D) {
+            problems.add("sandBottle.sandRadius is 0, so a Sand Bottle only ever affects the target it"
+                    + " directly strikes.");
+        }
+        if (recoveryTicks <= 0) {
+            problems.add("sandBottle.sandRecoveryTicks (" + recoveryTicks + ") must be positive, or two"
+                    + " throwers can alternate bottles and blind a target indefinitely.");
+        }
+        if (cooldownTicks <= 0) {
+            problems.add("sandBottle.sandCooldownTicks is 0, so a full stack can be thrown in one second.");
+        }
+        if (affectsPlayers && recoveryTicks < minimum) {
+            problems.add("sandBottle.sandAffectsPlayers is on with a recovery window under " + minimum
+                    + " ticks, which is the configuration that makes player-versus-player sand a stun-lock.");
+        }
+        return problems;
+    }
+
+    /**
      * The guard-intervention block, as a pure function of the values.
      *
      * <p>Ranges are enforced by {@code defineInRange}; what is worth reporting is the pair that parses
@@ -448,12 +527,23 @@ public final class ConfigValidator {
      * whether an id is actually registered depends on which mods loaded, and {@code Currencies} already
      * warns once and falls back rather than failing.
      */
-    public static List<String> validateCurrency(String currencyId) {
+    public static List<String> validateCurrency(String currencyId, String currencyItem) {
         List<String> problems = new ArrayList<>();
         if (currencyId == null || currencyId.isBlank()) {
             problems.add("integrations.currencyId is blank; it must name a currency, e.g. 'mcacrime:emerald'.");
         } else if (ResourceLocation.tryParse(currencyId.trim()) == null) {
             problems.add("integrations.currencyId is not a valid id: '" + currencyId + "'.");
+        }
+        // Checked whatever currencyId says, because a broken value here is still a broken value the
+        // day somebody switches to 'mcacrime:item' and gets emeralds without remembering why.
+        if (currencyItem == null || currencyItem.isBlank()) {
+            problems.add("integrations.currencyItem is blank; it must name an item, e.g. 'minecraft:emerald'.");
+        } else if (ResourceLocation.tryParse(currencyItem.trim()) == null) {
+            problems.add("integrations.currencyItem is not a valid id: '" + currencyItem + "'.");
+        } else if ("mcacrime:item".equals(currencyId == null ? null : currencyId.trim())
+                && "minecraft:air".equals(currencyItem.trim())) {
+            problems.add("integrations.currencyItem is 'minecraft:air' while currencyId is 'mcacrime:item'; "
+                    + "air cannot be money, so payments would fall back to emeralds.");
         }
         return problems;
     }
@@ -840,7 +930,7 @@ public final class ConfigValidator {
                 c.stolenGoodsReturnRadius.get(),
                 c.arrestEscortTimeoutTicks.get(),
                 c.npcEscortOrphanTicks.get()));
-        problems.addAll(validateCurrency(c.currencyId.get()));
+        problems.addAll(validateCurrency(c.currencyId.get(), c.currencyItem.get()));
         problems.addAll(validateCriminalJobs(
                 c.enableThieves.get(),
                 c.enableFences.get(),
@@ -947,6 +1037,23 @@ public final class ConfigValidator {
                 c.contrabandSearchIntervalTicks.get(),
                 c.contrabandSearchRadius.get()));
 
+        problems.addAll(validateMask(
+                c.maskEnabled.get(),
+                c.maskSuppressesHeat.get(),
+                c.maskDefersHeat.get(),
+                c.maskRemovalWitnessRadius.get(),
+                c.maskedPursuitTicks.get(),
+                c.guardsChallengeMaskWearers.get()));
+
+        problems.addAll(validateSandBottle(
+                c.enableSandBottles.get(),
+                c.sandCooldownTicks.get(),
+                c.sandDirectDurationTicks.get(),
+                c.sandSplashDurationTicks.get(),
+                c.sandRadius.get(),
+                c.sandRecoveryTicks.get(),
+                c.sandAffectsPlayers.get()));
+
         problems.addAll(validateWeapons(
                 c.weaponWhitelist.get(),
                 c.weaponBlacklist.get(),
@@ -960,6 +1067,8 @@ public final class ConfigValidator {
                 "an entity type", problems);
         registryCheck("weapons.whitelist", c.weaponWhitelist.get(), BuiltInRegistries.ITEM, "an item", problems);
         registryCheck("weapons.blacklist", c.weaponBlacklist.get(), BuiltInRegistries.ITEM, "an item", problems);
+        currencyItemRegistryCheck(c.currencyItem.get(), problems);
+        currencyIdRegistryCheck(c.currencyId.get(), problems);
         registryCheck("contraband.illegalItems", c.illegalItems.get(), BuiltInRegistries.ITEM, "an item",
                 problems);
 
@@ -1005,6 +1114,51 @@ public final class ConfigValidator {
             problems.add("Crime JSON: " + crimeError);
         }
         return problems;
+    }
+
+    /**
+     * The one registry check that is a single value rather than a list.
+     *
+     * <p>Worth reporting separately because the failure is silent in play: an item id from a mod that
+     * is no longer installed resolves to nothing, {@code ItemCurrency} keeps paying in emeralds, and
+     * the only other evidence is one line in a log nobody reads after the server started fine.
+     */
+    private static void currencyItemRegistryCheck(String currencyItem, List<String> problems) {
+        if (currencyItem == null || currencyItem.isBlank()) {
+            return; // already reported by validateCurrency
+        }
+        try {
+            ResourceLocation rl = ResourceLocation.tryParse(currencyItem.trim());
+            if (rl != null && !BuiltInRegistries.ITEM.containsKey(rl)) {
+                problems.add("integrations.currencyItem '" + currencyItem + "' is not a registered item "
+                        + "(mod absent or typo); mcacrime:item will pay in emeralds until it is fixed.");
+            }
+        } catch (Throwable ignored) {
+            // Registries unavailable (e.g. very early load) — skip the existence check silently.
+        }
+    }
+
+    /**
+     * Whether the selected currency provider actually exists.
+     *
+     * <p>The same silent failure as the item check, one level up: an economy mod's id survives the mod
+     * being removed, {@code Currencies} falls back to emeralds with one warning at setup, and every
+     * fine afterwards is quietly in the wrong money.
+     */
+    private static void currencyIdRegistryCheck(String currencyId, List<String> problems) {
+        if (currencyId == null || currencyId.isBlank()) {
+            return; // already reported by validateCurrency
+        }
+        try {
+            ResourceLocation rl = ResourceLocation.tryParse(currencyId.trim());
+            if (rl != null && dev.otectus.mcacrime.economy.Currencies.byId(rl).isEmpty()) {
+                problems.add("integrations.currencyId '" + currencyId + "' is not a registered currency "
+                        + "(economy mod absent or typo); fines, bail, ransom and theft fall back to "
+                        + "'mcacrime:emerald' until it is fixed.");
+            }
+        } catch (RuntimeException ignored) {
+            // Registries not up yet — the setup-time validation pass asks again when they are.
+        }
     }
 
     private static void registryCheck(String listName, List<? extends String> ids,

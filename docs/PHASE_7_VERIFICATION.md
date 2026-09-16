@@ -151,9 +151,9 @@ one observing).**
 
 - [ ] **Bounty for killing a Wanted outlaw.** Get a villager or player to Wanted state (Heat ≥ 50,
       Wanted band). Check `bounty.enabled = true` (default). Kill the outlaw with a weapon
-      (not fall damage, suffocation, or lava). You receive emeralds as payment and message `Bounty
-      collected: X emeralds for Y.` Your karma also increases slightly per config
-      `bounty.karmaReward`.
+      (not fall damage, suffocation, or lava). You receive the active currency (emeralds by
+      default; see `integrations.currencyId`) as payment and message `Bounty collected: X <currency>
+      for Y.` Your karma also increases slightly per config `bounty.karmaReward`.
 - [ ] **Bounty paid only once per warrant revision.** Kill the same Wanted outlaw twice in the
       same session. First kill pays bounty. Second kill (after respawn) pays nothing — a message
       explains "bounty already claimed for this warrant revision". Wait for the system to reduce
@@ -162,8 +162,8 @@ one observing).**
       warrant is a new revision.
 - [ ] **Alive capture pays a multiplier.** Restrain a Wanted outlaw with rope/cuffs. Have a guard
       nearby and let the guard arrest them (citizen's arrest by capture + guard proximity). You
-      receive emeralds per config `bounty.aliveCaptureMultiplier` (default 1.25× the kill amount).
-      Message reads `Bounty collected (alive): X emeralds for Y.`
+      receive the active currency per config `bounty.aliveCaptureMultiplier` (default 1.25× the
+      kill amount). Message reads `Bounty collected (alive): X <currency> for Y.`
 - [ ] **Suicide pays nothing.** Get Wanted. Build a fall damage trap and die in it. No bounty is
       paid. Check the log to confirm `BountyService` rejected it with source type SELF_DAMAGE or
       FALL.

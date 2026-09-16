@@ -38,10 +38,12 @@ what the **law** does about you, on two separate axes that never read each other
 - **Intimidation and memory (0.6.0).** Victims can comply, panic, stall, resist or defy depending on
   weapon aim, personality, health, support and history. Persistent fear and anger affect later
   interactions and soften through time, apologies and matching-case reconciliation.
-  To apologize, put weapons away, wait one minute after the incident, then sneak and
-  right-click the villager with an empty main hand. Choose **Apologize** in the Crime menu;
-  its MCA screen button and optional keybind also work unarmed. An apology helps repair
-  trust but does not immediately erase fear or legal charges.
+  To apologize, put weapons away, wait one minute after the incident, then right-click the
+  villager with an empty main hand and nothing weapon-like in the off hand — without sneaking.
+  `memory.emptyHandApologyMode` (default `CONTEXTUAL_DIRECT`) governs that gesture; set it to
+  `MENU_ONLY` and the apology is offered only through the Crime menu, its keybind and the MCA
+  screen button. An apology helps repair trust but does not immediately erase fear or legal
+  charges.
 - **Enforcement.** Guards act on reported cases in their own jurisdiction. Wanted Heat,
   including Heat set by commands, independently causes nearby guards
   and archers to approach and confront you. Refusal keeps pursuit lawful until it expires or is
@@ -72,9 +74,33 @@ what the **law** does about you, on two separate axes that never read each other
 - **Ransom.** Somebody has to pay for your captive, and who it is follows a strict priority:
   spouse, parent, adult child, sibling, close relative, and failing all of those, the village
   itself at a lower price. Family payers must be reachable online players.
-- **Mugging.** Rob a villager for a modest amount of emeralds and take a moderate theft charge.
-  Kill that same villager shortly afterwards and the death is reclassified as murder during a
-  robbery — the heaviest crime in the mod.
+- **Mugging.** Rob a villager for a modest amount of the active currency (emeralds by default;
+  see `integrations.currencyId`) and take a moderate theft charge. Kill that same villager shortly
+  afterwards and the death is reclassified as murder during a robbery — the heaviest crime in the mod.
+- **Masks and the Mask Station.** Sixteen mask styles in four families — Cloth (`bandana`,
+  `highwaymans_domino`, `wrapped_scarf`, `half_veil`), Leather (`leather_mask`, `raven_mask`,
+  `jackal_mask`, `stitched_mask`), Clay (`hockey_mask`, `clay_mask`, `comedy_mask`, `tragedy_mask`)
+  and Metal (`iron_skull_mask`, `brigand_visor`, `owl_mask`, `blank_iron_mask`) — defer the Heat of
+  most crimes while worn. Within a family every style is identical in everything a player can
+  measure: the same concealment, the same wear budget (Cloth 48, Clay 64, Leather 192, Metal 256),
+  the same cost. None grants armour and none is enchantable. Masks are crafted at a **Mask Station**
+  (`mcacrime:mask_station`, a wooden bench crafted from planks, clay, leather and string) from a
+  material, a binding and an optional dye; the same station **restyles** a mask into another style of
+  the same family, carrying its wear, name, lore, enchantments and dye across and refusing anything
+  it cannot move honestly. Dye is the vanilla `minecraft:dyed_color` component, so one dye produces
+  the same colour it would on a leather cap, and it tints the worn layer as well as the icon.
+- **Thief is a real profession.** `mcacrime:thief` is a registered villager profession whose
+  workstation is the Mask Station: a recruited thief claims a station, works it, and can be found by
+  it. Nothing else may take a Mask Station as its job site, and a thief that loses its station keeps
+  the job for a grace period before it lapses rather than being stripped mid-shift.
+- **Sand Bottle.** `mcacrime:sand_bottle` is a thrown disruption tool, not a weapon: it deals no
+  damage and synthesises no damage event, so nothing raises a false or duplicated charge. Blinding
+  somebody who is not fair game is still a crime — one hostile exposure records exactly one incident,
+  attributed `non_damaging`. A direct hit blinds for up to 80 ticks, a
+  splash within 2 blocks for less, and a blinded guard, thief or mob loses live line of sight past
+  arm's reach — pursuit walks to the last place it genuinely saw you. It never erases a memory, a
+  case or a warrant, and a 60-tick recovery window per target stops two throwers stun-locking one
+  victim. Tuned under `[sandBottle]`; `client.sandParticles` controls the dust.
 - **Death loot.** Villagers drop equipped gear and one purchase worth of each available trade; guards
   and archers leave their equipment. Item data is preserved and carried gear is not duplicated.
   Fences leave one item per available selling offer. Configure these defaults under `[loot]` in [CONFIG.md](CONFIG.md).
@@ -91,10 +117,13 @@ No hearts replacement. No trials. Villagers still never decide to commit a crime
 villager with the Thief occupation robs players, never another villager. A player can recruit an
 eligible relative as an accomplice, though: that villager is then individually wanted, arrestable,
 and bailable by family for what they did. No positive karma for trading, gifting, or clicking
-through dialogue; those are farmable and belong to systems that already own them. Two narrowly
-scoped mixins only: common `MobDeathEquipmentMixin`, which observes `Mob.setItemSlot` before
-MCA clears a dying villager's equipment, and client-only `RestraintPoseMixin`, which poses
-restrained arms. No per-tick village scans, no AI text
+through dialogue; those are farmable and belong to systems that already own them. Eight narrowly
+scoped mixins, all of them on vanilla classes and none on MCA: seven common —
+`MobDeathEquipmentMixin` (`Mob.setItemSlot`, before MCA clears a dying villager's equipment),
+`MaskStationAcquisitionMixin`, `NativeJobAssignmentMixin`, `ThiefPoiValidationMixin`,
+`ThiefBrainMixin` and `MerchantOffersAccessor` (the Thief profession and its worksite), and
+`SandSensingMixin` (`Sensing.hasLineOfSight`, for sand blindness) — plus client-only
+`RestraintPoseMixin`, which poses restrained arms. No per-tick village scans, no AI text
 generation, no telemetry, no outbound network calls. Turning a subsystem off changes behaviour only,
 and deletes nothing; time-based retention does — stale criminal-villager records, expired bounty
 contracts, and claims past their retention window are dropped on a timer.
@@ -163,7 +192,7 @@ cooldowns, and finite accounts.
 ```
 /crime karma                                 your karma and band
 /crime status                                karma, band, Heat, Wanted, remaining sentence
-/crime payfine                               pay off cases in emeralds, oldest first
+/crime payfine                               pay off cases in the active currency, oldest first
 /crime surrender                             surrender near a guard, jail, or lawful player
 /crime mug                                   threaten the exact villager in your crosshair
 /crime ransom                                demand a ransom for the captive you hold
@@ -197,6 +226,83 @@ sentence, from a kidnapper, or from their own captive, whichever applies.
 (presentation only). Every option, its default, its range, and what switching it off actually does
 is in **[CONFIG.md](CONFIG.md)** — including which options are declared but not yet wired.
 
+### The Mask Station and Sand Bottles
+
+```toml
+[maskStation]
+    enableMaskStationCrafting = true
+    enableMaskRestyling = true
+
+[sandBottle]
+    enableSandBottles = true
+    sandCooldownTicks = 80
+    sandDirectDurationTicks = 80
+    sandSplashDurationTicks = 40
+    sandRadius = 2.0
+    sandRecoveryTicks = 60
+    sandAffectsPlayers = false
+```
+
+Turning station crafting off closes any open station menu at the next tick and hands the inputs
+back; the block, its recipes and its worksite claim are untouched, so a thief keeps its job.
+Turning restyling off hides every restyle style from the catalogue and leaves ordinary crafting
+alone. For sand, the master switch stops new throws immediately — a bottle already in flight
+applies nothing and discards itself, ammunition already spent is not refunded, and an effect
+already running finishes normally. `sandAffectsPlayers` can only ever subtract: with it on, the
+server's own PvP setting and team friendly-fire rules still apply, and catching yourself in your
+own splash is never PvP.
+
+Two more keys worth naming here. `memory.emptyHandApologyMode` (`CONTEXTUAL_DIRECT` by default,
+or `MENU_ONLY`) decides whether a non-sneaking empty-hand right-click on a villager you wronged
+apologizes directly or only the Crime menu does. `client.sandParticles` (`NORMAL`, `REDUCED` or
+`OFF`) is presentation only — a blinded NPC is exactly as blind at every setting.
+
+### Currency
+
+`integrations.currencyId` selects what fines, bail, ransom, theft and bounties are paid in:
+`mcacrime:emerald` (the default), `mcacrime:item` (the item named by `integrations.currencyItem`,
+one item per unit), and `mcacrime:numismatic` (the Numismatic Overhaul purse, offered only when
+that mod is installed; its balance is in bronze — 100 bronze is one silver, 10000 is one gold).
+Economy mods register further ids at common setup with `McaCrimeApi.registerCurrency`. An id
+nothing has registered falls back to `mcacrime:emerald` with a single warning rather than taking
+fines, bail and ransom offline; `/crime validate` also reports an unregistered `currencyId`.
+
+```toml
+[integrations]
+    currencyId = "mcacrime:item"
+    currencyItem = "minecraft:emerald"
+```
+
+```toml
+[integrations]
+    currencyId = "mcacrime:item"
+    currencyItem = "numismaticoverhaul:bronze_coin"
+```
+
+`currencyItem` is only read when `currencyId` is `mcacrime:item`, as a registry id. An item that is
+absent, unparseable, or not registered falls back to emeralds with one warning, not one per
+transaction. `mcacrime:numismatic` has no item form of its own: it spends and pays into the purse
+attachment, not the inventory, so an item currency and the Numismatic purse are two different
+balances even when both eventually mean coins. Numismatic Overhaul (Reforged Again) hard-depends on
+owo-lib without declaring it, so install owo-lib alongside it or the server fails at Mixin
+bootstrap before any mod loads.
+
+Money already owed follows the currency it was earned in, not the currency configured when it is
+paid. A queued payout (a bounty, a recovered-property lot) records the provider id it was
+created with — for `mcacrime:item` that is `mcacrime:item/<namespace>/<path>`, naming the exact
+item — so switching `currencyItem` afterwards does not change what a pending payment is owed in.
+
+## Compatibility
+
+Epic Fight's battle mode can swallow the right-click that would open MCA: Crime's menu (armed, or
+holding a restraint) — MCA's own empty-handed conversation screen is deliberately not forwarded;
+use Epic Fight's vanilla mode or set key_conflict_resolve_scope = NONE for that. Three MCA
+bridges that ship alongside it are detected by id: "MC-Epicly-A" (`mcea`) and "EpicFight-MCA Patch"
+(`efmca`) both make MCA villagers immune to all player damage, and "MCA Skin x Epic Fight
+Compatibility" (`mcaefcompat`) is client rendering only and is reported rather than acted on.
+MCA: Crime forwards the swallowed interaction and can only report the damage block. See
+[docs/COMPATIBILITY_EPIC_FIGHT.md](docs/COMPATIBILITY_EPIC_FIGHT.md).
+
 ## For pack authors
 
 Crime definitions are datapack-driven, and so are the incidents this mod publishes to MCA:
@@ -218,7 +324,7 @@ Mutation is never exposed — it stays behind the single state chokepoint on pur
 
 ## Upgrading an existing world
 
-Older saves are migrated on load through schema 10 without a server or a config
+Older saves are migrated on load through schema 12 without a server or a config
 being consulted. The migration is **not reversible** — take a copy of your world first. The
 policy, what changes about village identity, and what an old jar does with a new save are in
 **[MIGRATION.md](docs/MIGRATION.md)**.
@@ -233,6 +339,7 @@ policy, what changes about village identity, and what an old jar does with a new
 | [MIGRATION.md](docs/MIGRATION.md) | schema migration, removal, and rollback |
 | [CHANGELOG.md](CHANGELOG.md) | release notes |
 | [NeoForge parity](docs/NEOFORGE_PARITY_2026-09-08.md) | 0.6.0 feature parity, platform adaptations, and validation |
+| [0.7.2 stage notes](docs/0.7.2/) | the Thief occupation, Mask Station, mask catalogue and Sand Bottle as shipped on this port |
 | [CURSEFORGE.md](CURSEFORGE.md) | the store listing copy |
 | [mca-crime-spec-document.md](docs/mca-crime-spec-document.md) | the original design specification |
 | [MCA_CRIME_SUITE_INTEGRATION_IMPLEMENTATION_PLAN.md](docs/MCA_CRIME_SUITE_INTEGRATION_IMPLEMENTATION_PLAN.md) | the suite integration design |

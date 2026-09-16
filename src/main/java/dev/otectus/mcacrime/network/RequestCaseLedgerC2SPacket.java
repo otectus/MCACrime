@@ -62,7 +62,8 @@ public record RequestCaseLedgerC2SPacket() implements CustomPacketPayload {
             if (rows.size() < CaseLedgerS2CPacket.MAX_ROWS) {
                 rows.add(new CaseLedgerS2CPacket.Row(record.id(), record.type(), record.resolution(),
                         record.timeCommitted(), record.fineAmount(), record.witnessed(),
-                        record.communityKey().map(key -> key.asString()).orElse("")));
+                        record.communityKey().map(key -> key.asString()).orElse(""),
+                        dev.otectus.mcacrime.economy.Currencies.active().format(record.fineAmount())));
             }
         }
         // The same quote the guard screen shows and the payment charges. The dossier used to print

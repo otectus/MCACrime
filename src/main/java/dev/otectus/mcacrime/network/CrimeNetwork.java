@@ -40,8 +40,8 @@ import java.util.UUID;
  */
 public final class CrimeNetwork {
 
-    // 12 covers the 0.7.0 family packets. Update clients and server together.
-    private static final String PROTOCOL_VERSION = "12";
+    // 13 adds the Mask Station's two payloads (0.7.2 §8.1). Update clients and server together.
+    private static final String PROTOCOL_VERSION = "13";
 
     private CrimeNetwork() {
     }
@@ -63,6 +63,9 @@ public final class CrimeNetwork {
 
         registrar.playToServer(GuardChallengeDisplayedC2SPacket.TYPE, GuardChallengeDisplayedC2SPacket.STREAM_CODEC,
                 CrimeNetwork::handleGuardChallengeDisplayed);
+        // The station's own budget and sender checks live in ServerPacketGuard, which the handler uses.
+        registrar.playToServer(SelectMaskRecipeC2SPacket.TYPE, SelectMaskRecipeC2SPacket.STREAM_CODEC,
+                SelectMaskRecipeC2SPacket::handle);
 
         registrar.playToClient(SelfStatusS2CPacket.TYPE, SelfStatusS2CPacket.STREAM_CODEC,
                 CrimeClientPayloadRouter::handleSelfStatus);
@@ -90,6 +93,8 @@ public final class CrimeNetwork {
                 CrimeClientPayloadRouter::handleCriminalJob);
         registrar.playToClient(BailQuoteS2CPacket.TYPE, BailQuoteS2CPacket.STREAM_CODEC,
                 CrimeClientPayloadRouter::handleBailQuote);
+        registrar.playToClient(MaskSelectionS2CPacket.TYPE, MaskSelectionS2CPacket.STREAM_CODEC,
+                CrimeClientPayloadRouter::handleMaskSelection);
     }
 
     // The registrar runs the server-bound handlers on the main thread, which is the same guarantee the
@@ -141,6 +146,16 @@ public final class CrimeNetwork {
 
     /** Pushes a guard challenge, or its closure, to the challenged player alone. */
     public static void sendGuardChallenge(ServerPlayer player, GuardChallengeS2CPacket packet) {
+        PacketDistributor.sendToPlayer(player, packet);
+    }
+
+    /**
+     * Tells one viewer which mask style their own station has selected (0.7.2 §8.1).
+     *
+     * <p>To that player alone: a Mask Station session is private to the viewer who opened it, and a
+     * second player standing at the same block has a menu of their own with its own selection.
+     */
+    public static void sendMaskSelection(ServerPlayer player, MaskSelectionS2CPacket packet) {
         PacketDistributor.sendToPlayer(player, packet);
     }
 

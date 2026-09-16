@@ -90,8 +90,8 @@ public final class BailActionHandler implements CrimeActionHandler {
         JailService.release(player, ReleaseReason.BAILED);
         SentenceResolutionService.markBailed(server, player.getUUID(), sentenceId);
         CrimeSounds.paid(player);
-        player.sendSystemMessage(Component.translatable("mcacrime.bail.paid", cost));
-        return ActionResult.accepted("mcacrime.bail.paid", cost);
+        player.sendSystemMessage(Component.translatable("mcacrime.bail.paid", Currencies.active().format(cost)));
+        return ActionResult.accepted("mcacrime.bail.paid", Currencies.active().format(cost));
     }
 
     @Override

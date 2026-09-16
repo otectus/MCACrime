@@ -9,10 +9,12 @@ displayName="${mod_name}"
 authors="${mod_authors}"
 description='''${mod_description}'''
 
-# The mod ships exactly one mixin, it is client-only, and it does nothing but pose a restrained
-# player's arms. Everything else reaches Minecraft through NeoForge events on purpose; the pose is
-# the one thing no event can express, because PlayerRenderer.setModelProperties and
-# HumanoidModel.setupAnim both run after RenderPlayerEvent.Pre and overwrite whatever it set.
+# The mod ships two narrowly scoped mixins: common MobDeathEquipmentMixin observes
+# Mob.setItemSlot before MCA clears a dying villager's equipment, and client-only
+# client.RestraintPoseMixin poses a restrained player's arms. Everything else reaches Minecraft
+# through NeoForge events on purpose; the pose is the one thing no event can express, because
+# PlayerRenderer.setModelProperties and HumanoidModel.setupAnim both run after
+# RenderPlayerEvent.Pre and overwrite whatever it set.
 #
 # On NeoForge the config is declared here, not through the Forge-era MixinConfigs JAR manifest
 # attribute.

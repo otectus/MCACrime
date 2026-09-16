@@ -48,7 +48,8 @@ public final class SettleCaseActionHandler implements CrimeActionHandler {
         // is what the outcome line has to name.
         FineService.Payment payment = FineService.pay(player, List.of(), true);
         return payment.paid()
-                ? ActionResult.accepted("mcacrime.fine.paid", payment.amount())
+                ? ActionResult.accepted("mcacrime.fine.paid",
+                        dev.otectus.mcacrime.economy.Currencies.active().format(payment.amount()))
                 : ActionResult.rejected("mcacrime.action.feedback_sent");
     }
 

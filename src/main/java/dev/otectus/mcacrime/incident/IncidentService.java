@@ -67,11 +67,31 @@ public final class IncidentService {
             ResourceLocation crimeId, @Nullable LivingEntity victim, ServerLevel level,
             WitnessResult witnesses, String detection, Map<String, String> provenance,
             @Nullable Long karmaOverride, @Nullable Long heatOverride) {
+        return commitPlayer(incidentId, offender, crimeId, victim, level, witnesses, detection, provenance,
+                karmaOverride, heatOverride, null);
+    }
+
+    /**
+     * The same commit against knowledge captured when the act began rather than when it lands (§14.3).
+     *
+     * <p>Only a delayed act needs this. A punch is witnessed and committed in one tick, so the fresh
+     * scan below is the truth; a thrown bottle is not, and re-deriving its witnesses and its thrower's
+     * mask at impact would let three seconds of flight rewrite what people saw. When a snapshot is
+     * supplied the witness scan and the mask decision are taken from it verbatim, and the rest of the
+     * tail — Karma, deferred Heat, evidence, notifications — is untouched, because the one thing that
+     * must not fork is the commit order itself.
+     */
+    public static Optional<CrimeRecordView> commitPlayer(UUID incidentId, ServerPlayer offender,
+            ResourceLocation crimeId, @Nullable LivingEntity victim, ServerLevel level,
+            WitnessResult witnesses, String detection, Map<String, String> provenance,
+            @Nullable Long karmaOverride, @Nullable Long heatOverride,
+            @Nullable ObservationSnapshot snapshot) {
         if (!available(level) || offender == null || offender.getServer() != level.getServer()) return Optional.empty();
         var type = CrimeTypeRegistry.getOrBuiltin(crimeId).orElse(null);
         if (type == null) return Optional.empty();
         CrimeAwareness awareness = "mug_attempt".equals(detection) ? CrimeAwareness.robbery() : type.awareness();
-        WitnessResult effective = "command".equals(detection) || "jailbreak".equals(detection)
+        WitnessResult effective = snapshot != null ? snapshot.witnesses()
+                : "command".equals(detection) || "jailbreak".equals(detection)
                 ? witnesses == null ? WitnessResult.none() : witnesses
                 : WitnessChecker.resolve(level, offender, victim, awareness);
         var c = McaCrimeConfig.COMMON;
@@ -79,13 +99,41 @@ public final class IncidentService {
                 : CrimeDetector.karmaFor(type, effective.witnessed(), c.unwitnessedKarmaFactor.get());
         long heat = heatOverride != null ? heatOverride
                 : CrimeDetector.heatFor(type, effective.witnessed(), c.requireWitnessForHeat.get());
+        // A mask is decided once, here, and the decision is what the rest of the tail reads. The record
+        // keeps the full Heat; only the number handed to applyIncident becomes 0, so nothing downstream
+        // has to know the difference between a crime that was cheap and a crime that was hidden.
+        boolean masked = c.maskEnabled.get() && (snapshot != null ? snapshot.masked()
+                : dev.otectus.mcacrime.mask.Masks.isMasked(offender));
+        boolean deferred = masked && c.maskSuppressesHeat.get()
+                && dev.otectus.mcacrime.mask.Masks.defersHeatFor(detection) && heat != 0L;
         Map<String, String> context = context(victim, effective, detection);
+        if (masked) context.put(CrimeContext.MASKED, "true");
+        if (deferred) context.put(CrimeContext.HEAT_DEFERRED, Long.toString(heat));
         context.putAll(provenance);
         CrimeRecord record = record(incidentId, offender, victim, crimeId, level, effective,
                 heat, karma, 0, context);
+        boolean hideIdentity = dev.otectus.mcacrime.mask.MaskReactionPolicy.hidesAttribution(masked,
+                c.maskHidesIdentityFromWitnesses.get());
         return commitPrepared(CrimeWorldData.get(level.getServer()), record,
-                () -> CrimeState.applyIncident(offender, karma, heat, crimeId, incidentId.toString()),
-                () -> evidence(level, offender, victim, record, effective, awareness, "mug_attempt".equals(detection)),
+                () -> {
+                    CrimeState.applyIncident(offender, karma, deferred ? 0L : heat, crimeId,
+                            incidentId.toString());
+                    if (deferred) maskedConsequences(offender, level, effective, crimeId, incidentId, heat);
+                },
+                () -> {
+                    // A witness who never saw a face has nothing to attribute. Skipping the whole
+                    // evidence pair rather than filtering it downstream is what keeps observation and
+                    // victim memory agreeing about who, if anybody, the offender was. What the mask
+                    // hides is only that attribution: the victim and the bystanders still react in real
+                    // time, to the person they can plainly see standing there.
+                    if (!hideIdentity) {
+                        evidence(level, offender, victim, record, effective, awareness,
+                                "mug_attempt".equals(detection),
+                                snapshot == null ? level.getGameTime() : snapshot.observedAt());
+                    } else {
+                        ObservationService.reactUnattributed(level, offender, victim, effective, awareness);
+                    }
+                },
                 () -> {
                     IncidentNotifications.safely(() -> CrimeIntegrationHooks.onCommitted(level.getServer(), record.view()));
                     if (effective.witnessed()) IncidentNotifications.post(new CrimeWitnessedEvent(offender,
@@ -158,10 +206,48 @@ public final class IncidentService {
                 && ServerMutationGate.allows(level.getServer());
     }
 
+    /**
+     * What a masked crime costs instead of Heat: the Heat is banked against the player (or voided, if
+     * the operator turned deferral off), and any responder who watched it starts hunting.
+     *
+     * <p>The responder test is {@code EntitySelectors.isResponder}, not {@code McaCompat.isGuard}, for
+     * the same reason the stand-down scan uses it: a server that configured a non-MCA responder has
+     * said that entity enforces the law, and a pursuit that only guards could start would leave those
+     * servers with a mask that works perfectly against their own police.
+     */
+    private static void maskedConsequences(ServerPlayer offender, ServerLevel level, WitnessResult witnesses,
+                                           ResourceLocation crimeId, UUID incidentId, long heat) {
+        var c = McaCrimeConfig.COMMON;
+        var data = dev.otectus.mcacrime.state.CrimeAttachments.get(offender);
+        if (c.maskDefersHeat.get()) {
+            dev.otectus.mcacrime.mask.MaskHeatLedger.defer(data.getPendingMaskedHeat(),
+                    new dev.otectus.mcacrime.state.PlayerCrimeData.PendingMaskedHeat(crimeId,
+                            incidentId.toString(), heat, data.getOnlineTicksLived()),
+                    dev.otectus.mcacrime.state.PlayerCrimeData.MAX_DEFERRED_MASKED_INCIDENTS);
+        }
+        long pursuit = c.maskedPursuitTicks.get();
+        if (pursuit <= 0L) {
+            return;
+        }
+        for (UUID witnessId : witnesses.witnessIds()) {
+            var witness = level.getEntity(witnessId);
+            if (witness != null && dev.otectus.mcacrime.detect.EntitySelectors.isResponder(witness)) {
+                data.setMaskedPursuitUntilTick(data.getOnlineTicksLived() + pursuit);
+                break;
+            }
+        }
+    }
+
     private static void evidence(ServerLevel level, LivingEntity offender, @Nullable LivingEntity victim,
             CrimeRecord record, WitnessResult witnesses, CrimeAwareness awareness, boolean attempt) {
+        evidence(level, offender, victim, record, witnesses, awareness, attempt, level.getGameTime());
+    }
+
+    private static void evidence(ServerLevel level, LivingEntity offender, @Nullable LivingEntity victim,
+            CrimeRecord record, WitnessResult witnesses, CrimeAwareness awareness, boolean attempt,
+            long observedAt) {
         var observations = ObservationService.record(level, offender, victim, record.type(), record.id(),
-                witnesses, awareness);
+                witnesses, awareness, observedAt);
         VictimMemoryService.record(level, offender, victim, record.type(), record.id(), awareness, attempt, observations);
     }
 

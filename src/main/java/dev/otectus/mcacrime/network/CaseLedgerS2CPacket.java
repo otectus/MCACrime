@@ -4,6 +4,8 @@ import dev.otectus.mcacrime.McaCrime;
 import dev.otectus.mcacrime.ledger.Resolution;
 import io.netty.handler.codec.DecoderException;
 import net.minecraft.network.RegistryFriendlyByteBuf;
+import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.ComponentSerialization;
 import net.minecraft.network.codec.ByteBufCodecs;
 import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
@@ -44,12 +46,18 @@ public record CaseLedgerS2CPacket(List<Row> rows, int totalOpen,
      *                  expect to happen next, and the reason it is on the row rather than in a tooltip
      */
     public record Row(UUID caseId, ResourceLocation crimeType, Resolution resolution,
-                      long committedAt, long fine, boolean witnessed, String community) {
+                      long committedAt, long fine, boolean witnessed, String community,
+                      Component fineText) {
+
+        public Row(UUID caseId, ResourceLocation crimeType, Resolution resolution,
+                   long committedAt, long fine, boolean witnessed, String community) {
+            this(caseId, crimeType, resolution, committedAt, fine, witnessed, community, null);
+        }
 
         /** A community label, not the key's own string form; a village name never needs more. */
         public static final int MAX_COMMUNITY_LENGTH = 128;
 
-        /** Seven fields, one past what {@code StreamCodec.composite} carries, so written by hand. */
+        /** Eight fields, past what {@code StreamCodec.composite} carries, so written by hand. */
         public static final StreamCodec<RegistryFriendlyByteBuf, Row> STREAM_CODEC =
                 StreamCodec.of(Row::write, Row::read);
 
@@ -57,6 +65,9 @@ public record CaseLedgerS2CPacket(List<Row> rows, int totalOpen,
             resolution = resolution == null ? Resolution.UNRESOLVED : resolution;
             community = community == null ? "" : community;
             fine = Math.max(0L, fine);
+            // Formatted by the server: naming the currency needs the common config, which the client
+            // is forbidden to read, so a client-side format would say emeralds whatever is configured.
+            fineText = fineText == null ? Component.literal(Long.toString(fine)) : fineText;
         }
 
         private static void write(RegistryFriendlyByteBuf buf, Row row) {
@@ -67,6 +78,7 @@ public record CaseLedgerS2CPacket(List<Row> rows, int totalOpen,
             buf.writeVarLong(row.fine());
             buf.writeBoolean(row.witnessed());
             buf.writeUtf(row.community(), MAX_COMMUNITY_LENGTH);
+            ComponentSerialization.STREAM_CODEC.encode(buf, row.fineText());
         }
 
         private static Row read(RegistryFriendlyByteBuf buf) {
@@ -79,7 +91,8 @@ public record CaseLedgerS2CPacket(List<Row> rows, int totalOpen,
                         + " outside [0, " + (resolutions.length - 1) + "]");
             }
             return new Row(caseId, type, resolutions[ordinal], buf.readVarLong(), buf.readVarLong(),
-                    buf.readBoolean(), buf.readUtf(MAX_COMMUNITY_LENGTH));
+                    buf.readBoolean(), buf.readUtf(MAX_COMMUNITY_LENGTH),
+                    ComponentSerialization.STREAM_CODEC.decode(buf));
         }
     }
 

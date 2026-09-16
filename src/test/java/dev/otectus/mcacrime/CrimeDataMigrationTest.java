@@ -357,7 +357,7 @@ class CrimeDataMigrationTest {
         UUID victim = UUID.randomUUID();
         UUID contractId = UUID.randomUUID();
 
-        CriminalVillagerRecord criminal = new CriminalVillagerRecord(thief, CriminalJob.THIEF, 3L, 40L, 5L,
+        CriminalVillagerRecord criminal = CriminalVillagerRecord.of(thief, CriminalJob.THIEF, 3L, 40L, 5L,
                 true, 12345L, "mca:farmer");
         data.putCriminalVillager(criminal);
         // The stolen-goods record's own item round-trip needs a real stack and is covered where the
@@ -465,7 +465,7 @@ class CrimeDataMigrationTest {
         // One past the 4096 cap, plus one entry with no villager id at the front.
         criminals.add(new CompoundTag());
         for (int i = 0; i < 4200; i++) {
-            criminals.add(new CriminalVillagerRecord(UUID.randomUUID(), CriminalJob.FENCE, 1L, 0L, 1L,
+            criminals.add(CriminalVillagerRecord.of(UUID.randomUUID(), CriminalJob.FENCE, 1L, 0L, 1L,
                     false, i, null).save());
         }
         store.put("criminalVillagers", criminals);
@@ -510,7 +510,7 @@ class CrimeDataMigrationTest {
         CompoundTag migrated = CrimeDataMigrations.migrate(store);
 
         assertEquals(CrimeDataMigrations.CURRENT_SCHEMA, CrimeDataMigrations.schemaOf(migrated));
-        assertEquals(CrimeDataMigrations.SCHEMA_FAMILY, CrimeDataMigrations.CURRENT_SCHEMA);
+        assertEquals(CrimeDataMigrations.SCHEMA_OCCUPATION, CrimeDataMigrations.CURRENT_SCHEMA);
         assertEquals(1, migrated.getList("ledger", Tag.TAG_COMPOUND).size());
         // The dimension-aware key the very first step wrote is still intact eight steps later.
         assertTrue(migrated.getList("ledger", Tag.TAG_COMPOUND).getCompound(0)
@@ -526,5 +526,120 @@ class CrimeDataMigrationTest {
         assertNotNull(data.warrant(Schema7Fixture.OFFENDER));
         assertNotNull(data.bountyClaim(Schema7Fixture.CLAIM_KEY));
         assertEquals(9L, data.fenceRestockDay(Schema7Fixture.FENCE));
+    }
+
+    // --- 11 -> 12: the exclusive Thief occupation (0.7.2) ----------------------------------------
+
+    private static CompoundTag schema11WithCriminals(CompoundTag... records) {
+        CompoundTag tag = new CompoundTag();
+        tag.putInt(CrimeDataMigrations.TAG_SCHEMA, CrimeDataMigrations.SCHEMA_FAMILY);
+        ListTag list = new ListTag();
+        for (CompoundTag record : records) {
+            list.add(record);
+        }
+        tag.put("criminalVillagers", list);
+        return tag;
+    }
+
+    private static CompoundTag legacyCriminal(String job, boolean wild, String previousProfession) {
+        CompoundTag record = new CompoundTag();
+        record.putUUID("villager", java.util.UUID.randomUUID());
+        record.putString("job", job);
+        record.putLong("lastMugAt", 1234L);
+        record.putBoolean("wildOrigin", wild);
+        if (previousProfession != null) {
+            record.putString("previousProfessionId", previousProfession);
+        }
+        return record;
+    }
+
+    @Test
+    void everyExistingThiefBecomesEstablishedAndUnbound() {
+        CompoundTag migrated = CrimeDataMigrations.v11to12(
+                schema11WithCriminals(legacyCriminal("thief", false, "mca:farmer")));
+        CompoundTag record = migrated.getList("criminalVillagers", Tag.TAG_COMPOUND).getCompound(0);
+
+        assertEquals("established_unbound", record.getString("status"),
+                "spec §10.4: migrated thieves are established so upgrading cannot remove them");
+        assertEquals("migration", record.getString("source"));
+        assertFalse(record.contains("worksite"),
+                "no pre-0.7.2 world contains a Mask Station, so none may be invented");
+        assertEquals(1234L, record.getLong("lastMugAt"), "the mug cooldown survives the upgrade");
+    }
+
+    @Test
+    void anExistingWildThiefIsRecordedAsTheStationlessException() {
+        CompoundTag migrated = CrimeDataMigrations.v11to12(
+                schema11WithCriminals(legacyCriminal("thief", true, null)));
+        CompoundTag record = migrated.getList("criminalVillagers", Tag.TAG_COMPOUND).getCompound(0);
+
+        assertEquals("established_unbound", record.getString("status"));
+        assertEquals("wild", record.getString("source"));
+    }
+
+    @Test
+    void aFenceGainsNoOccupationBecauseExclusivityIsAThiefRule() {
+        CompoundTag migrated = CrimeDataMigrations.v11to12(
+                schema11WithCriminals(legacyCriminal("fence", false, "mca:cleric")));
+        CompoundTag record = migrated.getList("criminalVillagers", Tag.TAG_COMPOUND).getCompound(0);
+
+        assertEquals("none", record.getString("status"));
+        assertEquals("unknown", record.getString("source"));
+    }
+
+    @Test
+    void theThreeMeaningsOfALegacyPreviousProfessionAreKeptApart() {
+        CompoundTag blank = legacyCriminal("fence", false, "");
+        CompoundTag migrated = CrimeDataMigrations.v11to12(schema11WithCriminals(
+                legacyCriminal("fence", false, "mca:cleric"), blank,
+                legacyCriminal("fence", false, null)));
+        ListTag records = migrated.getList("criminalVillagers", Tag.TAG_COMPOUND);
+
+        assertEquals("id", records.getCompound(0).getString("previousProfessionKind"));
+        assertEquals("unreadable", records.getCompound(1).getString("previousProfessionKind"),
+                "a blank string recorded that a profession existed and could not be read");
+        assertEquals("none", records.getCompound(2).getString("previousProfessionKind"));
+    }
+
+    @Test
+    void runningTheOccupationMigrationTwiceChangesNothingTheSecondTime() {
+        CompoundTag once = CrimeDataMigrations.v11to12(
+                schema11WithCriminals(legacyCriminal("thief", false, null)));
+        CompoundTag mutated = once.copy();
+        mutated.getList("criminalVillagers", Tag.TAG_COMPOUND).getCompound(0)
+                .putString("status", "active_bound_established");
+
+        CompoundTag twice = CrimeDataMigrations.v11to12(mutated);
+
+        assertEquals("active_bound_established",
+                twice.getList("criminalVillagers", Tag.TAG_COMPOUND).getCompound(0).getString("status"),
+                "a record that already has occupational state must not be reset to the migration default");
+    }
+
+    @Test
+    void migrationInventsNoStationAndAsksNoEntityAnything() {
+        // Whether a migrated thief is now a guard, and whether its profession can even be read, are
+        // questions about an entity. Migration runs from computeIfAbsent with no server, so those are
+        // reconciled on legitimate load instead -- which is also the only place they can be answered
+        // for a villager whose chunk is asleep.
+        CompoundTag migrated = CrimeDataMigrations.v11to12(
+                schema11WithCriminals(legacyCriminal("thief", false, null)));
+        CompoundTag record = migrated.getList("criminalVillagers", Tag.TAG_COMPOUND).getCompound(0);
+
+        assertFalse(record.contains("worksite"));
+        assertFalse(record.contains("reservation"));
+        assertEquals(0L, record.getLong("establishedAt"),
+                "the milestone timestamp is unknown for a legacy thief and is not fabricated");
+    }
+
+    @Test
+    void aWorldWithNoCriminalsMigratesToSchemaTwelveWithoutWritingAList() {
+        CompoundTag tag = new CompoundTag();
+        tag.putInt(CrimeDataMigrations.TAG_SCHEMA, CrimeDataMigrations.SCHEMA_FAMILY);
+
+        CompoundTag migrated = CrimeDataMigrations.v11to12(tag);
+
+        assertEquals(CrimeDataMigrations.SCHEMA_OCCUPATION,
+                CrimeDataMigrations.schemaOf(migrated));
     }
 }

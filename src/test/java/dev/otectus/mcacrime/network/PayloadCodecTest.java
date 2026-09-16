@@ -101,7 +101,19 @@ class PayloadCodecTest {
         assertEquals(new RequestCaseLedgerC2SPacket(), RequestCaseLedgerC2SPacket.STREAM_CODEC.decode(buf));
     }
 
-    // --- the twelve client-bound payloads ------------------------------------------------------------
+    /**
+     * The Mask Station's request: a bounded id and two ints, and nothing else a client may assert.
+     *
+     * <p>The refusal cases (an oversized or malformed id) live in {@code MaskStationSelectionPacketTest}
+     * alongside the policy they protect.
+     */
+    @Test
+    void selectMaskRecipeRoundTrips() {
+        SelectMaskRecipeC2SPacket packet = new SelectMaskRecipeC2SPacket(7, id("mask_station/hockey"), 12);
+        assertEquals(packet, roundTrip(SelectMaskRecipeC2SPacket.STREAM_CODEC, packet));
+    }
+
+    // --- the client-bound payloads -----------------------------------------------------------------
 
     @Test
     void selfStatusRoundTripsEveryBand() {
@@ -241,7 +253,8 @@ class PayloadCodecTest {
     @Test
     void weaponPolicyRoundTrips() {
         WeaponPolicySnapshot policy = new WeaponPolicySnapshot(true, List.of("minecraft:stick"),
-                List.of("minecraft:feather"), false, 4.5D, List.of("rifle"), List.of("tacz"), false);
+                List.of("minecraft:feather"), false, 4.5D, List.of("rifle"), List.of("tacz"), false,
+                true, false);
         WeaponPolicyS2CPacket packet = new WeaponPolicyS2CPacket(policy);
         assertEquals(packet, roundTrip(WeaponPolicyS2CPacket.STREAM_CODEC, packet));
     }
@@ -252,6 +265,15 @@ class PayloadCodecTest {
             CriminalJobSyncS2CPacket packet = new CriminalJobSyncS2CPacket(UUID.randomUUID(), job);
             assertEquals(packet, roundTrip(CriminalJobSyncS2CPacket.STREAM_CODEC, packet));
         }
+    }
+
+    @Test
+    void maskSelectionRoundTripsChosenAndCleared() {
+        MaskSelectionS2CPacket chosen = new MaskSelectionS2CPacket(3, id("mask_station/hockey"), 5);
+        assertEquals(chosen, roundTrip(MaskSelectionS2CPacket.STREAM_CODEC, chosen));
+
+        MaskSelectionS2CPacket cleared = new MaskSelectionS2CPacket(3, null, 6);
+        assertEquals(cleared, roundTrip(MaskSelectionS2CPacket.STREAM_CODEC, cleared));
     }
 
     // --- hostile input ----------------------------------------------------------------------------

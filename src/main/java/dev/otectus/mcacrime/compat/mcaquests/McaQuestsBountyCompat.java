@@ -114,6 +114,13 @@ public final class McaQuestsBountyCompat implements BountyQuestBridge {
         // answer from a log rather than from a save file.
         CrimeDebug.compat("MCA: Quests bounty board now carries {} ({})", contract.targetName(),
                 contract.contractId());
+        // A new posting can also take work away: a hunter who has just earned their own warrant now
+        // sees a board that is, for them, empty, so their copy is failed here rather than left to sit
+        // as a quest they could never be paid for.
+        MinecraftServer server = ServerLifecycleHooks.getCurrentServer();
+        if (server != null) {
+            failHolders(server, null);
+        }
     }
 
     @Override
@@ -128,19 +135,20 @@ public final class McaQuestsBountyCompat implements BountyQuestBridge {
             // own rewards and runs its own turn-in. The principal has already been paid by MCA: Crime.
             QuestManager.notifyExternalObjective(claimant, SIGNAL, null);
         }
-        if (!BountyContractBoard.hasOpenContracts(server)) {
-            failHolders(server, claimant == null ? null : claimant.getUUID());
-        }
+        // No board-wide check here: whether anything is left to collect is a per-holder question, and
+        // failHolders asks it for each of them in turn.
+        failHolders(server, claimant == null ? null : claimant.getUUID());
     }
 
     @Override
     public void invalidate(UUID contractId) {
         MinecraftServer server = ServerLifecycleHooks.getCurrentServer();
-        if (server == null || BountyContractBoard.hasOpenContracts(server)) {
-            // Still work on the board: the contract is a board, not a target, so one posting closing
-            // leaves every accepted copy perfectly playable.
+        if (server == null) {
             return;
         }
+        // The contract is a board, not a target, so one posting closing leaves every accepted copy
+        // playable — for the holders who still have something to claim. That is decided per holder,
+        // because a holder whose only remaining posting is their own has nothing claimable at all.
         failHolders(server, null);
     }
 
@@ -171,11 +179,14 @@ public final class McaQuestsBountyCompat implements BountyQuestBridge {
     }
 
     /**
-     * Fails every online copy of the contract except the credited player's.
+     * Fails every online copy of the contract held by a player with nothing left to collect.
      *
-     * <p>Only reached with an empty board, which is the honest meaning of TARGET_LOST for a contract
-     * whose target is now dead, jailed or lawful. The credited player is skipped because their copy is
-     * satisfied and about to be turned in — failing it would take back what the ledger just paid for.
+     * <p>Asked per holder rather than of the board as a whole, because a board that still carries one
+     * posting may carry only that holder's own warrant, which they can never claim. An empty board is
+     * the honest meaning of TARGET_LOST for a contract whose target is now dead, jailed or lawful, and
+     * a board holding nothing but their own name means exactly that to them. The credited player is
+     * skipped because their copy is satisfied and about to be turned in — failing it would take back
+     * what the ledger just paid for.
      */
     private void failHolders(MinecraftServer server, @Nullable UUID credited) {
         if (HOLDERS.isEmpty()) {
@@ -187,6 +198,9 @@ public final class McaQuestsBountyCompat implements BountyQuestBridge {
         }
         for (ServerPlayer player : List.copyOf(server.getPlayerList().getPlayers())) {
             if (player.getUUID().equals(credited) || !HOLDERS.contains(player.getUUID())) {
+                continue;
+            }
+            if (BountyContractBoard.hasOpenContracts(server, player.getUUID())) {
                 continue;
             }
             PlayerQuestData data = QuestCapabilities.get(player).orElse(null);

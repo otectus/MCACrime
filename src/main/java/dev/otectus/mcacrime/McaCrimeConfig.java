@@ -36,6 +36,19 @@ public final class McaCrimeConfig {
     private McaCrimeConfig() {
     }
 
+    // The sand defaults live in the policy that implements them; naming them here would be a second
+    // copy of a tuning table the spec asks to be playtested as one.
+    private static final int SAND_DEFAULT_COOLDOWN =
+            dev.otectus.mcacrime.effect.SandExposurePolicy.DEFAULT_COOLDOWN_TICKS;
+    private static final int SAND_DEFAULT_DIRECT =
+            dev.otectus.mcacrime.effect.SandExposurePolicy.DEFAULT_DIRECT_DURATION_TICKS;
+    private static final int SAND_DEFAULT_SPLASH =
+            dev.otectus.mcacrime.effect.SandExposurePolicy.DEFAULT_SPLASH_DURATION_TICKS;
+    private static final double SAND_DEFAULT_RADIUS =
+            dev.otectus.mcacrime.effect.SandExposurePolicy.DEFAULT_RADIUS;
+    private static final int SAND_DEFAULT_RECOVERY =
+            dev.otectus.mcacrime.effect.SandExposurePolicy.DEFAULT_RECOVERY_TICKS;
+
     public static final class Common {
         // bands (§1.1) — read by the engine + validator
         public final ModConfigSpec.IntValue karmaBlueThreshold;
@@ -63,6 +76,32 @@ public final class McaCrimeConfig {
         public final ModConfigSpec.IntValue heatDecayPerMinute;
         public final ModConfigSpec.BooleanValue requireWitnessForHeat;
 
+        // --- mask (0.7.0) ---
+        public final ModConfigSpec.BooleanValue maskEnabled;
+        public final ModConfigSpec.BooleanValue maskSuppressesHeat;
+        public final ModConfigSpec.BooleanValue maskDefersHeat;
+        public final ModConfigSpec.BooleanValue maskHidesIdentityFromWitnesses;
+        public final ModConfigSpec.IntValue maskedPursuitTicks;
+        public final ModConfigSpec.BooleanValue maskedOffenderLethalForce;
+        public final ModConfigSpec.BooleanValue maskSuppressesRedBandTargeting;
+        public final ModConfigSpec.BooleanValue guardsChallengeMaskWearers;
+        public final ModConfigSpec.IntValue maskedHeatExpiryTicks;
+        public final ModConfigSpec.DoubleValue maskRemovalWitnessRadius;
+        public final ModConfigSpec.BooleanValue maskDurabilityEnabled;
+
+        // --- mask station (0.7.2 §6, §8) ---
+        public final ModConfigSpec.BooleanValue enableMaskStationCrafting;
+        public final ModConfigSpec.BooleanValue enableMaskRestyling;
+
+        // --- sand bottle (0.7.2 §13) ---
+        public final ModConfigSpec.BooleanValue enableSandBottles;
+        public final ModConfigSpec.IntValue sandCooldownTicks;
+        public final ModConfigSpec.IntValue sandDirectDurationTicks;
+        public final ModConfigSpec.IntValue sandSplashDurationTicks;
+        public final ModConfigSpec.DoubleValue sandRadius;
+        public final ModConfigSpec.IntValue sandRecoveryTicks;
+        public final ModConfigSpec.BooleanValue sandAffectsPlayers;
+
         // detection (§5) — read by the crime detector
         public final ModConfigSpec.BooleanValue enableCrimeDetection;
         public final ModConfigSpec.IntValue witnessRadius;
@@ -86,6 +125,7 @@ public final class McaCrimeConfig {
         public final ModConfigSpec.DoubleValue memoryDecayMultiplier;
         public final ModConfigSpec.IntValue maximumMemoriesPerVillager;
         public final ModConfigSpec.IntValue apologyCooldownTicks;
+        public final ModConfigSpec.EnumValue<dev.otectus.mcacrime.memory.ApologyInteractionPolicy.Mode> emptyHandApologyMode;
 
         // observations and reports (§12) — the identity-carrying replacement for the witness count
         public final ModConfigSpec.BooleanValue enableObservations;
@@ -442,6 +482,7 @@ public final class McaCrimeConfig {
 
         // --- integrations (optional companion mods) ---
         public final ModConfigSpec.ConfigValue<String> currencyId;
+        public final ModConfigSpec.ConfigValue<String> currencyItem;
         public final ModConfigSpec.BooleanValue locksReforgedFenceTrades;
         public final ModConfigSpec.BooleanValue mcaQuestsBounties;
         public final ModConfigSpec.BooleanValue enableReputation;
@@ -495,6 +536,94 @@ public final class McaCrimeConfig {
                     .defineInRange("heatDecayPerMinute", 1, 0, 1_000_000);
             requireWitnessForHeat = b.comment("If true, only witnessed crimes generate Heat (spec §3.5).")
                     .define("requireWitnessForHeat", true);
+            b.pop();
+
+            b.push("mask");
+            maskEnabled = b.comment("Master switch for masks. Off leaves them as ordinary wearables with no legal effect.")
+                    .define("maskEnabled", true);
+            maskSuppressesHeat = b.comment(
+                    "Crimes committed while masked apply 0 Heat. Karma still applies immediately: what a",
+                    "player did is not in question, only whether anybody can say who did it.")
+                    .define("maskSuppressesHeat", true);
+            maskDefersHeat = b.comment(
+                    "Suppressed Heat is parked against the player and lands all at once if a witness sees",
+                    "the mask come off (or at jail intake). Off voids it instead.")
+                    .define("maskDefersHeat", true);
+            maskHidesIdentityFromWitnesses = b.comment(
+                    "Masked crimes write no identity-attributed villager observation or victim memory, and",
+                    "no responder files one on the spot. Only that attribution is hidden: the victim and",
+                    "any bystanders still react in real time to the figure in front of them.")
+                    .define("maskHidesIdentityFromWitnesses", true);
+            maskedPursuitTicks = b.comment(
+                    "How long a responder who witnessed a masked crime keeps hunting the figure they saw,",
+                    "in online ticks. 0 disables masked pursuit entirely.")
+                    .defineInRange("maskedPursuitTicks", 1200, 0, 432_000);
+            maskedOffenderLethalForce = b.comment(
+                    "Whether masked pursuit on its own authorises lethal force, or only subdual.")
+                    .define("maskedOffenderLethalForce", false);
+            maskSuppressesRedBandTargeting = b.comment(
+                    "While masked, the Red-band legal-target term does not apply. Closes the hole where a",
+                    "masked offender's Karma turns them Red and makes them a lawful target anyway.",
+                    "Being Wanted is never suppressed this way.")
+                    .define("maskSuppressesRedBandTargeting", false);
+            guardsChallengeMaskWearers = b.comment(
+                    "Guards challenge anyone they see wearing a mask, with no crime behind it. A challenge",
+                    "only -- the guard walks over and asks; it never authorises force on its own.")
+                    .define("guardsChallengeMaskWearers", false);
+            maskedHeatExpiryTicks = b.comment(
+                    "Deferred Heat older than this many online ticks is dropped. 0 means it never lapses.")
+                    .defineInRange("maskedHeatExpiryTicks", 0, 0, 1_000_000_000);
+            maskRemovalWitnessRadius = b.comment(
+                    "Block radius of the witness scan run when a mask comes off. 0 means an unmask is",
+                    "never seen, which leaves deferred Heat parked indefinitely.")
+                    .defineInRange("maskRemovalWitnessRadius", 12.0, 0.0, 64.0);
+            maskDurabilityEnabled = b.comment("Off makes masks take no damage from wear.")
+                    .define("maskDurabilityEnabled", true);
+            b.pop();
+
+            b.comment("The Mask Station (0.7.2 §6). Server-authoritative: the client previews a style,",
+                            "the server decides whether it is one it offers and whether it was paid for.")
+                    .push("maskStation");
+            enableMaskStationCrafting = b.comment(
+                    "Master switch for station crafting. Off closes any open station menu at the next",
+                    "tick and hands the inputs back; the block, its recipes and its worksite claim are",
+                    "untouched.")
+                    .define("enableMaskStationCrafting", true);
+            enableMaskRestyling = b.comment(
+                    "Whether a mask can be remade as another style of the same family. Off hides every",
+                    "restyle recipe from the catalogue; ordinary crafting is unaffected.")
+                    .define("enableMaskRestyling", true);
+            b.pop();
+
+            b.comment("Sand Bottles (0.7.2 §13): a thrown disruption tool, not a weapon. Nothing here",
+                            "can make sand deal damage, break blocks or erase what a witness already saw.")
+                    .push("sandBottle");
+            enableSandBottles = b.comment(
+                    "Master switch. Off stops new throws immediately; a bottle already in flight stops",
+                    "applying anything and discards itself, ammunition already spent is not refunded, and",
+                    "an effect already running finishes normally.")
+                    .define("enableSandBottles", true);
+            sandCooldownTicks = b.comment(
+                    "Ticks between throws, shared across every Sand Bottle stack and both hands.")
+                    .defineInRange("sandCooldownTicks", SAND_DEFAULT_COOLDOWN, 0, 1200);
+            sandDirectDurationTicks = b.comment(
+                    "How long a directly struck target is blinded, in ticks.")
+                    .defineInRange("sandDirectDurationTicks", SAND_DEFAULT_DIRECT, 1, 200);
+            sandSplashDurationTicks = b.comment(
+                    "The most a splash victim at the centre of the burst is blinded for, falling off",
+                    "linearly to nothing at the rim. Should not exceed sandDirectDurationTicks.")
+                    .defineInRange("sandSplashDurationTicks", SAND_DEFAULT_SPLASH, 0, 200);
+            sandRadius = b.comment("Splash radius in blocks. 0 leaves only the directly struck target.")
+                    .defineInRange("sandRadius", SAND_DEFAULT_RADIUS, 0.0, 4.0);
+            sandRecoveryTicks = b.comment(
+                    "After the effect ends or is cured, how long sand cannot take hold on that target",
+                    "again -- from any thrower, which is what stops two players alternating bottles.")
+                    .defineInRange("sandRecoveryTicks", SAND_DEFAULT_RECOVERY, 1, 1200);
+            sandAffectsPlayers = b.comment(
+                    "Whether sand can blind other players. The server's own PvP setting and team",
+                    "friendly-fire rules are still obeyed when this is on; it can only ever subtract.",
+                    "Catching yourself in your own splash is never PvP and always possible.")
+                    .define("sandAffectsPlayers", false);
             b.pop();
 
             b.push("detection");
@@ -615,6 +744,13 @@ public final class McaCrimeConfig {
             memoryDecayMultiplier = b.defineInRange("memoryDecayMultiplier", 1.0, 0.0, 10.0);
             maximumMemoriesPerVillager = b.defineInRange("maximumMemoriesPerVillager", 24, 1, 64);
             apologyCooldownTicks = b.defineInRange("apologyCooldownTicks", 24000, 1200, 168000);
+            emptyHandApologyMode = b.comment(
+                    "How the empty-hand apology gesture behaves. CONTEXTUAL_DIRECT: right-clicking a villager",
+                    "you wronged while not sneaking, with an empty main hand and no weapon in the off hand,",
+                    "apologizes directly. MENU_ONLY: only the Crime menu, its keybind and the screen button",
+                    "offer the apology. Neither mode changes settling time, cooldowns or how much is repaired.")
+                    .defineEnum("emptyHandApologyMode",
+                            dev.otectus.mcacrime.memory.ApologyInteractionPolicy.Mode.CONTEXTUAL_DIRECT);
             b.pop();
 
             b.comment("Data-driven villager lines. The server picks the line; the client renders the key.")
@@ -847,9 +983,9 @@ public final class McaCrimeConfig {
                     .define("notifyFamilyOnArrest", true);
             enableFamilyBail = b.comment("Let a relative buy an arrested accomplice out of the rest of their sentence.")
                     .define("enableFamilyBail", true);
-            bailBase = b.comment("Flat part of the bail price, in emeralds.")
+            bailBase = b.comment("Flat part of the bail price, in units of the active currency.")
                     .defineInRange("bailBase", 64, 0, 1_000_000);
-            bailPerThousandTicks = b.comment("Emeralds added per thousand ticks of sentence still to serve.")
+            bailPerThousandTicks = b.comment("Currency units added per thousand ticks of sentence still to serve.")
                     .defineInRange("bailPerThousandTicks", 8.0D, 0.0D, 1000.0D);
             bailMin = b.defineInRange("bailMin", 16, 0, 1_000_000);
             bailMax = b.defineInRange("bailMax", 4096, 0, 1_000_000);
@@ -924,7 +1060,7 @@ public final class McaCrimeConfig {
             thiefStealAllIfBelowMinimum = b.comment(
                     "When the victim holds less than minCurrencySteal, take all of it. Off instead skips",
                     "currency entirely and falls through to the item, so a thief who will not take four",
-                    "emeralds takes a spare pickaxe.")
+                    "units takes a spare pickaxe.")
                     .define("stealAllIfBelowMinimum", true);
             thiefProtectHotbar = b.comment("Thieves never reach into the hotbar. On by default: what you are holding is yours.")
                     .define("protectHotbar", true);
@@ -1078,7 +1214,7 @@ public final class McaCrimeConfig {
                     "Let a jailed player buy out the rest of a sentence. Off is the historical default and",
                     "keeps a sentence something you serve rather than something you price.")
                     .define("enableBail", false);
-            bailCostPerMinute = b.comment("Emeralds charged per remaining real minute of sentence.")
+            bailCostPerMinute = b.comment("Currency units charged per remaining real minute of sentence.")
                     .defineInRange("bailCostPerMinute", 4, 0, 100_000);
             bailMinServedFraction = b.comment(
                     "Fraction of the sentence that must already be served before bail is offered. 0 lets a"
@@ -1177,9 +1313,9 @@ public final class McaCrimeConfig {
             b.pop();
 
             b.push("fines");
-            fineBase = b.comment("Flat emerald cost of a fine, before the per-Heat term.")
+            fineBase = b.comment("Flat cost of a fine in currency units, before the per-Heat term.")
                     .defineInRange("fineBase", 8, 0, 1_000_000);
-            finePerHeat = b.comment("Extra emeralds charged per point of Heat.")
+            finePerHeat = b.comment("Extra currency units charged per point of Heat.")
                     .defineInRange("finePerHeat", 1, 0, 1_000_000);
             jailableHeatThreshold = b.comment("At/above this Heat a fine is refused — the offender must serve jail or surrender.")
                     .defineInRange("jailableHeatThreshold", 80, 1, 1_000_000);
@@ -1264,7 +1400,7 @@ public final class McaCrimeConfig {
             ransomCooldownPerVictimTicks = b.defineInRange("ransomCooldownPerVictimTicks", 24000, 0, 10_000_000);
             ransomCooldownPerVillageTicks = b.defineInRange("ransomCooldownPerVillageTicks", 12000, 0, 10_000_000);
             ransomCooldownPerFamilyTicks = b.defineInRange("ransomCooldownPerFamilyTicks", 24000, 0, 10_000_000);
-            ransomBaseAmount = b.comment("Base emerald ransom before per-relationship multipliers.")
+            ransomBaseAmount = b.comment("Base ransom in currency units, before per-relationship multipliers.")
                     .defineInRange("ransomBaseAmount", 16, 0, 1_000_000);
             ransomSpouseMultiplier = b.comment("Per-payer-tier ransom multipliers (spouse pays most; see payer priority in spec §8.5).")
                     .defineInRange("ransomSpouseMultiplier", 2.0, 0.0, 100.0);
@@ -1280,7 +1416,7 @@ public final class McaCrimeConfig {
                     .define("enableCloseFriendTier", false);
             ransomDemandTtlTicks = b.comment("How long an open ransom demand stands before it expires.")
                     .defineInRange("ransomDemandTtlTicks", 12000, 0, 10_000_000);
-            villageTreasuryInitialBalance = b.comment("Finite initial emerald balance for a newly observed village treasury.")
+            villageTreasuryInitialBalance = b.comment("Finite initial balance, in currency units, for a newly observed village treasury.")
                     .defineInRange("villageTreasuryInitialBalance", 64, 0, 1_000_000);
             b.pop();
 
@@ -1295,7 +1431,7 @@ public final class McaCrimeConfig {
 
             b.push("mugging");
             enableMugging = b.define("enableMugging", true);
-            muggingBaseLoot = b.comment("Emeralds a villager 'pays' on a successful mugging.")
+            muggingBaseLoot = b.comment("Currency units a villager 'pays' on a successful mugging.")
                     .defineInRange("muggingBaseLoot", 4, 0, 1_000_000);
             enableProfessionDeathDrops = b.comment("Legacy small profession drops for player kills, only when loot.dropTradeStock is disabled. Actual equipment and trade stock use the loot section.")
                     .define("enableProfessionDeathDrops", false);
@@ -1448,10 +1584,18 @@ public final class McaCrimeConfig {
                     .push("integrations");
             currencyId = b.comment(
                     "Which registered currency fines, bail, ransom, theft and bounties are paid in.",
-                    "'mcacrime:emerald' is built in; an economy mod registers its own id. An id nothing",
-                    "has registered falls back to emeralds with one warning rather than taking the",
-                    "economy offline.")
+                    "Built in: 'mcacrime:emerald' (the default), 'mcacrime:item' (the item named by",
+                    "currencyItem below, where one item is one unit), and 'mcacrime:numismatic' (the",
+                    "Numismatic Overhaul purse, offered only when that mod is installed; its amounts",
+                    "are in bronze). Economy mods register their own ids via McaCrimeApi.registerCurrency.",
+                    "An id nothing has registered falls back to emeralds with one warning rather than",
+                    "taking the economy offline.")
                     .define("currencyId", "mcacrime:emerald");
+            currencyItem = b.comment(
+                    "The item 'mcacrime:item' pays in, as a registry id. Only read when currencyId is",
+                    "'mcacrime:item'; ignored otherwise. Any registered item works, and one item counts",
+                    "as one unit. An unknown or absent item falls back to emeralds with one warning.")
+                    .define("currencyItem", "minecraft:emerald");
             locksReforgedFenceTrades = b.comment(
                     "Let fences stock Locks Reforged locks, picks and keys when that mod is installed.",
                     "A no-op without it: nothing here names a Locks class, and the goods are looked up",
@@ -1530,6 +1674,8 @@ public final class McaCrimeConfig {
         public final ModConfigSpec.IntValue hudLayoutVersion;
         public final ModConfigSpec.IntValue hudOffsetX;
         public final ModConfigSpec.IntValue hudOffsetY;
+        public final ModConfigSpec.BooleanValue maskHidesNameTag;
+        public final ModConfigSpec.EnumValue<SandParticleMode> sandParticles;
 
         Client(ModConfigSpec.Builder b) {
             b.push("client");
@@ -1586,6 +1732,14 @@ public final class McaCrimeConfig {
             hudOffsetY = b.comment("Vertical nudge inward from the anchored edge, in pixels -- down from a top",
                             "anchor, up from a bottom one. Clamped on screen.")
                     .defineInRange("hudOffsetY", 4, -4096, 4096);
+            maskHidesNameTag = b.comment(
+                    "Hide the nameplate of a player wearing a mask. Presentation only: the server still",
+                    "knows who they are, and turning this off changes nothing but what you see.")
+                    .define("maskHidesNameTag", true);
+            sandParticles = b.comment(
+                    "How much dust a sand burst throws up. Presentation only: REDUCED and OFF change",
+                    "nothing the server decides, and a blinded NPC is exactly as blind either way.")
+                    .defineEnum("sandParticles", SandParticleMode.NORMAL);
             b.pop();
         }
     }
@@ -1601,6 +1755,13 @@ public final class McaCrimeConfig {
     public enum CrimeButtonAnchor {
         BOTTOM,
         TOP_RIGHT
+    }
+
+    /** How much decorative dust a sand burst shows (0.7.2 §13.4). Presentation only. */
+    public enum SandParticleMode {
+        NORMAL,
+        REDUCED,
+        OFF
     }
 
     /** How band name coloring is applied (spec §10.3). */

@@ -159,13 +159,22 @@ public final class RelationshipAndHeatGameTests {
         var ordinary = new PlayerInteractEvent.EntityInteract(player, InteractionHand.MAIN_HAND, villager);
         NeoForge.EVENT_BUS.post(ordinary);
         helper.assertTrue(ordinary.isCanceled(), "Frightened villager unexpectedly accepted ordinary conversation");
+        // 0.7.2 §12.2: the unarmed gesture is the apology, so a refusal names the wait the player is
+        // actually in rather than the generic "you could apologize" hint.
         helper.assertTrue(sent.stream().anyMatch(p -> p instanceof ClientboundSystemChatPacket chat
                 && chat.content().getContents() instanceof TranslatableContents text
-                && text.getKey().equals("mcacrime.apologize.hint")), "Refusal omitted the apology shortcut");
+                && text.getKey().equals("mcacrime.apologize.give_space")),
+                "Refusal did not explain the wait it is in");
+        // Sneaking is left to other mods (§12.2); it claims the click through the villager's own
+        // refusal but no longer opens the Crime menu, which keeps its keybind and screen button.
         player.setShiftKeyDown(true);
         var shortcut = new PlayerInteractEvent.EntityInteract(player, InteractionHand.MAIN_HAND, villager);
         NeoForge.EVENT_BUS.post(shortcut);
         helper.assertTrue(shortcut.isCanceled(), "Reconciliation shortcut fell through to MCA");
+        helper.assertTrue(sent.stream().noneMatch(p -> p instanceof ClientboundCustomPayloadPacket payload
+                && payload.payload() instanceof ActionMenuS2CPacket), "Sneaking still opened the Crime menu");
+        helper.assertTrue(CrimeActionService.openMenu(player, villager.getUUID()),
+                "The Crime menu is no longer reachable through its own entry point");
         var waitingMenu = lastMenu(sent);
         helper.assertTrue(waitingMenu.actions().stream().anyMatch(row -> row.actionId().equals(CrimeActionIds.APOLOGIZE)
                 && !row.available() && row.reasonKey().equals("mcacrime.apologize.give_space")),
@@ -185,7 +194,8 @@ public final class RelationshipAndHeatGameTests {
                 villager.setPos(origin);
                 position(helper, player, 6);
                 // Reopening must issue a fresh, usable menu after the wait and the old menu's TTL.
-                NeoForge.EVENT_BUS.post(new PlayerInteractEvent.EntityInteract(player, InteractionHand.MAIN_HAND, villager));
+                helper.assertTrue(CrimeActionService.openMenu(player, villager.getUUID()),
+                        "The Crime menu could not be reopened after the wait");
                 var menu = lastMenu(sent);
                 helper.assertTrue(menu.actions().stream().anyMatch(row -> row.actionId().equals(CrimeActionIds.APOLOGIZE)
                         && row.available()), "One-hit apology remained unavailable after a minute");
@@ -331,6 +341,11 @@ public final class RelationshipAndHeatGameTests {
             player.getInventory().setItem(0, new ItemStack(Items.EMERALD, 64));
             for (boolean finalCheck : new boolean[] {false, true}) {
                 threshold.set(50);
+                // 0.7.0 stamps victim protection however a mugging ended, so the second pass needs a
+                // victim this thief is not still barred from.
+                var protection = dev.otectus.mcacrime.state.CrimeAttachments.get(player);
+                protection.setMugProtectionUntilTick(0L);
+                protection.recentMuggers().clear();
                 hearts(helper, player, thief, 49);
                 var session = NpcMuggingService.begin(level, thief, player).orElseThrow();
                 if (finalCheck) {

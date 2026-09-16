@@ -37,8 +37,19 @@ class ResourceLayoutTest {
     private static final Path ASSETS = TestPaths.resources("assets");
 
     /** The item IDs from {@code CrimeItems}, which is what the lang keys have to line up with. */
-    private static final String[] ITEM_IDS =
-            {"restraint_rope", "restraint_cuffs", "restraint_locked_cuffs"};
+    private static final String[] ITEM_IDS = {
+            "restraint_rope", "restraint_cuffs", "restraint_locked_cuffs",
+            // The sixteen mask styles, in family and catalogue order (0.7.2 §4.1).
+            "bandana", "highwaymans_domino", "wrapped_scarf", "half_veil",
+            "leather_mask", "raven_mask", "jackal_mask", "stitched_mask",
+            "hockey_mask", "clay_mask", "comedy_mask", "tragedy_mask",
+            "iron_skull_mask", "brigand_visor", "owl_mask", "blank_iron_mask",
+            "sand_bottle"};
+    /**
+     * The block IDs from {@code CrimeBlocks}. Their BlockItems take the <em>block</em> description id,
+     * so {@code block.mcacrime.mask_station} is the key that has to exist, not an {@code item.} one.
+     */
+    private static final String[] BLOCK_IDS = {"mask_station"};
     /** The four key mappings and their category, from {@code CrimeKeybinds}. */
     private static final String[] KEY_KEYS = {"key.categories.mcacrime", "key.mcacrime.dossier",
             "key.mcacrime.self_panel", "key.mcacrime.challenge", "key.mcacrime.crime_menu"};
@@ -124,6 +135,9 @@ class ResourceLayoutTest {
         for (String item : ITEM_IDS) {
             assertTrue(lang.has("item.mcacrime." + item), "en_us.json has no name for " + item);
         }
+        for (String block : BLOCK_IDS) {
+            assertTrue(lang.has("block.mcacrime." + block), "en_us.json has no name for " + block);
+        }
         assertTrue(lang.has("itemGroup.mcacrime"), "the creative tab would render as its raw key");
         for (String key : KEY_KEYS) {
             assertTrue(lang.has(key), "en_us.json has no name for " + key);
@@ -139,7 +153,12 @@ class ResourceLayoutTest {
         }
         assertFalse(files.isEmpty(), "no item models found at " + models);
         for (Path file : files) {
-            String layer0 = object(file).getAsJsonObject("textures").get("layer0").getAsString();
+            JsonObject textures = object(file).getAsJsonObject("textures");
+            if (textures == null || !textures.has("layer0")) {
+                // A block item's model is the block model by reference; it has no flat layer to check.
+                continue;
+            }
+            String layer0 = textures.get("layer0").getAsString();
             String[] split = layer0.split(":", 2);
             assertTrue(split.length == 2 && split[0].equals("mcacrime"),
                     relative(file) + " points layer0 at " + layer0 + ", not at this mod's namespace");
@@ -159,6 +178,72 @@ class ResourceLayoutTest {
                 "the Forge-era mods.toml must not survive alongside the NeoForge one");
         assertFalse(Files.exists(RESOURCES.resolve("pack.mcmeta")),
                 "NeoForge synthesises pack metadata for mods; a committed pack.mcmeta overrides it");
+    }
+
+    /**
+     * Every block ships the four files that make it visible and recoverable: a blockstate, a block
+     * model, an item model and a loot table. Any one of them missing is a silent failure — no
+     * blockstate is the purple-and-black cube, no loot table is a block that mines into nothing.
+     */
+    @Test
+    void everyBlockShipsABlockstateModelsAndALootTable() {
+        for (String block : BLOCK_IDS) {
+            assertTrue(Files.isRegularFile(
+                            TestPaths.resources("assets", "mcacrime", "blockstates", block + ".json")),
+                    block + " has no blockstate; it would render as the missing-model cube");
+            assertTrue(Files.isRegularFile(
+                            TestPaths.resources("assets", "mcacrime", "models", "block", block + ".json")),
+                    block + " has no block model");
+            assertTrue(Files.isRegularFile(
+                            TestPaths.resources("assets", "mcacrime", "models", "item", block + ".json")),
+                    block + " has no item model, so its BlockItem would be invisible in an inventory");
+            assertTrue(Files.isRegularFile(
+                            TestPaths.resources("data", "mcacrime", "loot_table", "blocks", block + ".json")),
+                    "1.21 reads data/<ns>/loot_table/ (singular); " + block + " would mine into nothing");
+        }
+    }
+
+    /**
+     * 1.21 renamed {@code loot_tables/} to {@code loot_table/} and {@code tags/blocks/} to
+     * {@code tags/block/}. Both old spellings load without an error and simply never take effect.
+     */
+    @Test
+    void noPluralLootTableOrBlockTagDirectorySurvives() throws IOException {
+        List<String> plural = new ArrayList<>();
+        try (Stream<Path> paths = Files.walk(DATA)) {
+            paths.filter(Files::isDirectory).forEach(dir -> {
+                if (dir.getFileName().toString().equals("loot_tables")) {
+                    plural.add(relative(dir));
+                }
+            });
+        }
+        assertTrue(plural.isEmpty(), "1.21 reads data/<ns>/loot_table/, not: " + plural);
+    }
+
+    /** Every blockstate variant points at a block model file that exists. */
+    @Test
+    void everyBlockstateVariantNamesAModelThatExists() throws IOException {
+        Path blockstates = TestPaths.resources("assets", "mcacrime", "blockstates");
+        List<Path> files;
+        try (Stream<Path> paths = Files.list(blockstates)) {
+            files = paths.filter(p -> p.toString().endsWith(".json")).sorted().toList();
+        }
+        assertFalse(files.isEmpty(), "no blockstates found at " + blockstates);
+        for (Path file : files) {
+            JsonObject variants = object(file).getAsJsonObject("variants");
+            assertTrue(variants != null, relative(file) + " has no variants object");
+            for (String variant : variants.keySet()) {
+                String model = variants.getAsJsonObject(variant).get("model").getAsString();
+                String[] split = model.split(":", 2);
+                assertTrue(split.length == 2 && split[0].equals("mcacrime"),
+                        relative(file) + " variant " + variant + " names " + model);
+                assertTrue(Files.isRegularFile(
+                                TestPaths.resources("assets", "mcacrime", "models")
+                                        .resolve(split[1] + ".json")),
+                        relative(file) + " variant " + variant + " references " + model
+                                + ", which does not exist");
+            }
+        }
     }
 
     private static List<Path> recipeFiles() throws IOException {

@@ -356,26 +356,20 @@ public final class BountyService {
         return delivered;
     }
 
+    /**
+     * Pays a bounty into the inventory without ever dropping it, and reports what did not fit.
+     *
+     * <p>The bounded walk used to be inlined here for emeralds only; it now belongs to the currency,
+     * so a server paying in gold nuggets or a purse balance gets the same guarantee. A remainder is
+     * re-queued on the receipt; -1 means the outcome is unknown and an operator has to reconcile it,
+     * which is why nothing here is allowed to guess.
+     */
     private static long creditReward(ServerPlayer player, dev.otectus.mcacrime.economy.Currency currency, long amount) {
-        if (currency instanceof dev.otectus.mcacrime.economy.EmeraldCurrency) {
-            // Bounded by main-inventory capacity, with no fallible ground-drop handoff for overflow.
-            long left = amount;
-            for (int i = 0; i < player.getInventory().items.size() && left > 0; i++) {
-                var stack = player.getInventory().items.get(i);
-                if (stack.isEmpty()) {
-                    int give = (int) Math.min(new net.minecraft.world.item.ItemStack(net.minecraft.world.item.Items.EMERALD).getMaxStackSize(), left);
-                    player.getInventory().items.set(i, new net.minecraft.world.item.ItemStack(net.minecraft.world.item.Items.EMERALD, give));
-                    left -= give;
-                } else if (stack.is(net.minecraft.world.item.Items.EMERALD) && stack.getComponentsPatch().isEmpty()) {
-                    int give = (int) Math.min(Math.max(0, stack.getMaxStackSize() - stack.getCount()), left);
-                    stack.grow(give); left -= give;
-                }
-            }
-            player.getInventory().setChanged();
+        long left = currency.creditBounded(player, amount, TransactionReason.BOUNTY);
+        if (left >= 0) {
             player.containerMenu.broadcastChanges();
-            return left;
         }
-        return currency.tryCredit(player, amount, TransactionReason.BOUNTY) ? 0 : -1;
+        return left;
     }
 
     // ------------------------------------------------------------------ delivery

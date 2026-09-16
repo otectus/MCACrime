@@ -96,7 +96,7 @@ public final class FineService {
         if (!payment.paid()) {
             // The amount is only interesting on the one refusal that quotes a price back at the player.
             player.sendSystemMessage("mcacrime.fine.need".equals(payment.messageKey())
-                    ? Component.translatable(payment.messageKey(), payment.amount())
+                    ? Component.translatable(payment.messageKey(), Currencies.active().format(payment.amount()))
                     : Component.translatable(payment.messageKey()));
             return payment;
         }
@@ -108,8 +108,8 @@ public final class FineService {
                 payment.settledCaseIds(), payment.amount(), payment.oldHeat(), payment.newHeat()));
         // One merged message, not one per case: the player performed one act.
         player.sendSystemMessage(payment.settledCaseIds().isEmpty()
-                ? Component.translatable("mcacrime.fine.paid", payment.amount())
-                : Component.translatable("mcacrime.fine.paid_cases", payment.amount(),
+                ? Component.translatable("mcacrime.fine.paid", Currencies.active().format(payment.amount()))
+                : Component.translatable("mcacrime.fine.paid_cases", Currencies.active().format(payment.amount()),
                         payment.settledCaseIds().size()));
         return payment;
     }

@@ -22,7 +22,7 @@ public enum ActionRequirement {
     OWN_CAPTIVE("own_captive"),
     /** The actor holds a server-granted enforcement role. */
     AUTHORITY("authority"),
-    /** The actor must be able to pay in emeralds. */
+    /** The actor must be able to pay in the active currency. */
     FUNDS("funds"),
     /** The actor has at least one unresolved case. */
     OPEN_CASE("open_case"),

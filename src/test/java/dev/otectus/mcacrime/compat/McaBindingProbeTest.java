@@ -96,6 +96,34 @@ class McaBindingProbeTest {
                                 + "member with optionalVirtual and give McaHandles a fallback).");
                 assertEquals(McaBinding.Status.BOUND, resolution.status(), jar.getFileName().toString());
 
+                // The 0.7.2 thief-occupation bundle. Every member of it is declared *optional* in the
+                // manifest so that a future MCA dropping one degrades this feature alone rather than
+                // the whole mod -- which would make it invisible to the loop above. Requiring the
+                // bundle here is what stops "optional" quietly becoming "absent on every build we
+                // support", and it is the release gate spec §21.3 asks for.
+                assertEquals(List.of(),
+                        resolution.capabilityMissing(McaBinding.THIEF_OCCUPATION_CAPABILITY),
+                        jar.getFileName() + " cannot support exclusive Thief occupations: the members "
+                                + "listed are missing. A Thief would have to be suspended on this build.");
+
+                // The vanilla supertype every occupational write goes through. MCA's villager extends
+                // net.minecraft.world.entity.npc.Villager in all supported builds, which is why
+                // OccupationCompat can reach villager data, trading XP, brain memories, offers and POI
+                // release with one checked instanceof instead of reflecting mapped members.
+                Class<?> mcaVillager = resolution.cls(McaBinding.VILLAGER_CLASS);
+                assertNotNull(mcaVillager);
+                assertTrue(net.minecraft.world.entity.npc.Villager.class.isAssignableFrom(mcaVillager),
+                        jar.getFileName() + " no longer extends the vanilla Villager, so every "
+                                + "vanilla-typed occupational call in OccupationCompat would be a "
+                                + "silent no-op.");
+
+                // setClothes is overloaded on VillagerLike, so the manifest's String hint is what picks
+                // the one that can restore a captured outfit. Without the hint the winner would be
+                // whichever getMethods() reported first -- a coin flip a passing probe could not see.
+                assertTrue(clothingSetterTakesAString(resolution.cls(McaBinding.VILLAGER_LIKE_CLASS)),
+                        jar.getFileName() + " has no VillagerLike#setClothes(String) for the rollback "
+                                + "path to restore an outfit through.");
+
                 System.out.println("[probe] " + jar.getFileName() + " -> " + resolution.root()
                         + (resolution.unresolvedOptional().isEmpty() ? ""
                                 : " (optional absent, fallbacks apply: " + resolution.unresolvedOptional() + ")"));
@@ -218,6 +246,19 @@ class McaBindingProbeTest {
             }
             return false;
         }
+    }
+
+    private static boolean clothingSetterTakesAString(Class<?> villagerLike) {
+        if (villagerLike == null) {
+            return false;
+        }
+        for (java.lang.reflect.Method method : villagerLike.getMethods()) {
+            if (method.getName().equals("setClothes") && method.getParameterCount() == 1
+                    && method.getParameterTypes()[0].equals(String.class)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static List<Path> probeJars() {

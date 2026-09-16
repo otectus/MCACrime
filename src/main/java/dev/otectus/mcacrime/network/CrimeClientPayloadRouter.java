@@ -82,6 +82,10 @@ public final class CrimeClientPayloadRouter {
         handler.onBailQuote(payload);
     }
 
+    public static void handleMaskSelection(MaskSelectionS2CPacket payload, IPayloadContext context) {
+        handler.onMaskSelection(payload);
+    }
+
     /** What the client side supplies. Every method defaults to doing nothing, which is what a server does. */
     public interface Handler {
 
@@ -125,6 +129,9 @@ public final class CrimeClientPayloadRouter {
         }
 
         default void onBailQuote(BailQuoteS2CPacket payload) {
+        }
+
+        default void onMaskSelection(MaskSelectionS2CPacket payload) {
         }
     }
 }
