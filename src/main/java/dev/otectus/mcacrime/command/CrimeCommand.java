@@ -264,6 +264,9 @@ public final class CrimeCommand {
                 + " state=" + ReputationBridge.status()), false);
         source.sendSuccess(() -> Component.literal("  bridge available=" + ReputationBridge.isAvailable()
                 + " holds detection authority=" + ReputationBridge.holdsAuthority()), false);
+        if (ReputationBridge.isAvailable()) {
+            source.sendSuccess(() -> Component.literal("  " + ReputationBridge.capabilities().describe()), false);
+        }
         if (ReputationBridge.isAvailable() && !ReputationBridge.holdsAuthority()) {
             source.sendSuccess(() -> Component.literal(
                     "  villager assault/killing is still being recorded by MCA: Reputation itself; "

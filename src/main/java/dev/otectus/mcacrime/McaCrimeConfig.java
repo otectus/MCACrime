@@ -497,6 +497,7 @@ public final class McaCrimeConfig {
         public final ModConfigSpec.IntValue dedupeRetentionTicks;
         public final ModConfigSpec.ConfigValue<String> fineResolutionStatus;
         public final ModConfigSpec.ConfigValue<String> servedResolutionStatus;
+        public final ModConfigSpec.IntValue reputationSupersedeWindowTicks;
 
         Common(ModConfigSpec.Builder b) {
             b.push("bands");
@@ -1648,6 +1649,14 @@ public final class McaCrimeConfig {
             servedResolutionStatus = b.comment(
                     "How a served sentence reads to the village: 'atoned' or 'apologized'.")
                     .define("servedResolutionStatus", "atoned");
+            reputationSupersedeWindowTicks = b.comment(
+                    "How far back a killing may absorb the assault that preceded it, in ticks. One",
+                    "encounter then reads to the village as one incident -- the killing -- exactly as MCA:",
+                    "Reputation's own detector would have recorded it before MCA: Crime claimed the deed.",
+                    "0 records the assault and the killing as two separate incidents, which charges the",
+                    "player for both. Ignored when the installed MCA: Reputation does not advertise",
+                    "supersession.")
+                    .defineInRange("supersedeWindowTicks", 1200, 0, 24000);
             b.pop();
             b.pop();
         }

@@ -864,10 +864,18 @@ needs.
 |---|---|---|---|
 | `fineResolutionStatus` | `atoned` | `atoned`, `apologized` | How a paid fine reads to the village: made good, or merely said sorry. |
 | `servedResolutionStatus` | `atoned` | `atoned`, `apologized` | The same for a served sentence. |
+| `supersedeWindowTicks` | `1200` | `0 … 24000` | How far back a killing may absorb the assault that preceded it, so one encounter reads to the village as one incident. `0` records the two separately, which charges the player for both. Ignored when the installed MCA: Reputation does not advertise supersession. |
 
-Only those two values are accepted; anything else is a validation error. Unresolved, escaped, and
-expired cases deliberately map to **no** resolution status at all — breaking out of jail is not
-atonement, and a case ageing out is not the village forgiving a murder.
+Only `atoned` and `apologized` are accepted for the two statuses; anything else is a validation
+error. Unresolved, escaped, and expired cases deliberately map to **no** resolution status at all —
+breaking out of jail is not atonement, and a case ageing out is not the village forgiving a murder.
+
+`supersedeWindowTicks` exists because this mod claims villager assault and killing from MCA:
+Reputation's own detector, which folds an assault into the killing that finished it. Without the
+fold a player who beat a villager and then killed them would pay for both — a heavier penalty than
+the mod the deed was taken from would have applied. The fold only ever applies within one village,
+against the same victim, and while the earlier case is still unsettled: a fine already paid for the
+assault is an atonement the village accepted, and absorbing that record would quietly delete it.
 
 ## Client — `[client]`
 

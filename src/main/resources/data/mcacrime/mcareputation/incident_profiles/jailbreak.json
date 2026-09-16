@@ -1,0 +1,19 @@
+{
+  "allowed_incidents": [
+    "mcacrime:jailbreak"
+  ],
+  "recognition": {
+    "points": 8,
+    "lifetime_ticks": 1344000,
+    "resolution_mode": "recognition"
+  },
+  "facets": {
+    "mcareputation:lawfulness": {
+      "points": -12,
+      "lifetime_ticks": 672000,
+      "resolution_mode": "evaluative"
+    }
+  },
+  "credit_class": "adverse",
+  "major_evidence": false
+}

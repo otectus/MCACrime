@@ -172,7 +172,10 @@ dependencies {
     // adapter by name, so a missing class is the ClassNotFoundException its catch block already
     // handles, and the mod behaves exactly as it does with Reputation uninstalled. CI that must
     // include the adapter passes -PrequireReputation=true.
-    def mcaReputationClasses = file("${projectDir}/../MCAReputation_1.21.1/build/classes/java/main")
+    // The path is overridable with -PmcaReputationClasses=<dir> so a build can be pointed at a
+    // snapshot of the companion's class output instead of a sibling checkout that may be mid-rebuild.
+    def mcaReputationClasses = file(project.findProperty('mcaReputationClasses')
+            ?: "${projectDir}/../MCAReputation_1.21.1/build/classes/java/main")
     if (mcaReputationClasses.exists()) {
         compileOnly files(mcaReputationClasses)
     } else if (project.hasProperty('requireReputation')) {
@@ -189,7 +192,9 @@ dependencies {
     // reaches the adapter by name after a ModList check. Absent sibling means the adapter package is
     // dropped from compilation and bounties are simply never offered as quests; -PrequireQuests makes
     // that a build failure instead, for CI that must ship the adapter.
-    def mcaQuestsClasses = file("${projectDir}/../MCAQuests_1.21.1/build/classes/java/main")
+    // Overridable with -PmcaQuestsClasses=<dir>, symmetrically with Reputation above.
+    def mcaQuestsClasses = file(project.findProperty('mcaQuestsClasses')
+            ?: "${projectDir}/../MCAQuests_1.21.1/build/classes/java/main")
     if (mcaQuestsClasses.exists()) {
         compileOnly files(mcaQuestsClasses)
     } else if (project.hasProperty('requireQuests')) {

@@ -50,8 +50,8 @@ network item audio command config util  plumbing
 ## Key Dependencies
 
 - **MCA Reborn** - mandatory at runtime, but `localRuntime` and `testRuntimeOnly` in Gradle; no MCA type may appear anywhere in `src/main/java` (enforced by `NoMcaStaticLinkTest`). Every MCA class and member is resolved by name at runtime by `compat/mca/McaBinding`, so one jar works across MCA's package-root migrations.
-- **MCA: Reputation** - optional companion, resolved by name at runtime. Compiles only when `../MCAReputation_1.21.1/build/classes/java/main` exists. Pass `-PrequireReputation=true` to force the build to fail if it is absent.
-- **MCA: Quests** - optional integration, resolved by name at runtime. Publishes bounties as guard-given contracts. Compiles only when `../MCAQuests_1.21.1/build/classes/java/main` exists. Pass `-PrequireQuests=true` to force the build to fail if it is absent.
+- **MCA: Reputation** - optional companion, resolved by name at runtime. Compiles only when `../MCAReputation_1.21.1/build/classes/java/main` exists; override that path with `-PmcaReputationClasses=<dir>` to build against a snapshot instead of a sibling checkout. Pass `-PrequireReputation=true` to force the build to fail if it is absent.
+- **MCA: Quests** - optional integration, resolved by name at runtime. Publishes bounties as guard-given contracts. Compiles only when `../MCAQuests_1.21.1/build/classes/java/main` exists; override that path with `-PmcaQuestsClasses=<dir>`. Pass `-PrequireQuests=true` to force the build to fail if it is absent.
 - **Locks Reforged** - optional fence pricing and native cuff lockpicking. The isolated cuff menu compiles against `../Locks_Reforged_1.21.1/build/classes/java/main` (override with `-PlocksClasses=...`); release builds must set `-PrequireLocks=true`. Runtime presence is checked before loading the adapter. `-PlocksRuntimeJar=...` enables real-mod integration runs without bundling it.
 - **Architectury** - MCA's own runtime requirement; deliberately not declared in `neoforge.mods.toml`.
 

@@ -1,11 +1,15 @@
 # MCA: Crime — datapack reference
 
-Two kinds of content are data rather than code:
+Three kinds of content are data rather than code:
 
 ```
 data/<namespace>/mcacrime/crimes/*.json                  what a crime costs
 data/<namespace>/mcareputation/incidents/*.json          what the village hears about it
+data/<namespace>/mcareputation/incident_profiles/*.json  what the deed makes you known for
+data/<namespace>/mcareputation/credit_policies/*.json    how repeated good deeds are discounted
 ```
+
+The first is read by this mod. The others are read by MCA: Reputation, out of this mod's jar.
 
 Both reload with `/reload`; crimes also reload with `/crime reload`, which reports how many loaded
 and how many failed. `/crime validate` lists every content problem it knows about with the exact file
@@ -139,6 +143,7 @@ loaded into Reputation's registry.
 | `gossip` | `tone` (`approval` / `condemnation`), a `phrase` lang key, and the `with` arguments to fill it. |
 | `retain_unwitnessed` | Keep the record as hidden history even when nobody saw it. |
 | `max_override_abs` | Ceiling on how far another system may override this incident's delta. |
+| `social_profile` | The incident profile that says what the deed makes a player *known for*, read by MCA: Reputation 0.6.0 and newer. Absent means no recognition and no facet evidence at all — never a default derived from severity. |
 
 ### The eight shipped incidents
 
@@ -169,6 +174,62 @@ dialogue, gossip phrases, and incident-tag queries across the suite already spea
 Override any of the eight by writing a file with the same id in your own pack. The mapping from crime
 to incident is fixed in code — exactly one incident per crime, so a case can never produce two public
 deeds — but what that incident is *worth* is entirely yours.
+
+---
+
+## Public profiles
+
+`data/<namespace>/mcareputation/incident_profiles/<name>.json` and
+`.../credit_policies/<name>.json`, read by **MCA: Reputation 0.6.0** and newer. Ignored entirely by
+an older companion, which is why every incident above keeps its own `default_delta`: the profile says
+what a player is *known for*, never what the deed costs them in standing.
+
+MCA: Crime ships seven profiles and two credit policies under `data/mcacrime/mcareputation/`. The
+facets they reference (`mcareputation:violence`, `lawfulness`, `compassion`, `bravery`) are MCA:
+Reputation's own — minting parallel ones would fork every description and observer weight in the
+suite.
+
+| Profile | Attached to | Recognition | Facets | Credit |
+|---|---|---:|---|---|
+| `mcacrime:theft` | `mcacrime:theft` | 3 | lawfulness −8 (evaluative) | adverse |
+| `mcacrime:guard_assaulted` | `mcacrime:guard_assaulted` | 6 | violence +8 (historical), lawfulness −10 (evaluative) | adverse |
+| `mcacrime:jailbreak` | `mcacrime:jailbreak` | 8 | lawfulness −12 (evaluative) | adverse |
+| `mcacrime:kidnapping` | `mcacrime:kidnapping` | 12 | violence +10, compassion −8, lawfulness −12 | adverse, major evidence |
+| `mcacrime:mugging_murder` | `mcacrime:mugging_murder` | 18 | violence +20, compassion −12, lawfulness −14 | adverse, major evidence |
+| `mcacrime:captive_rescued` | `mcacrime:captive_rescued` | 8 | bravery +8, compassion +8 (both historical) | commendable, `mcacrime:captive_rescue` |
+| `mcacrime:legal_settlement` | `mcacrime:fine_paid`, `mcacrime:sentence_served` | 2 | — | commendable, `mcacrime:legal_settlement` |
+
+Recognition channels last `1344000` ticks (56 in-game days) and facet channels `672000` (28), which
+are MCA: Reputation's own shipped lifetimes. `historical` evidence is not undone by an apology — the
+violence a killing demonstrated still happened — while `evaluative` evidence settles as the case is
+atoned or forgiven, and recognition is never undone at all: being known for something is not reversed
+by apologising for it.
+
+### What the profiles deliberately do not say
+
+- **No credit policy on an adverse profile.** A repeat-credit schedule only ever *reduces* a positive
+  contribution, and authoring one on a crime is a validation error on MCA: Reputation's side rather
+  than a silent no-op. Repetition must never make harm cheaper.
+- **No virtue for settling your own case.** `legal_settlement` carries recognition and no facet at
+  all: paying your own fine or serving your own sentence is not generosity, compassion or bravery. Its
+  credit policy is there so that repeatedly paying fines stops earning recognition (100%, 50%, 25%, 0
+  within a 14-day window) rather than farming it, and the same allowance covers both incidents, so
+  alternating between them does not reset it.
+- **No greed facet for theft, and no bravery for killing.** Both would be inferred rather than
+  observed. Theft costs lawfulness because this mod's own legal case establishes the act was unlawful;
+  nothing about a stolen item says what the thief wanted it for.
+- **No beneficiary ceiling.** MCA: Reputation's shipped rescue and cure policies limit repeat credit
+  per beneficiary as well as per player. Ours do not, because this mod's incident subject carries the
+  victim's *kind* (`villager`, `guard`, `child`) rather than their part in the deed, and a subject
+  limit that failed to match would silently reduce every rescue to zero credit rather than only the
+  repeated ones.
+
+`mcacrime:captive_rescued`, `mcacrime:fine_paid` and `mcacrime:sentence_served` ship as complete
+content but are not yet produced by any code path in this mod; the crime-to-incident table maps the
+five adverse ones. Overriding any profile, or pointing an incident at one of your own, works the same
+way as retuning an incident: write a file with the same id. An unresolvable `social_profile` costs the
+incident only its profile, not its whole definition — which also means a typo there is silent, so
+check it with `/mcareputation debug` rather than assuming.
 
 ---
 
@@ -218,3 +279,8 @@ Before shipping a pack:
       fallback to the built-in definition.
 - [ ] If you overrode an incident, check it in-game with MCA: Reputation installed — this mod cannot
       validate content that another mod's registry owns.
+- [ ] If you overrode a profile or a credit policy, remember MCA: Reputation reads those four
+      directories with a strict parser: a repeated JSON key at any depth, a facet nothing defines, or
+      two policy files disagreeing about one credit group drops the **whole** profile bundle for that
+      reload, while the scalar incident definitions keep loading. `/mcareputation reload` reports
+      which file failed.

@@ -2,6 +2,7 @@ package dev.otectus.mcacrime.compat;
 
 import dev.otectus.mcacrime.McaCrime;
 import dev.otectus.mcacrime.McaCrimeConfig;
+import net.minecraft.server.MinecraftServer;
 import net.neoforged.fml.ModList;
 
 import org.jetbrains.annotations.Nullable;
@@ -31,17 +32,30 @@ import java.util.Optional;
  */
 public final class ReputationBridge {
 
-    /** The Reputation API generation this build was written against. */
-    public static final int REQUIRED_API_VERSION = 1;
+    /**
+     * The Reputation API generation this build was written against.
+     *
+     * <p><b>2 on this line, 1 on the Forge 1.20.1 line, for the same additive surface.</b> The two
+     * companion lines number their API generations independently: the NeoForge 1.21.1 MCA: Reputation
+     * has advertised {@code 2} since its port landed, while the Forge build still says {@code 1}. The
+     * facilities this adapter uses are the same on both.
+     *
+     * <p>That is not a cosmetic detail. This constant is compared for exact equality below, so while
+     * it said {@code 1} the handshake took the {@code ops = null; status = "incompatible API v2"}
+     * branch against every NeoForge MCA: Reputation from 0.4.1 onwards — the integration was silently
+     * off on this whole line, with MCA: Crime quietly keeping village standing in its own store and
+     * only one error line in the log to say so. Bumping it to 2 is the fix; keep it equal to whatever
+     * {@code McaReputationApi.getApiVersion()} returns on the loader this jar is built for.
+     */
+    public static final int REQUIRED_API_VERSION = 2;
 
     /**
      * The oldest MCA: Reputation that carries the detection-authority API this adapter needs.
      *
-     * <p>Lower than the Forge line's {@code 0.3.0} on purpose. The NeoForge 1.21.1 companion restarted
-     * its version numbering at 0.2.0 while exposing API v1 with the full authority and mirror surface
-     * this adapter is written against, so a 0.3.0 floor here would reject the only companion that
-     * exists for this Minecraft version. <b>{@link #REQUIRED_API_VERSION} is the real contract</b>;
-     * this string is a human-facing hint in one log line and nothing is compared against it.
+     * <p>Numbered against the NeoForge companion's own history, not the Forge line's: 0.4.1 is the
+     * oldest NeoForge 1.21.1 MCA: Reputation carrying the authority, mirror and receipt surface this
+     * adapter is written against. <b>{@link #REQUIRED_API_VERSION} is the real contract</b>; this
+     * string is a human-facing hint in one log line and nothing is compared against it.
      *
      * <p>Not expressed as a {@code versionRange} in {@code neoforge.mods.toml} either, and that is a
      * deliberate choice rather than an oversight. The loader enforces the range of an optional
@@ -51,12 +65,13 @@ public final class ReputationBridge {
      * here instead: the integration switches off, the built-in store takes over, and the log says
      * which version would turn it back on.
      */
-    private static final String MINIMUM_COMPANION_VERSION = "0.2.0";
+    private static final String MINIMUM_COMPANION_VERSION = "0.4.1";
 
     private static volatile ReputationOps ops;
     private static volatile boolean initialised;
     private static volatile String status = "not initialised";
     private static volatile boolean degraded;
+    private static volatile ReputationCapabilitySnapshot capabilities = ReputationCapabilitySnapshot.absent();
 
     private ReputationBridge() {
     }
@@ -115,7 +130,9 @@ public final class ReputationBridge {
             }
             status = "ready";
             McaCrime.LOGGER.info("MCA: Crime — MCA: Reputation detected (API v{}); community standing will be "
-                    + "recorded there once authority is claimed.", version);
+                    + "recorded there once authority is claimed. Which of its newer facilities are "
+                    + "actually used is decided by the capability handshake at server start, not by "
+                    + "this version number.", version);
         } catch (NoClassDefFoundError | NoSuchMethodError e) {
             // An installed companion too old to carry the API this adapter is written against. The
             // declared dependency range stays permissive on purpose -- refusing to launch over an
@@ -136,6 +153,51 @@ public final class ReputationBridge {
             McaCrime.LOGGER.error("MCA: Crime — MCA: Reputation is installed but the integration could not "
                     + "start; falling back to the built-in store. MCA: Crime remains fully playable.", t);
         }
+    }
+
+    /**
+     * Asks the companion what it can do, once per server, and caches the answer.
+     *
+     * <p>Separate from {@link #init()} and deliberately later: {@code init} runs during mod loading,
+     * where there is no server, no datapack, and therefore no answer to give about anything that
+     * depends on loaded content — which in 0.6.0 includes the whole public-profile layer. The
+     * handshake belongs where the features are about to be used.
+     *
+     * <p>Once per server rather than per delivery because the answer is a property of the installed
+     * jar and its config, and the pump asks the question for every operation it drains. Re-negotiated
+     * on the next server start, so a config change between worlds is picked up.
+     */
+    public static synchronized void negotiate(@Nullable MinecraftServer server) {
+        ReputationOps current = ops().orElse(null);
+        if (current == null) {
+            capabilities = ReputationCapabilitySnapshot.absent();
+            return;
+        }
+        try {
+            ReputationCapabilitySnapshot snapshot = current.capabilities(server);
+            capabilities = snapshot == null ? ReputationCapabilitySnapshot.absent() : snapshot;
+            McaCrime.LOGGER.info("MCA: Crime — MCA: Reputation capabilities: {}", capabilities.describe());
+            if (!capabilities.supportsDelivery()) {
+                McaCrime.LOGGER.info("MCA: Crime — this MCA: Reputation does not advertise keyed delivery, "
+                        + "so civic writes use the older record path. They stay correct; they are simply "
+                        + "not receipted, so a crash between its commit and our link write can leave one "
+                        + "queued operation to retry.");
+            }
+        } catch (Throwable t) {
+            capabilities = ReputationCapabilitySnapshot.absent();
+            McaCrime.LOGGER.warn("MCA: Crime — negotiating MCA: Reputation capabilities threw; using the "
+                    + "oldest supported surface.", t);
+        }
+    }
+
+    /**
+     * What the companion advertised at the last handshake.
+     *
+     * <p>Never null, and nothing advertised when there was no handshake — so a caller that forgets to
+     * negotiate degrades to the oldest surface rather than calling a method that is not there.
+     */
+    public static ReputationCapabilitySnapshot capabilities() {
+        return isAvailable() ? capabilities : ReputationCapabilitySnapshot.absent();
     }
 
     /**
@@ -174,6 +236,7 @@ public final class ReputationBridge {
         }
         try {
             current.releaseAuthority();
+            capabilities = ReputationCapabilitySnapshot.absent();
         } catch (Throwable t) {
             McaCrime.LOGGER.debug("MCA: Crime — releasing detection authority threw; ignoring", t);
         }
@@ -234,6 +297,7 @@ public final class ReputationBridge {
         ops = null;
         initialised = false;
         degraded = false;
+        capabilities = ReputationCapabilitySnapshot.absent();
         status = "not initialised";
     }
 }

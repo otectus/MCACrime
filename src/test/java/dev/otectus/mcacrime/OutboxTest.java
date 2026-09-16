@@ -1,16 +1,21 @@
 package dev.otectus.mcacrime;
 
+import dev.otectus.mcacrime.api.model.CrimeRecordView;
 import dev.otectus.mcacrime.integration.CrimeIntegrationHooks;
 import dev.otectus.mcacrime.integration.CrimeIntegrationOperation;
 import dev.otectus.mcacrime.integration.DeliveryOutcome;
 import dev.otectus.mcacrime.integration.DeliveryPolicy;
 import dev.otectus.mcacrime.integration.IntegrationTargets;
 import dev.otectus.mcacrime.crime.type.CrimeIds;
+import dev.otectus.mcacrime.ledger.Resolution;
 import dev.otectus.mcacrime.state.world.CrimeWorldData;
 import net.minecraft.core.RegistryAccess;
 import net.minecraft.nbt.CompoundTag;
 import org.junit.jupiter.api.Test;
 
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -246,5 +251,35 @@ class OutboxTest {
                 CrimeIds.THEFT, true, true, true, false));
         assertTrue(CrimeIntegrationHooks.willRecordCanonically(
                 CrimeIds.KIDNAP, true, true, true, false));
+    }
+
+    // ------------------------------------------------------------------ who the case is against
+
+    /**
+     * Civic standing describes players. An NPC thief is prosecuted by the same ledger and must not
+     * reach the companion at all: a standing record keyed by a villager's UUID would collect public
+     * profile evidence for somebody the system cannot describe.
+     */
+    @Test
+    void anNpcOffendersCaseIsNeverAPlayersCivicDeed() {
+        assertFalse(CrimeIntegrationHooks.isPlayerAttributed(record(Map.of("offender_kind", "npc"))));
+        assertTrue(CrimeIntegrationHooks.isPlayerAttributed(record(Map.of("offender_kind", "player"))));
+    }
+
+    /**
+     * An unstamped record is a player's. Every NPC commit stamps the key; records written before it
+     * existed were player commits, and the alternative default would silently stop recording real
+     * crimes from an old save.
+     */
+    @Test
+    void anUnstampedCaseIsTreatedAsAPlayers() {
+        assertTrue(CrimeIntegrationHooks.isPlayerAttributed(record(Map.of())));
+        assertFalse(CrimeIntegrationHooks.isPlayerAttributed(null));
+    }
+
+    private static CrimeRecordView record(Map<String, String> context) {
+        return new CrimeRecordView(UUID.randomUUID(), UUID.randomUUID(), Optional.empty(),
+                CrimeIds.THEFT, Optional.empty(), Set.of(), false, 0L, 0L, 0L, 0L, 0L,
+                Resolution.UNRESOLVED, 0L, Optional.empty(), context);
     }
 }
