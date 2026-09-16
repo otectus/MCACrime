@@ -18,7 +18,7 @@ import static org.junit.jupiter.api.Assertions.assertInstanceOf;
  * The outcome line, from the result an action returns to the packet that carries it.
  *
  * <p>Worth asserting because the failure is silent: a key with a {@code %s} and no arguments is a
- * perfectly valid translatable, and it reaches the HUD reading "You rob the villager of %s emeralds."
+ * perfectly valid translatable, and it reaches the HUD reading "You rob the villager of %s."
  * Nothing throws, so only the argument itself proves the fix.
  */
 class ActionOutcomeMessageTest {

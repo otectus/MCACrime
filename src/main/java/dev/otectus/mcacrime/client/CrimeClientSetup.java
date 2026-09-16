@@ -29,8 +29,43 @@ public final class CrimeClientSetup {
         private ModBus() {
         }
 
+        /**
+         * The thrown Sand Bottle draws as its own item, like every vanilla thrown item (0.7.2 §13.2).
+         */
+        @SubscribeEvent
+        public static void onRegisterRenderers(
+                net.minecraftforge.client.event.EntityRenderersEvent.RegisterRenderers event) {
+            event.registerEntityRenderer(dev.otectus.mcacrime.entity.CrimeEntities.SAND_BOTTLE.get(),
+                    net.minecraft.client.renderer.entity.ThrownItemRenderer::new);
+        }
+
+        /**
+         * A dyed mask shows its dye (0.7.2 §5.3, §7.2).
+         *
+         * <p>Layer 0 only: the item model's single layer carries the tint, and
+         * {@code MaskItem.getColor} answers white for an undyed one, so a mask nobody dyed looks
+         * exactly as it did before the station could dye anything.
+         *
+         * <p>Registered from the catalogue rather than from a hand-written list of items: this is the
+         * inventory half of the tint, the worn half is vanilla's own {@code HumanoidArmorLayer}
+         * multiplying the layer texture by the same {@code DyeableLeatherItem} colour, and a style
+         * that reached one and not the other would be dyed in the bag and grey on the face.
+         */
+        @SubscribeEvent
+        public static void onRegisterItemColors(
+                net.minecraftforge.client.event.RegisterColorHandlersEvent.Item event) {
+            event.register((stack, layer) -> layer > 0 ? 0xFFFFFF
+                            : ((net.minecraft.world.item.DyeableLeatherItem) stack.getItem()).getColor(stack),
+                    dev.otectus.mcacrime.item.CrimeItems.masks()
+                            .toArray(new net.minecraft.world.item.Item[0]));
+        }
+
         @SubscribeEvent
         public static void onClientSetup(FMLClientSetupEvent event) {
+            // The station's screen, bound to the menu type the server opens (0.7.2 §8.1).
+            event.enqueueWork(() -> net.minecraft.client.gui.screens.MenuScreens.register(
+                    dev.otectus.mcacrime.menu.CrimeMenus.MASK_STATION.get(),
+                    dev.otectus.mcacrime.client.screen.MaskStationScreen::new));
             event.enqueueWork(() -> ModLoadingContext.get().registerExtensionPoint(
                     ConfigScreenHandler.ConfigScreenFactory.class,
                     () -> new ConfigScreenHandler.ConfigScreenFactory(

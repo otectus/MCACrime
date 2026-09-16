@@ -77,6 +77,24 @@ public final class McaCrimeApi {
         catch (RuntimeException e) { return List.of(); }
     }
 
+    /**
+     * Registers a currency MCA: Crime can charge fines, bail, ransom, theft and bounties in.
+     *
+     * <p>Call during common setup, <b>before</b> the first config reload: the active currency is
+     * resolved from {@code integrations.currencyId} at that point, and an id registered afterwards is
+     * only picked up by the next reload.
+     *
+     * <p>An implementation whose balance is virtual — a bank account, a purse, a database row — must
+     * return {@code hasItemForm() == false}, so nothing tries to drop it on the ground and lose it.
+     *
+     * <p>Not a version bump: this class versions on breaking changes to existing signatures, and an
+     * added static method is not one. A companion written for v1 keeps working untouched.
+     */
+    public static void registerCurrency(dev.otectus.mcacrime.economy.Currency currency) {
+        try { dev.otectus.mcacrime.economy.Currencies.register(currency); }
+        catch (RuntimeException ignored) { /* nothing here throws at an integration */ }
+    }
+
     // ------------------------------------------------------------------ existing surface (unchanged)
 
     public static long getKarma(ServerPlayer player) {

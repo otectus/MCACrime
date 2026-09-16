@@ -6,6 +6,112 @@ the second one, because that is what changes shape between versions.
 
 ---
 
+## 0.7.2
+
+The 0.7.2 release establishes Thief as an exclusive native villager profession (`mcacrime:thief`) with a
+Mask Station worksite, introduces the 16-style mask catalogue, non-sneak empty-hand apologies, and the Sand
+Bottle. This update uses **network protocol 13** and **world save schema 12**.
+
+### Criminal-record schema 12 migration
+
+World data in `<world>/data/mcacrime.dat` advances from schema 11 to schema 12 (`SCHEMA_OCCUPATION` in
+`state/world/CrimeDataMigrations`). The migration brings criminal records into agreement with native villager
+professions:
+
+- **Record fields:** `state/world/CriminalVillagerRecord` gains nine persistent fields plus an unparsed
+  passthrough tag:
+  - `status` (`job/OccupationStatus`): The current state of the occupation (`NONE`, `PENDING`,
+    `ACTIVE_BOUND_NOVICE`, `ACTIVE_BOUND_ESTABLISHED`, `ESTABLISHED_UNBOUND`, `SUSPENDED`, `RETIRED`).
+    Only the three employed states (`ACTIVE_BOUND_NOVICE`, `ACTIVE_BOUND_ESTABLISHED`,
+    `ESTABLISHED_UNBOUND`) are authorized to mug.
+  - `source` (`job/OccupationSource`): Which route created or requested the occupation (`UNKNOWN`,
+    `SETTLEMENT_SWEEP`, `STATION_RECRUITMENT`, `NATIVE_REBIND`, `OPERATOR`, `API`, `WILD`, `MIGRATION`).
+    Routes requiring a station (`SETTLEMENT_SWEEP`, `STATION_RECRUITMENT`) require an unemployed adult
+    villager; repair and migration routes do not.
+  - `previousProfessionKind` (`job/HistoricalProfessionKind`): Distinguishes the three states previously
+    packed into a nullable string: `NONE` (no previous profession was displaced), `UNREADABLE` (a previous
+    profession existed but could not be read, preventing rollback from guessing an unemployed state), or
+    `ID` (a valid registry ID was captured).
+  - `establishedAt`: Overworld game tick when establishment was earned (0 for unestablished).
+  - `lastVisitAt`: Overworld game tick of the thief's last physical arrival at their claimed worksite.
+  - `employedTicks`: Cumulative loaded, active employment ticks (24000 ticks required for establishment).
+  - `worksite`: A `state/world/WorksiteRef` (dimension ResourceLocation + BlockPos) recording the claimed
+    Mask Station POI.
+  - `reservation` and `reservationAt`: A temporary reservation reference and timestamp for candidates
+    walking to claim a station.
+  - `unboundSince`: Overworld game tick when a station claim was lost, gating novice grace (1200 loaded
+    ticks).
+  - `extra`: A `CompoundTag` that preserves any unrecognized root keys, providing forward compatibility
+    if a save is touched by a newer build.
+
+- **Lazy and idempotent migration:** Tag-to-tag migration (`v11to12`) runs on world load. It is purely
+  structural: running the migration step multiple times changes nothing the second time because records
+  containing `status` are skipped. Entity-dependent reconciliation (such as reading live villager
+  professions or checking if an NPC became a guard) is lazy: it runs only when the villager's chunk is
+  legitimately loaded in `job/ThiefOccupationLifecycle`. Unloaded chunks are never force-loaded.
+
+- **Legacy and wild Thieves become established:** Existing pre-0.7.2 Thief records migrate to
+  `status = established_unbound` with `source = migration` (or `source = wild` if `wildOrigin` was true).
+  No Mask Station is placed or invented during migration; migrated thieves operate unbound until they
+  discover and claim a Mask Station POI. Fences remain at `status = none` because occupational exclusivity
+  applies only to Thieves.
+
+- **Responders outrank historical Thief overlays:** If an entity with a historical Thief record is or
+  becomes a law responder (MCA guard, archer, or registered responder under `detect/EntitySelectors#isResponder`),
+  the law responder identity wins immediately (`ThiefOccupationLifecycle#reconcileEmployed`). The Thief
+  occupation is retired with source `MIGRATION` without forcing or contesting the role.
+
+### Deprecated thief presentation config
+
+In 0.7.2, Thief is a visible, exclusive native villager profession (`mcacrime:thief`). The common
+configuration key `criminalJobs.presentThiefAsMcaProfession` is **deprecated and inert**. The key is still
+parsed on load so existing configuration files do not break or get rewritten, but setting it to `false` no
+longer hides the profession; instead, it logs a single startup warning
+(`WorldCriminalJobService#warnAboutDeprecatedThiefPresentation`). A hidden Thief overlay on an ordinary
+profession is no longer a supported state. The companion `presentFenceAsMcaProfession` key remains active
+and unchanged.
+
+### Preserved mask item IDs
+
+All 0.7.0 mask items retain their exact registry IDs, wear budgets, and recipes:
+- `mcacrime:clay_mask` (Blank Clay Mask): retains its `clay_mask` item ID, 64-wear budget, and 0.7.0
+  crafting-table recipe (4 clay balls + 2 string).
+- `mcacrime:leather_mask` (Cutpurse Leather Mask): retains its `leather_mask` item ID, 192-wear budget,
+  and 0.7.0 crafting-table recipe (2 leather + 1 string).
+
+Existing item stacks in player inventories, containers, saved data, and datapack loot tables continue to
+resolve without renaming or migration. Both masks participate in the 16-style catalogue and may be
+restyled or dyed in the Mask Station.
+
+### Villager trading XP floor
+
+When a villager commits to the Thief occupation (`job/OccupationTransaction`), the transaction applies a
+trading XP floor via `compat/OccupationCompat#applyXpFloor`, setting
+`villager.setVillagerXp(Math.max(1, villager.getVillagerXp()))`. This ensures trading XP is at least 1,
+which guarantees:
+1. Vanilla's `ResetProfession` and MCA's `LoseUnimportantJobTask` cannot strip the Thief profession away
+   when workstation claims are temporarily lost or churned.
+2. MCA's automatic village guard recruitment (which requires an adult villager with zero trading XP)
+   cannot convert an active Thief into a guard.
+
+### Backup advice and unsupported rollback
+
+**Always back up your world before upgrading to 0.7.2:**
+
+```bash
+# with the server stopped
+cp -r world world-backup-pre-0.7.2
+```
+
+Schema 12 migration runs automatically on world load in one direction and **cannot run backwards**.
+Downgrading a world saved by 0.7.2 to an older MCA: Crime version is unsupported:
+- Older jars that include the future-schema safety gate will detect schema 12, open the world in read-only
+  mode, and refuse all mutations to protect against data loss (`state/world/ServerMutationGate`).
+- Older jars without future-schema protection cannot address schema 12 record structures or native Mask
+  Station occupations. While unrecognized fields are preserved in NBT through the reserved passthrough tag,
+  downgrading will result in lost or unaddressable occupational state.
+- Restoring a pre-upgrade backup copy is the only supported rollback procedure.
+
 ## Before you upgrade
 
 The HUD/AI follow-up uses **network protocol 11** and **world schema 10**. Update clients and server

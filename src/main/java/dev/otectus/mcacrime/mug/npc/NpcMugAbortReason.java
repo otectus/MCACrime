@@ -27,6 +27,22 @@ public enum NpcMugAbortReason {
     VICTIM_GONE,
     /** The victim got further away than a mugging can reach. */
     OUT_OF_RANGE,
+    /**
+     * The thief is law (0.7.2). MCA promoted them, an operator did, or {@code responderEntities}
+     * changed under a reload — mid-threat, which is precisely when it must not be collapsed into
+     * {@link #CANCELLED}: a mugging that stops because the mugger became a guard is the invariant
+     * doing its job, and an operator reading "cancelled" cannot tell that from a reload.
+     */
+    ACTOR_BECAME_RESPONDER,
+    /**
+     * The thief has sand in their eyes and the victim is no longer within arm's reach (0.7.2 §13.5).
+     *
+     * <p>Its own reason rather than {@link #OUT_OF_RANGE}, which it superficially resembles: the
+     * victim did not move. Collapsing the two would tell an operator reading the log that somebody
+     * walked away when in fact somebody threw a bottle, and would hide the counterplay from the one
+     * place it can be seen working.
+     */
+    THIEF_BLINDED,
     /** Ended administratively — a reload, a command, a server stop. */
     CANCELLED;
 

@@ -49,6 +49,17 @@ what the **law** does about you, on two separate axes that never read each other
   resolved. These statuses do not reveal private crimes to a guard.
   Escaped prisoners and active captors also provide a basis for intervention. Victims react from
   personal memory; neither system runs a per-tick world scan.
+- **Masks.** A Clay Mask or Leather Mask — crafted from clay balls or leather, worn in the helmet
+  slot, zero armour, non-enchantable — defers a crime's Heat instead of applying it while worn;
+  Karma still lands immediately, so a mask hides law-enforcement pressure, not standing. The banked
+  Heat comes due the moment somebody witnesses the mask come off
+  (`mask.maskRemovalWitnessRadius`, default `12.0` blocks) or the wearer is jailed. A guard who saw
+  the crime keeps hunting the anonymous figure for `mask.maskedPursuitTicks` (default `1200`
+  ticks) — a lawful target, non-lethal by default (`mask.maskedOffenderLethalForce`, default
+  `false`), and never bounty-eligible. Guards can also challenge any mask on sight
+  (`mask.guardsChallengeMaskWearers`, default `false`), and a masked player's nameplate can be
+  hidden client-side (`maskHidesNameTag`, default `true`). Master switch `mask.maskEnabled`
+  defaults to `true`.
 - **Combat evidence.** Damage charges use final damage and confirmed death. Armor-reduced hits,
   totem saves and canceled deaths cannot become a predicted murder charge. Self-defense requires
   a recent unprovoked attack and permits nonlethal retaliation; provoking a villager or guard does
@@ -73,9 +84,9 @@ what the **law** does about you, on two separate axes that never read each other
 - **Ransom.** Somebody has to pay for your captive, and who it is follows a strict priority:
   spouse, parent, adult child, sibling, close relative, and failing all of those, the village
   itself at a lower price. Family payers must be reachable online players.
-- **Mugging.** Rob a villager for a modest amount of emeralds and take a moderate theft charge.
-  Kill that same villager shortly afterwards and the death is reclassified as murder during a
-  robbery — the heaviest crime in the mod.
+- **Mugging.** Rob a villager for a modest amount of the active currency (emeralds by default;
+  see `integrations.currencyId`) and take a moderate theft charge. Kill that same villager shortly
+  afterwards and the death is reclassified as murder during a robbery — the heaviest crime in the mod.
 - **Death loot.** Villagers drop equipped gear and one purchase worth of each available trade; guards
   and archers leave their equipment. Item data is preserved and carried gear is not duplicated.
   Fences leave one item per available selling offer. Configure these defaults under `[loot]` in [CONFIG.md](CONFIG.md).
@@ -157,7 +168,7 @@ cooldowns, and finite accounts.
 ```
 /crime karma                                 your karma and band
 /crime status                                karma, band, Heat, Wanted, remaining sentence
-/crime payfine                               pay off cases in emeralds, oldest first
+/crime payfine                               pay off cases in the active currency, oldest first
 /crime surrender                             surrender near a guard, jail, or lawful player
 /crime mug                                   threaten the exact villager in your crosshair
 /crime ransom                                demand a ransom for the captive you hold
@@ -190,6 +201,46 @@ sentence, from a kidnapper, or from their own captive, whichever applies.
 `config/mcacrime-common.toml` (server-authoritative) and `config/mcacrime-client.toml`
 (presentation only). Every option, its default, its range, and what switching it off actually does
 is in **[CONFIG.md](CONFIG.md)** — including which options are declared but not yet wired.
+
+### Currency
+
+`integrations.currencyId` selects what fines, bail, ransom, theft and bounties are paid in:
+`mcacrime:emerald` (the default), `mcacrime:item` (the item named by `integrations.currencyItem`,
+one item per unit), and `mcacrime:numismatic` (the Numismatic Overhaul purse, offered only when
+that mod is installed; its balance is in bronze — 100 bronze is one silver, 10000 is one gold).
+Economy mods register further ids at common setup with `McaCrimeApi.registerCurrency`. An id
+nothing has registered falls back to `mcacrime:emerald` with a single warning rather than taking
+fines, bail and ransom offline; `/crime validate` also reports an unregistered `currencyId`.
+
+```toml
+[integrations]
+    currencyId = "mcacrime:item"
+    currencyItem = "minecraft:emerald"
+```
+
+```toml
+[integrations]
+    currencyId = "mcacrime:item"
+    currencyItem = "numismaticoverhaul:bronze_coin"
+```
+
+`currencyItem` is only *paid in* when `currencyId` is `mcacrime:item`, as a registry id — but it
+is validated and warned about regardless of `currencyId`. An item that is absent, unparseable, or
+not registered falls back to emeralds with one warning, not one per transaction. `mcacrime:numismatic` has no item form of its own: it spends and pays into the purse
+capability, not the inventory, so an item currency and the Numismatic purse are two different
+balances even when both eventually mean coins.
+
+Money already owed follows the currency it was earned in, not the currency configured when it is
+paid. A queued payout (a bounty, a recovered-property lot) records the provider id it was
+created with — for `mcacrime:item` that is `mcacrime:item/<namespace>/<path>`, naming the exact
+item — so switching `currencyItem` afterwards does not change what a pending payment is owed in.
+
+## Compatibility
+
+Epic Fight's battle mode can swallow the right-click that would open MCA's own menu, and the
+third-party EpicFight-MCA Patch (efmca) makes MCA villagers immune to all player damage;
+MCA: Crime forwards the former and can only report the latter. See
+[docs/COMPATIBILITY_EPIC_FIGHT.md](docs/COMPATIBILITY_EPIC_FIGHT.md).
 
 ## For pack authors
 

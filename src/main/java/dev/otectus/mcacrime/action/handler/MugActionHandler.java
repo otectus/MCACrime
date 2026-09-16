@@ -10,6 +10,7 @@ import dev.otectus.mcacrime.compat.McaCompat;
 import dev.otectus.mcacrime.crime.type.CrimeIds;
 import dev.otectus.mcacrime.detect.CrimeDetector;
 import dev.otectus.mcacrime.detect.WitnessChecker;
+import dev.otectus.mcacrime.economy.Currencies;
 import dev.otectus.mcacrime.economy.TransactionReason;
 import dev.otectus.mcacrime.economy.account.EconomicTransactionService;
 import dev.otectus.mcacrime.enforcement.GuardEnforcement;
@@ -140,10 +141,13 @@ public final class MugActionHandler implements CrimeActionHandler {
         boolean dynamic = McaCrimeConfig.COMMON.enableDynamicCompliance.get()
                 && McaCrimeConfig.COMMON.enableVillagerReactions.get();
         var reaction = dev.otectus.mcacrime.ai.CrimeReactionService.stateOf(target.getUUID());
-        if (dev.otectus.mcacrime.ai.ReactionControlPolicy.refusesMugging(
-                dev.otectus.mcacrime.detect.EntitySelectors.isResponder(target), dynamic, reaction)) {
-            actor.sendMessage(Component.translatable("mcacrime.mug.refused"));
-            ActionSessionManager.cancel(session, CancelReason.CONFLICT);
+        boolean responder = dev.otectus.mcacrime.detect.EntitySelectors.isResponder(target);
+        if (dev.otectus.mcacrime.ai.ReactionControlPolicy.refusesMugging(responder, dynamic, reaction)) {
+            // Say which way they refused. The HUD bar carries the outcome; this line carries the reason,
+            // because "they won't cooperate" told the mugger nothing about whether to try a quieter street.
+            actor.sendMessage(Component.translatable("mcacrime.mug.refused."
+                    + (responder ? "responder" : reaction.name().toLowerCase(java.util.Locale.ROOT))));
+            ActionSessionManager.cancel(session, CancelReason.REFUSED);
             return;
         }
         if (dynamic && (reaction == dev.otectus.mcacrime.ai.VictimReactionState.STALLING
@@ -176,7 +180,7 @@ public final class MugActionHandler implements CrimeActionHandler {
             world.addActionCounter(actorValueKey(actor.id(), now), transferred);
             world.addActionCounter(villageValueKey(target, level, now), transferred);
             CrimeMemoryService.recordMugSuccess(level.getServer(), target, actor.id(), now, transferred);
-            actor.sendMessage(Component.translatable("mcacrime.mug.success", transferred));
+            actor.sendMessage(Component.translatable("mcacrime.mug.success", Currencies.active().format(transferred)));
             CrimeSounds.mugSuccess(target);
         } else {
             actor.sendMessage(Component.translatable("mcacrime.mug.empty"));
@@ -189,7 +193,7 @@ public final class MugActionHandler implements CrimeActionHandler {
         }
         McaCompat.makeVillagerFlee(target, player);
         ActionSessionManager.finish(session, transferred > 0
-                ? ActionResult.accepted("mcacrime.mug.success", transferred)
+                ? ActionResult.accepted("mcacrime.mug.success", Currencies.active().format(transferred))
                 : ActionResult.accepted("mcacrime.mug.empty"));
     }
 

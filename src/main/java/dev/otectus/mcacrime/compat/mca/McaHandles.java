@@ -364,7 +364,15 @@ public final class McaHandles {
         }
     }
 
-    /** Sets a villager's profession through MCA's own setter. False on any failure. */
+    /**
+     * Sets a villager's profession through MCA's own setter.
+     *
+     * <p><b>False does not mean nothing happened.</b> MCA's setter writes villager data, randomises
+     * clothing and rewrites the family-tree profession before it refreshes the brain, so a throw part
+     * way through leaves a partially changed villager. The old contract here claimed the opposite and
+     * callers relied on it; the occupation transaction (0.7.2) verifies by reading the profession back
+     * and rolls back what it captured rather than trusting this return value.
+     */
     public static boolean setProfession(Object villager, Object profession) {
         if (!isVillager(villager) || profession == null || !R.has(McaBinding.VILLAGER_SET_PROFESSION)) {
             return false;
@@ -374,6 +382,106 @@ public final class McaHandles {
             return true;
         } catch (Throwable t) {
             return false;
+        }
+    }
+
+    // --- thief occupation (0.7.2) ----------------------------------------------------------------
+
+    private static final MethodHandle H_GET_CLOTHES = R.handle(McaBinding.VILLAGER_GET_CLOTHES);
+    private static final MethodHandle H_SET_CLOTHES = R.handle(McaBinding.VILLAGER_SET_CLOTHES);
+    private static final MethodHandle H_NODE_PROFESSION_ID = R.handle(McaBinding.NODE_GET_PROFESSION_ID);
+    private static final MethodHandle H_NODE_SET_PROFESSION = R.handle(McaBinding.NODE_SET_PROFESSION);
+    private static final MethodHandle H_DESPAWN_DELAY = R.handle(McaBinding.VILLAGER_GET_DESPAWN_DELAY);
+
+    /**
+     * The members of the thief-occupation bundle that are missing, or an empty list when it is whole.
+     *
+     * <p>Asked once per transaction rather than per call, so the rejection names the capability
+     * instead of surfacing as a clothing string that silently failed to restore.
+     */
+    public static List<String> thiefOccupationCapability() {
+        return R.capabilityMissing(McaBinding.THIEF_OCCUPATION_CAPABILITY);
+    }
+
+    /** True when every member of the thief-occupation bundle bound. */
+    public static boolean thiefOccupationAvailable() {
+        return available() && thiefOccupationCapability().isEmpty();
+    }
+
+    /** The villager's MCA clothing identifier, or empty when it could not be read. */
+    public static Optional<String> clothes(Object villager) {
+        if (!isVillagerLike(villager) || !R.has(McaBinding.VILLAGER_GET_CLOTHES)) {
+            return Optional.empty();
+        }
+        Object value = ref(H_GET_CLOTHES, villager);
+        return value instanceof String s ? Optional.of(s) : Optional.empty();
+    }
+
+    /**
+     * Restores a captured clothing identifier. False on any failure.
+     *
+     * <p>MCA 7.7 added a clothing-lock flag that its own randomisation respects; writing through
+     * {@code setClothes(String)} does not touch that flag, so a player who locked an outfit keeps it
+     * locked after a rollback.
+     */
+    public static boolean setClothes(Object villager, String clothes) {
+        if (!isVillagerLike(villager) || clothes == null || !R.has(McaBinding.VILLAGER_SET_CLOTHES)) {
+            return false;
+        }
+        try {
+            H_SET_CLOTHES.invoke(villager, clothes);
+            return true;
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    /** The profession id MCA's family tree records for this villager, or empty. */
+    public static Optional<ResourceLocation> familyProfessionId(Object entity) {
+        if (!R.has(McaBinding.NODE_GET_PROFESSION_ID)) {
+            return Optional.empty();
+        }
+        Object value = ref(H_NODE_PROFESSION_ID, familyEntry(entity));
+        return value instanceof ResourceLocation id ? Optional.of(id) : Optional.empty();
+    }
+
+    /**
+     * Writes the family-tree profession, which MCA's own setter keeps in step with the entity.
+     *
+     * <p>Takes a <em>vanilla</em> {@code VillagerProfession} as an opaque {@link Object}, so the
+     * no-static-linkage rule holds on both sides of the call.
+     */
+    public static boolean setFamilyProfession(Object entity, Object profession) {
+        if (profession == null || !R.has(McaBinding.NODE_SET_PROFESSION)) {
+            return false;
+        }
+        Object node = familyEntry(entity);
+        if (node == null) {
+            return false;
+        }
+        try {
+            H_NODE_SET_PROFESSION.invoke(node, profession);
+            return true;
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    /**
+     * MCA's despawn countdown for a temporary inn occupant, or 0 for a permanent villager.
+     *
+     * <p>Positive means the entity is scheduled to vanish or be reset regardless of its trading XP,
+     * so it must never be recruited: the XP floor that protects every other committed Thief from
+     * MCA's reset does not protect this one.
+     */
+    public static int despawnDelay(Object villager) {
+        if (!isVillager(villager) || !R.has(McaBinding.VILLAGER_GET_DESPAWN_DELAY)) {
+            return 0;
+        }
+        try {
+            return (int) H_DESPAWN_DELAY.invoke(villager);
+        } catch (Throwable t) {
+            return 0;
         }
     }
 

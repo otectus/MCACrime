@@ -110,6 +110,7 @@ public final class CrimeDetectionHandlers {
     @SubscribeEvent
     public static void onServerStopped(ServerStoppedEvent event) {
         DamageIncidentService.clear(event.getServer());
+        dev.otectus.mcacrime.memory.ApologyClaimLedger.clear();
         detectionDisabled = false;
     }
 
@@ -153,6 +154,7 @@ public final class CrimeDetectionHandlers {
         // replay cache and any open menu, neither of which any other path ever removes.
         ActionSessionManager.forgetActor(event.getEntity().getUUID());
         dev.otectus.mcacrime.action.CrimeActionService.forgetMenu(event.getEntity().getUUID());
+        dev.otectus.mcacrime.memory.ApologyClaimLedger.forget(event.getEntity().getUUID());
         // Same class of leak, three more maps: a guard encounter, an enforcement alert, and a dossier
         // cooldown stamp all keyed by player and all previously removed by nothing.
         dev.otectus.mcacrime.enforcement.GuardChallengeService.forget(event.getEntity().getUUID());
@@ -162,6 +164,8 @@ public final class CrimeDetectionHandlers {
         dev.otectus.mcacrime.enforcement.EscortService.forget(event.getEntity().getUUID());
         dev.otectus.mcacrime.enforcement.RestraintHandlers.forget(event.getEntity().getUUID());
         dev.otectus.mcacrime.network.RequestBudget.forget(event.getEntity().getUUID());
+        // And the Mask Station's refusal stamp, which is the same shape of per-player map (0.7.2 §8.1).
+        dev.otectus.mcacrime.network.SelectMaskRecipeC2SPacket.forget(event.getEntity().getUUID());
         dev.otectus.mcacrime.dialogue.CrimeDialogueService.forget(event.getEntity().getUUID());
         if (event.getEntity().level() instanceof ServerLevel level) {
             dev.otectus.mcacrime.ai.CrimeReactionService.clear(level, event.getEntity().getUUID());

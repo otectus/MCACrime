@@ -340,7 +340,7 @@ public final class GuardChallengeService {
         }
         if (challenge.canPay()) {
             player.sendSystemMessage(Component.translatable("mcacrime.challenge.total_due",
-                    challenge.assessedFine()));
+                    dev.otectus.mcacrime.economy.Currencies.active().format(challenge.assessedFine())));
         }
     }
 

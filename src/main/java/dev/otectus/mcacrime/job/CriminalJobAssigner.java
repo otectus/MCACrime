@@ -27,12 +27,16 @@ public final class CriminalJobAssigner {
      * time the answer is written the entity may have unloaded, and spec §"Criminal-job representation"
      * forbids persisting one anyway.
      *
+     * @param role                    the shared role decision from {@link NpcMuggerEligibility}, which
+     *                                replaced this record's old {@code guardOrArcher} flag in 0.7.2. A
+     *                                flag could only say "not a guard", including when MCA could not be
+     *                                asked; the result distinguishes that from an actual answer.
      * @param lastAssignDayForVillage the day this villager's village last produced a criminal, or
      *                                {@link Long#MIN_VALUE} when it never has. A sentinel rather than
      *                                zero, because day zero is a real day on a fresh world and would
      *                                otherwise put every village on cooldown for its first three days.
      */
-    public record Candidate(UUID id, boolean adult, boolean guardOrArcher, boolean alreadyCriminal,
+    public record Candidate(UUID id, boolean adult, NpcMuggerEligibility.Result role, boolean alreadyCriminal,
                             boolean jailed, boolean protectedNpc, boolean hasVillage, int villagePopulation,
                             long lastAssignDayForVillage) {
     }
@@ -68,7 +72,12 @@ public final class CriminalJobAssigner {
         if (candidate == null || policy == null || random == null) {
             return Optional.empty();
         }
-        if (!candidate.adult() || candidate.guardOrArcher() || candidate.alreadyCriminal()
+        if (candidate.role() == null || candidate.role().rejected()) {
+            // Law identity, an unreadable classification and an unloaded villager all land here, and
+            // all of them mean "assign nobody" rather than "assume the best".
+            return Optional.empty();
+        }
+        if (!candidate.adult() || candidate.alreadyCriminal()
                 || candidate.jailed() || candidate.protectedNpc()) {
             return Optional.empty();
         }

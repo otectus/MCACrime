@@ -43,6 +43,9 @@ public final class ThiefTicker {
         if (server == null) {
             return;
         }
+        // Occupation first: a thief whose profession an external mod changed this tick must stop
+        // being driven before the behaviour service considers driving it (0.7.2 §10.4).
+        dev.otectus.mcacrime.job.ThiefOccupationLifecycle.tick(server);
         ThiefBehaviorService.tick(server);
         NpcMuggingService.tick(server);
     }
@@ -65,11 +68,30 @@ public final class ThiefTicker {
 
     public static void confirmedDeath(UUID entity) {
         end(entity, NpcMugAbortReason.THIEF_DEAD);
+        // Spec §10.4's death row: existing loot/custody handling first, then release the station claim
+        // and retire the occupation. Doing it here rather than on unload is the whole distinction --
+        // an unloaded thief keeps its claim, a dead one does not.
+        MinecraftServer server = ServerLifecycleHooks.getCurrentServer();
+        if (server != null) {
+            dev.otectus.mcacrime.job.ThiefOccupationLifecycle.onDeath(server, entity);
+        }
     }
 
     /** Job removed/changed or thieves disabled: end the session before releasing its controller. */
     public static void stop(UUID entity) {
-        end(entity, NpcMugAbortReason.CANCELLED);
+        stop(entity, NpcMugAbortReason.CANCELLED);
+    }
+
+    /**
+     * The same teardown with the reason the caller actually has (0.7.2).
+     *
+     * <p>Added so a thief who has become law does not report "cancelled" to the victim's HUD and to
+     * {@code CrimeAttemptEvent.Ended}: the reason travels through the one teardown path rather than a
+     * second one being written beside it, which is what keeps HUD, reservation, active incident, pose
+     * and control released exactly once.
+     */
+    public static void stop(UUID entity, NpcMugAbortReason reason) {
+        end(entity, reason);
     }
 
     /**
@@ -81,6 +103,7 @@ public final class ThiefTicker {
         NpcMuggingService.clearAll();
         ThiefBehaviorService.clearAll();
         ActiveIncidentRegistry.clearAll();
+        dev.otectus.mcacrime.job.ThiefOccupationLifecycle.clearAll();
     }
 
     /** Ends whatever this entity was doing as a thief. A no-op for the vast majority of entities. */

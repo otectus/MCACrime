@@ -102,6 +102,11 @@ public final class NpcMuggingService {
      *
      * <p>Public because it is the whole of the one-session-per-victim rule and is worth testing on its
      * own; {@link #begin} is the only caller that should use it in anger.
+     *
+     * <p>Deliberately <em>not</em> an authorization point, and it does not need to be: a session
+     * inserted here without going through {@link #begin} is still re-authorized by {@link #tick} on
+     * its next pass and again — twice — by {@link #complete} before anything is debited, through the
+     * same shared actor decision. Claiming a victim reserves them; it never licenses a theft.
      */
     public static boolean claim(NpcMugSession session) {
         return session != null && SESSIONS.putIfAbsent(session.victimId(), session) == null;
@@ -251,11 +256,20 @@ public final class NpcMuggingService {
             return NpcMugAbortReason.RELATIONSHIP_PROTECTED;
         if (!MugProtection.eligible(victim, thief.getUUID(), MugProtection.now(level.getServer())))
             return NpcMugAbortReason.VICTIM_PROTECTED;
+        // The shared actor decision, read live on every pass: start, continuation and the final
+        // transfer all land here, so a role that changes mid-session is caught before property moves
+        // rather than after. A responder gets its own reason; nothing else may be reported as one.
+        dev.otectus.mcacrime.job.NpcMuggerEligibility.Result actor =
+                WorldCriminalJobService.of(level.getServer())
+                        .evaluate(thief, dev.otectus.mcacrime.job.NpcMuggerEligibility.Context.EXECUTION);
+        if (actor.rejected()) {
+            return actor.reason() == dev.otectus.mcacrime.job.NpcMuggerEligibilityReason.RESPONDER
+                    ? NpcMugAbortReason.ACTOR_BECAME_RESPONDER
+                    : NpcMugAbortReason.CANCELLED;
+        }
         CrimeWorldData data = CrimeWorldData.get(level.getServer());
         if (!McaCrimeConfig.COMMON.enableNpcMugging.get()
                 || !McaCrimeConfig.COMMON.enableThieves.get()
-                || WorldCriminalJobService.of(level.getServer()).get(thief.getUUID())
-                    != dev.otectus.mcacrime.job.CriminalJob.THIEF
                 || data.isCaptive(thief.getUUID()) || data.isCaptive(victim.getUUID()))
             return NpcMugAbortReason.CANCELLED;
         return null;
@@ -267,6 +281,12 @@ public final class NpcMuggingService {
         NpcMugAbortReason reason = participantAbortReason(level, thief, victim);
         if (reason != null) return reason;
         if (thief.distanceToSqr(victim) > MUG_REACH * MUG_REACH) return NpcMugAbortReason.OUT_OF_RANGE;
+        // Holding somebody up needs visual control of them. Sand takes that away past arm's reach, so
+        // the threat collapses rather than continuing blind (0.7.2 §13.5, SAND-08). The self-defence
+        // context this destroys has already been captured by then: SandExposureService reads it before
+        // it applies a single effect.
+        if (dev.otectus.mcacrime.effect.SandBlindness.blocksSight(thief, victim))
+            return NpcMugAbortReason.THIEF_BLINDED;
         return checkWeapon && WeaponDetector.isArmed(victim) ? NpcMugAbortReason.VICTIM_ARMED : null;
     }
 

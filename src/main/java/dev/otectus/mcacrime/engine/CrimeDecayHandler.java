@@ -80,6 +80,9 @@ public final class CrimeDecayHandler {
         applyKarmaDecay(player, data, online);
         // A refusal lapses on the player's own online clock, like every other decaying consequence.
         CrimeState.tickResistingArrest(player, data);
+        // So does Heat a mask is still holding, when the operator has given it a shelf life at all.
+        dev.otectus.mcacrime.mask.MaskHeatLedger.prune(data.getPendingMaskedHeat(), online,
+                McaCrimeConfig.COMMON.maskedHeatExpiryTicks.get());
         // So does a stand-down after an arrest that could not be completed.
         ArrestStates.tickRecovery(player, data);
         // Throttled (~1/s) soft-confine / breakout / tether checks.

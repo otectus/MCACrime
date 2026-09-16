@@ -15,6 +15,7 @@ import dev.otectus.mcacrime.enforcement.ChallengeResponse;
 import dev.otectus.mcacrime.ledger.Resolution;
 import dev.otectus.mcacrime.memory.ObserverRole;
 import dev.otectus.mcacrime.memory.ReportState;
+import dev.otectus.mcacrime.recipe.MaskCraftRejection;
 import net.minecraft.resources.ResourceLocation;
 import org.junit.jupiter.api.Test;
 
@@ -153,6 +154,19 @@ class LangCoverageTest {
         }
         for (ReportState state : ReportState.values()) {
             require(lang, missing, "mcacrime.report.state." + state.name().toLowerCase(Locale.ROOT));
+        }
+        // MaskStationScreen explains a refusal as "mcacrime.mask_station.reason." + rejection.key().
+        for (MaskCraftRejection rejection : MaskCraftRejection.values()) {
+            require(lang, missing, "mcacrime.mask_station.reason." + rejection.key());
+        }
+        // MaskItem names its family from MaskFamily.displayKey(), and the restyle rules explain
+        // themselves from MaskRestyleRejection.labelKey() (0.7.2 section 4.2, section 5.4).
+        for (dev.otectus.mcacrime.item.MaskFamily family : dev.otectus.mcacrime.item.MaskFamily.values()) {
+            require(lang, missing, family.displayKey());
+        }
+        for (dev.otectus.mcacrime.mask.MaskRestyleRejection rejection
+                : dev.otectus.mcacrime.mask.MaskRestyleRejection.values()) {
+            require(lang, missing, rejection.labelKey());
         }
 
         assertTrue(missing.isEmpty(),

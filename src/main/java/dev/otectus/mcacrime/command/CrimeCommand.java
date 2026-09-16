@@ -240,6 +240,8 @@ public final class CrimeCommand {
                                 .executes(CrimeCommand::debugArrest))
                         .then(Commands.literal("weapon")
                                 .executes(CrimeCommand::debugWeapon))
+                        .then(Commands.literal("compat")
+                                .executes(CrimeCommand::debugCompat))
                         .then(Commands.literal("outbox")
                                 .executes(ctx -> debugOutbox(ctx, false))
                                 .then(Commands.literal("dead")
@@ -330,8 +332,39 @@ public final class CrimeCommand {
         }
         MinecraftServer server = ctx.getSource().getServer();
         WorldCriminalJobService jobs = WorldCriminalJobService.of(server);
-        jobs.set(villager.getUUID(), job);
         Component name = McaCompat.getVillagerDisplayName(villager);
+        if (job == CriminalJob.THIEF || jobs.get(villager.getUUID()) == CriminalJob.THIEF) {
+            // 0.7.2: a Thief is a real occupation, so the operator path goes through the same
+            // transition as every other route -- and says "pending validation" rather than "assigned"
+            // when that is the truth (spec §9.4).
+            var transition = job == CriminalJob.THIEF
+                    ? jobs.requestThiefOccupation(dev.otectus.mcacrime.job.OccupationRequest.unbound(
+                            villager.getUUID(), dev.otectus.mcacrime.job.OccupationSource.OPERATOR, false))
+                    : jobs.retireOccupation(villager.getUUID(),
+                            dev.otectus.mcacrime.job.OccupationSource.OPERATOR);
+            if (transition.pending()) {
+                ctx.getSource().sendSuccess(() -> Component.translatable(
+                        "mcacrime.command.job.pending", name), true);
+                return 1;
+            }
+            if (!transition.committed()) {
+                ctx.getSource().sendFailure(Component.translatable("mcacrime.command.job.failed", name,
+                        transition.reason().name().toLowerCase(java.util.Locale.ROOT)));
+                return 0;
+            }
+            ctx.getSource().sendSuccess(() -> job == CriminalJob.NONE
+                    ? Component.translatable("mcacrime.command.job.cleared", name)
+                    : Component.translatable("mcacrime.command.job.assigned", name, job.id()), true);
+            return 1;
+        }
+        // The typed result rather than the void delegate: a refusal used to be silent, so an operator
+        // pointing /crime job fence at a guard was told "is now a fence" and nothing had happened.
+        var outcome = jobs.tryAssign(villager.getUUID(), job, false);
+        if (outcome.rejected()) {
+            ctx.getSource().sendFailure(Component.translatable("mcacrime.command.job.rejected", name,
+                    Component.translatable(outcome.reason().messageKey())));
+            return 0;
+        }
         ctx.getSource().sendSuccess(() -> job == CriminalJob.NONE
                 ? Component.translatable("mcacrime.command.job.cleared", name)
                 : Component.translatable("mcacrime.command.job.assigned", name, job.id()), true);
@@ -475,7 +508,11 @@ public final class CrimeCommand {
                     .append(" risk=").append(String.format(java.util.Locale.ROOT, "%.2f",
                             controller.guardRisk().riskScore()))
                     .append(" guards=").append(controller.guardRisk().nearbyCount())
-                    .append(" failures=").append(controller.failures());
+                    .append(" failures=").append(controller.failures())
+                    .append(" role=").append(WorldCriminalJobService.of(source.getServer())
+                            .evaluate(controller.thiefId(),
+                                    dev.otectus.mcacrime.job.NpcMuggerEligibility.Context.EXECUTION)
+                            .reason());
         }
         for (NpcMugSession session : sessions) {
             sb.append("\n  mug ").append(session.transactionId())
@@ -836,6 +873,31 @@ public final class CrimeCommand {
                 id, match.weaponClass().name(), match.layer(),
                 dev.otectus.mcacrime.item.weapon.WeaponDetector.minAttackDamage()), false);
         return match.isWeapon() ? 1 : 0;
+    }
+
+    /**
+     * Where an operator starts when hitting a villager does nothing, or when a right-click opens no
+     * menu: which of the Epic Fight family is installed, what each one takes away, the MCA binding, and
+     * how the held item classifies — the four answers those two reports always need at once.
+     */
+    private static int debugCompat(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
+        CommandSourceStack source = ctx.getSource();
+        for (String line : dev.otectus.mcacrime.compat.EpicFightCompat.diagnosticLines()) {
+            ChatFormatting colour = line.contains("BLOCKED") ? ChatFormatting.RED : ChatFormatting.WHITE;
+            source.sendSuccess(() -> Component.literal(line).withStyle(colour), false);
+        }
+        source.sendSuccess(() -> Component.literal("mca binding: "
+                + dev.otectus.mcacrime.compat.mca.McaBinding.describe()), false);
+        source.sendSuccess(() -> Component.literal("Active currency: "
+                + dev.otectus.mcacrime.economy.Currencies.active().id()), false);
+        // Last, and only for a player: the console has no hand to classify, and the lines above are
+        // the ones an operator reading a headless log needs, so they must not be lost to that check.
+        if (source.getEntity() instanceof ServerPlayer) {
+            debugWeapon(ctx);
+        } else {
+            source.sendSuccess(() -> Component.literal("held item: run as a player to classify it"), false);
+        }
+        return dev.otectus.mcacrime.compat.EpicFightCompat.playerDamageToVillagersBlocked() ? 0 : 1;
     }
 
     /** The arrest lifecycle for the calling player: one authoritative phase, and what it is gating. */

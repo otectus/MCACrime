@@ -10,6 +10,7 @@ import dev.otectus.mcaquests.quest.objective.QuestObjectiveType;
 import dev.otectus.mcaquests.state.ActiveQuest;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 
@@ -24,6 +25,10 @@ import java.util.UUID;
  * standing contract from a guard whose text is computed when it is shown. The board is therefore read
  * at display time and never captured, which also means a hunter who accepted the contract yesterday
  * sees today's postings rather than a poster for somebody who has since served their sentence.
+ *
+ * <p>Read per viewer, too: the board is filtered to what this player could actually claim, so a wanted
+ * player is never offered — or shown — the contract against themselves, and the quest hides itself when
+ * their own warrant is the only thing posted.
  *
  * <p>Progress arrives from outside: MCA: Crime pays the bounty, decides it was lawful, and only then
  * pushes {@link McaQuestsBountyCompat#SIGNAL} at the credited player. Nothing here can complete
@@ -49,7 +54,7 @@ public record BountyObjective() implements QuestObjective, ExternalSignalObjecti
 
     @Override
     public Component describe(ServerPlayer player, ActiveQuest active, ServerLevel level) {
-        return BountyContractBoard.describeBoard(level.getServer());
+        return BountyContractBoard.describeBoard(level.getServer(), player.getUUID());
     }
 
     @Override
@@ -82,8 +87,15 @@ public record BountyObjective() implements QuestObjective, ExternalSignalObjecti
     public Optional<Component> unofferableReason(QuestContext context) {
         // A guard with nothing on the board should not be offering bounty work at all, which is the
         // whole of the "publish" side of the bridge: the quest exists permanently and hides itself.
-        return BountyContractBoard.hasOpenContracts(context.level().getServer())
-                ? Optional.empty()
-                : Optional.of(Component.translatable("quest.mcacrime.bounty.none_posted"));
+        // Hidden for a second reason as well: a board carrying nothing but this player's own warrant
+        // is work they could never be paid for, so it is declined with its own line rather than the
+        // empty-board one.
+        MinecraftServer server = context.level().getServer();
+        if (BountyContractBoard.hasOpenContracts(server, context.player().getUUID())) {
+            return Optional.empty();
+        }
+        return Optional.of(Component.translatable(BountyContractBoard.hasOpenContracts(server)
+                ? "quest.mcacrime.bounty.own_warrant"
+                : "quest.mcacrime.bounty.none_posted"));
     }
 }

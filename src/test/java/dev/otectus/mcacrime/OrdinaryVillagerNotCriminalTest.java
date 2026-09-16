@@ -29,7 +29,7 @@ class OrdinaryVillagerNotCriminalTest {
     @Test
     void onlyTheVillagerWithARecordIsACriminal() {
         CrimeWorldData data = new CrimeWorldData();
-        data.putCriminalVillager(new CriminalVillagerRecord(THIEF, CriminalJob.THIEF, 0L, 0L, 0L, false,
+        data.putCriminalVillager(CriminalVillagerRecord.of(THIEF, CriminalJob.THIEF, 0L, 0L, 0L, false,
                 1L, null));
         assertNotNull(data.criminalVillager(THIEF));
         assertEquals(CriminalJob.THIEF, data.criminalVillager(THIEF).job());
@@ -40,7 +40,7 @@ class OrdinaryVillagerNotCriminalTest {
     @Test
     void clearingTheRecordIsWhatEndsTheJob() {
         CrimeWorldData data = new CrimeWorldData();
-        data.putCriminalVillager(new CriminalVillagerRecord(THIEF, CriminalJob.THIEF, 0L, 0L, 0L, false,
+        data.putCriminalVillager(CriminalVillagerRecord.of(THIEF, CriminalJob.THIEF, 0L, 0L, 0L, false,
                 1L, null));
         data.removeCriminalVillager(THIEF);
         assertNull(data.criminalVillager(THIEF));

@@ -272,6 +272,8 @@ public final class WitnessChecker {
                 seesAct, seesActor, observer.hasEffect(net.minecraft.world.effect.MobEffects.BLINDNESS),
                 McaCompat.isVillagerSleeping(observer), actor.isInvisible(), actor.isCrouching(), !seesAct,
                 observer.getLookAngle().dot(toward), actor.level().getMaxLocalRawBrightness(actor.blockPosition()) / 15.0,
-                actor.level().isRainingAt(actor.blockPosition())));
+                actor.level().isRainingAt(actor.blockPosition()),
+                dev.otectus.mcacrime.effect.SandBlindness.isBlinded(observer),
+                dev.otectus.mcacrime.effect.SandExposurePolicy.CLOSE_CONTACT_RANGE));
     }
 }

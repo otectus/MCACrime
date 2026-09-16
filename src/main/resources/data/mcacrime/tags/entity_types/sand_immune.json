@@ -1,0 +1,11 @@
+{
+  "replace": false,
+  "values": [
+    "minecraft:armor_stand",
+    "minecraft:iron_golem",
+    "minecraft:snow_golem",
+    "minecraft:warden",
+    "minecraft:wither",
+    "minecraft:ender_dragon"
+  ]
+}

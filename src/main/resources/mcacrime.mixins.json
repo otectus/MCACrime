@@ -5,7 +5,13 @@
   "compatibilityLevel": "JAVA_17",
   "refmap": "mcacrime.refmap.json",
   "mixins": [
-    "MobDeathEquipmentMixin"
+    "MaskStationAcquisitionMixin",
+    "MerchantOffersAccessor",
+    "MobDeathEquipmentMixin",
+    "NativeJobAssignmentMixin",
+    "SandSensingMixin",
+    "ThiefBrainMixin",
+    "ThiefPoiValidationMixin"
   ],
   "client": [
     "client.RestraintPoseMixin"

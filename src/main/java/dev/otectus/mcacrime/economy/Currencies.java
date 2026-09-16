@@ -27,9 +27,13 @@ public final class Currencies {
     private static volatile Currency active = EmeraldCurrency.INSTANCE;
     /** The id already reported as unknown, so a reload does not repeat the warning. */
     private static volatile ResourceLocation warnedFor;
+    /** The provider/item last resolved, so a change of either can be reported exactly once. */
+    private static volatile ResourceLocation lastActiveId;
+    private static volatile ResourceLocation lastActiveItem;
 
     static {
         register(EmeraldCurrency.INSTANCE);
+        register(ItemCurrency.INSTANCE);
     }
 
     private Currencies() {
@@ -47,31 +51,101 @@ public final class Currencies {
         }
     }
 
+    /**
+     * The currency behind a provider id, registered or item-bound.
+     *
+     * <p>{@code mcacrime:item/<namespace>/<path>} is not in the registry: it is the per-item id a
+     * receipt records, and it resolves to a view pinned to that item. It resolves to <em>nothing</em>
+     * when the item is gone, which is what makes a payment owed in a removed mod's coin stay owed
+     * instead of being handed over in whatever the server charges in today.
+     */
     public static Optional<Currency> byId(ResourceLocation id) {
-        return id == null ? Optional.empty() : Optional.ofNullable(REGISTRY.get(id));
+        if (id == null) {
+            return Optional.empty();
+        }
+        Currency registered = REGISTRY.get(id);
+        if (registered != null) {
+            return Optional.of(registered);
+        }
+        return ItemCurrency.itemIdOf(id).flatMap(ItemCurrency::forItem);
     }
 
-    /** Re-reads {@code integrations.currencyId}. Called at common setup and on every config reload. */
+    /** Re-reads the currency config. Called at common setup and on every config reload. */
     public static void reload() {
-        String configured;
+        String configuredId;
+        String configuredItem;
         try {
-            configured = McaCrimeConfig.COMMON.currencyId.get();
+            configuredId = McaCrimeConfig.COMMON.currencyId.get();
+            configuredItem = McaCrimeConfig.COMMON.currencyItem.get();
         } catch (IllegalStateException e) {
             return; // config not loaded yet; the setup call does this properly
         }
-        ResourceLocation id = configured == null ? null : ResourceLocation.tryParse(configured.trim());
+        reload(configuredId, configuredItem);
+    }
+
+    /**
+     * Resolves the active currency from explicit values, so a test never needs a loaded config.
+     *
+     * <p>Order matters: the item behind {@code mcacrime:item} is resolved <em>before</em> the provider
+     * is chosen, or the first transaction after a reload would be charged in whatever item the previous
+     * config named.
+     *
+     * <p>Selecting {@code mcacrime:item} makes the active currency a view pinned to the configured
+     * item, whose id is {@code mcacrime:item/<namespace>/<path>} rather than {@code mcacrime:item}.
+     * With no item registry — a unit test, or config load before registries are built — nothing can be
+     * pinned, so the active currency is the emerald fallback and {@code active().id()} is
+     * {@code mcacrime:emerald}.
+     */
+    public static void reload(String currencyId, String currencyItem) {
+        dev.otectus.mcacrime.compat.NumismaticBridge.registerIfPresent();
+        ItemCurrency.reload(currencyItem);
+
+        ResourceLocation id = currencyId == null ? null : ResourceLocation.tryParse(currencyId.trim());
         Currency resolved = id == null ? null : REGISTRY.get(id);
         if (resolved == null) {
             if (id == null || !id.equals(warnedFor)) {
                 McaCrime.LOGGER.warn("MCA: Crime integrations.currencyId '{}' is not a registered currency. "
                                 + "Falling back to '{}': fines, bail, ransom and theft will use emeralds.",
-                        configured, EmeraldCurrency.ID);
+                        currencyId, EmeraldCurrency.ID);
                 warnedFor = id;
             }
+            noteChange(EmeraldCurrency.INSTANCE);
             active = EmeraldCurrency.INSTANCE;
             return;
         }
         warnedFor = null;
-        active = resolved;
+        // The item currency is selected as one provider but charged as one item: the active view is
+        // pinned to the configured item so its id names that item, and a receipt written today cannot
+        // be paid in whatever tomorrow's config names. Without registries nothing resolves, so this is
+        // the emerald fallback and the active id is 'mcacrime:emerald'.
+        Currency effective = resolved == ItemCurrency.INSTANCE
+                ? ItemCurrency.forItemOrEmeralds(ItemCurrency.INSTANCE.itemId())
+                : resolved;
+        noteChange(effective);
+        active = effective;
+    }
+
+    /**
+     * Says once, loudly, that money already owed does not follow the config.
+     *
+     * <p>A queued receipt records the provider id it was created with — for an item currency that id
+     * names the item — and is paid in that. Changing the setting mid-world is therefore legal but surprising:
+     * bounties banked yesterday still arrive as yesterday's coin. Silence here is how that becomes a
+     * bug report about "payments in the wrong item".
+     */
+    private static void noteChange(Currency resolved) {
+        ResourceLocation resolvedItem = resolved.itemForm().orElse(null);
+        ResourceLocation previousId = lastActiveId;
+        ResourceLocation previousItem = lastActiveItem;
+        lastActiveId = resolved.id();
+        lastActiveItem = resolvedItem;
+        if (previousId == null) {
+            return; // first resolution of the run: nothing has been owed in anything else yet
+        }
+        if (!previousId.equals(lastActiveId) || !java.util.Objects.equals(previousItem, resolvedItem)) {
+            McaCrime.LOGGER.warn("MCA: Crime currency changed to '{}'{}. Payments already queued keep the "
+                            + "currency they were earned in; only new ones use this.",
+                    lastActiveId, resolvedItem == null ? "" : " (" + resolvedItem + ")");
+        }
     }
 }

@@ -3,6 +3,7 @@ package dev.otectus.mcacrime.network;
 import dev.otectus.mcacrime.client.CrimeClientHandlers;
 import dev.otectus.mcacrime.ledger.Resolution;
 import net.minecraft.network.FriendlyByteBuf;
+import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.fml.DistExecutor;
@@ -37,11 +38,21 @@ public record CaseLedgerS2CPacket(List<Row> rows, int totalOpen, long totalDue) 
      *                  expect to happen next, and the reason it is on the row rather than in a tooltip
      */
     public record Row(UUID caseId, ResourceLocation crimeType, Resolution resolution,
-                      long committedAt, long fine, boolean witnessed, String community) {
+                      long committedAt, long fine, boolean witnessed, String community,
+                      Component fineText) {
+
+        public Row(UUID caseId, ResourceLocation crimeType, Resolution resolution,
+                   long committedAt, long fine, boolean witnessed, String community) {
+            this(caseId, crimeType, resolution, committedAt, fine, witnessed, community, null);
+        }
+
         public Row {
             resolution = resolution == null ? Resolution.UNRESOLVED : resolution;
             community = community == null ? "" : community;
             fine = Math.max(0L, fine);
+            // Formatted by the server: naming the currency needs the common config, which the client
+            // is forbidden to read, so a client-side format would say emeralds whatever is configured.
+            fineText = fineText == null ? Component.literal(Long.toString(fine)) : fineText;
         }
     }
 
@@ -62,6 +73,7 @@ public record CaseLedgerS2CPacket(List<Row> rows, int totalOpen, long totalDue) 
             buf.writeVarLong(row.fine());
             buf.writeBoolean(row.witnessed());
             buf.writeUtf(row.community(), PacketBounds.MAX_ID_LENGTH);
+            buf.writeComponent(row.fineText());
         }
         buf.writeVarInt(msg.totalOpen);
         buf.writeVarLong(msg.totalDue);
@@ -77,7 +89,7 @@ public record CaseLedgerS2CPacket(List<Row> rows, int totalOpen, long totalDue) 
             Resolution resolution = ordinal >= 0 && ordinal < RESOLUTIONS.length
                     ? RESOLUTIONS[ordinal] : Resolution.UNRESOLVED;
             rows.add(new Row(caseId, type, resolution, buf.readVarLong(), buf.readVarLong(),
-                    buf.readBoolean(), PacketBounds.readId(buf)));
+                    buf.readBoolean(), PacketBounds.readId(buf), buf.readComponent()));
         }
         return new CaseLedgerS2CPacket(rows, buf.readVarInt(), buf.readVarLong());
     }

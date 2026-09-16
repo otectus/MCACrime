@@ -65,6 +65,22 @@ class ApologyStatusTest {
         assertEquals(GIVE_SPACE, status(2200, accepted, fresh));
     }
 
+    @Test void anApologyIsNotAPardonForAnythingElseTheyRemember() {
+        // Invariant 10: an accepted apology repairs one incident's anger and nothing else. The charge
+        // record and Heat live outside victim memory and no reconciliation path touches them; what is
+        // checkable here is that an unrelated incident keeps its own fear, anger and verdict.
+        var unrelated = assault(1000);
+        var apologizedFor = assault(1000);
+        var accepted = apologizedFor.reconcile(2200, 1, true, false, false);
+        assertEquals(ALREADY_APOLOGIZED, ApologyStatus.forMemory(accepted, 2200, 24000));
+        assertEquals(READY, ApologyStatus.forMemory(unrelated, 2200, 24000));
+        assertEquals(READY, status(2200, accepted, unrelated));
+        assertEquals(assault(1000).fearAt(2200, 1), unrelated.fearAt(2200, 1));
+        assertEquals(assault(1000).angerAt(2200, 1), unrelated.angerAt(2200, 1));
+        assertFalse(unrelated.apologized());
+        assertEquals(assault(1000).fearAt(2200, 1), accepted.fear(), "an apology does not erase fear");
+    }
+
     @Test void duplicateDamageObservationDoesNotRestartTheWait() {
         var memory = assault(1000);
         var duplicate = memory.merge(memory, 2199, 1);

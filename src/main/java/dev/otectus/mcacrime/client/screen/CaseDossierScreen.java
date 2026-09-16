@@ -148,7 +148,7 @@ public final class CaseDossierScreen extends Screen {
                     .withStyle(s -> s.withColor(0x8899AA)));
         }
         if (row.fine() > 0L) {
-            body.append("\n").append(Component.translatable("gui.mcacrime.dossier.fine", row.fine())
+            body.append("\n").append(Component.translatable("gui.mcacrime.dossier.fine", row.fineText())
                     .withStyle(s -> s.withColor(0x8899AA)));
         }
         return body;

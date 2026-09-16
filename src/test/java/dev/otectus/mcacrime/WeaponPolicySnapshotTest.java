@@ -32,7 +32,8 @@ class WeaponPolicySnapshotTest {
     private static final List<String> MODS = List.of("tacz");
 
     private static WeaponPolicySnapshot snapshot() {
-        return new WeaponPolicySnapshot(false, WHITELIST, BLACKLIST, true, 4.5D, KEYWORDS, MODS, true);
+        return new WeaponPolicySnapshot(false, WHITELIST, BLACKLIST, true, 4.5D, KEYWORDS, MODS, true,
+                true, false);
     }
 
     /** A probe for an item that does not exist, which is all the pure rules ever see. */
@@ -53,8 +54,8 @@ class WeaponPolicySnapshotTest {
     @Test
     void theOffHandFlagSurvivesTheHop() {
         FriendlyByteBuf buf = new FriendlyByteBuf(Unpooled.buffer());
-        new WeaponPolicySnapshot(true, List.of(), List.of(), false, 0.0D, List.of(), List.of(), true)
-                .encode(buf);
+        new WeaponPolicySnapshot(true, List.of(), List.of(), false, 0.0D, List.of(), List.of(), true,
+                true, false).encode(buf);
         assertTrue(WeaponPolicySnapshot.decode(buf).allowOffHand());
     }
 
@@ -66,8 +67,8 @@ class WeaponPolicySnapshotTest {
     @Test
     void theCrimeMenuGateSurvivesTheHop() {
         FriendlyByteBuf buf = new FriendlyByteBuf(Unpooled.buffer());
-        new WeaponPolicySnapshot(true, List.of(), List.of(), false, 0.0D, List.of(), List.of(), false)
-                .encode(buf);
+        new WeaponPolicySnapshot(true, List.of(), List.of(), false, 0.0D, List.of(), List.of(), false,
+                true, false).encode(buf);
         WeaponPolicySnapshot decoded = WeaponPolicySnapshot.decode(buf);
         assertFalse(decoded.requireWeaponForCrimeMenu());
         assertEquals(0, buf.readableBytes(), "decode must consume exactly what encode wrote");

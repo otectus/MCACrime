@@ -129,6 +129,77 @@ public final class CrimeActionService {
         return result;
     }
 
+    /** Contextual reach, matching the menu's own 4-block gate so both routes agree on "close enough". */
+    private static final double CONTEXTUAL_REACH_SQR = 16.0D;
+
+    /**
+     * Whether a server-observed world interaction is close enough, present enough and coherent enough
+     * to be trusted as a contextual action (0.7.2 12.3).
+     *
+     * <p>Split out as plain values so the identity, dimension and distance rejections are testable
+     * without a level: the caller supplies what it observed, this decides nothing else.
+     */
+    public static boolean contextualReachValid(UUID actorId, @Nullable UUID targetId,
+                                               @Nullable ResourceLocation actorDimension,
+                                               @Nullable ResourceLocation targetDimension,
+                                               double distanceSqr, boolean lineOfSight, boolean targetAlive) {
+        if (actorId == null || targetId == null || actorId.equals(targetId)) return false;
+        if (!targetAlive) return false;
+        if (actorDimension == null || !actorDimension.equals(targetDimension)) return false;
+        return distanceSqr <= CONTEXTUAL_REACH_SQR && lineOfSight;
+    }
+
+    /**
+     * The trusted contextual entry point: an action the <em>server itself</em> observed the player ask
+     * for by interacting with a villager in the world, rather than one a client packet claims was
+     * offered on a menu.
+     *
+     * <p>It therefore mints its own request identity instead of accepting or fabricating a menu nonce --
+     * {@link #startFromMenu}'s offered-action and replay checks stay exactly as strict as they were,
+     * because nothing here goes through them. What replaces that authorisation is context the server
+     * can verify on its own: who asked, that the target is the live entity at that id, same dimension,
+     * within reach and in sight, that no session or custody flow already owns either party, and that
+     * the action is a peaceful one. Coercion still requires the menu and its weapon gate.
+     */
+    public static ActionResult startContextual(ServerPlayer actor, ResourceLocation action, LivingEntity target) {
+        bootstrap();
+        if (!(actor.level() instanceof ServerLevel level)) return ActionResult.rejected("mcacrime.action.server_only");
+        if (!actor.isAlive() || actor.isRemoved() || actor.isSpectator())
+            return ActionResult.rejected("mcacrime.action.invalid_target");
+        if (!ServerMutationGate.allows(actor.getServer())) return ActionResult.rejected("mcacrime.readonly");
+        if (target == null) return ActionResult.rejected("mcacrime.action.target_gone");
+        // Identity: the entity this id resolves to in this level now, not a reference held from earlier.
+        if (level.getEntity(target.getUUID()) != target) return ActionResult.rejected("mcacrime.action.target_gone");
+        if (!contextualReachValid(actor.getUUID(), target.getUUID(), level.dimension().location(),
+                target.level().dimension().location(), actor.distanceToSqr(target),
+                actor.hasLineOfSight(target), target.isAlive() && !target.isRemoved())) {
+            return ActionResult.rejected("mcacrime.action.target_gone");
+        }
+        // A committed flow keeps its claim: an arrest, a mugging or a capture in progress owns these
+        // two entities until it ends.
+        if (ActionSessionManager.forActor(actor.getUUID()).isPresent()
+                || ActionSessionManager.targetLocked(target.getUUID())
+                || ActionSessionManager.activeCoerciveAgainst(target.getUUID()).isPresent()) {
+            return ActionResult.rejected("mcacrime.action.in_progress");
+        }
+        if (CustodyRegistry.isCaptive(actor.getServer(), target.getUUID())
+                || CustodyRegistry.isCaptive(actor.getServer(), actor.getUUID())) {
+            return ActionResult.rejected("mcacrime.action.in_progress");
+        }
+        CrimeActionHandler handler = ActionHandlerRegistry.get(action);
+        if (handler == null) return ActionResult.rejected("mcacrime.action.unknown");
+        // Peaceful only. A coercive action is exactly the kind that must be chosen deliberately.
+        if (handler.coercive()) return ActionResult.rejected("mcacrime.action.requires_weapon");
+        // Server-owned request identity. Immediate actions own no session, so the result is remembered
+        // here as the same replay backstop every other route gets.
+        UUID nonce = UUID.randomUUID();
+        ActionResult result = handler.start(new PlayerActor(actor), target, level, nonce);
+        if (ActionSessionManager.forActor(actor.getUUID()).isEmpty()) {
+            ActionSessionManager.remember(actor.getUUID(), nonce, result);
+        }
+        return result;
+    }
+
     /**
      * Starts an action the player performs on themself. Routed through {@link #startTargeted} with the
      * actor as its own target so escape, surrender, fines and ransom payment inherit the same replay

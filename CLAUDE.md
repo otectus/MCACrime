@@ -24,16 +24,21 @@ McaCrime / McaCrimeConfig  mod entrypoint and the whole config spec, at the pack
 api        public facade, events, and model records for companion mods - keep it stable
 crime engine state ledger memory   core value types, decay, cases, villager memory
 detect     classification, witness selection, community resolution
+mask       mask tag check, deferred-Heat ledger, unmask witness flush, masked-pursuit trigger,
+           restyle/tint metadata transfer (16 styles in four families, see item/MaskVariant)
 enforcement jail captivity ransom  arrest, guards, restraints, cells, custody, kidnapping
 action ai dialogue economy mug relationship loot  gameplay behaviour and outcomes
-job        criminal occupation system (Thief, Fence); persisted, optionally MCA-visible
+job        criminal occupation system; Thief is an exclusive native MCA profession with a Mask
+           Station worksite (occupation transaction, lifecycle, POI adapter), Fence stays presentation
+block recipe menu  Mask Station block/POI, mcacrime:mask_making recipes, server-authoritative station menu
+entity effect  Sand Bottle projectile and the sand_blinded effect, exposure and recovery policy
 bounty     warrant tracking, bounty payouts, claim ledgers, contract board
 ai/thief   autonomous thief controller, target selection, guard evasion
 mug/npc    NPC mugging sessions, theft planning, stolen-goods recovery
 economy/fence  contraband pricing, goods registry, trading UI
-compat integration locksreforged mcaquests  optional companions; degrade at runtime
+compat integration locksreforged mcaquests numismatic  optional companions; degrade at runtime
 client mixin/client  client-only; common code must never import these
-mixin      common vanilla equipment capture; no static MCA dependencies
+mixin      narrowly scoped vanilla-only mixins (equipment capture, thief worksite/brain, sand sensing)
 network item audio command config util  plumbing
 ```
 
@@ -55,9 +60,14 @@ Build note: `compat/mcaquests` compiles only when `../MCAQuests/build/classes/ja
 - Config is hand-written `ForgeConfigSpec`, **COMMON + CLIENT only, no SERVER spec**: common is
   server-authoritative, client is presentation only. `config/ConfigValidator` runs at setup and
   on every reload.
-- Two narrowly scoped mixins: common `mixin/MobDeathEquipmentMixin` observes `Mob.setItemSlot`
-  before MCA clears dying villagers' equipment; client-only `mixin/client/RestraintPoseMixin` poses
-  restrained arms. `MixinConfigTest` verifies side separation and registration. No MixinExtras.
+- Mixins target vanilla classes only and stay narrowly scoped. Common: `mixin/MobDeathEquipmentMixin`
+  (equipment capture before MCA clears dying villagers' gear), `MaskStationAcquisitionMixin` and
+  `NativeJobAssignmentMixin` (route Mask Station job-site acquisition through the occupation
+  transaction), `ThiefPoiValidationMixin` and `ThiefBrainMixin` (defer unloaded-site validation; make
+  Thief WORK behaviours yield to custody/panic/crime control), `MerchantOffersAccessor` (nullable offer
+  snapshot for rollback), `SandSensingMixin` (sand-blinded `Sensing.hasLineOfSight`). Client-only:
+  `mixin/client/RestraintPoseMixin`. `MixinConfigTest` verifies side separation and registration. No
+  MixinExtras, no access transformer.
 - All MCA access is `MethodHandle` lookups in `compat/mca/McaBinding` behind the `compat/McaCompat`
   facade, because MCA's package root has moved between releases; missing members degrade to stubs.
   `NoMcaStaticLinkTest` fails the build if static linkage returns, and `McaBindingProbeTest` replays
@@ -65,6 +75,10 @@ Build note: `compat/mcaquests` compiles only when `../MCAQuests/build/classes/ja
 - Optional integrations must degrade at runtime - `ModList.isLoaded` plus `Class.forName` into an
   isolated adapter (`compat/ReputationBridge` -> `compat/reputation/`) with an API-version
   handshake, never a `mods.toml` range that would gate the game load.
+- `compat/EpicFightCompat` detects Epic Fight, efmca and mcaefcompat by id only - no such type is
+  named anywhere in the mod. Client-only `client/EpicFightInteractShim` forwards an armed or
+  restraint right-click that Epic Fight's battle mode cancelled at the use key, so MCA: Crime's
+  menu still opens; MCA's own screen is left to Epic Fight.
 - `testRuntimeClasspath` excludes MCA on purpose, so "MCA absent" is genuinely exercised.
 - `tools/gui/generate_gui_sheet.py` is a hand-run author tool (`--check` verifies the committed
   PNG); the build must keep working with no Python installed.

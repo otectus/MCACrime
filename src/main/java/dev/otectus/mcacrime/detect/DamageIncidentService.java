@@ -180,6 +180,62 @@ public final class DamageIncidentService {
         return IncidentService.commitPlayer(hit.id, player, crime, hit.victim, hit.level, WitnessResult.none(),
                 "damage", context).isPresent();
     }
+    /**
+     * Commits a hostile act that dealt no damage through the same classification tail as one that did
+     * (0.7.2 §14.1).
+     *
+     * <p>The alternative was {@code hurt(0)}. That reaches this pipeline, but it also fires every
+     * damage listener, armour hook, knockback calculation and combat tracker in the game for a blow
+     * that never landed, and duplicates the incident for any other mod watching. So the act enters
+     * here instead, as a {@link CombatIncidentProcessor.Hit} with {@link DamageFinality.Outcome#HARM}
+     * already decided — there is nothing to reconcile, because a non-damaging act has no cancellable
+     * amount and cannot become a kill.
+     *
+     * <p>What it buys by going through the processor rather than straight to {@code IncidentService}:
+     * the encounter/self-defence basis, the per-pair harm cooldown, and the replay guard that makes a
+     * repeated impact of the same attempt change nothing. The caller supplies the incident id, so
+     * those guarantees hold across a retry.
+     *
+     * @param snapshot the launch-time observation set for a delayed act, or null to scan now
+     * @return whether an incident was actually recorded
+     */
+    public static boolean completeNonDamage(ServerLevel level, ServerPlayer actor, LivingEntity victim,
+                                            UUID incidentId, ResourceLocation crime, String detection,
+                                            Map<String, String> context,
+                                            dev.otectus.mcacrime.incident.ObservationSnapshot snapshot) {
+        if (level == null || actor == null || victim == null || actor == victim
+                || !McaCrimeConfig.COMMON.enableCrimeDetection.get()
+                || !ServerMutationGate.allows(level.getServer())) {
+            return false;
+        }
+        if (CrimeGate.resolveNonDamageOffender(victim, actor, level).isEmpty()) {
+            return false;
+        }
+        Runtime runtime = SERVERS.computeIfAbsent(level.getServer(), unused -> new Runtime());
+        long at = level.getGameTime();
+        var hit = new CombatIncidentProcessor.Hit(incidentId, actor.getUUID(), victim.getUUID(), at,
+                true, true, false, false, false);
+        Map<String, String> full = new LinkedHashMap<>(context);
+        return runtime.combat.computeIfAbsent(level.dimension().location(), unused -> new CombatIncidentProcessor())
+                .complete(hit, DamageFinality.Outcome.HARM, McaCrimeConfig.COMMON.harmCooldownTicks.get(),
+                        assessment -> {
+                            var decision = assessment.decision();
+                            full.put(dev.otectus.mcacrime.ledger.CrimeContext.COMBAT_BASIS,
+                                    decision.basis().name().toLowerCase(java.util.Locale.ROOT));
+                            if (decision.encounterId() != null) {
+                                full.put(dev.otectus.mcacrime.ledger.CrimeContext.COMBAT_ENCOUNTER,
+                                        decision.encounterId().toString());
+                            }
+                            if (decision.initiator() != null) {
+                                full.put(dev.otectus.mcacrime.ledger.CrimeContext.COMBAT_INITIATOR,
+                                        decision.initiator().toString());
+                            }
+                            full.put(dev.otectus.mcacrime.ledger.CrimeContext.DAMAGE_ATTRIBUTION, "non_damaging");
+                            return IncidentService.commitPlayer(incidentId, actor, crime, victim, level,
+                                    WitnessResult.none(), detection, full, null, null, snapshot).isPresent();
+                        });
+    }
+
     public static void forget(MinecraftServer server, UUID actor) {
         Runtime runtime = SERVERS.get(server);
         if (runtime != null) {

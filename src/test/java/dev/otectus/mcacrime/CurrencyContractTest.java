@@ -2,6 +2,7 @@ package dev.otectus.mcacrime;
 
 import dev.otectus.mcacrime.economy.Currencies;
 import dev.otectus.mcacrime.economy.Currency;
+import dev.otectus.mcacrime.economy.ItemCurrency;
 import dev.otectus.mcacrime.economy.TransactionReason;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
@@ -137,5 +138,103 @@ class CurrencyContractTest {
     void aRegisteredCurrencyIsFindableByItsOwnId() {
         Currencies.register(new FakeCurrency(0L));
         assertTrue(Currencies.byId(FakeCurrency.ID).isPresent());
+    }
+
+    // ------------------------------------------------------------------ the configurable item currency
+
+    @Test
+    void theItemCurrencyIsRegisteredAlongsideEmeralds() {
+        assertTrue(Currencies.byId(ItemCurrency.ID).isPresent(),
+                "'mcacrime:item' must exist without an economy mod, or the config option names nothing");
+    }
+
+    @Test
+    void selectingTheItemCurrencyWorksWithNoRegistriesAtAll() {
+        // With no item registry the configured item cannot be pinned, so the active currency is the
+        // emerald fallback rather than a view that charges in an item nobody could look up. Selecting
+        // the provider is still legal: the point is that it never throws and never leaves money offline.
+        try {
+            Currencies.reload("mcacrime:item", "minecraft:emerald");
+            assertEquals(new ResourceLocation("mcacrime", "emerald"), Currencies.active().id());
+        } finally {
+            Currencies.reload("mcacrime:emerald", "minecraft:emerald");
+        }
+    }
+
+    @Test
+    void anUnresolvableItemStillLeavesAWorkingCurrency() {
+        // No item registry exists in a unit test, so the lookup cannot succeed. That must degrade to
+        // emeralds rather than throw: config load runs long before the registries are built, and an
+        // exception there takes the whole mod down over a typo in one string.
+        try {
+            Currencies.reload("mcacrime:item", "nosuchmod:doubloon");
+            assertEquals(new ResourceLocation("mcacrime", "emerald"), Currencies.active().id());
+            assertTrue(ItemCurrency.INSTANCE.itemId() != null, "an unresolved item still names something");
+        } finally {
+            Currencies.reload("mcacrime:emerald", "minecraft:emerald");
+        }
+    }
+
+    @Test
+    void anUnknownProviderStillFallsBackToEmeralds() {
+        try {
+            Currencies.reload("nosuchmod:gold", "minecraft:emerald");
+            assertEquals(new ResourceLocation("mcacrime", "emerald"), Currencies.active().id());
+        } finally {
+            Currencies.reload("mcacrime:emerald", "minecraft:emerald");
+        }
+    }
+
+    // ------------------------------------------------------------------ per-item provider ids
+
+    @Test
+    void aBoundIdNamesExactlyOneItem() {
+        assertEquals(new ResourceLocation("mcacrime", "item/minecraft/gold_nugget"),
+                ItemCurrency.boundId(new ResourceLocation("minecraft", "gold_nugget")));
+    }
+
+    @Test
+    void aBoundIdSurvivesBeingWrittenToDiskAndReadBack() {
+        // This is the whole point: a provider id is stored as a string on a receipt, and must parse
+        // back into the same id so the equality checks in BountyPayments/CrimeReconciler still match.
+        ResourceLocation bound = ItemCurrency.boundId(new ResourceLocation("minecraft", "gold_nugget"));
+        assertEquals(bound, ResourceLocation.tryParse(bound.toString()));
+        assertEquals(new ResourceLocation("minecraft", "gold_nugget"), ItemCurrency.itemIdOf(bound).orElse(null));
+    }
+
+    @Test
+    void onlyABoundIdParsesAsOne() {
+        assertTrue(ItemCurrency.itemIdOf(ItemCurrency.ID).isEmpty());
+        assertTrue(ItemCurrency.itemIdOf(new ResourceLocation("mcacrime", "emerald")).isEmpty());
+        assertTrue(ItemCurrency.itemIdOf(new ResourceLocation("othermod", "item/minecraft/emerald")).isEmpty());
+        assertTrue(ItemCurrency.itemIdOf(new ResourceLocation("mcacrime", "item/emerald")).isEmpty());
+    }
+
+    @Test
+    void aBoundIdWhoseItemIsGoneResolvesToNothing() {
+        // No registry here, so nothing resolves -- which is the same answer a removed mod gives, and
+        // the answer that keeps a queued payment pending instead of paying it in today's currency.
+        assertTrue(Currencies.byId(ItemCurrency.boundId(new ResourceLocation("minecraft", "emerald"))).isEmpty(),
+                "an item that cannot be looked up must defer the payment, not substitute another item");
+        assertTrue(Currencies.byId(ItemCurrency.boundId(new ResourceLocation("nosuchmod", "doubloon"))).isEmpty());
+    }
+
+    @Test
+    void theConfigProviderIdStillResolvesToTheConfiguredInstance() {
+        assertEquals(ItemCurrency.INSTANCE, Currencies.byId(ItemCurrency.ID).orElse(null));
+    }
+
+    @Test
+    void creditBoundedDefaultsToAllOrUnknown() {
+        // An abstract balance cannot overflow an inventory, so the default must report 0 (all arrived)
+        // rather than inventing a remainder a bounty receipt would then re-queue forever.
+        FakeCurrency currency = new FakeCurrency(0L);
+        assertEquals(0L, currency.creditBounded(null, 25L, TransactionReason.BOUNTY));
+        assertEquals(25L, currency.balance(null));
+    }
+
+    @Test
+    void anAbstractCurrencyHasNoItemFormToRecordOnAReceipt() {
+        assertTrue(new FakeCurrency(0L).itemForm().isEmpty());
     }
 }

@@ -1000,6 +1000,18 @@ public final class CrimeWorldData extends SavedData {
         return CapacityResult.OK;
     }
 
+    /**
+     * Whether a record for this villager could be stored right now (0.7.2).
+     *
+     * <p>Asked <em>before</em> an occupation transition rather than after: committing a profession
+     * change and then discovering the record store is full would leave a visible Thief with no Crime
+     * role, which is exactly the disagreement spec §10.1 forbids in both directions.
+     */
+    public boolean hasCriminalCapacityFor(UUID villager) {
+        return villager != null && !frozen()
+                && (criminalVillagers.containsKey(villager) || criminalVillagers.size() < MAX_CRIMINAL_VILLAGERS);
+    }
+
     public void removeCriminalVillager(UUID villager) {
         if (villager == null || frozen()) {
             return;

@@ -1,0 +1,23 @@
+{
+  "type": "mcacrime:mask_making",
+  "operation": "craft",
+  "group": "mcacrime:clay_masks",
+  "material": {
+    "ingredient": {
+      "item": "minecraft:clay_ball"
+    },
+    "count": 4
+  },
+  "binding": {
+    "ingredient": {
+      "item": "minecraft:string"
+    },
+    "count": 2
+  },
+  "allow_dye": true,
+  "result": {
+    "item": "mcacrime:clay_mask",
+    "count": 1
+  },
+  "sort_order": 1
+}

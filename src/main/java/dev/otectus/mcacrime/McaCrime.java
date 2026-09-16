@@ -54,8 +54,22 @@ public final class McaCrime {
         modBus.addListener(this::onConfigReload);
         modBus.addListener(this::onConfigLoading);
         modBus.addListener(CrimeCapabilities::onRegisterCapabilities);
-        CrimeItems.register(modBus); // restraints + creative tab (spec §8.3)
-        CriminalProfessions.register(modBus); // thief/fence, presentation only (0.5.1)
+        // Blocks before items: the Mask Station's BlockItem resolves the block it wraps, so the block
+        // registry has to be attached first even though DeferredRegister defers both.
+        dev.otectus.mcacrime.block.CrimeBlocks.register(modBus); // mask station (0.7.2 §6.1)
+        CrimeItems.register(modBus); // restraints + masks + station item + creative tab (spec §8.3)
+        // POI before professions: the thief profession's predicates name the mask-station POI key.
+        dev.otectus.mcacrime.job.CrimePoiTypes.register(modBus); // mcacrime:mask_station (0.7.2 §10.1)
+        CriminalProfessions.register(modBus); // thief (a real occupation as of 0.7.2) and fence
+        // Entity types before the item that throws them: the Sand Bottle's projectile names its own
+        // EntityType from a static initialiser the item never reaches first, but keeping the order
+        // explicit is cheaper than discovering the day that stops being true.
+        dev.otectus.mcacrime.entity.CrimeEntities.register(modBus); // sand bottle projectile (0.7.2 §13)
+        dev.otectus.mcacrime.effect.CrimeEffects.register(modBus); // mcacrime:sand_blinded (0.7.2 §13.4)
+        // The station's data contract and its screen's server half. Recipes before menus only for
+        // readability: DeferredRegister orders both by registry, not by this line.
+        dev.otectus.mcacrime.recipe.CrimeRecipes.register(modBus); // mcacrime:mask_making (0.7.2 §7)
+        dev.otectus.mcacrime.menu.CrimeMenus.register(modBus); // mask station menu (0.7.2 §8.1)
 
         LOGGER.info("MCA: Crime initialising (mod id '{}')", MOD_ID);
     }
@@ -86,6 +100,10 @@ public final class McaCrime {
                 // Both criminal-job presentation keys are answered once per villager, so a reload that
                 // flips one has to revisit the criminals that already exist rather than only the next.
                 WorldCriminalJobService.of(server).refreshPresentation();
+                // refreshBehaviors re-asks the role question for every recorded criminal, which is why
+                // it follows the EntitySelectors.invalidate() above rather than preceding it: a reload
+                // that added a modded guard to responderEntities drops that villager's thief
+                // controller here instead of at the next restart. No role result is cached (0.7.2).
                 WorldCriminalJobService.of(server).refreshBehaviors();
                 // Fence stock is priced from the config and assembled from tags, so a reload that
                 // retuned the default price has to reach the next screen that opens. Only with a
@@ -118,6 +136,10 @@ public final class McaCrime {
             // once, naming the root -- an unknown layout has to be visible in the log rather than
             // inferred from features quietly doing nothing.
             McaBinding.init();
+            // Second: say, once, what another mod has already taken away. efmca's mixin removes
+            // violent crime entirely, and that has to be in the log before the first punch that
+            // does nothing rather than inferred from it.
+            dev.otectus.mcacrime.compat.EpicFightCompat.logStartupNotices(LOGGER);
             // Force the crime-type registry (and its built-in ids) to class-load before any datapack parse.
             CrimeTypeRegistry.bootstrap();
             CrimeActionService.bootstrap();
@@ -133,6 +155,8 @@ public final class McaCrime {
             } catch (Throwable t) {
                 LOGGER.debug("Config validation skipped at setup (config not ready)", t);
             }
+            // One line, once, if a config still asks for a hidden thief (0.7.2 §9.2).
+            WorldCriminalJobService.warnAboutDeprecatedThiefPresentation();
             CrimeNetwork.register();
             // Last, and inside enqueueWork: every mod has finished loading by now, so ModList is
             // authoritative, and the bridge must not race our own registration.

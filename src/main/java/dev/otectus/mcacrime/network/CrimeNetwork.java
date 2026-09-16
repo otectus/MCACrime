@@ -36,8 +36,8 @@ import java.util.function.Supplier;
  */
 public final class CrimeNetwork {
 
-    // 12 covers the 0.7.0 family packets. Update clients and server together.
-    private static final String PROTOCOL_VERSION = "12";
+    // 13 adds the 0.7.2 Mask Station selection pair. Update clients and server together.
+    private static final String PROTOCOL_VERSION = "13";
 
     public static final SimpleChannel CHANNEL = NetworkRegistry.newSimpleChannel(
             new ResourceLocation(McaCrime.MOD_ID, "main"),
@@ -98,6 +98,22 @@ public final class CrimeNetwork {
                 GuardChallengeDisplayedC2SPacket::handle);
         toClient(BailQuoteS2CPacket.class,
                 BailQuoteS2CPacket::encode, BailQuoteS2CPacket::decode, BailQuoteS2CPacket::handle);
+        toServer(SelectMaskRecipeC2SPacket.class,
+                SelectMaskRecipeC2SPacket::encode, SelectMaskRecipeC2SPacket::decode,
+                SelectMaskRecipeC2SPacket::handle);
+        toClient(MaskSelectionS2CPacket.class,
+                MaskSelectionS2CPacket::encode, MaskSelectionS2CPacket::decode,
+                MaskSelectionS2CPacket::handle);
+    }
+
+    /**
+     * Tells one viewer which style their own Mask Station has selected.
+     *
+     * <p>To that player alone: two people at one station have two private sessions, and telling either
+     * about the other's choice would be the first crack in that separation (0.7.2 §6.2).
+     */
+    public static void sendMaskSelection(ServerPlayer player, MaskSelectionS2CPacket packet) {
+        CHANNEL.send(PacketDistributor.PLAYER.with(() -> player), packet);
     }
 
     /** Answers a player's own bail enquiry. Never sent unsolicited, and never about anybody else. */

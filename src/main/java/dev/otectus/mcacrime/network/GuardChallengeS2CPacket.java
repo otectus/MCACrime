@@ -19,17 +19,29 @@ import java.util.function.Supplier;
  * fine" when the server did not offer it gains nothing, because {@code GuardChallengeService} rechecks
  * the option before spending anything.
  *
+ * <p>The fine travels twice: as a number, which the mod's own logic compares and logs, and as the
+ * formatted line the button shows. The client cannot format money itself — the currency is a common
+ * config the client is forbidden to read — so a client-side {@code format} would always say emeralds.
+ *
  * <p>The countdown is sent as a remaining tick count rather than an absolute deadline, so the client
  * needs no clock synchronisation to render it and cannot be confused by a differing game time.
  */
 public record GuardChallengeS2CPacket(boolean open, UUID encounterId, Component guardName,
                                       Component jurisdiction, int chargeCount, long assessedFine,
-                                      boolean canPay, long remainingTicks, long revision) {
+                                      boolean canPay, long remainingTicks, long revision,
+                                      Component assessedFineText) {
 
     public GuardChallengeS2CPacket(boolean open, UUID encounterId, Component guardName,
                                   Component jurisdiction, int chargeCount, long assessedFine,
                                   boolean canPay, long remainingTicks) {
         this(open, encounterId, guardName, jurisdiction, chargeCount, assessedFine, canPay, remainingTicks, 0L);
+    }
+
+    public GuardChallengeS2CPacket(boolean open, UUID encounterId, Component guardName,
+                                  Component jurisdiction, int chargeCount, long assessedFine,
+                                  boolean canPay, long remainingTicks, long revision) {
+        this(open, encounterId, guardName, jurisdiction, chargeCount, assessedFine, canPay, remainingTicks,
+                revision, null);
     }
 
     public GuardChallengeS2CPacket {
@@ -39,6 +51,11 @@ public record GuardChallengeS2CPacket(boolean open, UUID encounterId, Component 
         chargeCount = Math.max(0, chargeCount);
         assessedFine = Math.max(0L, assessedFine);
         remainingTicks = Math.max(0L, remainingTicks);
+        // The price as the player reads it. Formatting it here would need the currency, and the
+        // currency is server state the client must never read; a bare number would say "45" in a
+        // sentence that used to say emeralds. The server sends the sentence.
+        assessedFineText = assessedFineText == null ? Component.literal(Long.toString(assessedFine))
+                : assessedFineText;
     }
 
     /**
@@ -59,7 +76,8 @@ public record GuardChallengeS2CPacket(boolean open, UUID encounterId, Component 
                                                Component guardName, Component jurisdiction) {
         return new GuardChallengeS2CPacket(true, challenge.encounterId(), guardName, jurisdiction,
                 challenge.chargeCount(), challenge.assessedFine(), challenge.canPay(),
-                challenge.remaining(now), challenge.revision());
+                challenge.remaining(now), challenge.revision(),
+                dev.otectus.mcacrime.economy.Currencies.active().format(challenge.assessedFine()));
     }
 
     /** The close form: everything else is ignored by the client when {@code open} is false. */
@@ -78,12 +96,13 @@ public record GuardChallengeS2CPacket(boolean open, UUID encounterId, Component 
         buf.writeBoolean(msg.canPay);
         buf.writeVarLong(msg.remainingTicks);
         buf.writeVarLong(msg.revision);
+        buf.writeComponent(msg.assessedFineText);
     }
 
     public static GuardChallengeS2CPacket decode(FriendlyByteBuf buf) {
         return new GuardChallengeS2CPacket(buf.readBoolean(), buf.readUUID(), buf.readComponent(),
                 buf.readComponent(), buf.readVarInt(), buf.readVarLong(), buf.readBoolean(),
-                buf.readVarLong(), readRevision(buf));
+                buf.readVarLong(), readRevision(buf), buf.readComponent());
     }
 
     private static long readRevision(FriendlyByteBuf buf) {

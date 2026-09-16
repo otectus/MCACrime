@@ -62,7 +62,13 @@ public final class CrimeDataMigrations {
     public static final int SCHEMA_RECONCILIATION = 10;
     /** Family loyalty: withheld observations and the optional tags around them, all absent-as-empty. */
     public static final int SCHEMA_FAMILY = 11;
-    public static final int CURRENT_SCHEMA = SCHEMA_FAMILY;
+    /**
+     * The 0.7.2 exclusive-Thief occupation schema: lifecycle status, origin, establishment timing, a
+     * dimension-qualified worksite, reservation/grace clocks and an explicit historical-profession
+     * kind on every criminal record.
+     */
+    public static final int SCHEMA_OCCUPATION = 12;
+    public static final int CURRENT_SCHEMA = SCHEMA_OCCUPATION;
 
     /** Root NBT key holding the schema integer. Absent means 0. */
     public static final String TAG_SCHEMA = "schema";
@@ -118,6 +124,9 @@ public final class CrimeDataMigrations {
         }
         if (schema < 11) {
             working = v10to11(working);
+        }
+        if (schema < 12) {
+            working = v11to12(working);
         }
         working.putInt(TAG_SCHEMA, CURRENT_SCHEMA);
         return working;
@@ -354,6 +363,69 @@ public final class CrimeDataMigrations {
     public static CompoundTag v10to11(CompoundTag tag) {
         CompoundTag out = tag.copy();
         out.putInt(TAG_SCHEMA, SCHEMA_FAMILY);
+        return out;
+    }
+
+    // ------------------------------------------------------------------ 11 -> 12
+
+    /**
+     * Gives every existing criminal record the 0.7.2 occupational fields, structurally and only
+     * structurally (spec §"Migration performs structural changes only").
+     *
+     * <p>Three decisions are made here and no more.
+     *
+     * <p><b>Every existing Thief becomes established and unbound.</b> Spec §10.4 says migrated thieves
+     * are established by default so that upgrading cannot quietly remove them from the world, and
+     * §10.5 says existing wandering thieves are grandfathered as employed but unbound. Unbound is the
+     * honest state: no pre-0.7.2 world contains a Mask Station, so inventing a worksite would be
+     * inventing a block, which §10.5 forbids outright.
+     *
+     * <p><b>The historical profession keeps its exact meaning.</b> A blank legacy string meant "there
+     * was a profession and it could not be read" and becomes {@code UNREADABLE}; an absent key meant
+     * "nothing was displaced" and becomes {@code NONE}. Neither is upgraded into a guess.
+     *
+     * <p><b>Nothing entity-sensitive happens.</b> Whether a migrated Thief is actually a guard now,
+     * whether its record contradicts its profession, and whether it can even be classified are all
+     * questions about an entity, and migration runs from {@code computeIfAbsent} with no server. Those
+     * are reconciled on legitimate load instead, which is also the only place they can be answered
+     * correctly for a villager whose chunk is asleep.
+     *
+     * <p>A fence is left at {@code status=none}: occupational exclusivity is a Thief rule (§9.5).
+     */
+    public static CompoundTag v11to12(CompoundTag tag) {
+        CompoundTag out = tag.copy();
+        ListTag criminals = out.getList("criminalVillagers", Tag.TAG_COMPOUND);
+        int thieves = 0;
+        for (int i = 0; i < criminals.size(); i++) {
+            CompoundTag record = criminals.getCompound(i);
+            if (!record.contains("previousProfessionKind")) {
+                record.putString("previousProfessionKind", record.contains("previousProfessionId")
+                        ? (record.getString("previousProfessionId").isBlank() ? "unreadable" : "id")
+                        : "none");
+            }
+            if (record.contains("status")) {
+                continue; // already migrated: running this step twice must change nothing
+            }
+            boolean thief = "thief".equals(record.getString("job"));
+            record.putString("status", thief ? "established_unbound" : "none");
+            record.putString("source", thief
+                    ? (record.getBoolean("wildOrigin") ? "wild" : "migration")
+                    : "unknown");
+            record.putLong("establishedAt", 0L);
+            record.putLong("lastVisitAt", 0L);
+            record.putLong("employedTicks", 0L);
+            record.putLong("reservationAt", 0L);
+            record.putLong("unboundSince", 0L);
+            if (thief) {
+                thieves++;
+            }
+        }
+        if (thieves > 0) {
+            McaCrime.LOGGER.info("MCA: Crime migrated {} existing thief record(s) to the 0.7.2 exclusive "
+                    + "profession. They are established and unbound until they claim a Mask Station; no "
+                    + "station was placed and no previous profession was invented.", thieves);
+        }
+        out.putInt(TAG_SCHEMA, SCHEMA_OCCUPATION);
         return out;
     }
 

@@ -2,7 +2,6 @@ package dev.otectus.mcacrime.memory;
 
 import dev.otectus.mcacrime.McaCrimeConfig;
 import dev.otectus.mcacrime.ai.CrimeReactionService;
-import dev.otectus.mcacrime.ai.VictimReactionState;
 import dev.otectus.mcacrime.api.event.CrimeObservationEvent;
 import dev.otectus.mcacrime.compat.McaCompat;
 import dev.otectus.mcacrime.detect.EntitySelectors;
@@ -77,11 +76,29 @@ public final class ObservationService {
                                                 @Nullable LivingEntity victim, ResourceLocation crimeId,
                                                 UUID incidentId, WitnessResult witnesses,
                                                 dev.otectus.mcacrime.crime.type.CrimeAwareness awareness) {
+        return record(level, offender, victim, crimeId, incidentId, witnesses, awareness,
+                level == null ? 0L : level.getGameTime());
+    }
+
+    /**
+     * The same scan dated to when the act was actually observed (0.7.2 §14.3).
+     *
+     * <p>Every caller but one commits in the tick the act happened, and for them {@code observedAt}
+     * is simply {@code level.getGameTime()}. A thrown Sand Bottle is the exception: its observations
+     * belong to the moment it left the thrower's hand, not to the moment it landed up to three
+     * seconds later, and dating them at impact would quietly extend the statute on every one of them
+     * and misreport when the throw was seen.
+     */
+    public static List<CrimeObservation> record(ServerLevel level, LivingEntity offender,
+                                                @Nullable LivingEntity victim, ResourceLocation crimeId,
+                                                UUID incidentId, WitnessResult witnesses,
+                                                dev.otectus.mcacrime.crime.type.CrimeAwareness awareness,
+                                                long observedAt) {
         MinecraftServer server = level == null ? null : level.getServer();
         if (!dev.otectus.mcacrime.state.world.ServerMutationGate.allows(server) || !McaCrimeConfig.COMMON.enableObservations.get()) {
             return List.of();
         }
-        long now = level.getGameTime();
+        long now = observedAt;
         long expiresAt = now + McaCrimeConfig.COMMON.observationStatuteTicks.get();
         BlockPos where = victim != null ? victim.blockPosition() : offender.blockPosition();
         UUID victimId = victim == null ? null : victim.getUUID();
@@ -92,6 +109,7 @@ public final class ObservationService {
         //    identity confidence is total when the offender was standing in front of them.
         if (victim != null && dev.otectus.mcacrime.ai.NpcAwareness.isAwake(victim) && McaCompat.isMcaVillager(victim)) {
             boolean faceToFace = !offender.isInvisible() && victim.hasLineOfSight(offender)
+                    && !dev.otectus.mcacrime.effect.SandBlindness.blocksSight(victim, offender)
                     && !victim.hasEffect(net.minecraft.world.effect.MobEffects.BLINDNESS)
                     && !McaCompat.isVillagerSleeping(victim);
             covered.add(victim.getUUID());
@@ -256,8 +274,76 @@ public final class ObservationService {
             return;
         }
         CrimeReactionService.trigger(level, observer, observation.suspectedActorId(),
-                observation.identifiesActor() ? VictimReactionState.THREATENED : VictimReactionState.SEEKING_HELP,
+                dev.otectus.mcacrime.mask.MaskReactionPolicy.initialReaction(observation.identifiesActor()),
                 observation.observationId());
+    }
+
+    /**
+     * Starts the same reactions {@link #record} would, for a crime whose attribution is hidden by a mask
+     * (§12.2, 0.7.0). Nothing is stored: no observation, no victim memory, no report. A mask removes the
+     * record, never the reaction — the victim is still looking at somebody with a weapon, so they still
+     * enter {@code THREATENED} and are still judged by the same evaluator as on the unmasked path.
+     *
+     * <p>The gates are {@link #record}'s own, deliberately copied rather than generalised: an observer
+     * who could not react to an unmasked crime must not start reacting because a mask was worn.
+     * Responders are skipped in both halves because a masked crime's responder consequence is the
+     * masked pursuit installed by {@code incident/IncidentService.maskedConsequences}, not a filing
+     * against a name nobody saw.
+     *
+     * <p>{@code enableObservations} is not consulted — nothing here is stored, and
+     * {@link CrimeReactionService#trigger} already honours {@code enableVillagerReactions}.
+     *
+     * <p>{@link #record} steps 3 (loyal family) and 4 (hearing-only listeners) have no counterpart here:
+     * neither of them starts a reaction on the unmasked path either, the first because a withheld
+     * memory is all a loyal relative keeps and the second because hearing alone is stored and left.
+     *
+     * <p>The offender's real UUID is what reaches the controller. That is safe and necessary: the
+     * controller's offender id lives in memory only and is never written to world data, memory or
+     * observations, and {@code tickThreatened} drops straight to RECOVERING when it cannot resolve an
+     * offender, which would be the same dead channel the mask bug produced.
+     */
+    public static void reactUnattributed(ServerLevel level, LivingEntity offender,
+                                         @Nullable LivingEntity victim, WitnessResult witnesses,
+                                         dev.otectus.mcacrime.crime.type.CrimeAwareness awareness) {
+        MinecraftServer server = level == null ? null : level.getServer();
+        if (!dev.otectus.mcacrime.state.world.ServerMutationGate.allows(server)) {
+            return;
+        }
+        Set<UUID> covered = new HashSet<>();
+
+        // 1. The direct victim, on record's own gate: awake, an MCA villager, not a responder, and in a
+        //    state to have reacted at all.
+        if (victim != null && dev.otectus.mcacrime.ai.NpcAwareness.isAwake(victim) && McaCompat.isMcaVillager(victim)) {
+            boolean faceToFace = !offender.isInvisible() && victim.hasLineOfSight(offender)
+                    && !dev.otectus.mcacrime.effect.SandBlindness.blocksSight(victim, offender)
+                    && !victim.hasEffect(net.minecraft.world.effect.MobEffects.BLINDNESS)
+                    && !McaCompat.isVillagerSleeping(victim);
+            covered.add(victim.getUUID());
+            if (!EntitySelectors.isResponder(victim) && canReport(level, victim)) {
+                CrimeReactionService.trigger(level, victim, offender.getUUID(),
+                        dev.otectus.mcacrime.mask.MaskReactionPolicy.initialReaction(faceToFace), null);
+            }
+        }
+
+        // 2. The eyewitnesses the line-of-sight scan already found, perceived exactly as record perceives
+        //    them so that a witness who cannot make out the act still does nothing about it.
+        for (UUID witnessId : witnesses.witnessIds()) {
+            if (!covered.add(witnessId)) {
+                continue;
+            }
+            Entity entity = level.getEntity(witnessId);
+            if (!(entity instanceof LivingEntity witness) || !dev.otectus.mcacrime.ai.NpcAwareness.isAwake(witness)) {
+                continue;
+            }
+            if (EntitySelectors.isResponder(witness) || !canReport(level, witness)) {
+                continue;
+            }
+            var perceived = dev.otectus.mcacrime.detect.WitnessChecker.perceive(witness, offender,
+                    victim == null ? offender : victim, awareness);
+            if (!perceived.aware()) continue;
+            CrimeReactionService.trigger(level, witness, offender.getUUID(),
+                    dev.otectus.mcacrime.mask.MaskReactionPolicy.initialReaction(perceived.identifiesActor()), null);
+        }
     }
 
     /**

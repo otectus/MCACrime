@@ -45,6 +45,8 @@ class CrimeMovementTest {
         assertTrue(ReactionControlPolicy.refusesMugging(true, false, VictimReactionState.CALM));
         assertFalse(ReactionControlPolicy.refusesMugging(false, true, VictimReactionState.COMPLYING));
         assertTrue(ReactionControlPolicy.refusesMugging(false, true, VictimReactionState.RESISTING));
+        assertFalse(ReactionControlPolicy.refusesMugging(false, true, VictimReactionState.THREATENED));
+        assertTrue(ReactionControlPolicy.refusesMugging(false, true, VictimReactionState.SEEKING_HELP));
     }
 
     @Test void detoursAndFollowingTheGuardResetStuckDetection() {

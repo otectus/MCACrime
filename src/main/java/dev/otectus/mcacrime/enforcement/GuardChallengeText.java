@@ -20,6 +20,8 @@ public final class GuardChallengeText {
                     "You escaped custody. Surrender to resume your sentence.";
             case "mcacrime.challenge.reason.captive" ->
                     "You are holding someone unlawfully. The law demands your surrender.";
+            case "mcacrime.challenge.reason.masked" ->
+                    "The guards want a look at the face under that mask.";
             case "mcacrime.challenge.no_charges" ->
                     "The guard checks, and finds nothing against you.";
             default -> "The law demands your surrender.";

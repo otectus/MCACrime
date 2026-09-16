@@ -1,0 +1,8 @@
+{
+  "variants": {
+    "facing=north": { "model": "mcacrime:block/mask_station" },
+    "facing=east":  { "model": "mcacrime:block/mask_station", "y":  90 },
+    "facing=south": { "model": "mcacrime:block/mask_station", "y": 180 },
+    "facing=west":  { "model": "mcacrime:block/mask_station", "y": 270 }
+  }
+}

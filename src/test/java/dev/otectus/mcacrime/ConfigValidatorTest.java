@@ -51,6 +51,48 @@ class ConfigValidatorTest {
                 List.of("mca:*", "#minecraft:raiders", "minecraft:villager"), List.of()));
     }
 
+    // ------------------------------------------------------------------ currency
+
+    @Test
+    void theDefaultCurrencyPairIsClean() {
+        assertEquals(List.of(), ConfigValidator.validateCurrency("mcacrime:emerald", "minecraft:emerald"));
+        assertEquals(List.of(), ConfigValidator.validateCurrency("mcacrime:item", "minecraft:gold_nugget"));
+    }
+
+    @Test
+    void blankCurrencyItemReported() {
+        List<String> problems = ConfigValidator.validateCurrency("mcacrime:item", "  ");
+        assertTrue(problems.stream().anyMatch(p -> p.contains("currencyItem") && p.contains("blank")),
+                problems.toString());
+    }
+
+    @Test
+    void unparseableCurrencyItemReported() {
+        List<String> problems = ConfigValidator.validateCurrency("mcacrime:item", "not an item!!");
+        assertTrue(problems.stream().anyMatch(p -> p.contains("currencyItem") && p.contains("not a valid id")),
+                problems.toString());
+    }
+
+    @Test
+    void airAsTheItemCurrencyReported() {
+        // Parses fine and means "pay in nothing", which would make every fine free.
+        List<String> problems = ConfigValidator.validateCurrency("mcacrime:item", "minecraft:air");
+        assertTrue(problems.stream().anyMatch(p -> p.contains("currencyItem") && p.contains("air")),
+                problems.toString());
+    }
+
+    @Test
+    void airIsToleratedWhenNothingIsPayingInItems() {
+        assertEquals(List.of(), ConfigValidator.validateCurrency("mcacrime:emerald", "minecraft:air"));
+    }
+
+    @Test
+    void blankCurrencyIdReported() {
+        List<String> problems = ConfigValidator.validateCurrency("", "minecraft:emerald");
+        assertTrue(problems.stream().anyMatch(p -> p.contains("currencyId") && p.contains("blank")),
+                problems.toString());
+    }
+
     // ------------------------------------------------------------------ integrations
 
     private static List<String> integrations(int interval, int budget, int attempts, int base,

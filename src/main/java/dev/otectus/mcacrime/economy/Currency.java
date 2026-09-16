@@ -6,6 +6,7 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.ItemStack;
 
 import java.util.List;
+import java.util.Optional;
 
 /**
  * An abstract currency for fines/bail/ransom/theft (spec §11.5), so the emerald default can be swapped
@@ -94,6 +95,33 @@ public interface Currency {
         } catch (RuntimeException e) {
             return false;
         }
+    }
+
+    /**
+     * Credits {@code amount} without ever dropping anything on the ground, and reports the remainder.
+     *
+     * <p>Credit without ever dropping on the ground; returns the undelivered remainder, or -1 when the
+     * outcome is unknown. A bounty payout needs this distinction and {@link #tryCredit} cannot express
+     * it: a receipt can re-queue an exact remainder for next login, but a stack left on the floor of a
+     * cave is money the ledger thinks was paid.
+     *
+     * <p>The default is the honest answer for a currency with no item form — an abstract balance
+     * cannot overflow, so it either all arrived or the outcome is unknown.
+     *
+     * @return 0 when everything arrived, the amount still owed when some did not, -1 when unknown
+     */
+    default long creditBounded(ServerPlayer player, long amount, TransactionReason reason) {
+        return tryCredit(player, amount, reason) ? 0L : -1L;
+    }
+
+    /**
+     * The registry id of the item this currency is physically made of, when it is made of one.
+     *
+     * <p>Recorded on a queued receipt, so a payment earned while the server charged in gold nuggets is
+     * still owed in gold nuggets after the operator switches to emeralds. Empty for a virtual balance.
+     */
+    default Optional<ResourceLocation> itemForm() {
+        return Optional.empty();
     }
 
     /** {@link #tryCharge(ServerPlayer, long)} with a stated reason. */

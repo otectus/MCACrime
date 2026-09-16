@@ -134,6 +134,30 @@ public final class CrimeState {
         setHeat(player, 0L, source, dedupeKey);
     }
 
+    /**
+     * Pays everything a mask kept off the books, at once (0.7.0).
+     *
+     * <p>Each banked entry is replayed through the ordinary attributed {@link #addHeat(ServerPlayer,
+     * long, ResourceLocation, String)} rather than written to the total directly, so the Wanted
+     * recompute, {@code HeatChangedEvent}, {@code WantedStatusChangedEvent} and the client sync all
+     * happen exactly as they would have at the time — the mask delayed the consequence, it did not
+     * route around the chokepoint. The whole drain runs inside one notification scope so a spree
+     * arrives as one moment rather than as thirty.
+     */
+    public static void flushDeferredHeat(ServerPlayer player) {
+        CrimeCapabilities.get(player).ifPresent(data -> {
+            var owed = dev.otectus.mcacrime.mask.MaskHeatLedger.drain(data.getPendingMaskedHeat());
+            if (owed.isEmpty()) {
+                return;
+            }
+            try (var scope = new dev.otectus.mcacrime.incident.IncidentNotifications()) {
+                for (var entry : owed) {
+                    addHeat(player, entry.heat(), entry.crimeId(), entry.incidentId());
+                }
+            }
+        });
+    }
+
     /** Recomputes the cached band + wanted flag under current config (login reconcile, config change). */
     public static void recomputeDerived(ServerPlayer player) {
         McaCrimeConfig.Common c = McaCrimeConfig.COMMON;

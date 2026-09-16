@@ -5,13 +5,16 @@ import dev.otectus.mcacrime.enforcement.ArrestPhase;
 import dev.otectus.mcacrime.enforcement.ArrestState;
 import dev.otectus.mcacrime.jail.JailState;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.resources.ResourceLocation;
 
 import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.Tag;
 
 import javax.annotation.Nullable;
+import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -109,6 +112,47 @@ public final class PlayerCrimeData {
 
     /** How many thieves a player's pair-cooldown memory holds before the oldest is forgotten. */
     public static final int MAX_RECENT_MUGGERS = 8;
+
+    /**
+     * How many masked crimes a player may bank before they are collapsed into one (0.7.0).
+     *
+     * <p>Same reasoning as {@link #MAX_RECENT_MUGGERS}: an unbounded list on a player capability is a
+     * save file that grows for as long as somebody is willing to keep a mask on. Overflow does not
+     * discard Heat — {@code MaskHeatLedger} coalesces the oldest entries into a single carry entry, so
+     * the total a witnessed unmask costs stays exact however many crimes it covers.
+     */
+    public static final int MAX_DEFERRED_MASKED_INCIDENTS = 32;
+
+    /**
+     * Heat a mask kept off this player's record, still owed (0.7.0).
+     *
+     * <p>Attributed entries rather than one running total, because the Heat is eventually replayed
+     * through {@code CrimeState.addHeat(player, delta, source, dedupeKey)} and that contract wants to
+     * name what caused each change. A single {@code long} would have to be replayed as one anonymous
+     * lump and could never be expired per crime.
+     */
+    private final List<PendingMaskedHeat> pendingMaskedHeat = new ArrayList<>();
+
+    /**
+     * The online tick at which a responder who watched a masked crime stops hunting for the person who
+     * did it, or 0 when nobody is looking.
+     *
+     * <p>Shaped exactly like {@link #resistingArrestUntilTick}, and on the same clock, for the same
+     * reason: a pursuit that could be waited out by logging off is not a pursuit. The difference is
+     * that this one is <em>not</em> copied on death — a guard chasing a masked figure loses them when
+     * they die, because nothing about the body identifies the person who respawns.
+     */
+    private long maskedPursuitUntilTick;
+
+    /**
+     * One masked crime's unpaid Heat: what it was for, which incident, how much, and when.
+     *
+     * <p>The incident id is kept as a string because it is only ever handed back to
+     * {@code CrimeState.addHeat} as a dedupe key, and the carry entry written on overflow has no single
+     * incident behind it.
+     */
+    public record PendingMaskedHeat(ResourceLocation crimeId, String incidentId, long heat, long tick) {
+    }
 
     private final DailyKarmaCounters dailyKarmaCounters = new DailyKarmaCounters();
 
@@ -210,6 +254,28 @@ public final class PlayerCrimeData {
     /** True while a refusal is still standing, by this player's own online clock. */
     public boolean isResistingArrest() {
         return resistingArrestUntilTick > onlineTicksLived;
+    }
+
+    /**
+     * The live deferred-Heat list. Handed out rather than copied because {@code MaskHeatLedger} is the
+     * one thing that mutates it, and a defensive copy here would mean the ledger's bound and its
+     * coalescing applied to a list nobody kept.
+     */
+    public List<PendingMaskedHeat> getPendingMaskedHeat() {
+        return pendingMaskedHeat;
+    }
+
+    public long getMaskedPursuitUntilTick() {
+        return maskedPursuitUntilTick;
+    }
+
+    public void setMaskedPursuitUntilTick(long maskedPursuitUntilTick) {
+        this.maskedPursuitUntilTick = Math.max(0L, maskedPursuitUntilTick);
+    }
+
+    /** True while a responder is still hunting the masked figure they saw, by this player's own clock. */
+    public boolean isMaskedPursuit() {
+        return maskedPursuitUntilTick > onlineTicksLived;
     }
 
     public void setLastSurrenderTick(long lastSurrenderTick) {
@@ -389,6 +455,12 @@ public final class PlayerCrimeData {
         this.muggingDay = other.muggingDay;
         this.lastContrabandFingerprint = other.lastContrabandFingerprint;
         this.lastContrabandChargeTick = other.lastContrabandChargeTick;
+        // Deferred Heat is copied because death is not amnesty: dying in a mask would otherwise be the
+        // cheapest way to clear everything the mask was hiding. The pursuit clock is deliberately NOT
+        // copied — a responder chasing a masked figure has lost them at the moment they died, and
+        // nothing about the player who respawns identifies them as the one who was being chased.
+        this.pendingMaskedHeat.clear();
+        this.pendingMaskedHeat.addAll(other.pendingMaskedHeat);
         this.dailyKarmaCounters.copyFrom(other.dailyKarmaCounters);
         this.heldCaptiveRef = other.heldCaptiveRef;
         this.heldByRef = other.heldByRef;
@@ -422,6 +494,21 @@ public final class PlayerCrimeData {
                 muggers.add(entry);
             });
             tag.put("recentMuggers", muggers);
+        }
+        if (maskedPursuitUntilTick > 0L) {
+            tag.putLong("maskedPursuitUntilTick", maskedPursuitUntilTick);
+        }
+        if (!pendingMaskedHeat.isEmpty()) {
+            ListTag masked = new ListTag();
+            for (PendingMaskedHeat pending : pendingMaskedHeat) {
+                CompoundTag entry = new CompoundTag();
+                entry.putString("crime", pending.crimeId().toString());
+                entry.putString("incident", pending.incidentId());
+                entry.putLong("heat", pending.heat());
+                entry.putLong("tick", pending.tick());
+                masked.add(entry);
+            }
+            tag.put("pendingMaskedHeat", masked);
         }
         tag.put("dailyKarma", dailyKarmaCounters.save());
         if (heldCaptiveRef != null) {
@@ -466,6 +553,21 @@ public final class PlayerCrimeData {
             // world clock is not available here, so live expiry is pruned by the first caller that has it.
             if (entry.hasUUID("thief") && entry.getLong("until") > 0L) {
                 recentMuggers.put(entry.getUUID("thief"), entry.getLong("until"));
+            }
+        }
+        // Both absent in every pre-mask save, where 0 and an empty list read as "never wore one".
+        // No migration, like the resisting flag and the warrant count before them.
+        maskedPursuitUntilTick = Math.max(0L, tag.getLong("maskedPursuitUntilTick"));
+        pendingMaskedHeat.clear();
+        ListTag masked = tag.getList("pendingMaskedHeat", Tag.TAG_COMPOUND);
+        for (int i = 0; i < masked.size() && pendingMaskedHeat.size() < MAX_DEFERRED_MASKED_INCIDENTS; i++) {
+            CompoundTag entry = masked.getCompound(i);
+            ResourceLocation crime = ResourceLocation.tryParse(entry.getString("crime"));
+            // A zero-Heat or unparseable entry owes nothing and names nothing; dropping it costs the
+            // player no Heat they would otherwise have paid.
+            if (crime != null && entry.getLong("heat") != 0L) {
+                pendingMaskedHeat.add(new PendingMaskedHeat(crime, entry.getString("incident"),
+                        entry.getLong("heat"), entry.getLong("tick")));
             }
         }
         dailyKarmaCounters.load(tag.getCompound("dailyKarma"));

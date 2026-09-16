@@ -1,0 +1,23 @@
+{
+  "type": "mcacrime:mask_making",
+  "operation": "restyle",
+  "group": "mcacrime:cloth_masks",
+  "material": {
+    "ingredient": {
+      "tag": "mcacrime:masks/cloth"
+    },
+    "count": 1
+  },
+  "binding": {
+    "ingredient": {
+      "item": "minecraft:string"
+    },
+    "count": 1
+  },
+  "allow_dye": true,
+  "result": {
+    "item": "mcacrime:bandana",
+    "count": 1
+  },
+  "sort_order": 0
+}

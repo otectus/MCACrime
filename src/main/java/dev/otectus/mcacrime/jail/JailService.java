@@ -101,6 +101,7 @@ public final class JailService {
                     mergeSentence(existing.getRemainingOnlineTicks(), clamped, allowReduce));
             // An extension is time added for charges that were not part of the original term, so those
             // charges join it. Without this they would be served alongside it and settled by nothing.
+            dev.otectus.mcacrime.engine.CrimeState.flushDeferredHeat(player);
             CrimeNetwork.sendSelfStatus(player);
             return true; // sentence update; no duplicate PlayerJailedEvent
         }
@@ -126,6 +127,10 @@ public final class JailService {
             return false;
         }
         data.setJail(jail);
+        // Intake is where a mask stops being a disguise: the law is holding the person, not a figure in
+        // a mask, so everything the mask was keeping off the record comes due whether or not anybody
+        // ever saw it come off.
+        dev.otectus.mcacrime.engine.CrimeState.flushDeferredHeat(player);
         // Arrest membership is already frozen. A direct administrative jailing assesses here once.
         bindSentence(player, jail.getSentenceId());
         jail.setLegacyBound(true); // an empty assessment is final too; never infer later crimes on login

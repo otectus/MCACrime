@@ -1,0 +1,8 @@
+{
+  "type": "minecraft:crafting_shapeless",
+  "ingredients": [
+    { "item": "minecraft:glass_bottle" },
+    { "tag": "mcacrime:sand_bottle_inputs" }
+  ],
+  "result": { "item": "mcacrime:sand_bottle" }
+}

@@ -278,6 +278,33 @@ public final class McaBinding {
     public static final Member VILLAGER_SET_PROFESSION =
             optionalVirtual(C_VILLAGER, "setProfession", void.class, 1);
 
+    // Thief occupation (0.7.2) — the five members the exclusive-profession transaction needs ---------
+    //
+    // Optional *globally* and required *as a bundle*, which is the shape this release needed and the
+    // manifest did not previously have. A required member that vanishes turns the whole resolution
+    // PARTIAL and disables every MCA-backed feature, which is far too much to pay for a profession
+    // change; a plainly optional one would let the transaction quietly commit a Thief whose clothing
+    // and family profession could never be rolled back. So each is optional here and
+    // THIEF_OCCUPATION_CAPABILITY is checked as a unit before any mutation (see
+    // McaHandles#thiefOccupationCapability).
+    //
+    // setClothes is the second genuine use of the parameter hint: MCA declares setClothes(String) next
+    // to same-arity siblings on VillagerLike, and only the String overload restores a captured value.
+    // It is a *vanilla-free* String, so no MCA symbol is named on either side of the call.
+    //
+    // FamilyTreeNode#setProfession takes a vanilla VillagerProfession, fetched from BuiltInRegistries
+    // for the same reason VILLAGER_SET_PROFESSION's argument is.
+    public static final Member VILLAGER_GET_CLOTHES =
+            optionalVirtual(C_VILLAGER_LIKE, "getClothes", Object.class, 0);
+    public static final Member VILLAGER_SET_CLOTHES =
+            optionalVirtual(C_VILLAGER_LIKE, "setClothes", void.class, 1, String.class);
+    public static final Member NODE_GET_PROFESSION_ID =
+            optionalVirtual(C_FAMILY_NODE, "getProfessionId", Object.class, 0);
+    public static final Member NODE_SET_PROFESSION =
+            optionalVirtual(C_FAMILY_NODE, "setProfession", void.class, 1);
+    public static final Member VILLAGER_GET_DESPAWN_DELAY =
+            optionalVirtual(C_VILLAGER, "getDespawnDelay", int.class, 0);
+
     // EntityRelationship / FamilyTreeNode — the ransom payer graph -----------------------------------
     // Every EntityRelationship member below is an abstract or default interface method; getMethods() on
     // an interface reports both, so they bind on the interface rather than on each implementation.
@@ -298,8 +325,26 @@ public final class McaBinding {
             VILLAGE_GET_NAME, VILLAGE_MANAGER_GET, VILLAGE_MANAGER_GET_OR_EMPTY,
             VILLAGE_GET_RESIDENTS, VILLAGE_GET_POPULATION, VILLAGE_IS_VILLAGE,
             VILLAGER_IS_GUARD, VILLAGER_IS_PROFESSION_IMPORTANT, VILLAGER_SET_PROFESSION,
+            VILLAGER_GET_CLOTHES, VILLAGER_SET_CLOTHES, VILLAGER_GET_DESPAWN_DELAY,
+            NODE_GET_PROFESSION_ID, NODE_SET_PROFESSION,
             RELATIONSHIP_OF, GET_PARTNER_UUID, GET_FAMILY_ENTRY,
             NODE_STREAM_PARENTS, NODE_CHILDREN, NODE_SIBLINGS, NODE_ALL_RELATIVES);
+
+    /**
+     * The members one Thief occupation transaction cannot proceed without (0.7.2 §9.3, JOB-12).
+     *
+     * <p>A capability bundle rather than a tier of the manifest. Every entry is declared optional, so
+     * a future MCA that drops one degrades this feature alone instead of the mod; but the transaction
+     * checks the whole list up front, because committing with a bound setter and an absent clothing
+     * accessor would produce exactly the half-rolled-back villager the rollback contract exists to
+     * prevent. {@code McaBindingProbeTest} requires the bundle to resolve on every probed jar, which
+     * is what keeps "optional" from quietly becoming "absent everywhere".
+     */
+    public static final List<Member> THIEF_OCCUPATION_CAPABILITY = List.of(
+            GET_PROFESSION_ID, VILLAGER_SET_PROFESSION,
+            VILLAGER_GET_CLOTHES, VILLAGER_SET_CLOTHES, VILLAGER_GET_DESPAWN_DELAY,
+            NODE_GET_PROFESSION_ID, NODE_SET_PROFESSION,
+            RELATIONSHIP_OF, GET_FAMILY_ENTRY);
 
     // ---------------------------------------------------------------------------------------------
     // Resolution
@@ -366,6 +411,21 @@ public final class McaBinding {
          */
         public boolean has(Member member) {
             return resolved.get(member) instanceof MethodHandle;
+        }
+
+        /**
+         * The members of {@code capability} that did not bind, in declaration order, or an empty list
+         * when the whole bundle is present. Named rather than counted so the one-line diagnostic
+         * spec §9.4 asks for can say which member is missing.
+         */
+        public List<String> capabilityMissing(List<Member> capability) {
+            List<String> missing = new ArrayList<>();
+            for (Member member : capability) {
+                if (member.kind == Kind.CLASS ? cls(member) == null : !has(member)) {
+                    missing.add(member.toString());
+                }
+            }
+            return List.copyOf(missing);
         }
 
         /**

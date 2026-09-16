@@ -11,6 +11,8 @@ import net.minecraft.network.chat.TextColor;
 import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.client.event.ClientPlayerNetworkEvent;
 import net.minecraftforge.client.event.RenderNameTagEvent;
+import net.minecraftforge.eventbus.api.Event;
+import net.minecraftforge.eventbus.api.EventPriority;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
 
@@ -26,8 +28,30 @@ public final class CrimeNameRenderHandlers {
     private CrimeNameRenderHandlers() {
     }
 
+    /**
+     * A masked player has no nameplate (0.7.0). Presentation only, and client-side only: the server
+     * never stops sending the name, because a client that chose not to hide it must not end up in a
+     * different world from one that did.
+     *
+     * <p>{@code RenderNameTagEvent} carries a result rather than being cancelable, so this runs at
+     * HIGHEST and denies; the recolor below then has nothing left to colour and says so itself.
+     */
+    @SubscribeEvent(priority = EventPriority.HIGHEST)
+    public static void onMaskedNameTag(RenderNameTagEvent event) {
+        if (!McaCrimeConfig.CLIENT.maskHidesNameTag.get()) {
+            return;
+        }
+        if (event.getEntity() instanceof AbstractClientPlayer player
+                && dev.otectus.mcacrime.mask.Masks.isMasked(player)) {
+            event.setResult(Event.Result.DENY);
+        }
+    }
+
     @SubscribeEvent
     public static void onRenderNameTag(RenderNameTagEvent event) {
+        if (event.getResult() == Event.Result.DENY) {
+            return; // something (a mask, or another mod) has already said this name is not drawn
+        }
         if (!McaCrimeConfig.CLIENT.nameColorEnabled.get()) {
             return;
         }

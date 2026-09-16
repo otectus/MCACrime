@@ -1,0 +1,11 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "pattern": ["SLS", "PCP", "PPP"],
+  "key": {
+    "S": { "item": "minecraft:string" },
+    "L": { "item": "minecraft:leather" },
+    "P": { "tag": "minecraft:planks" },
+    "C": { "item": "minecraft:clay_ball" }
+  },
+  "result": { "item": "mcacrime:mask_station" }
+}

@@ -84,6 +84,41 @@ public final class CrimeGate {
         return Optional.of(player);
     }
 
+    /**
+     * The same legal gate for a hostile act that deals no damage (0.7.2 §14.1).
+     *
+     * <p>Sand is the first of these. The alternative was calling {@code hurt(0)} to reach the damage
+     * path, which fires armour hooks, knockback, combat trackers and every other mod's damage listener
+     * for an attack that never happened — so the gate grew a door instead of the caller faking a blow.
+     *
+     * <p>It is the numbered checks above minus the two that only a {@link DamageSource} can answer:
+     * there is no projectile to trace back to a shooter and no indirect/environmental case to exclude,
+     * because a caller on this path already knows exactly who acted. Everything that decides whether
+     * the act is <em>lawful</em> — protected victim, real non-fake player actor, no self-crime, and the
+     * Legal Target exemption — is identical, deliberately, so a non-damaging attack cannot be a way
+     * around a rule that damage obeys.
+     */
+    public static Optional<ServerPlayer> resolveNonDamageOffender(LivingEntity victim, Entity actor,
+                                                                  ServerLevel level) {
+        boolean playerVictim = victim instanceof ServerPlayer && !(victim instanceof FakePlayer);
+        boolean pvp = playerVictim && McaCrimeConfig.COMMON.pvpCountsAsCrime.get();
+        if (!pvp && !EntitySelectors.isProtected(victim)) {
+            return Optional.empty();
+        }
+        if (!(actor instanceof ServerPlayer player) || player instanceof FakePlayer || victim == player) {
+            return Optional.empty();
+        }
+        if (playerVictim) {
+            OutlawStatus status = OutlawResolver.resolve((ServerPlayer) victim);
+            // Never lethal: nothing on this path can kill, so the separate lethal-force grant is not
+            // consulted and a Wanted victim is simply a lawful target.
+            if (status.lawfulCombatTarget()) {
+                return Optional.empty();
+            }
+        }
+        return Optional.of(player);
+    }
+
     /** Projectile owners are supplied by DamageSource; a loaded tame animal can name its owner. */
     public static Entity responsibleActor(DamageSource source) {
         Entity actor = source.getEntity();

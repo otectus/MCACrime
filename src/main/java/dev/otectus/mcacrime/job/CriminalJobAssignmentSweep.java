@@ -100,14 +100,25 @@ public final class CriminalJobAssignmentSweep {
             Map<Integer, Integer> populations = populations(level);
             for (Entity entity : nearbyVillagers(level)) {
                 UUID id = entity.getUUID();
+                NpcMuggerEligibility.Facts facts =
+                        WorldCriminalJobService.facts(entity, jobs.get(id));
                 if (jobs.isCriminal(id)) {
+                    if (NpcMuggerEligibility.contradictory(facts)) {
+                        // The stale-role repair, and the reason this check sits before the skip: a
+                        // villager promoted to guard after being recorded as a criminal was otherwise
+                        // walked past on every pass for the rest of the world's life, record intact.
+                        jobs.assign(id, CriminalJob.NONE, false);
+                        McaCrime.LOGGER.debug(
+                                "MCA: Crime cleared a criminal record from law responder {}", id);
+                        continue;
+                    }
                     jobs.touchSeen(id, today);
                     continue;
                 }
                 OptionalInt village = McaCompat.getHomeVillageId(entity);
                 Candidate candidate = new Candidate(id,
                         McaCompat.isAdultVillager(entity),
-                        McaCompat.isGuard(entity) || McaCompat.isArcher(entity),
+                        NpcMuggerEligibility.evaluate(facts, NpcMuggerEligibility.Context.ASSIGNMENT),
                         false,
                         CustodyRegistry.isCaptive(server, id),
                         // MCA's own "do not overwrite this profession" flag is the only quest-critical
@@ -131,15 +142,42 @@ public final class CriminalJobAssignmentSweep {
                         liveThieves.getOrDefault(community, 0), maxThieves)) {
                     continue;
                 }
-                jobs.assign(id, rolled.get(), !candidate.hasVillage());
+                if (!begin(level, entity, jobs, rolled.get(), candidate.hasVillage())) {
+                    // Spec §10.1: a failed reservation or transition must not consume the village's
+                    // assignment cooldown as though it had succeeded, so nothing is stamped here and
+                    // the cap is not charged for a recruitment that has not committed.
+                    continue;
+                }
                 if (community != null) {
                     liveThieves.merge(community, 1, Integer::sum);
                 }
-                if (candidate.hasVillage()) {
+                if (candidate.hasVillage() && rolled.get() != CriminalJob.THIEF) {
                     markAssigned(world, level, village.getAsInt(), today);
                 }
             }
         }
+    }
+
+    /**
+     * Starts one assignment through the route that job actually uses (0.7.2 §10.1).
+     *
+     * <p>Three routes, one transition service behind all of them. A settlement thief walks to a Mask
+     * Station and becomes one only on arrival, so this returns "started" rather than "assigned" and
+     * the village cooldown is stamped by the transaction when it commits. A wild thief is the
+     * documented stationless exception and commits immediately. A fence is unchanged: occupational
+     * exclusivity is specifically a Thief rule (§9.5).
+     */
+    private static boolean begin(ServerLevel level, Entity entity, WorldCriminalJobService jobs,
+                                 CriminalJob job, boolean hasVillage) {
+        if (job != CriminalJob.THIEF) {
+            jobs.assign(entity.getUUID(), job, !hasVillage);
+            return jobs.isCriminal(entity.getUUID());
+        }
+        if (hasVillage) {
+            return ThiefWorksiteService.beginRecruitment(level, entity, OccupationSource.SETTLEMENT_SWEEP);
+        }
+        return jobs.requestThiefOccupation(
+                OccupationRequest.unbound(entity.getUUID(), OccupationSource.WILD, true)).committed();
     }
 
     /**
@@ -154,7 +192,9 @@ public final class CriminalJobAssignmentSweep {
                                                            WorldCriminalJobService jobs) {
         Map<String, Integer> counts = new HashMap<>();
         for (var record : jobs.all()) {
-            if (record.job() != CriminalJob.THIEF) {
+            if (record.job() != CriminalJob.THIEF || !record.status().employed()) {
+                // A pending recruitment walking to a station is not yet a thief and must not occupy a
+                // slot in the jurisdiction cap it has not earned.
                 continue;
             }
             for (ServerLevel level : server.getAllLevels()) {

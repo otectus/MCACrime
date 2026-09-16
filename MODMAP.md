@@ -23,83 +23,135 @@ Machine-generated map of this mod. Read this first when picking the project up.
 ```
 dev.otectus.mcacrime                                 2 files
 dev.otectus.mcacrime.action                          25 files
-dev.otectus.mcacrime.action.handler                  12 files
+dev.otectus.mcacrime.action.handler                  17 files
 dev.otectus.mcacrime.ai                              16 files
-dev.otectus.mcacrime.ai.thief                        9 files
+dev.otectus.mcacrime.ai.thief                        10 files
 dev.otectus.mcacrime.api                             1 file
 dev.otectus.mcacrime.api.event                       23 files
 dev.otectus.mcacrime.api.model                       9 files
 dev.otectus.mcacrime.api.result                      1 file
 dev.otectus.mcacrime.audio                           1 file
+dev.otectus.mcacrime.block                           2 files
 dev.otectus.mcacrime.bounty                          9 files
-dev.otectus.mcacrime.captivity                       18 files
-dev.otectus.mcacrime.client                          17 files
+dev.otectus.mcacrime.captivity                       19 files
+dev.otectus.mcacrime.client                          19 files
 dev.otectus.mcacrime.client.hud                      3 files
 dev.otectus.mcacrime.client.render                   4 files
-dev.otectus.mcacrime.client.screen                   9 files
+dev.otectus.mcacrime.client.screen                   11 files
 dev.otectus.mcacrime.client.screen.widget            3 files
 dev.otectus.mcacrime.command                         2 files
-dev.otectus.mcacrime.compat                          8 files
+dev.otectus.mcacrime.compat                          12 files
 dev.otectus.mcacrime.compat.locksreforged            2 files
 dev.otectus.mcacrime.compat.mca                      2 files
 dev.otectus.mcacrime.compat.mca.client               1 file
 dev.otectus.mcacrime.compat.mcaquests                2 files
+dev.otectus.mcacrime.compat.numismatic               1 file
 dev.otectus.mcacrime.compat.reputation               1 file
 dev.otectus.mcacrime.config                          1 file
 dev.otectus.mcacrime.crime                           3 files
 dev.otectus.mcacrime.crime.type                      6 files
-dev.otectus.mcacrime.detect                          15 files
-dev.otectus.mcacrime.dialogue                        5 files
-dev.otectus.mcacrime.economy                         12 files
+dev.otectus.mcacrime.detect                          17 files
+dev.otectus.mcacrime.dialogue                        6 files
+dev.otectus.mcacrime.economy                         15 files
 dev.otectus.mcacrime.economy.account                 6 files
 dev.otectus.mcacrime.economy.fence                   12 files
-dev.otectus.mcacrime.enforcement                     35 files
+dev.otectus.mcacrime.effect                          9 files
+dev.otectus.mcacrime.enforcement                     43 files
 dev.otectus.mcacrime.engine                          3 files
+dev.otectus.mcacrime.entity                          2 files
 dev.otectus.mcacrime.event                           3 files
-dev.otectus.mcacrime.incident                        2 files
+dev.otectus.mcacrime.incident                        3 files
 dev.otectus.mcacrime.integration                     7 files
-dev.otectus.mcacrime.item                            4 files
+dev.otectus.mcacrime.item                            11 files
+dev.otectus.mcacrime.item.contraband                 4 files
 dev.otectus.mcacrime.item.weapon                     7 files
 dev.otectus.mcacrime.jail                            16 files
-dev.otectus.mcacrime.job                             6 files
+dev.otectus.mcacrime.job                             25 files
 dev.otectus.mcacrime.justice                         2 files
 dev.otectus.mcacrime.ledger                          12 files
 dev.otectus.mcacrime.loot                            3 files
-dev.otectus.mcacrime.memory                          14 files
-dev.otectus.mcacrime.mixin                           1 file
+dev.otectus.mcacrime.mask                            7 files
+dev.otectus.mcacrime.memory                          17 files
+dev.otectus.mcacrime.menu                            6 files
+dev.otectus.mcacrime.mixin                           7 files
 dev.otectus.mcacrime.mixin.client                    1 file
 dev.otectus.mcacrime.mug                             1 file
-dev.otectus.mcacrime.mug.npc                         9 files
-dev.otectus.mcacrime.network                         23 files
+dev.otectus.mcacrime.mug.npc                         12 files
+dev.otectus.mcacrime.network                         26 files
 dev.otectus.mcacrime.ransom                          8 files
-dev.otectus.mcacrime.relationship                    1 file
+dev.otectus.mcacrime.recipe                          8 files
+dev.otectus.mcacrime.relationship                    5 files
 dev.otectus.mcacrime.state                           5 files
-dev.otectus.mcacrime.state.world                     11 files
+dev.otectus.mcacrime.state.world                     13 files
 dev.otectus.mcacrime.util                            3 files
 ```
 
-## Registered content (6 entries)
+## Registered content (15 entries)
 
-### Items (3)
+### Blocks (1)
 
 | id | field | type | declared in |
 |---|---|---|---|
-| `restraint_cuffs` | `RESTRAINT_CUFFS` | `Item` | src\main\java\dev\otectus\mcacrime\item\CrimeItems.java |
-| `restraint_locked_cuffs` | `RESTRAINT_LOCKED_CUFFS` | `Item` | src\main\java\dev\otectus\mcacrime\item\CrimeItems.java |
-| `restraint_rope` | `RESTRAINT_ROPE` | `Item` | src\main\java\dev\otectus\mcacrime\item\CrimeItems.java |
+| `mask_station` | `MASK_STATION` | `Block` | src/main/java/dev/otectus/mcacrime/block/CrimeBlocks.java |
+
+### Items (5)
+
+| id | field | type | declared in |
+|---|---|---|---|
+| `mask_station` | `MASK_STATION` | `Item` | src/main/java/dev/otectus/mcacrime/item/CrimeItems.java |
+| `restraint_cuffs` | `RESTRAINT_CUFFS` | `Item` | src/main/java/dev/otectus/mcacrime/item/CrimeItems.java |
+| `restraint_locked_cuffs` | `RESTRAINT_LOCKED_CUFFS` | `Item` | src/main/java/dev/otectus/mcacrime/item/CrimeItems.java |
+| `restraint_rope` | `RESTRAINT_ROPE` | `Item` | src/main/java/dev/otectus/mcacrime/item/CrimeItems.java |
+| `sand_bottle` | `SAND_BOTTLE` | `Item` | src/main/java/dev/otectus/mcacrime/item/CrimeItems.java |
+
+### Entities (1)
+
+| id | field | type | declared in |
+|---|---|---|---|
+| `sand_bottle` | `SAND_BOTTLE` | `EntityType<SandBottleProjectile>` | src/main/java/dev/otectus/mcacrime/entity/CrimeEntities.java |
+
+### Menus / GUIs (1)
+
+| id | field | type | declared in |
+|---|---|---|---|
+| `mask_station` | `MASK_STATION` | `MenuType<MaskStationMenu>` | src/main/java/dev/otectus/mcacrime/menu/CrimeMenus.java |
 
 ### Creative tabs (1)
 
 | id | field | type | declared in |
 |---|---|---|---|
-| `crime` | `TAB` | `CreativeModeTab` | src\main\java\dev\otectus\mcacrime\item\CrimeItems.java |
+| `crime` | `TAB` | `CreativeModeTab` | src/main/java/dev/otectus/mcacrime/item/CrimeItems.java |
+
+### Mob effects (1)
+
+| id | field | type | declared in |
+|---|---|---|---|
+| `sand_blinded` | `SAND_BLINDED` | `MobEffect` | src/main/java/dev/otectus/mcacrime/effect/CrimeEffects.java |
+
+### Recipe types (1)
+
+| id | field | type | declared in |
+|---|---|---|---|
+| `mask_making` | `MASK_MAKING` | `RecipeType<MaskMakingRecipe>` | src/main/java/dev/otectus/mcacrime/recipe/CrimeRecipes.java |
+
+### Recipe serializers (1)
+
+| id | field | type | declared in |
+|---|---|---|---|
+| `mask_making` | `MASK_MAKING_SERIALIZER` | `RecipeSerializer<MaskMakingRecipe>` | src/main/java/dev/otectus/mcacrime/recipe/CrimeRecipes.java |
 
 ### Villager Profession (2)
 
 | id | field | type | declared in |
 |---|---|---|---|
-| `fence` | `FENCE` | `VillagerProfession` | src\main\java\dev\otectus\mcacrime\job\CriminalProfessions.java |
-| `thief` | `THIEF` | `VillagerProfession` | src\main\java\dev\otectus\mcacrime\job\CriminalProfessions.java |
+| `fence` | `FENCE` | `VillagerProfession` | src/main/java/dev/otectus/mcacrime/job/CriminalProfessions.java |
+| `thief` | `THIEF` | `VillagerProfession` | src/main/java/dev/otectus/mcacrime/job/CriminalProfessions.java |
+
+### Poi Type (1)
+
+| id | field | type | declared in |
+|---|---|---|---|
+| `mask_station` | `MASK_STATION` | `PoiType` | src/main/java/dev/otectus/mcacrime/job/CrimePoiTypes.java |
 
 ## Data generation
 
@@ -109,21 +161,23 @@ _No datagen providers detected — assets and data JSON are hand-written._
 
 | kind | count |
 |---|---|
-| blockstates | 0 |
-| block models | 0 |
-| item models | 3 |
-| block textures | 0 |
-| item textures | 3 |
-| recipes | 3 |
-| block loot tables | 0 |
+| blockstates | 1 |
+| block models | 1 |
+| item models | 21 |
+| block textures | 4 |
+| item textures | 20 |
+| recipes | 7 |
+| block loot tables | 1 |
 | block tags | 0 |
-| item tags | 10 |
+| item tags | 12 |
 | biome modifiers | 0 |
 | lang files | en_us.json |
 
 Run `check_mod.py` for a full consistency check (missing models, lang keys, textures).
 
 <!-- MODMAP:AUTO:END — everything below is hand-maintained and preserved -->
+
+
 
 
 
@@ -146,3 +200,11 @@ certain way, APIs deliberately avoided, balance rules, naming rules)._
 ## Known issues
 
 _Bugs you know about but have not fixed, with the symptom and any lead._
+
+## 0.7.2 notes (hand-maintained)
+
+- The 16 mask items are registered in a loop over `item/MaskVariant` from `item/CrimeItems`, so the
+  generated inventory above lists only the literal registrations; see `docs/0.7.2/S4_MASKS.md` for
+  the catalogue (ids, families, wear budgets).
+- Stage records for the 0.7.2 work: `docs/0.7.2/BASELINE.md`, `S2_OCCUPATION.md`, `S3_STATION.md`,
+  `S4_MASKS.md`, `S6_SAND.md`, `VERIFICATION.md`.

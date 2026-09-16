@@ -8,6 +8,8 @@ import dev.otectus.mcacrime.detect.EntitySelectors;
 import dev.otectus.mcacrime.economy.Currencies;
 import dev.otectus.mcacrime.item.weapon.WeaponDetector;
 import dev.otectus.mcacrime.job.CriminalJob;
+import dev.otectus.mcacrime.job.NpcMuggerEligibility;
+import dev.otectus.mcacrime.job.NpcMuggerEligibilityReason;
 import dev.otectus.mcacrime.job.WorldCriminalJobService;
 import dev.otectus.mcacrime.mug.npc.NpcMugSession;
 import dev.otectus.mcacrime.mug.npc.NpcMuggingService;
@@ -83,6 +85,14 @@ public final class ThiefBehaviorService {
         }
         MinecraftServer server = level.getServer();
         if (server == null || WorldCriminalJobService.of(server).get(thief.getUUID()) != CriminalJob.THIEF) {
+            return;
+        }
+        // Re-decided here rather than remembered, which is what makes a config or selector reload take
+        // effect: refreshBehaviors() calls straight back into this, and a villager who has since become
+        // law loses its controller instead of keeping one from before the reload.
+        if (WorldCriminalJobService.of(server)
+                .evaluate(thief, NpcMuggerEligibility.Context.EXECUTION).rejected()) {
+            untrack(thief.getUUID());
             return;
         }
         ThiefBehaviorController controller = ACTIVE.computeIfAbsent(thief.getUUID(), id ->
@@ -192,6 +202,9 @@ public final class ThiefBehaviorService {
      */
     public static boolean forceTarget(LivingEntity thief, ServerPlayer victim) {
         if (thief == null || !(thief.level() instanceof ServerLevel level)
+                || level.getServer() == null
+                || WorldCriminalJobService.of(level.getServer())
+                        .evaluate(thief, NpcMuggerEligibility.Context.EXECUTION).rejected()
                 || !NpcMuggingService.canTarget(level, thief, victim)
                 || NpcMuggingService.isVictim(victim.getUUID())
                 || NpcMuggingService.sessionForThief(thief.getUUID()).isPresent()) {
@@ -266,6 +279,18 @@ public final class ThiefBehaviorService {
             if (!enabled || WorldCriminalJobService.of(server).get(thief.getUUID()) != CriminalJob.THIEF) {
                 // Switched off mid-session: stop cleanly rather than freezing a thief mid-approach.
                 ThiefTicker.stop(controller.thiefId());
+                finished.add(controller.thiefId());
+                continue;
+            }
+            // The role gate on the execution pass itself. A villager who became law between two think
+            // ticks stops here, with the reason carried through teardown rather than flattened.
+            NpcMuggerEligibility.Result actor = WorldCriminalJobService.of(server)
+                    .evaluate(thief, NpcMuggerEligibility.Context.EXECUTION);
+            if (actor.rejected()) {
+                ThiefTicker.stop(controller.thiefId(),
+                        actor.reason() == NpcMuggerEligibilityReason.RESPONDER
+                                ? dev.otectus.mcacrime.mug.npc.NpcMugAbortReason.ACTOR_BECAME_RESPONDER
+                                : dev.otectus.mcacrime.mug.npc.NpcMugAbortReason.CANCELLED);
                 finished.add(controller.thiefId());
                 continue;
             }
@@ -464,6 +489,11 @@ public final class ThiefBehaviorService {
             // Thieves and fences stay: a criminal job is an occupation, and only the robbing is off.
             return;
         }
+        if (level.getServer() == null || WorldCriminalJobService.of(level.getServer())
+                .evaluate(thief, NpcMuggerEligibility.Context.EXECUTION).rejected()) {
+            // Victim selection is an execution pass too: an invalid actor must not so much as look.
+            return;
+        }
         AABB box = thief.getBoundingBox().inflate(policy.targetSearchRadius());
         List<ServerPlayer> nearby = level.getEntitiesOfClass(ServerPlayer.class, box,
                 player -> player.isAlive() && !player.isSpectator());
@@ -496,7 +526,8 @@ public final class ThiefBehaviorService {
                     player.isInvulnerable(),
                     NpcMuggingService.isVictim(player.getUUID()) || targetedByAnother(controller, player.getUUID()),
                     EntitySelectors.isProtected(player),
-                    thief.hasLineOfSight(player),
+                    // A sanded thief cannot pick a mark across the square; close contact still works.
+                    dev.otectus.mcacrime.ai.NpcAwareness.canSeeNow(thief, player),
                     crowd,
                     Currencies.active().balance(player),
                     controller.failures(),
@@ -530,7 +561,8 @@ public final class ThiefBehaviorService {
         for (LivingEntity responder : level.getEntitiesOfClass(LivingEntity.class, box,
                 entity -> entity != thief && EntitySelectors.isAvailableResponder(entity))) {
             double distance = Math.sqrt(thief.distanceToSqr(responder));
-            sightings.add(new GuardRiskEvaluator.GuardSighting(distance, responder.hasLineOfSight(thief)));
+            sightings.add(new GuardRiskEvaluator.GuardSighting(distance,
+                    dev.otectus.mcacrime.ai.NpcAwareness.canSeeNow(responder, thief)));
             if (distance < nearest) {
                 nearest = distance;
                 nearestPosition = responder.position();

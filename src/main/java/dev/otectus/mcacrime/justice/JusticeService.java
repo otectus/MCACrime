@@ -34,10 +34,15 @@ public final class JusticeService {
     private JusticeService() {}
 
     public static LegalDecision forGuard(ServerLevel level, LivingEntity guard, ServerPlayer player) {
+        var c = McaCrimeConfig.COMMON;
+        // Challenging a mask wearer is a challenge and nothing more: the guard walks over and asks.
+        // It is off by default, because on a server that has not opted in a mask is a hat.
+        boolean maskWorn = c.maskEnabled.get() && c.guardsChallengeMaskWearers.get()
+                && dev.otectus.mcacrime.mask.Masks.isMasked(player);
         return evaluate(CrimeWorldData.get(level.getServer()), player.getUUID(),
                 ReportService.jurisdictionOf(level, guard), level.getGameTime(), Settings.fromConfig(),
                 LegalTarget.isEscapedPrisoner(player), LegalTarget.isHoldingCaptive(player),
-                CrimeState.isWanted(player), LegalTarget.isResistingArrest(player));
+                CrimeState.isWanted(player), LegalTarget.isResistingArrest(player), maskWorn);
     }
 
     public static LegalDecision evaluate(MinecraftServer server, UUID offender,
@@ -58,6 +63,15 @@ public final class JusticeService {
                                          @Nullable CrimeCommunityKey jurisdiction, long now,
                                          Settings settings, boolean escaped, boolean holdingCaptive,
                                          boolean wanted, boolean resistingArrest) {
+        return evaluate(data, offender, jurisdiction, now, settings, escaped, holdingCaptive, wanted,
+                resistingArrest, false);
+    }
+
+    /** A covered face is grounds to ask, when the server has said it is (0.7.0). */
+    public static LegalDecision evaluate(CrimeWorldData data, UUID offender,
+                                         @Nullable CrimeCommunityKey jurisdiction, long now,
+                                         Settings settings, boolean escaped, boolean holdingCaptive,
+                                         boolean wanted, boolean resistingArrest, boolean maskWorn) {
         if (data == null || offender == null || data.isReadOnlyFutureData() || data.isLoadFailed())
             return new LegalDecision(offender, jurisdiction, List.of(), Set.of());
         Set<UUID> reported = new HashSet<>();
@@ -86,6 +100,7 @@ public final class JusticeService {
         if (holdingCaptive) basis.add(LegalDecision.Basis.HOLDING_CAPTIVE);
         if (wanted) basis.add(LegalDecision.Basis.WANTED);
         if (resistingArrest) basis.add(LegalDecision.Basis.RESISTING_ARREST);
+        if (maskWorn) basis.add(LegalDecision.Basis.MASK_WORN);
         return new LegalDecision(offender, jurisdiction, cases, basis);
     }
 }

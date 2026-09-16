@@ -120,6 +120,8 @@ public final class GuardPopulationService {
 
     /** Counts what a village has, and converts the shortfall. */
     private static void topUp(ServerLevel level, Object village) {
+        dev.otectus.mcacrime.job.WorldCriminalJobService jobs =
+                dev.otectus.mcacrime.job.WorldCriminalJobService.of(level.getServer());
         int population = McaHandles.villagePopulation(village);
         if (population <= 0) {
             return;
@@ -141,7 +143,11 @@ public final class GuardPopulationService {
                 loadedGuards++;
                 continue;
             }
-            if (McaCompat.isAdultVillager(entity) && !McaHandles.isProfessionImportant(entity)) {
+            // The other half of the role invariant (0.7.2): excluding law from crime is worthless if
+            // this pass can turn the village thief into a guard on the next cooldown.
+            if (McaCompat.isAdultVillager(entity) && !McaHandles.isProfessionImportant(entity)
+                    && !dev.otectus.mcacrime.job.NpcMuggerEligibility.guardPromotionBlocked(
+                            jobs.isCriminal(entity.getUUID()))) {
                 candidates.add(entity);
             }
         }
@@ -157,6 +163,14 @@ public final class GuardPopulationService {
         // closest to the village centre.
         for (int i = 0; i < needed && !candidates.isEmpty(); i++) {
             Entity chosen = candidates.remove(level.random.nextInt(candidates.size()));
+            // Re-read immediately before the promotion, not only at selection: the selection list is
+            // built once per pass and a job can be assigned by the sweep, a command or a listener in
+            // between.
+            if (dev.otectus.mcacrime.job.NpcMuggerEligibility.guardPromotionBlocked(
+                    jobs.isCriminal(chosen.getUUID()))) {
+                i--; // this one did not count towards the shortfall
+                continue;
+            }
             if (McaCompat.makeGuard(chosen)) {
                 McaCrime.LOGGER.debug("MCA: Crime promoted a villager to guard in {}", keyOf(level, village));
             }

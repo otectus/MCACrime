@@ -3,7 +3,15 @@ package dev.otectus.mcacrime.ai;
 import dev.otectus.mcacrime.item.weapon.WeaponClass;
 import java.util.Map;
 
-/** Deterministic threat policy shared by reaction decisions and debug output. */
+/**
+ * Deterministic threat policy shared by reaction decisions and debug output.
+ *
+ * <p>The coercive ordering mirrors {@link ThreatComplianceDecider}: compliance is a reaction to being
+ * robbed right now, so an unarmed civilian under a live, aimed threat complies before fetching help is
+ * ever considered. A guard within earshot is the guard's business, through the mugging-notice radius,
+ * not the victim's. Help-seeking is what a non-coercive threat produces, and what remains when the
+ * operator has turned freezing off.
+ */
 public final class ThreatEvaluator {
     private ThreatEvaluator() {}
     public record Options(double meleeRange, double rangedRange, boolean panic, boolean stall,
@@ -29,11 +37,11 @@ public final class ThreatEvaluator {
         else if (weapon == 0) response = VictimReactionState.FLEEING;
         else if (options.resistance() && c.healthFraction() > 0.35 && (c.armed()
                 || c.guardNearby() && c.bravery() > 0.55 || c.protectingFamily() && c.anger() > 0.55)) response = VictimReactionState.RESISTING;
-        else if (c.guardNearby()) response = VictimReactionState.SEEKING_HELP;
         else if (c.protectingFamily() && c.bravery() >= 0.5 && score < 55) response = VictimReactionState.DEFYING;
         else if (options.panic() && c.bravery() < 0.4 && (c.recentViolence() || score >= 65)) response = VictimReactionState.PANICKING;
         else if (options.stall() && c.bravery() >= 0.48 && c.healthFraction() > 0.45 && score < 50) response = VictimReactionState.STALLING;
-        else response = options.comply() ? VictimReactionState.COMPLYING : VictimReactionState.FLEEING;
+        else if (options.comply()) response = VictimReactionState.COMPLYING;
+        else response = c.guardNearby() ? VictimReactionState.SEEKING_HELP : VictimReactionState.FLEEING;
         return new Evaluation(response, score, factors);
     }
 

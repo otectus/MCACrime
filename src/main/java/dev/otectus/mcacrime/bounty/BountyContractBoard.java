@@ -159,24 +159,50 @@ public final class BountyContractBoard {
 
     /** Every contract currently posted. */
     public static List<BountyContract> openContracts(CrimeWorldData data) {
+        return openContracts(data, null);
+    }
+
+    /**
+     * Every contract currently posted, minus {@code viewer}'s own. A null viewer filters nothing.
+     *
+     * <p>A target can never collect the contract against themselves — {@code BountyClaimLedger}
+     * refuses a self-claim outright, so paying one is impossible — and a posting nobody reading it
+     * could ever claim is worse than no posting, because the hunter would take it. So the board a
+     * wanted player is shown is the board without their own name on it.
+     */
+    public static List<BountyContract> openContracts(CrimeWorldData data, @Nullable UUID viewer) {
         List<BountyContract> out = new ArrayList<>();
         if (data == null) {
             return out;
         }
         for (BountyContractRecord record : data.bountyContracts()) {
-            out.add(BountyContract.from(record));
+            BountyContract contract = BountyContract.from(record);
+            if (viewer != null && viewer.equals(contract.targetUuid())) {
+                continue;
+            }
+            out.add(contract);
         }
         return out;
     }
 
     /** Every contract currently posted in this world. */
     public static List<BountyContract> openContracts(@Nullable MinecraftServer server) {
-        return server == null ? List.of() : openContracts(CrimeWorldData.get(server));
+        return openContracts(server, null);
+    }
+
+    /** Every contract currently posted in this world that {@code viewer} could actually claim. */
+    public static List<BountyContract> openContracts(@Nullable MinecraftServer server, @Nullable UUID viewer) {
+        return server == null ? List.of() : openContracts(CrimeWorldData.get(server), viewer);
     }
 
     /** Whether anything at all is posted. The quest bridge hides its offer when nothing is. */
     public static boolean hasOpenContracts(@Nullable MinecraftServer server) {
-        return !openContracts(server).isEmpty();
+        return hasOpenContracts(server, null);
+    }
+
+    /** Whether anything {@code viewer} could claim is posted; their own warrant does not count. */
+    public static boolean hasOpenContracts(@Nullable MinecraftServer server, @Nullable UUID viewer) {
+        return !openContracts(server, viewer).isEmpty();
     }
 
     // ------------------------------------------------------------------ presentation
@@ -227,7 +253,17 @@ public final class BountyContractBoard {
      * quest log forty posters, and the fourth one is not what the hunter is reading anyway.
      */
     public static Component describeBoard(@Nullable MinecraftServer server) {
-        List<BountyContract> open = openContracts(server);
+        return describeBoard(server, null);
+    }
+
+    /**
+     * The board as {@code viewer} may see it, without the posting against {@code viewer} themselves.
+     *
+     * <p>Still "none posted" when the only thing up is their own warrant, which is the truth from
+     * where they are standing: there is nothing there they could collect.
+     */
+    public static Component describeBoard(@Nullable MinecraftServer server, @Nullable UUID viewer) {
+        List<BountyContract> open = openContracts(server, viewer);
         if (open.isEmpty()) {
             return Component.translatable("quest.mcacrime.bounty.none_posted");
         }

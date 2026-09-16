@@ -123,4 +123,20 @@ public final class CrimeClientHandlers {
     public static void onCriminalJob(CriminalJobSyncS2CPacket msg) {
         ClientCriminalJobData.put(msg.villager(), msg.job());
     }
+
+    /**
+     * The server's answer about the style selected at a Mask Station (0.7.2 §8.1).
+     *
+     * <p>Applied only to the menu whose container id it names, so a message about a session the player
+     * has already closed changes nothing. The client stores the answer; it never decides it.
+     */
+    public static void onMaskSelection(dev.otectus.mcacrime.network.MaskSelectionS2CPacket msg) {
+        net.minecraft.client.player.LocalPlayer player = net.minecraft.client.Minecraft.getInstance().player;
+        if (player == null
+                || !(player.containerMenu instanceof dev.otectus.mcacrime.menu.MaskStationMenu menu)
+                || menu.containerId != msg.containerId()) {
+            return;
+        }
+        menu.acceptServerSelection(msg.recipeId(), msg.generation());
+    }
 }

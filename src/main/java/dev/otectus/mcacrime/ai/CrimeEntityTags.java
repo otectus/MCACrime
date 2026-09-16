@@ -28,6 +28,20 @@ public final class CrimeEntityTags {
     public static final TagKey<EntityType<?>> ARMED_VILLAGER_ROLES =
             TagKey.create(Registries.ENTITY_TYPE, McaCrime.id("armed_villager_roles"));
 
+    /**
+     * What sand cannot blind (0.7.2 §13.7). Unlike the three above this one ships <em>with</em>
+     * entries: armour stands, iron golems, snow golems, wardens, withers and the ender dragon are
+     * eyeless, mechanical or boss-immune for this mechanic by design. That is a game-design default
+     * about a thrown bottle, not a claim about how any of those mobs actually perceive the world, and
+     * a pack is free to replace the list entirely.
+     *
+     * <p>It is deliberately not the protected-victim list. {@code EntitySelectors.isProtected} treats
+     * every MCA villager as a protected <em>victim</em>, and reusing it here would make ordinary
+     * civilians immune to the one item whose whole purpose is disrupting them.
+     */
+    public static final TagKey<EntityType<?>> SAND_IMMUNE =
+            TagKey.create(Registries.ENTITY_TYPE, McaCrime.id("sand_immune"));
+
     private CrimeEntityTags() {
     }
 }

@@ -25,7 +25,17 @@ class DynamicThreatTest {
     }
     @Test void armsAndArrivingGuardsChangeOutcome() {
         assertEquals(VictimReactionState.RESISTING,response(WeaponClass.MELEE,2,0.4,false,false,true,false));
-        assertEquals(VictimReactionState.SEEKING_HELP,response(WeaponClass.MELEE,2,0.3,false,true,false,false));
+        // A guard within earshot is the guard's problem: an unarmed civilian being robbed still complies.
+        assertEquals(VictimReactionState.COMPLYING,response(WeaponClass.MELEE,2,0.3,false,true,false,false));
+        // A brave one with a guard nearby fights rather than freezes.
+        assertEquals(VictimReactionState.RESISTING,response(WeaponClass.MELEE,2,0.6,false,true,false,false));
+    }
+    @Test void helpSeekingIsWhatRemainsWithoutFreezingOrCoercion() {
+        var noFreeze = new ThreatEvaluator.Options(6, 24, true, true, true, false);
+        assertEquals(VictimReactionState.SEEKING_HELP,ThreatEvaluator.evaluate(new ThreatContext(WeaponClass.MELEE,true,true,2,1,0.3,0.2,0.5,0.4,false,0,true,false,false),noFreeze).response());
+        assertEquals(VictimReactionState.FLEEING,ThreatEvaluator.evaluate(new ThreatContext(WeaponClass.MELEE,true,true,2,1,0.3,0.2,0.5,0.4,false,0,false,false,false),noFreeze).response());
+        // Not being robbed, just menaced: a guard nearby is worth fetching.
+        assertEquals(VictimReactionState.SEEKING_HELP,ThreatEvaluator.evaluate(new ThreatContext(WeaponClass.MELEE,true,false,2,1,0.3,0.2,0.5,0.4,false,0,true,false,false),options).response());
     }
     @Test void carryingWeaponWithoutActiveAimNeverFreezes() {
         assertEquals(VictimReactionState.FLEEING,ThreatEvaluator.evaluate(new ThreatContext(WeaponClass.RANGED,false,true,3,1,0.3,0.2,0,0,false,0,false,false,false),options).response());
