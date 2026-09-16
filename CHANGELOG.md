@@ -7,8 +7,90 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); thi
 
 Compatibility: Minecraft 1.20.1 · Forge 47.x · requires MCA Reborn `[7.6,8)`, built against
 `7.6.20`. Architectury is deliberately not declared — MCA 7.6 pulls it in itself and MCA 7.7
-dropped it. Optional: MCA: Reputation `[0.2,)`; the integration itself needs `0.3.0`, and an older
-companion degrades to the built-in store rather than failing the load.
+dropped it. Optional: MCA: Reputation `[0.2,)`; the integration itself needs `0.3.0`, `0.4.1`
+unlocks receipted delivery and read-only lookup, `0.6.0` unlocks public profiles, and every older
+companion degrades to the surface it does have rather than failing the load.
+
+## [0.7.3] — unreleased
+
+Adopts MCA: Reputation 0.6.0. Nothing here requires it: an older companion, or none at all, behaves
+exactly as it did in 0.7.2, because what this mod uses is decided by a capability handshake rather
+than by a version number.
+
+### Added
+
+- **Capability negotiation with MCA: Reputation.** `compat/ReputationCapabilitySnapshot` holds what
+  the installed companion advertised, queried once per server by `ReputationBridge.negotiate` at
+  `ServerStartedEvent` and reported by `/crime debug integrations`. The API-version handshake still
+  runs and still refuses a generation this build cannot speak, but it is no longer what decides
+  which facilities are used: MCA: Reputation deliberately keeps its API version at 1 while adding
+  capabilities, so comparing versions could not tell a 0.3.0 install from a 0.6.0 one. Each of
+  keyed delivery, read-only receipt lookup, supersession, profiled delivery and bound resolution is
+  used only when its feature string is advertised, and the fallback in every case is the older
+  surface working as before.
+- **Social profiles for every shipped incident.** Seven `incident_profiles` and two
+  `credit_policies` under `data/mcacrime/mcareputation/`, attached through the new
+  `social_profile` field on all eight incident definitions. They say what a crime makes a player
+  *known for* — recognition plus violence, lawfulness and compassion evidence — separately from what
+  it costs them in standing. The two commendable profiles carry repeat-credit policies, so paying a
+  fine or serving a sentence repeatedly stops earning recognition rather than farming it; the
+  adverse ones deliberately carry none, because repetition must never make harm cheaper. No scalar
+  standing value changed. Nothing in a profile decides guilt, sentencing or bail: the legal case
+  remains entirely this mod's.
+- **Assault-to-killing parity.** `integration/SupersedePolicy` finds the linked assault a killing
+  finished, and the delivery supersedes it instead of stacking on top of it — the same fold MCA:
+  Reputation's own detector performs for the deed we took off it. Bounded by the new
+  `integrations.reputation.supersedeWindowTicks` (default 1200, `0` disables), and only within one
+  village, against the same victim, while the precursor case is still unsettled.
+- **Resolutions that arrive before their link.** A settlement committed before the incident it
+  settles has been filed is now queued and delivered once the link exists, rather than dropped. It
+  waits under the new `AWAITING_LINK` outcome, which counts against the attempt budget so a
+  settlement whose create dead-lettered does not retry forever.
+
+### Changed
+
+- **Typed delivery outcomes.** `compat/ReputationOps` no longer answers with `Optional<UUID>`. The
+  new `compat/ReputationDelivery` distinguishes accepted, accepted-with-no-public-incident,
+  duplicate, refused-for-capacity, refused-because-disabled, invalid, unknown-definition,
+  missing-incident, unavailable and lost-answer, and `integration/DeliveryOutcome` maps each one
+  honestly. Three real behaviour changes follow. An unwitnessed deed the companion legitimately
+  keeps private is now a completed operation instead of being dead-lettered as a missing datapack
+  definition (and no longer triggers the local village penalty, which contradicted the companion's
+  own unwitnessed policy). A full village ledger is now a retryable `REFUSED_CAPACITY` instead of
+  being reported as the companion being uninstalled — and never as the crime not having happened.
+  And the companion's own integration being switched off is a delay rather than a failure, so it
+  does not burn the retry budget.
+- **Civic writes go through keyed delivery.** Where the companion advertises it, incidents are
+  filed with `deliver`/`deliverProfiled` under a `mcacrime`-scoped operation key and resolutions
+  through `resolveBound`, so a replay after a crash returns the settled answer rather than
+  re-deciding anything. Crime's own dedupe keys are unchanged, so no queued operation changes
+  identity across the upgrade.
+- **The detection-authority claim respects the kind it is asked about.**
+  `compat/CrimeAuthorityPolicy` declares exactly `MCA_VILLAGER_ASSAULT` and `MCA_VILLAGER_KILL`
+  through the companion's `declaredKinds()`, and implements `canDeliver(kind)` so a claim we cannot
+  currently file — the outbox pump switched off — hands detection straight back.
+
+### Fixed
+
+- **A blanket authority claim took four deeds away from the mod that records them.** `owns(kind)`
+  ignored its argument, so while the bridge was healthy this mod claimed villager rescues, cures,
+  repelled raids and in-village player kills as well — none of which it detects. MCA: Reputation
+  stood down for all four and nobody recorded them at all. The claim is now exactly the two kinds
+  this mod produces.
+- **An NPC offender's crime was filed as a player's civic deed.** `CrimeIntegrationHooks.onCommitted`
+  did not look at `offender_kind`, so an NPC thief's theft was queued and delivered to MCA:
+  Reputation against the *villager's* UUID — opening a standing record for somebody the system only
+  ever described players with, and under 0.6.0 attaching public profile evidence to it. The new
+  `isPlayerAttributed` check reads the flag the record already stamps at commit time rather than
+  probing the world for an entity that may be dead or unloaded by the time the outbox drains.
+  Existing records written that way are not retroactively removed; nothing here can delete another
+  mod's data.
+- **A lost incident link was recovered by recording a fake assault.** `findIncident` sent a
+  synthetic `mcareputation:villager_assaulted` through the write path and read the duplicate
+  refusal to learn the id. On a companion that had forgotten the key — a receipt horizon passed, a
+  pre-0.4.1 build, retention — that probe *recorded a villager assault that never happened*. It is
+  replaced by `findReceipt`/`findIncident`/`receiptFloor`, which write nothing; where those are
+  unavailable, the answer is "unknown" and the keyed retry settles it.
 
 ## [0.7.2] — unreleased
 

@@ -4,7 +4,7 @@ import dev.otectus.mcacrime.api.model.CrimeCommunityKey;
 import dev.otectus.mcacrime.api.model.CrimeRecordView;
 import net.minecraft.server.MinecraftServer;
 
-import java.util.Optional;
+import javax.annotation.Nullable;
 import java.util.OptionalInt;
 import java.util.UUID;
 
@@ -14,11 +14,13 @@ import java.util.UUID;
  *
  * <p>This interface is the boundary. It is always loadable, because nothing in its signatures names a
  * {@code mcareputation} class — statuses cross as bounded lowercase strings rather than as
- * {@code IncidentStatus}, and communities cross as our own {@link CrimeCommunityKey}. The
- * implementation lives in {@code compat.reputation}, is reached only by name after a presence check,
- * and is the single file in this mod permitted to import the companion.
+ * {@code IncidentStatus}, communities cross as our own {@link CrimeCommunityKey}, delivery results as
+ * {@link ReputationDelivery}, and the companion's advertised capabilities as
+ * {@link ReputationCapabilitySnapshot}. The implementation lives in {@code compat.reputation}, is
+ * reached only by name after a presence check, and is the single file in this mod permitted to import
+ * the companion.
  *
- * <p>Every method is expected to contain its own failures and answer with an empty/false result
+ * <p>Every method is expected to contain its own failures and answer with an empty/unknown result
  * rather than throwing. The caller is the outbox pump, driving work that has already been committed
  * on our side; an exception escaping here would be a delivery failure dressed up as a crash.
  */
@@ -31,31 +33,56 @@ public interface ReputationOps {
     boolean acceptsWrites();
 
     /**
-     * Records the civic incident for a committed crime case.
+     * What the installed companion can actually do.
      *
-     * @return the incident's id, or empty if it was refused. A refusal is not necessarily a failure —
-     *         an unwitnessed deed the definition does not retain is legitimately dropped.
+     * <p>Asked once per server and cached by {@link ReputationBridge}, because the answer is a
+     * property of the installed jar and its config rather than of the deed being delivered. A build
+     * too old to answer gets {@link ReputationCapabilitySnapshot#unsupported}, and every feature this
+     * mod would otherwise use is then simply not used.
      */
-    Optional<UUID> recordIncident(MinecraftServer server, CrimeRecordView view,
-                                  net.minecraft.resources.ResourceLocation incidentType,
-                                  String dedupeKey, OptionalInt deltaOverride);
+    ReputationCapabilitySnapshot capabilities(@Nullable MinecraftServer server);
 
     /**
-     * Finds an incident already produced under {@code dedupeKey}, for repairing a link lost to a
-     * crash between the companion's commit and ours.
+     * Delivers the civic incident for a committed crime case under an operation key.
+     *
+     * <p>The operation key is the identity that makes this exactly-once across a crash: replaying it
+     * returns the first delivery's answer rather than recording a second incident, including for an
+     * operation that produced nothing public at all.
+     *
+     * @param precursorIncidentId  a civic incident this deed absorbs rather than stacks on — the
+     *                             assault a killing finished. Null for the ordinary case.
+     * @param supersedeWindowTicks how far back the companion should accept that precursor
+     * @return what the companion did, never null
      */
-    Optional<UUID> findIncident(MinecraftServer server, UUID playerId,
-                                CrimeCommunityKey community, String dedupeKey);
+    ReputationDelivery deliverIncident(MinecraftServer server, CrimeRecordView view,
+                                       net.minecraft.resources.ResourceLocation incidentType,
+                                       String operationKey, OptionalInt deltaOverride,
+                                       @Nullable UUID precursorIncidentId, long supersedeWindowTicks);
+
+    /**
+     * Reads back what became of an operation, <b>without writing anything</b>.
+     *
+     * <p>This is what repairs a link lost to a crash between the companion's commit and ours. The old
+     * implementation discovered the incident by sending a synthetic assault through the record path
+     * and reading the duplicate refusal — a write used as a query, which on a companion that had
+     * forgotten the key recorded a villager assault that never happened. Discovering a deed by
+     * committing one is never acceptable, whatever the odds of the race.
+     *
+     * @return the stored outcome, or {@link ReputationDelivery.Outcome#UNKNOWN} when this side has no
+     *         memory of the operation and cannot honestly say it never happened
+     */
+    ReputationDelivery findDelivery(MinecraftServer server, UUID playerId, CrimeCommunityKey community,
+                                    String operationKey);
 
     /**
      * Moves a linked incident to a resolved status.
      *
-     * @param status one of {@code atoned}, {@code apologized}, {@code forgiven}, {@code disproven}
-     * @return true when the incident now holds that status or a stronger one — a same-or-stronger
-     *         result counts as success, which is what makes a replayed resolution harmless
+     * @param status       one of {@code atoned}, {@code apologized}, {@code forgiven}, {@code disproven}
+     * @param operationKey the identity of this resolution step, used for exactly-once settlement where
+     *                     the companion supports it
      */
-    boolean resolveIncident(MinecraftServer server, UUID playerId, CrimeCommunityKey community,
-                            UUID incidentId, String status);
+    ReputationDelivery resolveIncident(MinecraftServer server, UUID playerId, CrimeCommunityKey community,
+                                       UUID incidentId, String status, String operationKey);
 
     /** The companion's canonical standing for a player in a community, for diagnostics only. */
     OptionalInt score(MinecraftServer server, UUID playerId, CrimeCommunityKey community);

@@ -40,7 +40,7 @@ dev.otectus.mcacrime.client.render                   4 files
 dev.otectus.mcacrime.client.screen                   11 files
 dev.otectus.mcacrime.client.screen.widget            3 files
 dev.otectus.mcacrime.command                         2 files
-dev.otectus.mcacrime.compat                          12 files
+dev.otectus.mcacrime.compat                          15 files
 dev.otectus.mcacrime.compat.locksreforged            2 files
 dev.otectus.mcacrime.compat.mca                      2 files
 dev.otectus.mcacrime.compat.mca.client               1 file
@@ -61,7 +61,7 @@ dev.otectus.mcacrime.engine                          3 files
 dev.otectus.mcacrime.entity                          2 files
 dev.otectus.mcacrime.event                           3 files
 dev.otectus.mcacrime.incident                        3 files
-dev.otectus.mcacrime.integration                     7 files
+dev.otectus.mcacrime.integration                     8 files
 dev.otectus.mcacrime.item                            11 files
 dev.otectus.mcacrime.item.contraband                 4 files
 dev.otectus.mcacrime.item.weapon                     7 files
@@ -72,7 +72,7 @@ dev.otectus.mcacrime.ledger                          12 files
 dev.otectus.mcacrime.loot                            3 files
 dev.otectus.mcacrime.mask                            7 files
 dev.otectus.mcacrime.memory                          17 files
-dev.otectus.mcacrime.menu                            6 files
+dev.otectus.mcacrime.menu                            7 files
 dev.otectus.mcacrime.mixin                           7 files
 dev.otectus.mcacrime.mixin.client                    1 file
 dev.otectus.mcacrime.mug                             1 file
@@ -184,6 +184,7 @@ Run `check_mod.py` for a full consistency check (missing models, lang keys, text
 
 
 
+
 ## Current focus
 
 _What you are working on right now. One or two lines._
@@ -208,3 +209,14 @@ _Bugs you know about but have not fixed, with the symptom and any lead._
   the catalogue (ids, families, wear budgets).
 - Stage records for the 0.7.2 work: `docs/0.7.2/BASELINE.md`, `S2_OCCUPATION.md`, `S3_STATION.md`,
   `S4_MASKS.md`, `S6_SAND.md`, `VERIFICATION.md`.
+
+## 0.7.3 notes (hand-maintained)
+
+- The MCA: Reputation seam is four always-loadable classes in `compat` plus one adapter:
+  `ReputationOps` (the boundary), `ReputationDelivery` (typed outcomes), `ReputationCapabilitySnapshot`
+  (the advertised feature strings) and `CrimeAuthorityPolicy` (which core kinds we claim), with
+  `compat/reputation/CrimeReputationCompat` the only file that imports the companion. `OptionalClassloadTest`
+  enforces that; adding a second class to `compat/reputation/` means updating its expectations.
+- `integration/SupersedePolicy` is pure and holds the assault-to-killing fold rules; the pump only
+  asks it while MCA: Reputation advertises `supersede`.
+- Stage records for the 0.7.3 work: `docs/0.7.3/BASELINE.md`, `VERIFICATION.md`.

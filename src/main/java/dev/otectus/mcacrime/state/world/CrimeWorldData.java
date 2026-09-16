@@ -906,6 +906,26 @@ public final class CrimeWorldData extends SavedData {
         return outbox.size();
     }
 
+    /**
+     * Whether one action is still queued for a case.
+     *
+     * <p>What a resolution asks before queueing itself against a case with no companion-side link yet:
+     * if the create is still in this queue then the link is coming, and waiting for it is honest. If it
+     * is not, nothing will ever link the case and a resolution would wait for an incident that was
+     * never filed. The outbox is capped, so this is a short scan over a bounded map.
+     */
+    public boolean hasPendingOperation(UUID crimeRecordId, ResourceLocation action) {
+        if (crimeRecordId == null || action == null) {
+            return false;
+        }
+        for (CrimeIntegrationOperation operation : outbox.values()) {
+            if (crimeRecordId.equals(operation.crimeRecordId()) && action.equals(operation.action())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     public int deadLetterCount() {
         return deadLetters.size();
     }

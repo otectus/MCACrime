@@ -5,6 +5,7 @@ import dev.otectus.mcacrime.McaCrimeConfig;
 import dev.otectus.mcacrime.api.model.CrimeRecordView;
 import dev.otectus.mcacrime.compat.CrimeIncidentMapping;
 import dev.otectus.mcacrime.compat.ReputationBridge;
+import dev.otectus.mcacrime.ledger.CrimeContext;
 import dev.otectus.mcacrime.ledger.CrimeResolutionEntry;
 import dev.otectus.mcacrime.state.world.CrimeWorldData;
 import net.minecraft.nbt.CompoundTag;
@@ -82,6 +83,13 @@ public final class CrimeIntegrationHooks {
         if (server == null || view == null || !McaCrimeConfig.COMMON.enableReputation.get()) {
             return;
         }
+        if (!isPlayerAttributed(view)) {
+            // An NPC thief's theft is a real case in our ledger and has nothing to do with anybody's
+            // civic standing. Sending it across would open a standing record keyed by a villager's
+            // UUID, and under MCA: Reputation 0.6.0 attach public profile evidence to it -- a
+            // villager who is "known for" theft, in a system that only describes players.
+            return;
+        }
         // Personal records become public only after identified information reaches an authority.
         if (McaCrimeConfig.COMMON.enableObservations.get()
                 && !"jailbreak".equals(view.context().get("detection")) && !"command".equals(view.context().get("detection"))
@@ -124,7 +132,17 @@ public final class CrimeIntegrationHooks {
                 || !McaCrimeConfig.COMMON.enableReputation.get()) {
             return;
         }
-        if (view.linkedReputationIncidentId().isEmpty() || view.community().isEmpty()) {
+        if (view.community().isEmpty()) {
+            return;
+        }
+        // A settlement can land before the create that files the incident it settles -- a fine paid in
+        // the same tick as the crime, or any resolution while the companion was away. Dropping the work
+        // there is what used to happen, and it left the village permanently accusing a player who had
+        // already paid. So the operation is queued without an incident id when the create is still in
+        // the queue, and the pump resolves the link at delivery time. What it must never do is pick
+        // some other incident to settle instead.
+        if (view.linkedReputationIncidentId().isEmpty()
+                && !CrimeWorldData.get(server).hasPendingOperation(view.id(), IntegrationTargets.ACTION_CREATE)) {
             return;
         }
         Optional<String> status = CrimeIncidentMapping.statusFor(entry.resolution(),
@@ -135,7 +153,8 @@ public final class CrimeIntegrationHooks {
         }
 
         CompoundTag payload = new CompoundTag();
-        payload.putUUID(IntegrationTargets.PAYLOAD_INCIDENT_ID, view.linkedReputationIncidentId().get());
+        view.linkedReputationIncidentId().ifPresent(incidentId ->
+                payload.putUUID(IntegrationTargets.PAYLOAD_INCIDENT_ID, incidentId));
         payload.putString(IntegrationTargets.PAYLOAD_STATUS, status.get());
         payload.putString(IntegrationTargets.PAYLOAD_DEDUPE_KEY,
                 resolutionDedupeKeyFor(view.id(), entry.revision()));
@@ -145,6 +164,19 @@ public final class CrimeIntegrationHooks {
         enqueue(server, CrimeIntegrationOperation.create(UUID.randomUUID(),
                 IntegrationTargets.REPUTATION_RESOLVE_INCIDENT, view.offenderId(), view.id(),
                 IntegrationTargets.ACTION_RESOLVE, payload, entry.gameTime()));
+    }
+
+    /**
+     * Whether this case names a player, and not a villager.
+     *
+     * <p>Both kinds of offender live in the same ledger on purpose — an NPC mugger is prosecuted by
+     * the same machinery a player is — but only one of them has civic standing. The record stamps
+     * {@code offender_kind} at commit time, and this reads it rather than probing the world for the
+     * UUID: the entity may be dead, unloaded, or in another dimension by the time the outbox drains,
+     * and "I could not find them" must never be allowed to read as "they were a player".
+     */
+    public static boolean isPlayerAttributed(CrimeRecordView view) {
+        return view != null && !"npc".equals(view.context(CrimeContext.OFFENDER_KIND).orElse("player"));
     }
 
     /** The stable identity of a crime case as the companion mod sees it. */

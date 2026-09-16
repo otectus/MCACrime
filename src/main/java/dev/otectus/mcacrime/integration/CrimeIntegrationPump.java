@@ -5,8 +5,10 @@ import dev.otectus.mcacrime.McaCrimeConfig;
 import dev.otectus.mcacrime.api.model.CrimeCommunityKey;
 import dev.otectus.mcacrime.api.model.CrimeRecordView;
 import dev.otectus.mcacrime.compat.ReputationBridge;
+import dev.otectus.mcacrime.compat.ReputationDelivery;
 import dev.otectus.mcacrime.compat.ReputationOps;
 import dev.otectus.mcacrime.ledger.CrimeCaseService;
+import dev.otectus.mcacrime.ledger.CrimeRecord;
 import dev.otectus.mcacrime.relationship.RelationshipConsequences;
 import dev.otectus.mcacrime.state.world.CrimeWorldData;
 import net.minecraft.nbt.CompoundTag;
@@ -19,6 +21,7 @@ import net.minecraftforge.event.server.ServerStoppingEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
 
+import javax.annotation.Nullable;
 import java.util.List;
 import java.util.Optional;
 import java.util.OptionalInt;
@@ -59,6 +62,10 @@ public final class CrimeIntegrationPump {
     @SubscribeEvent
     public static void onServerStarted(ServerStartedEvent event) {
         tickCounter = 0;
+        // The capability handshake runs whether or not the queue is being drained: it is a read-only
+        // question about the installed companion, and /crime debug integrations should be able to
+        // answer it even on a server that has replayPendingOperations switched off.
+        ReputationBridge.negotiate(event.getServer());
         if (!McaCrimeConfig.COMMON.replayPendingOperations.get()) {
             return;
         }
@@ -180,6 +187,16 @@ public final class CrimeIntegrationPump {
         }
     }
 
+    /**
+     * Files the civic incident for a committed case.
+     *
+     * <p>Three things changed in 0.7.3 and they are all about not guessing. The write goes through the
+     * companion's keyed delivery, so it is exactly-once across a crash and answers with a typed
+     * outcome rather than an optional id. A lost answer is repaired by reading the receipt back, never
+     * by sending another write. And a killing that finished an assault we already filed supersedes it
+     * instead of stacking on top of it, which is what the companion's own detector would have done with
+     * the deed we took off it.
+     */
     private static DeliveryOutcome deliverCreate(MinecraftServer server, ReputationOps ops,
                                                  CrimeIntegrationOperation operation) {
         CompoundTag payload = operation.payload();
@@ -195,37 +212,85 @@ public final class CrimeIntegrationPump {
         if (view.get().linkedReputationIncidentId().isPresent()) {
             return DeliveryOutcome.ALREADY_DONE;
         }
-        String dedupeKey = payload.getString(IntegrationTargets.PAYLOAD_DEDUPE_KEY);
+        String operationKey = payload.getString(IntegrationTargets.PAYLOAD_DEDUPE_KEY);
 
-        Optional<UUID> incidentId =
-                ops.recordIncident(server, view.get(), incidentType, dedupeKey, OptionalInt.empty());
-        if (incidentId.isEmpty()) {
-            // The write may still have landed and only the answer been lost -- ask before retrying,
-            // or a crash between their commit and our link write produces a second incident.
-            incidentId = ops.findIncident(server, operation.playerId(), community.get(), dedupeKey);
+        long window = supersedeWindowTicks();
+        UUID precursor = precursorFor(server, incidentType, view.get(), window);
+        ReputationDelivery delivery = ops.deliverIncident(server, view.get(), incidentType, operationKey,
+                OptionalInt.empty(), precursor, window);
+        if (delivery.outcome() == ReputationDelivery.Outcome.UNKNOWN) {
+            // The answer was lost rather than refused, and the write may well have landed. Ask -- with
+            // a read-only receipt lookup, never with another write -- before a retry files the same
+            // crime twice.
+            ReputationDelivery stored =
+                    ops.findDelivery(server, operation.playerId(), community.get(), operationKey);
+            if (stored.settled()) {
+                delivery = stored;
+            }
         }
-        if (incidentId.isEmpty()) {
-            // Genuinely not recorded. A definition the companion does not know is the common cause and
-            // is not worth retrying; anything else is.
-            return ops.holdsAuthority() ? DeliveryOutcome.UNKNOWN_TARGET : DeliveryOutcome.UNAVAILABLE;
+        delivery.incidentId().ifPresent(incidentId ->
+                CrimeCaseService.linkReputationIncident(server, operation.crimeRecordId(), incidentId));
+        if (delivery.outcome() == ReputationDelivery.Outcome.ACCEPTED_NO_PUBLIC_INCIDENT) {
+            // Accepted with nothing public to show for it -- an unwitnessed deed the definition keeps
+            // privately. The operation is finished: there is no incident to link and no resolution to
+            // deliver later, and the legal case is entirely unaffected.
+            McaCrime.LOGGER.debug("MCA: Crime — {} for crime {} was accepted without a public incident; "
+                            + "the case stands and nothing further is owed.",
+                    incidentType, operation.crimeRecordId());
         }
-        CrimeCaseService.linkReputationIncident(server, operation.crimeRecordId(), incidentId.get());
-        return DeliveryOutcome.SUCCESS;
+        return DeliveryOutcome.forCreate(delivery.outcome());
     }
 
+    /**
+     * The civic incident a fatal encounter should absorb, or null.
+     *
+     * <p>Gated on the companion advertising supersession rather than on its version: an older build
+     * simply records the killing on its own terms, which is the pre-0.7.3 behaviour.
+     */
+    @Nullable
+    private static UUID precursorFor(MinecraftServer server, ResourceLocation incidentType,
+                                     CrimeRecordView view, long windowTicks) {
+        if (windowTicks <= 0L || !SupersedePolicy.isFatal(incidentType)
+                || !ReputationBridge.capabilities().supportsSupersede()) {
+            return null;
+        }
+        List<CrimeRecordView> prior = CrimeWorldData.get(server)
+                .recordsForOffender(view.offenderId()).stream()
+                .map(CrimeRecord::view)
+                .toList();
+        return SupersedePolicy.precursorFor(incidentType, view, prior, windowTicks).orElse(null);
+    }
+
+    private static long supersedeWindowTicks() {
+        return McaCrimeConfig.COMMON.reputationSupersedeWindowTicks.get();
+    }
+
+    /**
+     * Moves a linked incident to its settled status.
+     *
+     * <p>The incident id comes from the payload when the link existed at enqueue time, and from the
+     * case itself when it did not — a fine paid in the same tick the crime was committed reaches this
+     * point before the create has been delivered. Waiting for that link is the honest answer;
+     * resolving whatever incident a selector happened to pick would settle somebody else's crime.
+     */
     private static DeliveryOutcome deliverResolve(MinecraftServer server, ReputationOps ops,
                                                   CrimeIntegrationOperation operation) {
         CompoundTag payload = operation.payload();
         Optional<CrimeCommunityKey> community =
                 CrimeCommunityKey.load(payload.getCompound(IntegrationTargets.PAYLOAD_COMMUNITY));
-        if (community.isEmpty() || !payload.hasUUID(IntegrationTargets.PAYLOAD_INCIDENT_ID)) {
+        String status = payload.getString(IntegrationTargets.PAYLOAD_STATUS);
+        if (community.isEmpty() || status.isEmpty()) {
             return DeliveryOutcome.INVALID;
         }
-        boolean resolved = ops.resolveIncident(server, operation.playerId(), community.get(),
-                payload.getUUID(IntegrationTargets.PAYLOAD_INCIDENT_ID),
-                payload.getString(IntegrationTargets.PAYLOAD_STATUS));
-        // A same-or-stronger status already in place counts as done -- that is what makes a replayed
-        // resolution harmless rather than an endless retry.
-        return resolved ? DeliveryOutcome.SUCCESS : DeliveryOutcome.TRANSIENT_FAILURE;
+        Optional<UUID> incidentId = payload.hasUUID(IntegrationTargets.PAYLOAD_INCIDENT_ID)
+                ? Optional.of(payload.getUUID(IntegrationTargets.PAYLOAD_INCIDENT_ID))
+                : CrimeCaseService.view(server, operation.crimeRecordId())
+                        .flatMap(CrimeRecordView::linkedReputationIncidentId);
+        if (incidentId.isEmpty()) {
+            return DeliveryOutcome.AWAITING_LINK;
+        }
+        ReputationDelivery result = ops.resolveIncident(server, operation.playerId(), community.get(),
+                incidentId.get(), status, payload.getString(IntegrationTargets.PAYLOAD_DEDUPE_KEY));
+        return DeliveryOutcome.forResolve(result.outcome());
     }
 }

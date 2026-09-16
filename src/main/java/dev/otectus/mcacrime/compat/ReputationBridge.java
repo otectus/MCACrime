@@ -2,6 +2,7 @@ package dev.otectus.mcacrime.compat;
 
 import dev.otectus.mcacrime.McaCrime;
 import dev.otectus.mcacrime.McaCrimeConfig;
+import net.minecraft.server.MinecraftServer;
 import net.minecraftforge.fml.ModList;
 
 import javax.annotation.Nullable;
@@ -50,6 +51,7 @@ public final class ReputationBridge {
     private static volatile boolean initialised;
     private static volatile String status = "not initialised";
     private static volatile boolean degraded;
+    private static volatile ReputationCapabilitySnapshot capabilities = ReputationCapabilitySnapshot.absent();
 
     private ReputationBridge() {
     }
@@ -108,7 +110,9 @@ public final class ReputationBridge {
             }
             status = "ready";
             McaCrime.LOGGER.info("MCA: Crime — MCA: Reputation detected (API v{}); community standing will be "
-                    + "recorded there once authority is claimed.", version);
+                    + "recorded there once authority is claimed. Which of its newer facilities are "
+                    + "actually used is decided by the capability handshake at server start, not by "
+                    + "this version number.", version);
         } catch (NoClassDefFoundError | NoSuchMethodError e) {
             // An installed companion too old to carry the API this adapter is written against. The
             // declared dependency range stays permissive on purpose -- refusing to launch over an
@@ -129,6 +133,51 @@ public final class ReputationBridge {
             McaCrime.LOGGER.error("MCA: Crime — MCA: Reputation is installed but the integration could not "
                     + "start; falling back to the built-in store. MCA: Crime remains fully playable.", t);
         }
+    }
+
+    /**
+     * Asks the companion what it can do, once per server, and caches the answer.
+     *
+     * <p>Separate from {@link #init()} and deliberately later: {@code init} runs during mod loading,
+     * where there is no server, no datapack, and therefore no answer to give about anything that
+     * depends on loaded content — which in 0.6.0 includes the whole public-profile layer. The
+     * handshake belongs where the features are about to be used.
+     *
+     * <p>Once per server rather than per delivery because the answer is a property of the installed
+     * jar and its config, and the pump asks the question for every operation it drains. Re-negotiated
+     * on the next server start, so a config change between worlds is picked up.
+     */
+    public static synchronized void negotiate(@Nullable MinecraftServer server) {
+        ReputationOps current = ops().orElse(null);
+        if (current == null) {
+            capabilities = ReputationCapabilitySnapshot.absent();
+            return;
+        }
+        try {
+            ReputationCapabilitySnapshot snapshot = current.capabilities(server);
+            capabilities = snapshot == null ? ReputationCapabilitySnapshot.absent() : snapshot;
+            McaCrime.LOGGER.info("MCA: Crime — MCA: Reputation capabilities: {}", capabilities.describe());
+            if (!capabilities.supportsDelivery()) {
+                McaCrime.LOGGER.info("MCA: Crime — this MCA: Reputation does not advertise keyed delivery, "
+                        + "so civic writes use the older record path. They stay correct; they are simply "
+                        + "not receipted, so a crash between its commit and our link write can leave one "
+                        + "queued operation to retry.");
+            }
+        } catch (Throwable t) {
+            capabilities = ReputationCapabilitySnapshot.absent();
+            McaCrime.LOGGER.warn("MCA: Crime — negotiating MCA: Reputation capabilities threw; using the "
+                    + "oldest supported surface.", t);
+        }
+    }
+
+    /**
+     * What the companion advertised at the last handshake.
+     *
+     * <p>Never null, and nothing advertised when there was no handshake — so a caller that forgets to
+     * negotiate degrades to the oldest surface rather than calling a method that is not there.
+     */
+    public static ReputationCapabilitySnapshot capabilities() {
+        return isAvailable() ? capabilities : ReputationCapabilitySnapshot.absent();
     }
 
     /**
@@ -167,6 +216,7 @@ public final class ReputationBridge {
         }
         try {
             current.releaseAuthority();
+            capabilities = ReputationCapabilitySnapshot.absent();
         } catch (Throwable t) {
             McaCrime.LOGGER.debug("MCA: Crime — releasing detection authority threw; ignoring", t);
         }
@@ -227,6 +277,7 @@ public final class ReputationBridge {
         ops = null;
         initialised = false;
         degraded = false;
+        capabilities = ReputationCapabilitySnapshot.absent();
         status = "not initialised";
     }
 }

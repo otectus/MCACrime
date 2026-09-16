@@ -1,0 +1,25 @@
+{
+  "allowed_incidents": [
+    "mcacrime:captive_rescued"
+  ],
+  "recognition": {
+    "points": 8,
+    "lifetime_ticks": 1344000,
+    "resolution_mode": "recognition"
+  },
+  "facets": {
+    "mcareputation:bravery": {
+      "points": 8,
+      "lifetime_ticks": 672000,
+      "resolution_mode": "historical"
+    },
+    "mcareputation:compassion": {
+      "points": 8,
+      "lifetime_ticks": 672000,
+      "resolution_mode": "historical"
+    }
+  },
+  "credit_class": "commendable",
+  "credit_policy": "mcacrime:captive_rescue",
+  "major_evidence": false
+}

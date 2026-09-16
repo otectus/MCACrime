@@ -180,6 +180,14 @@ One case. `witnessed` and `witnessIds` are **both** present because they genuine
 jailbreak is witnessed by the authority with no named witnesses, and a record migrated from an older
 save knows it was witnessed without knowing by whom. Never infer one from the other.
 
+`linkedReputationIncidentId` is present once the civic incident for this case has actually been
+filed in MCA: Reputation. An empty one means "not filed *yet*", never "not a real crime": the write
+is queued in the outbox and may be waiting on a companion that is absent, disabled, or whose village
+ledger is temporarily full. Since 0.7.3 it may also name a record MCA: Reputation deliberately kept
+private, because nobody witnessed the deed. Do not use its absence as evidence about the case — the
+legal facts are `resolution`, `fineAmount`, `jailTicks` and the crime type, all of which are this
+mod's own and none of which a companion mod decides.
+
 `actionable()` is true for `UNRESOLVED` and `ESCAPED` — the two states where something is still owed.
 
 ### `CrimeRecordQuery` and `CrimeRecordSelector`
