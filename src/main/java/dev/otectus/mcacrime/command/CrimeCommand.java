@@ -99,6 +99,9 @@ public final class CrimeCommand {
     /** How many recent bounty claims the debug dump prints. A long-lived world has thousands. */
     private static final int BOUNTY_CLAIM_LIST_LIMIT = 10;
 
+    /** How many loss receipts one {@code /crime property inspect} prints. */
+    private static final int PROPERTY_RECEIPT_LIST_LIMIT = 10;
+
     private CrimeCommand() {
     }
 
@@ -247,6 +250,44 @@ public final class CrimeCommand {
                                 .requires(src -> src.hasPermission(3))
                                 .then(Commands.argument("id", StringArgumentType.word())
                                         .executes(CrimeCommand::facilityRemove))))
+                .then(Commands.literal("property")
+                        .requires(src -> src.hasPermission(2))
+                        .then(Commands.literal("list")
+                                .executes(CrimeCommand::propertyList))
+                        .then(Commands.literal("inspect")
+                                .executes(ctx -> propertyInspect(ctx, null))
+                                .then(Commands.argument("pos", BlockPosArgument.blockPos())
+                                        .executes(ctx -> propertyInspect(ctx,
+                                                BlockPosArgument.getSpawnablePos(ctx, "pos")))))
+                        .then(Commands.literal("protect")
+                                .requires(src -> src.hasPermission(3))
+                                .then(Commands.argument("rule", StringArgumentType.word())
+                                        .executes(ctx -> propertyProtect(ctx, null))
+                                        .then(Commands.argument("pos", BlockPosArgument.blockPos())
+                                                .executes(ctx -> propertyProtect(ctx,
+                                                        BlockPosArgument.getSpawnablePos(ctx, "pos"))))))
+                        .then(Commands.literal("release")
+                                .requires(src -> src.hasPermission(3))
+                                .executes(ctx -> propertyRelease(ctx, null))
+                                .then(Commands.argument("pos", BlockPosArgument.blockPos())
+                                        .executes(ctx -> propertyRelease(ctx,
+                                                BlockPosArgument.getSpawnablePos(ctx, "pos"))))))
+                .then(Commands.literal("service")
+                        .requires(src -> src.hasPermission(2))
+                        .then(Commands.literal("list")
+                                .executes(ctx -> serviceList(ctx, null))
+                                .then(Commands.argument("offender", EntityArgument.entity())
+                                        .executes(ctx -> serviceList(ctx,
+                                                EntityArgument.getEntity(ctx, "offender")))))
+                        .then(Commands.literal("offer")
+                                .requires(src -> src.hasPermission(3))
+                                .then(Commands.argument("offender", EntityArgument.entity())
+                                        .then(Commands.argument("task", StringArgumentType.word())
+                                                .executes(CrimeCommand::serviceOffer))))
+                        .then(Commands.literal("cancel")
+                                .requires(src -> src.hasPermission(3))
+                                .then(Commands.argument("contract", StringArgumentType.word())
+                                        .executes(CrimeCommand::serviceCancel))))
                 .then(Commands.literal("debug")
                         .requires(src -> src.hasPermission(2))
                         .then(Commands.literal("witness").executes(ctx -> debugAwareness(ctx, "witness", null))
@@ -1077,6 +1118,231 @@ public final class CrimeCommand {
         source.sendSuccess(() -> Component.literal("Removed " + facility.describe()
                 + "; any cell slot held against it was released."), true);
         return 1;
+    }
+
+
+    // --- explicit property law (0.7.4) ------------------------------------------------------------
+
+    /**
+     * Every property policy in the world, with one line first saying whether any of it is live.
+     *
+     * <p>The state line is not decoration. Property law ships off, and a list of policies printed on a
+     * server where nothing evaluates them would read as protection that exists.
+     */
+    private static int propertyList(CommandContext<CommandSourceStack> ctx) {
+        CommandSourceStack source = ctx.getSource();
+        source.sendSuccess(() -> Component.literal(propertyState()), false);
+        var policies = dev.otectus.mcacrime.property.PropertyRegistry.list(source.getServer());
+        if (policies.isEmpty()) {
+            source.sendSuccess(() -> Component.literal("No property is claimed in this world."), false);
+            return 1;
+        }
+        for (var policy : policies) {
+            source.sendSuccess(() -> Component.literal("  " + policy.describe()), false);
+        }
+        for (String gap : dev.otectus.mcacrime.property.PropertyLawHandlers.unsupportedSources()) {
+            source.sendSuccess(() -> Component.literal("  unsupported source: " + gap)
+                    .withStyle(ChatFormatting.YELLOW), false);
+        }
+        return policies.size();
+    }
+
+    /** What a policy says about this place, what it would say to the caller, and what was lost here. */
+    private static int propertyInspect(CommandContext<CommandSourceStack> ctx, @Nullable BlockPos pos) {
+        CommandSourceStack source = ctx.getSource();
+        ServerLevel level = source.getLevel();
+        BlockPos where = pos != null ? pos : BlockPos.containing(source.getPosition());
+        source.sendSuccess(() -> Component.literal(propertyState()), false);
+        var policy = dev.otectus.mcacrime.property.PropertyRegistry.policyAt(level, where).orElse(null);
+        if (policy == null) {
+            source.sendSuccess(() -> Component.literal("Nothing claims " + where.getX() + ","
+                    + where.getY() + "," + where.getZ() + ". Taking from it is not a crime, and MCA: "
+                    + "Crime will not guess an owner for it."), false);
+            return 0;
+        }
+        source.sendSuccess(() -> Component.literal("  " + policy.describe()), false);
+        policy.jurisdiction().ifPresent(community -> source.sendSuccess(() ->
+                Component.literal("  jurisdiction: " + community.asString()), false));
+        var actor = source.getEntity() instanceof net.minecraft.server.level.ServerPlayer player
+                ? dev.otectus.mcacrime.property.PropertyRegistry.actorOf(player)
+                : dev.otectus.mcacrime.property.PropertyActor.unknown();
+        var decision = dev.otectus.mcacrime.property.PropertyAccess.decide(policy, actor,
+                dev.otectus.mcacrime.property.PropertyAccess.Operation.TAKE);
+        source.sendSuccess(() -> Component.literal("  taking, for you: "
+                + decision.verdict().name().toLowerCase(java.util.Locale.ROOT) + " — " + decision.reason()),
+                false);
+        var receipts = dev.otectus.mcacrime.state.world.CrimeWorldData.get(source.getServer())
+                .propertyReceipts().stream()
+                .filter(receipt -> receipt.container().equals(where))
+                .limit(PROPERTY_RECEIPT_LIST_LIMIT)
+                .toList();
+        for (var receipt : receipts) {
+            source.sendSuccess(() -> Component.literal("  receipt " + receipt.describe()), false);
+        }
+        return 1;
+    }
+
+    /** Claims the container at a position under one access rule. */
+    private static int propertyProtect(CommandContext<CommandSourceStack> ctx, @Nullable BlockPos pos) {
+        CommandSourceStack source = ctx.getSource();
+        String raw = StringArgumentType.getString(ctx, "rule");
+        var rule = dev.otectus.mcacrime.property.PropertyAccessRule.parse(raw).orElse(null);
+        if (rule == null) {
+            source.sendFailure(Component.literal("Unknown access rule '" + raw + "'. Expected one of "
+                    + dev.otectus.mcacrime.property.PropertyAccessRule.names()));
+            return 0;
+        }
+        ServerLevel level = source.getLevel();
+        BlockPos where = pos != null ? pos : BlockPos.containing(source.getPosition());
+        var ref = dev.otectus.mcacrime.facility.CrimeFacilityService.referenceAt(level, where);
+        // A settlement building makes the settlement the owner; anywhere else, the operator who claimed
+        // it is. Neither is inferred from what the block is -- claiming is the act that creates
+        // ownership, which is the whole point of the policy existing.
+        boolean settlement = ref.bound();
+        var ownerKind = settlement
+                ? dev.otectus.mcacrime.property.PropertyOwnerKind.VILLAGE
+                : dev.otectus.mcacrime.property.PropertyOwnerKind.PLAYER;
+        java.util.UUID owner = settlement || !(source.getEntity()
+                instanceof net.minecraft.server.level.ServerPlayer player) ? null : player.getUUID();
+        var policy = dev.otectus.mcacrime.property.PropertyPolicy.container(
+                level.dimension().location(), where, ref, ownerKind, owner, rule,
+                rule == dev.otectus.mcacrime.property.PropertyAccessRule.FORBIDDEN,
+                dev.otectus.mcacrime.property.PropertySource.MANUAL, source.getTextName(),
+                level.getGameTime());
+        if (!dev.otectus.mcacrime.property.PropertyRegistry.put(source.getServer(), policy)) {
+            source.sendFailure(Component.literal("Could not record the policy; the property table may be "
+                    + "full or the store read-only this session."));
+            return 0;
+        }
+        source.sendSuccess(() -> Component.literal("Claimed " + policy.describe()), true);
+        if (!dev.otectus.mcacrime.property.PropertyRegistry.enabled()) {
+            source.sendSuccess(() -> Component.literal("  note: townstead.propertyLaw is off, so nothing "
+                    + "evaluates this policy yet.").withStyle(ChatFormatting.YELLOW), false);
+        }
+        return 1;
+    }
+
+    /** Unclaims whatever covers a position. */
+    private static int propertyRelease(CommandContext<CommandSourceStack> ctx, @Nullable BlockPos pos) {
+        CommandSourceStack source = ctx.getSource();
+        ServerLevel level = source.getLevel();
+        BlockPos where = pos != null ? pos : BlockPos.containing(source.getPosition());
+        var policy = dev.otectus.mcacrime.property.PropertyRegistry.policyAt(level, where).orElse(null);
+        if (policy == null) {
+            source.sendFailure(Component.literal("Nothing claims " + where.getX() + "," + where.getY()
+                    + "," + where.getZ() + "."));
+            return 0;
+        }
+        if (!dev.otectus.mcacrime.property.PropertyRegistry.remove(source.getServer(), policy.id())) {
+            source.sendFailure(Component.literal("Could not release that policy; the store is read-only "
+                    + "this session."));
+            return 0;
+        }
+        // Receipts are deliberately not removed: a loss that happened under this policy still happened,
+        // and restitution is still owed to whoever owned it at the time.
+        source.sendSuccess(() -> Component.literal("Released " + policy.describe()
+                + "; the losses already recorded against it stand."), true);
+        return 1;
+    }
+
+    // --- civic service (0.7.4) --------------------------------------------------------------------
+
+    /** Every civic contract, or one offender's. */
+    private static int serviceList(CommandContext<CommandSourceStack> ctx,
+                                   @Nullable net.minecraft.world.entity.Entity offender) {
+        CommandSourceStack source = ctx.getSource();
+        source.sendSuccess(() -> Component.literal(serviceState()), false);
+        var data = CrimeWorldData.get(source.getServer());
+        var contracts = offender == null
+                ? data.serviceContracts()
+                : data.serviceContractsFor(offender.getUUID());
+        if (contracts.isEmpty()) {
+            source.sendSuccess(() -> Component.literal("No civic contract has been issued"
+                    + (offender == null ? " in this world." : " to them.")), false);
+            return 0;
+        }
+        for (var contract : contracts) {
+            source.sendSuccess(() -> Component.literal("  " + contract.describe()), false);
+        }
+        return contracts.size();
+    }
+
+    /** Offers one contract, naming the fine it stands in for. */
+    private static int serviceOffer(CommandContext<CommandSourceStack> ctx) {
+        CommandSourceStack source = ctx.getSource();
+        net.minecraft.world.entity.Entity offender;
+        try {
+            offender = EntityArgument.getEntity(ctx, "offender");
+        } catch (CommandSyntaxException e) {
+            source.sendFailure(Component.literal("No such offender."));
+            return 0;
+        }
+        String raw = StringArgumentType.getString(ctx, "task");
+        var task = dev.otectus.mcacrime.civic.CivicTask.parse(raw).orElse(null);
+        if (task == null) {
+            source.sendFailure(Component.literal("Unknown civic task '" + raw + "'. Expected one of "
+                    + dev.otectus.mcacrime.civic.CivicTask.names()));
+            return 0;
+        }
+        var offer = dev.otectus.mcacrime.civic.CivicWorkService.offer(source.getServer(),
+                offender.getUUID(), offender instanceof net.minecraft.server.level.ServerPlayer,
+                task, null, null);
+        if (!offer.made()) {
+            source.sendFailure(Component.literal("No contract was offered: " + offer.refusal().reason()
+                    + "."));
+            return 0;
+        }
+        source.sendSuccess(() -> Component.literal("Offered " + offer.contract().describe()
+                + "; it stands in for a fine of "
+                + Currencies.active().format(offer.fineAvoided()) + "."), true);
+        source.sendSuccess(() -> Component.literal("  They accept it from the crime action menu; "
+                + "nothing is settled until the work is done.").withStyle(ChatFormatting.GRAY), false);
+        return 1;
+    }
+
+    /** Withdraws a contract. The case it named is untouched, because nothing was ever taken off it. */
+    private static int serviceCancel(CommandContext<CommandSourceStack> ctx) {
+        CommandSourceStack source = ctx.getSource();
+        String raw = StringArgumentType.getString(ctx, "contract");
+        var data = CrimeWorldData.get(source.getServer());
+        var contract = data.serviceContracts().stream()
+                .filter(candidate -> candidate.contractId().toString().startsWith(raw))
+                .findFirst().orElse(null);
+        if (contract == null) {
+            source.sendFailure(Component.literal("No civic contract starts with '" + raw + "'."));
+            return 0;
+        }
+        if (!dev.otectus.mcacrime.civic.CivicWorkService.cancel(source.getServer(),
+                contract.contractId())) {
+            source.sendFailure(Component.literal("That contract is already closed, or the store is "
+                    + "read-only this session."));
+            return 0;
+        }
+        source.sendSuccess(() -> Component.literal("Cancelled " + contract.contractId()
+                + "; case " + contract.caseId() + " stands exactly as it did."), true);
+        return 1;
+    }
+
+    private static String serviceState() {
+        boolean on = dev.otectus.mcacrime.civic.CivicWorkService.enabled();
+        return "community service: " + (on ? "on" : "off")
+                + " (townstead.communityService), work suspension "
+                + TownsteadDiagnostics.describe(
+                        dev.otectus.mcacrime.compat.TownsteadCapability.WORK_SUSPENSION)
+                + ", coordination " + TownsteadDiagnostics.describe(
+                        dev.otectus.mcacrime.compat.TownsteadCapability.ACTIVITY_COORDINATION);
+    }
+
+    private static String propertyState() {
+        boolean on = dev.otectus.mcacrime.property.PropertyRegistry.enabled();
+        return "property law: " + (on ? "on" : "off")
+                + " (townstead.propertyLaw), auto-protect "
+                + (dev.otectus.mcacrime.property.PropertyRegistry.autoProtectEnabled() ? "on" : "off")
+                + ", storage hook "
+                + dev.otectus.mcacrime.compat.TownsteadDiagnostics.describe(
+                        dev.otectus.mcacrime.compat.TownsteadCapability.STORAGE_POLICY)
+                + ", watching " + dev.otectus.mcacrime.property.PropertyLawHandlers.watcherCount()
+                + " container(s)";
     }
 
     private static String roleNames() {

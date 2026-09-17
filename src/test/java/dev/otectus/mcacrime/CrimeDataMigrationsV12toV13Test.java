@@ -47,13 +47,21 @@ class CrimeDataMigrationsV12toV13Test {
         return tag;
     }
 
+    /**
+     * Thirteen is still thirteen, and still follows twelve.
+     *
+     * <p>It is deliberately no longer asserted to be the <em>current</em> schema: 0.7.4 adds fourteen,
+     * and the claim this file is responsible for is that its own step keeps its own number. Whichever
+     * schema is current is {@code CrimeDataMigrationsV13toV14Test}'s business.
+     */
     @Test
-    void theCurrentSchemaIsThirteenAndIsIntroducedOnce() {
+    void theFacilitySchemaIsThirteenAndFollowsTwelve() {
         assertEquals(13, CrimeDataMigrations.SCHEMA_TOWNSTEAD_FACILITIES);
-        assertEquals(CrimeDataMigrations.SCHEMA_TOWNSTEAD_FACILITIES, CrimeDataMigrations.CURRENT_SCHEMA);
         assertEquals(CrimeDataMigrations.SCHEMA_OCCUPATION + 1,
                 CrimeDataMigrations.SCHEMA_TOWNSTEAD_FACILITIES,
                 "schema 13 must follow 12 directly; a gap would make the version meaningless");
+        assertTrue(CrimeDataMigrations.CURRENT_SCHEMA >= CrimeDataMigrations.SCHEMA_TOWNSTEAD_FACILITIES,
+                "a later release may move past 13, but never back behind it");
     }
 
     @Test

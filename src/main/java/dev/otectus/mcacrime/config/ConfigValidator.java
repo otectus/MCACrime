@@ -1123,6 +1123,8 @@ public final class ConfigValidator {
                 c.townsteadActivityLeaseTicks.get(),
                 c.townsteadFacilitySearchRadius.get(),
                 c.holdingCellSearchRadius.get()));
+        problems.addAll(validateCommunityService(c.townsteadEnabled.get(),
+                c.townsteadCommunityService.get(), c.enableFines.get()));
 
         // Surface crime-definition JSON parse errors from the last datapack load (spec §12.3).
         for (String crimeError : CrimeTypeRegistry.lastErrors()) {
@@ -1221,6 +1223,19 @@ public final class ConfigValidator {
             return problems;
         }
 
+        // A dependency between two switches rather than between a switch and a capability, which is why
+        // it is not in the requirement table. Automatic protection writes property policies, and a
+        // policy does nothing whatsoever while property law is off -- so this combination silently
+        // fills a world's property table with claims nothing evaluates, and an operator reading
+        // "autoProtectGeneratedProperty = true" would reasonably believe their stores were protected.
+        if (Boolean.TRUE.equals(switches.get("autoProtectGeneratedProperty"))
+                && !Boolean.TRUE.equals(switches.get("propertyLaw"))) {
+            problems.add("townstead.autoProtectGeneratedProperty is on while townstead.propertyLaw is "
+                    + "off. Automatic protection only writes property policies, and nothing evaluates a "
+                    + "policy until property law is on, so no container is protected and no taking is a "
+                    + "crime. Turn propertyLaw on, or turn this off.");
+        }
+
         for (TownsteadDiagnostics.SwitchRequirement requirement : TownsteadDiagnostics.REQUIREMENTS) {
             boolean switchedOn = Boolean.TRUE.equals(switches.get(requirement.setting()));
             if (TownsteadDiagnostics.stateOf(requirement, switchedOn, available)
@@ -1237,6 +1252,29 @@ public final class ConfigValidator {
                     + "not provide " + String.join(", ", missing) + "; the feature is DEGRADED (not running), "
                     + "not off. " + requirement.summary() + " — until then MCA: Crime uses its own "
                     + "behaviour unchanged.");
+        }
+        return problems;
+    }
+
+    /**
+     * The one cross-section dependency community service has, and it is not a Townstead capability.
+     *
+     * <p>Civic work is offered exactly where a fine could have been paid, so with
+     * {@code jail.enableFines} off there is never anything for it to be an alternative to: {@code SettlementPolicy} refuses to
+     * quote, every offer is declined, and an operator reading {@code communityService = true} would
+     * reasonably believe their players had a way to work off a case. Kept out of the capability table
+     * on purpose -- that table answers "what does the installed Townstead provide", and this is a
+     * question about MCA: Crime's own settings.
+     *
+     * <p>Pure, so it can be asserted without a loaded config.
+     */
+    public static List<String> validateCommunityService(boolean townsteadEnabled,
+                                                        boolean communityService, boolean finesEnabled) {
+        List<String> problems = new ArrayList<>();
+        if (townsteadEnabled && communityService && !finesEnabled) {
+            problems.add("townstead.communityService is on while jail.enableFines is off. Civic work "
+                    + "is offered only where a fine could have been paid, so with fines disabled there "
+                    + "is nothing for it to replace and no contract will ever be offered.");
         }
         return problems;
     }

@@ -74,6 +74,17 @@ public final class FenceTradeService {
             return false;
         }
 
+        // Reference §11.5: a fence may refuse somebody it personally has reason to fear, and nobody
+        // else's opinion enters into it. Standing alone never closes the back room -- a fence's whole
+        // trade is with people the law is after.
+        dev.otectus.mcacrime.civic.ServiceRestrictionPolicy.Decision service =
+                dev.otectus.mcacrime.civic.ServiceRestrictions.decide(level, fence, player.getUUID(),
+                        dev.otectus.mcacrime.civic.ServiceKind.FENCE);
+        if (service.refused()) {
+            CrimeDialogueService.speakRefusal(fence, player, service);
+            return false;
+        }
+
         FencePolicy policy = FencePolicy.fromConfig();
         PricingInputs inputs = pricingFor(player);
         CrimeWorldData data = CrimeWorldData.get(server);
@@ -83,8 +94,14 @@ public final class FenceTradeService {
         }
         long seed = fence.getUUID().hashCode() * 31L + stock.epoch();
 
+        // The settlement this fence belongs to prices its contraband (reference §12.2). With economy
+        // profiles off, or with no settlement mod to read, this is TOWN and changes no price at all.
+        dev.otectus.mcacrime.economy.EconomyProfile economy =
+                dev.otectus.mcacrime.economy.EconomyProfileResolver.of(server,
+                        dev.otectus.mcacrime.detect.CrimeCommunityResolver.resolve(fence, level)
+                                .orElse(null));
         List<FenceOffer> planned = FenceOfferBuilder.build(seed, policy.offerCount(),
-                FenceGoodsRegistry.active().tradeable(), inputs, policy);
+                FenceGoodsRegistry.active().tradeable(), inputs, policy, economy);
         UUID fenceId = fence.getUUID();
         FenceMerchant merchant = new FenceMerchant(fence, planned, currency, stock,
                 policy.offerMaxUses(), data::putFenceStock,

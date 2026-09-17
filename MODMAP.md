@@ -23,19 +23,19 @@ Machine-generated map of this mod. Read this first when picking the project up.
 ```
 dev.otectus.mcacrime                                 2 files
 dev.otectus.mcacrime.action                          25 files
-dev.otectus.mcacrime.action.handler                  17 files
+dev.otectus.mcacrime.action.handler                  18 files
 dev.otectus.mcacrime.activity                        4 files
 dev.otectus.mcacrime.ai                              16 files
 dev.otectus.mcacrime.ai.thief                        10 files
 dev.otectus.mcacrime.api                             1 file
 dev.otectus.mcacrime.api.event                       23 files
-dev.otectus.mcacrime.api.model                       10 files
+dev.otectus.mcacrime.api.model                       12 files
 dev.otectus.mcacrime.api.result                      1 file
 dev.otectus.mcacrime.audio                           1 file
 dev.otectus.mcacrime.block                           2 files
 dev.otectus.mcacrime.bounty                          9 files
 dev.otectus.mcacrime.captivity                       20 files
-dev.otectus.mcacrime.civic                           2 files
+dev.otectus.mcacrime.civic                           9 files
 dev.otectus.mcacrime.client                          21 files
 dev.otectus.mcacrime.client.hud                      3 files
 dev.otectus.mcacrime.client.render                   4 files
@@ -56,7 +56,7 @@ dev.otectus.mcacrime.crime                           3 files
 dev.otectus.mcacrime.crime.type                      6 files
 dev.otectus.mcacrime.detect                          17 files
 dev.otectus.mcacrime.dialogue                        6 files
-dev.otectus.mcacrime.economy                         15 files
+dev.otectus.mcacrime.economy                         17 files
 dev.otectus.mcacrime.economy.account                 6 files
 dev.otectus.mcacrime.economy.fence                   12 files
 dev.otectus.mcacrime.effect                          9 files
@@ -65,7 +65,7 @@ dev.otectus.mcacrime.engine                          3 files
 dev.otectus.mcacrime.entity                          2 files
 dev.otectus.mcacrime.event                           3 files
 dev.otectus.mcacrime.facility                        7 files
-dev.otectus.mcacrime.incident                        3 files
+dev.otectus.mcacrime.incident                        4 files
 dev.otectus.mcacrime.integration                     9 files
 dev.otectus.mcacrime.item                            11 files
 dev.otectus.mcacrime.item.contraband                 4 files
@@ -80,11 +80,12 @@ dev.otectus.mcacrime.memory                          17 files
 dev.otectus.mcacrime.menu                            7 files
 dev.otectus.mcacrime.mixin                           7 files
 dev.otectus.mcacrime.mixin.client                    1 file
-dev.otectus.mcacrime.mixin.townstead                 4 files
+dev.otectus.mcacrime.mixin.townstead                 5 files
 dev.otectus.mcacrime.mixin.townstead.client          1 file
 dev.otectus.mcacrime.mug                             1 file
 dev.otectus.mcacrime.mug.npc                         12 files
 dev.otectus.mcacrime.network                         29 files
+dev.otectus.mcacrime.property                        15 files
 dev.otectus.mcacrime.ransom                          8 files
 dev.otectus.mcacrime.recipe                          8 files
 dev.otectus.mcacrime.relationship                    5 files
@@ -193,6 +194,7 @@ Run `check_mod.py` for a full consistency check (missing models, lang keys, text
 
 
 
+
 ## Current focus
 
 _What you are working on right now. One or two lines._
@@ -256,3 +258,21 @@ _Bugs you know about but have not fixed, with the symptom and any lead._
   was compiled against (`ext.townsteadProbePairs`).
 - Support matrix and known limits: `docs/0.7.3/TOWNSTEAD.md`; upstream asks:
   `docs/TOWNSTEAD_API_REQUESTS.md`.
+
+## 0.7.4 notes (hand-maintained)
+
+- Two new packages. `property/` is the explicit property law (`PropertyPolicy` and `PropertyRegistry`,
+  the pure `PropertyAccess` table, `WorkTransferContext`, `TransferAttribution`, `PropertyReceipt`,
+  the per-tick `ContainerTransferWatcher`, `PropertyTheftService`, `PropertyLawHandlers`,
+  `PropertyAutoProtection`); `civic/` grew from the read-only village security projection into the
+  civic work layer (`CivicTask`, `ServiceContract`, `CivicWorkService`, `CivicWorkHandlers`,
+  `ServiceKind`, `ServiceRestrictionPolicy`, `ServiceRestrictions`). Both are behind switches that
+  default to off (`townstead.propertyLaw`, `townstead.communityService`,
+  `townstead.serviceRestrictions`, `townstead.economyProfiles`).
+- World data is schema 14 (`state/world/CrimeDataMigrations.SCHEMA_PROPERTY_LAW`): root
+  `propertyPolicies`, `propertyReceipts` and `serviceContracts`. The 13→14 step writes only the
+  version, so a schema-13 world loads unchanged.
+- Fifth Townstead mixin: `mixin/townstead/StoragePolicyMixin`, targeting
+  `com.aetherianartificer.townstead.storage.StorageSearchContext#isProtectedStorage`. It is what makes
+  `storage_policy` reportable at all — the capability was `unavailable` in 0.7.3.
+- Support matrix and known limits for this release: `docs/0.7.4/TOWNSTEAD.md`.

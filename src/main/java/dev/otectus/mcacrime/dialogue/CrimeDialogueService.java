@@ -108,6 +108,36 @@ public final class CrimeDialogueService {
         return true;
     }
 
+    /**
+     * Says why a service was refused, and how to put it right (reference §11.5).
+     *
+     * <p>Two lines, always both: §11.5 asks a refusal to "explain the specific reason and route to
+     * repair the relationship", and a bare "no" with no way back is the failure the whole section is
+     * written against.
+     *
+     * <p>Deliberately outside the per-pair cooldown that {@link #speak} honours. A cooldown exists so a
+     * village does not chatter; a refusal is not chatter, it is the only feedback a player gets for a
+     * screen that did not open, and swallowing it would look exactly like the mod being broken.
+     *
+     * @return false when there was nothing to refuse, so a caller can tell an explained refusal from
+     *         no refusal at all
+     */
+    public static boolean speakRefusal(@Nullable LivingEntity speaker, @Nullable ServerPlayer listener,
+                                       dev.otectus.mcacrime.civic.ServiceRestrictionPolicy.Decision decision) {
+        if (listener == null || decision == null || !decision.refused()) {
+            return false;
+        }
+        Component name = speaker == null ? Component.empty() : McaCompat.getVillagerDisplayName(speaker);
+        McaCrimeConfig.Common c = McaCrimeConfig.COMMON;
+        listener.sendSystemMessage(DialogueLineFormat.render(c.dialogueMessageFormat.get(),
+                DialogueLineFormat.styleName(name, c.dialogueNameColor.get(), c.dialogueNameBold.get()),
+                Component.translatable(decision.reasonKey())));
+        if (!decision.repairKey().isEmpty()) {
+            listener.sendSystemMessage(Component.translatable(decision.repairKey()));
+        }
+        return true;
+    }
+
     /** Drops every cooldown involving this entity. Called on death and on release. */
     public static void forget(UUID entity) {
         if (entity == null) {

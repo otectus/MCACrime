@@ -105,7 +105,7 @@ that villager is then individually wanted, arrestable, and bailable by family fo
 positive karma for trading, gifting, or clicking through dialogue;
 those are farmable and belong to systems that already own them. Mixins stay narrow and are all
 either vanilla-targeted or optional: the required config touches vanilla classes only, and a second,
-plugin-gated config applies four small hooks into Townstead and is skipped entirely when Townstead
+plugin-gated config applies five small hooks into Townstead and is skipped entirely when Townstead
 is not installed. No per-tick village scans, no AI text generation, no
 telemetry, no outbound network calls. Turning a subsystem off changes behaviour only, and deletes
 nothing — but time-based retention does: stale criminal-villager records, expired bounty contracts,
@@ -145,15 +145,18 @@ on its own store. The handover is a real handshake rather than a guess — one m
 deed, never both and never neither. `/crime debug integrations` reports which.
 
 **Townstead is optional and reached only by reflection.** No class in this mod names a Townstead
-type; the adapter under `compat/townstead` matches members by name and arity, and the four Townstead
+type; the adapter under `compat/townstead` matches members by name and arity, and the five Townstead
 mixins name their targets as dotted strings in a `required: false` config whose plugin refuses to
 apply anything unless Townstead is installed and the target class is really there. With Townstead
 absent — the normal case — nothing is asked, nothing is logged as a problem, and crime behaves
 exactly as it does today. The whole integration can be switched off with `townstead.enabled`, and
 each part of it is a separate switch under `[townstead]`; a switch that is on while the Townstead
 surface behind it is missing is reported as *degraded* by `/crime validate` and
-`/crime debug townstead`, never silently ignored. See
-[the support matrix](docs/0.7.3/TOWNSTEAD.md) for what is available, degraded and unavailable.
+`/crime debug townstead`, never silently ignored. Two further layers are opt-in and off by default:
+**property law**, where marked settlement containers and buildings have an owner and taking from one
+can be a crime, and **civic work**, where an eligible case can be settled by doing something useful
+for the settlement instead of paying its fine. See
+[the support matrix](docs/0.7.4/TOWNSTEAD.md) for what is available, degraded and unavailable.
 
 ## Seeing where you stand
 
@@ -271,8 +274,9 @@ its file and field. Schemas and worked examples are in **[DATAPACK.md](DATAPACK.
 
 ## For mod authors
 
-A read-only, server-authoritative Java API plus eleven Forge events. Mutation is never exposed —
-it stays behind the single state chokepoint on purpose. See **[API.md](API.md)**.
+A read-only, server-authoritative Java API plus twenty-two Forge events, of which the eleven most
+often used are documented in detail. Mutation is never exposed — it stays behind the single state
+chokepoint on purpose. See **[API.md](API.md)**.
 
 ## Upgrading an existing world
 
@@ -287,7 +291,7 @@ policy, what changes about village identity, and what an old jar does with a new
 |---|---|
 | [CONFIG.md](CONFIG.md) | every config option, default, range, and disabled behaviour |
 | [DATAPACK.md](DATAPACK.md) | crime and incident schemas with examples |
-| [API.md](API.md) | the public Java API, the eleven Forge events, and the failure contracts |
+| [API.md](API.md) | the public Java API, its Forge events, and the failure contracts |
 | [MIGRATION.md](MIGRATION.md) | schema migration, removal, and rollback |
 | [CHANGELOG.md](CHANGELOG.md) | release notes |
 | [CURSEFORGE.md](CURSEFORGE.md) | the store listing copy |

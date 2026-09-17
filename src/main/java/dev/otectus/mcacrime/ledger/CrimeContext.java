@@ -65,6 +65,25 @@ public final class CrimeContext {
     public static final String COMBAT_INITIATOR = "combat_initiator";
     public static final String COMBAT_BASIS = "combat_basis";
     public static final String DAMAGE_ATTRIBUTION = "damage_attribution";
+    /**
+     * Where the act physically happened (0.7.4), written only by an incident that carries a typed
+     * {@code IncidentContext}.
+     *
+     * <p>Distinct from every community field already on a record: a theft in a settlement's granary has
+     * a position in one village and a victim who may live in another, and until property law nothing
+     * needed to tell those apart.
+     */
+    public static final String INCIDENT_DIMENSION = "incident_dim";
+    public static final String INCIDENT_POSITION = "incident_pos";
+    /** Why this record's community is the one it is: property, victim home, event location, or none. */
+    public static final String COMMUNITY_BASIS = "community_basis";
+    /** The property policy a theft was committed against, and the revision its terms were at. */
+    public static final String PROPERTY_ID = "property_id";
+    public static final String PROPERTY_REVISION = "property_rev";
+    /** The committed container transfer this record charges. One record per transfer id. */
+    public static final String TRANSFER_ID = "transfer_id";
+    /** The grouping key that binds several transfers of one continuous action to one incident. */
+    public static final String TRANSFER_GROUP = "transfer_group";
 
     private CrimeContext() {
     }

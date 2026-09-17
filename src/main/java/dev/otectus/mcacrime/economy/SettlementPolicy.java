@@ -1,12 +1,14 @@
 package dev.otectus.mcacrime.economy;
 
 import dev.otectus.mcacrime.McaCrimeConfig;
+import dev.otectus.mcacrime.api.model.CrimeCommunityKey;
 import dev.otectus.mcacrime.crime.Band;
 import dev.otectus.mcacrime.ledger.CrimeContext;
 import dev.otectus.mcacrime.ledger.CrimeFlag;
 import dev.otectus.mcacrime.ledger.CrimeRecord;
 import dev.otectus.mcacrime.state.world.CrimeWorldData;
 
+import javax.annotation.Nullable;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -40,6 +42,34 @@ public final class SettlementPolicy {
                     c.jailableHeatThreshold.get(), c.blueFineMultiplier.get(), c.redCanPayFine.get(),
                     c.maxCasesPerFinePayment.get());
         }
+
+        /**
+         * The same settings with this settlement's economy profile applied to the two fine components
+         * (reference §12.2).
+         *
+         * <p>The multiplier is applied here rather than to the finished price, and that is the point:
+         * a quote priced through scaled settings is the price that is displayed <em>and</em> the price
+         * that is charged, so the two cannot drift. The eligibility numbers are untouched — the
+         * jailable threshold and the outlaw bar are rules about how serious a crime is, not about how
+         * rich the village is, and scaling them would make the same crime jailable in one settlement
+         * and finable in the next.
+         *
+         * <p>With {@code townstead.economyProfiles} off, or with no settlement mod to read, the
+         * profile is {@link EconomyProfile#TOWN} and this returns exactly {@link #fromConfig()}.
+         */
+        public static Settings forCommunity(@Nullable CrimeCommunityKey community) {
+            Settings base = fromConfig();
+            EconomyProfile profile = EconomyProfileResolver.of(community);
+            return profile.neutral() ? base : base.scaledBy(profile);
+        }
+
+        /** This settings snapshot with one profile's fine multiplier folded into it. */
+        public Settings scaledBy(EconomyProfile profile) {
+            return profile == null || profile.neutral() ? this
+                    : new Settings(finesEnabled, profile.scaleFine(fineBase),
+                            profile.scaleFine(finePerHeat), jailableHeatThreshold, blueFineMultiplier,
+                            redCanPayFine, maxCasesPerPayment);
+        }
     }
 
     private SettlementPolicy() {
@@ -47,13 +77,38 @@ public final class SettlementPolicy {
 
     /** Voluntary whole-record settlement outside a guard encounter, including unreported cases. */
     public static SettlementQuote quote(CrimeWorldData data, UUID offender, long heat, Band band, long now) {
-        return quote(data, offender, heat, band, List.of(), true, now, Settings.fromConfig());
+        return quote(data, offender, heat, band, List.of(), true, now,
+                Settings.forCommunity(communityOf(data, offender, List.of())));
     }
 
     /** As above, with the cases and the settings named. */
     public static SettlementQuote quote(CrimeWorldData data, UUID offender, long heat, Band band,
                                         List<UUID> requestedCaseIds, boolean payAll, long now) {
-        return quote(data, offender, heat, band, requestedCaseIds, payAll, now, Settings.fromConfig());
+        return quote(data, offender, heat, band, requestedCaseIds, payAll, now,
+                Settings.forCommunity(communityOf(data, offender, requestedCaseIds)));
+    }
+
+    /**
+     * Which settlement's economy prices this settlement.
+     *
+     * <p>The newest actionable case that names one, which is the same rule the reaction layer uses for
+     * "the settlement a player's legal situation belongs to". A record spanning two villages is priced
+     * by the one whose case is freshest rather than averaged: an average would be a fourth profile
+     * nobody configured, and there is no such thing as half a village.
+     */
+    @Nullable
+    private static CrimeCommunityKey communityOf(CrimeWorldData data, UUID offender,
+                                                 List<UUID> requestedCaseIds) {
+        if (data == null || offender == null) {
+            return null;
+        }
+        for (CrimeRecord record : selectable(data, offender, requestedCaseIds)) {
+            CrimeCommunityKey community = record.communityKey().orElse(null);
+            if (community != null) {
+                return community;
+            }
+        }
+        return null;
     }
 
     /**

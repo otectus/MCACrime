@@ -121,8 +121,12 @@ class ActionRoutingTest {
 
     @Test
     void selfActionsAreDistinctFromTargetedOnes() {
+        // Civic service belongs here with the fine and the bail: all three are the same question asked
+        // of the player about their own record, and the whole design of the offer is that they are
+        // three rows of one list rather than three interfaces.
         Set<ResourceLocation> expectedSelf = Set.of(CrimeActionIds.ESCAPE, CrimeActionIds.SURRENDER,
-                CrimeActionIds.SETTLE_CASE, CrimeActionIds.PAY_RANSOM, CrimeActionIds.BAIL);
+                CrimeActionIds.SETTLE_CASE, CrimeActionIds.PAY_RANSOM, CrimeActionIds.BAIL,
+                CrimeActionIds.CIVIC_SERVICE);
         for (ResourceLocation id : declaredActionIds()) {
             CrimeActionHandler handler = ActionHandlerRegistry.get(id);
             if (handler == null) continue;

@@ -1,6 +1,7 @@
 package dev.otectus.mcacrime.compat;
 
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.level.Level;
 
@@ -156,6 +157,26 @@ public final class TownsteadTickContext {
             return null;
         }
         return living.getUUID().equals(context.entity()) ? context.entity() : null;
+    }
+
+    /**
+     * The level whose tick is running right now, or {@code null}.
+     *
+     * <p>The same staleness rules as {@link #currentEntityId()}, for the same reason: a hook that needs
+     * a level rather than an identity -- the storage-sourcing hook does -- must not be handed one from
+     * a tick that has already ended or from another thread. A client level never answers.
+     */
+    @Nullable
+    public static ServerLevel currentServerLevel() {
+        Ticking context = current;
+        LivingEntity living = entity;
+        if (context == null || living == null || Thread.currentThread() != thread) {
+            return null;
+        }
+        if (!(living.level() instanceof ServerLevel level)) {
+            return null;
+        }
+        return context.matches(level.getGameTime(), level.dimension().location()) ? level : null;
     }
 
     /** Whether anything is being tracked at all. Diagnostics and tests only. */

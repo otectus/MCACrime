@@ -1722,24 +1722,47 @@ public final class McaCrimeConfig {
                     "default: it changes detection and threat numbers a server owner has already tuned.")
                     .define("needResponseModifiers", false);
             townsteadPropertyLaw = b.comment(
-                    "Treat settlement-owned containers and buildings as property, so taking from one is a",
-                    "crime with an owner. Needs a Townstead storage-access surface; off by default.")
+                    "Treat marked containers and buildings as property, so taking from one can be a crime",
+                    "with an owner, and keep settlement workers out of a container this mod is answerable",
+                    "for. Ownership is never inferred: a container nothing claims is reported, never",
+                    "charged to anybody. A taking is attributed only when a container lost exactly what one",
+                    "actor gained in the same tick, in a plain vanilla chest, shulker box, hopper or",
+                    "dispenser menu; anything else is reported as unattributed or unsupported. The storage",
+                    "exclusion is provided by MCA: Crime's own hook into Townstead rather than by a",
+                    "Townstead API. Off by default.")
                     .define("propertyLaw", false);
             townsteadAutoProtectGeneratedProperty = b.comment(
-                    "Automatically apply property protection to buildings Townstead generates, rather than",
-                    "only to ones an operator marked. Only meaningful with propertyLaw on.")
+                    "Derive property policies instead of marking every container by hand. Bounded on",
+                    "purpose: it covers assigned civic facilities whose role is evidence storage or a jail",
+                    "cell, and the recognised building at those anchors -- it never walks the world looking",
+                    "for chests, and never touches a policy an operator wrote. Only meaningful with",
+                    "propertyLaw on.")
                     .define("autoProtectGeneratedProperty", false);
             townsteadServiceRestrictions = b.comment(
-                    "Let a settlement refuse services to an outlaw -- trade, healing, lodging. Off by",
-                    "default: it can strand a player with no route back to lawful standing.")
+                    "Let a settlement refuse services to an outlaw -- trade, luxuries, the fence's back",
+                    "room. Food, shelter and care are never refused, and neither are surrender,",
+                    "restitution or settling a case, so a player always has a route back. A refusal is",
+                    "either personal (this villager remembers being harmed by you, and it fades as the",
+                    "memory does) or public (you are wanted here and this settlement knows of an open",
+                    "case). Standing alone never refuses anything. Off by default.")
                     .define("serviceRestrictions", false);
             townsteadCommunityService = b.comment(
-                    "Offer civic work as a way to settle a sentence. Off by default; needs the civic work",
-                    "layer, which is a later release.")
+                    "Offer civic work as a way to settle an eligible case instead of paying its fine.",
+                    "Offered only where a fine could have been paid, for one case at a time, and only for",
+                    "cases the settlement actually knows about; completing the work settles that case and",
+                    "nothing else, and failing it leaves the original fine exactly as it was.",
+                    "Note on villagers: a villager working off a contract is stopped from STARTING a",
+                    "settlement work shift, and is never interrupted mid-task -- a recipe already under",
+                    "way is allowed to finish, because there is no safe way to unwind its staged",
+                    "ingredients from outside. Off by default.")
                     .define("communityService", false);
             townsteadEconomyProfiles = b.comment(
-                    "Let a village's Townstead character shape fence prices and fine scales. Off by default:",
-                    "it makes the same crime cost different amounts in different villages.")
+                    "Let a village's Townstead character shape fence prices, fine scales and bounties. Off",
+                    "by default: it makes the same crime cost different amounts in different villages.",
+                    "Three fixed profiles, every multiplier between 0.5x and 2x, and a profile may only",
+                    "select a SMALLER villager purse refill than the one configured -- never a larger one,",
+                    "so no village can mint currency. A settlement whose character cannot be read is",
+                    "priced as an ordinary town, and /crime validate reports that as degraded, not off.")
                     .define("economyProfiles", false);
             townsteadAutomaticShiftAssignment = b.comment(
                     "Let MCA: Crime assign guard shifts through Townstead's own scheduler. Needs an activity",

@@ -38,8 +38,22 @@ public final class VillagerPurse {
 
     /** At most one income increment is applied, no matter how many unloaded days elapsed. */
     public void refill(long day) {
+        refill(day, dailyIncome);
+    }
+
+    /**
+     * The same, with the day's income capped at {@code maxIncome}.
+     *
+     * <p>The cap is a ceiling and never a floor, which is the whole of reference §12.2's money rule: a
+     * settlement profile may select a smaller refill than the operator configured and can never select
+     * a larger one, so no profile, snapshot refresh or calendar roll can put currency into the world
+     * that the configuration did not already allow. Capacity still bounds the result, so a capped
+     * refill can only ever be smaller than an uncapped one.
+     */
+    public void refill(long day, int maxIncome) {
         if (day > lastRefillDay) {
-            balance = Math.min(capacity, balance + dailyIncome);
+            int income = Math.max(0, Math.min(dailyIncome, maxIncome));
+            balance = Math.min(capacity, balance + income);
             lastRefillDay = day;
             revision++;
         }

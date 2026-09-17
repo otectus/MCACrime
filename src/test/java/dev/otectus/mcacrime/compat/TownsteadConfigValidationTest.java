@@ -74,6 +74,61 @@ class TownsteadConfigValidationTest {
                 96, 24));
     }
 
+    /**
+     * Property law on while the storage hook is missing is DEGRADED, not off.
+     *
+     * <p>The word matters more here than anywhere else in the section. An operator who turned property
+     * law on believes their village stores are protected; with no storage hook the settlement's own
+     * workers walk straight into the evidence chest, and the only thing standing between that and a
+     * silent failure is this line.
+     */
+    @Test
+    void propertyLawWithoutTheStorageHookIsReportedAsDegraded() {
+        Map<String, Boolean> switches = allOff();
+        switches.put("propertyLaw", true);
+
+        List<String> problems = ConfigValidator.validateTownstead(
+                true, true, switches, bound(TownsteadCapability.READ_BUILDING), 20, 40, 96, 24);
+
+        assertEquals(1, problems.size(), problems.toString());
+        assertTrue(problems.get(0).contains("townstead.propertyLaw"));
+        assertTrue(problems.get(0).contains(TownsteadCapability.STORAGE_POLICY.id()));
+        assertTrue(problems.get(0).contains("DEGRADED"));
+    }
+
+    /**
+     * Automatic protection with property law off is a problem in its own right.
+     *
+     * <p>Not a capability gap -- a dependency between two switches, which is why it is not expressed in
+     * the requirement table. The sweep would write real policies into the world and nothing would ever
+     * evaluate one, so an operator reading their own config would believe their stores were protected
+     * while every container in the village was open.
+     */
+    @Test
+    void automaticProtectionWithoutPropertyLawIsReported() {
+        Map<String, Boolean> switches = allOff();
+        switches.put("autoProtectGeneratedProperty", true);
+
+        List<String> problems = ConfigValidator.validateTownstead(
+                true, true, switches, bound(TownsteadCapability.BUILDING_ENUMERATION), 20, 40, 96, 24);
+
+        assertEquals(1, problems.size(), problems.toString());
+        assertTrue(problems.get(0).contains("townstead.autoProtectGeneratedProperty"));
+        assertTrue(problems.get(0).contains("townstead.propertyLaw"));
+    }
+
+    /** Both switches on and both capabilities bound is silent. */
+    @Test
+    void propertyLawWithEverythingBoundIsSilent() {
+        Map<String, Boolean> switches = allOff();
+        switches.put("propertyLaw", true);
+        switches.put("autoProtectGeneratedProperty", true);
+
+        assertEquals(List.of(), ConfigValidator.validateTownstead(true, true, switches,
+                bound(TownsteadCapability.STORAGE_POLICY, TownsteadCapability.READ_BUILDING,
+                        TownsteadCapability.BUILDING_ENUMERATION), 20, 40, 96, 24));
+    }
+
     @Test
     void aSwitchThatIsOffIsSilentEvenWithNothingBound() {
         assertEquals(List.of(), ConfigValidator.validateTownstead(true, true, allOff(), bound(), 20, 40, 96, 24));
@@ -129,6 +184,17 @@ class TownsteadConfigValidationTest {
             assertFalse(requirement.capabilities().isEmpty(),
                     requirement.setting() + " needs no capability, so it could never be degraded -- either "
                             + "it does not belong in this table or its requirement was dropped");
+            // The mirror of the assertion above, and the bug it was written after: communityService
+            // used to require WORK_SUSPENSION, which nothing in the binding or the mixin layer ever
+            // reports to TownsteadBridge.has -- so the switch was permanently DEGRADED however well the
+            // feature worked, which is exactly the "a protection is not running" signal this whole
+            // vocabulary exists to keep meaningful. A limitation belongs in a config comment; a
+            // requirement list may only name capabilities that can actually be present.
+            assertFalse(requirement.capabilities().contains(TownsteadCapability.WORK_SUSPENSION),
+                    requirement.setting() + " requires work_suspension, which TownsteadBridge.has never "
+                            + "grants: the start-gate is MCA: Crime's own vanilla brain hook and is "
+                            + "reported separately as degraded (start-gate only). A switch that names it "
+                            + "can never read as active.");
         }
     }
 

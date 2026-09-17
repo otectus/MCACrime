@@ -54,7 +54,17 @@ public record CrimeActivityView(UUID entity,
         /** An autonomous thief is running a crime action. */
         THIEF_ACTION(Authority.ROUTINE),
         /** An NPC mugging session is open. */
-        MUGGING(Authority.ROUTINE);
+        MUGGING(Authority.ROUTINE),
+        /**
+         * A villager is working off a civic service contract.
+         *
+         * <p>Routine, and deliberately the weakest useful strength: civic work is what somebody does
+         * <em>instead</em> of a fine, so an arrest, a pursuit or a custody transfer must be able to
+         * take the villager straight out of it. What the claim buys is the other direction — a
+         * settlement work shift may not start while the villager is on civic duty, which is the
+         * start-gate MCA: Crime already owns.
+         */
+        CIVIC_SERVICE(Authority.ROUTINE);
 
         private final Authority authority;
 

@@ -63,6 +63,15 @@ public final class TownsteadMixinStatus {
     public static final String HOOK_WORK_TOOL_FORGET = "work_tool_forget";
 
     /**
+     * The settlement storage-sourcing hook, in {@code StoragePolicyMixin}.
+     *
+     * <p>Fires on every protected-storage question the settlement mod asks, which on a village with
+     * workers is many times a second -- so unlike the work-tool hooks, "applied but never fired" here
+     * really does mean the injection point moved rather than that nothing has happened yet.
+     */
+    public static final String HOOK_STORAGE_POLICY = "storage_policy";
+
+    /**
      * The dialogue screen's {@code init()} hook, in {@code client/RpgDialogueEntryMixin}.
      *
      * <p>The one that carries the capability: it fires the first time anybody opens a Townstead
@@ -88,6 +97,9 @@ public final class TownsteadMixinStatus {
 
     /** The mixin that tells a Townstead display tool apart from a villager's own equipment. */
     public static final String MIXIN_WORK_TOOL_PROVENANCE = "WorkToolProvenanceMixin";
+
+    /** The mixin that keeps settlement workers out of evidence storage and reserved containers. */
+    public static final String MIXIN_STORAGE_POLICY = "StoragePolicyMixin";
 
     /**
      * The client mixin that adds MCA: Crime's law action to Townstead's dialogue screen.

@@ -336,6 +336,55 @@ class TownsteadMixinTargetTest {
     }
 
     /**
+     * The storage search context still asks the question the property hook answers.
+     *
+     * <p>{@code isProtectedStorage} is checked by exact descriptor above, along with every other named
+     * method, so what is worth asserting separately is the part a descriptor does not say. It has to be
+     * an <em>instance</em> method, because {@code StoragePolicyMixin}'s handler is an instance handler
+     * and Mixin refuses the merge outright if the target is static. And the policy it consults still has
+     * to be a static call into Townstead's config rather than something derived from the villager, or
+     * the method has stopped meaning "is this block a protected storage block" and forcing its result
+     * would be forcing something else.
+     */
+    @Test
+    void theStorageContextStillAsksAStaticBlockPolicy() throws IOException {
+        Map<String, Path> jars = suppliedJars();
+        Assumptions.assumeFalse(jars.isEmpty(), "No Townstead jar supplied.");
+
+        String context = "com.aetherianartificer.townstead.storage.StorageSearchContext";
+        String descriptor = "isProtectedStorage(Lnet/minecraft/core/BlockPos;"
+                + "Lnet/minecraft/world/level/block/state/BlockState;)Z";
+        for (Map.Entry<String, Path> jar : jars.entrySet()) {
+            try (ZipFile zip = new ZipFile(jar.getValue().toFile())) {
+                assertNotNull(entry(zip, context),
+                        context + " is not in the " + jar.getKey() + " jar; TownsteadMixinPlugin would "
+                                + "refuse StoragePolicyMixin and storage_policy would report unavailable");
+                ClassNode target = classNode(zip, context);
+                MethodNode method = find(target, descriptor);
+                assertNotNull(method, descriptor + " is absent from " + context + " in the "
+                        + jar.getKey() + " jar, or its parameters changed.");
+                assertEquals(0, method.access & Opcodes.ACC_STATIC,
+                        "StoragePolicyMixin injects an instance handler; a static target would be "
+                                + "refused outright in the " + jar.getKey() + " jar.");
+
+                boolean delegates = false;
+                for (AbstractInsnNode insn : method.instructions) {
+                    if (insn instanceof MethodInsnNode call && insn.getOpcode() == Opcodes.INVOKESTATIC
+                            && call.owner.endsWith("TownsteadConfig")
+                            && "isProtectedStorage".equals(call.name)) {
+                        delegates = true;
+                    }
+                }
+                assertTrue(delegates, context + ".isProtectedStorage no longer delegates to the static "
+                        + "block policy in the " + jar.getKey() + " jar; forcing its return value may "
+                        + "now be forcing a different question.");
+                System.out.println("[mixin] " + jar.getKey() + " StorageSearchContext.isProtectedStorage: "
+                        + "instance method delegating to TownsteadConfig");
+            }
+        }
+    }
+
+    /**
      * The dialogue screen's two hooks, under the names a production jar actually uses.
      *
      * <p>The one place in this package where the target member is a <em>vanilla</em> name, and therefore

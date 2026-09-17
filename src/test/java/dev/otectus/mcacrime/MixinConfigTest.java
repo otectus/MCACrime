@@ -106,6 +106,21 @@ class MixinConfigTest {
         assertFalse(mixins(CONFIG, "client").contains("SandSensingMixin"));
     }
 
+    /**
+     * The storage-sourcing hook belongs on the machine that owns the decision.
+     *
+     * <p>Settlement workers source from containers on the server, so a storage hook listed under
+     * {@code client} would keep villagers out of evidence storage in single player and let them empty
+     * it on every multiplayer server -- the same failure the sand sensing hook above exists to catch,
+     * and equally invisible until somebody's case goes missing.
+     */
+    @Test
+    void theStoragePolicyHookIsCommon() {
+        assertTrue(mixins(TOWNSTEAD_CONFIG, "mixins").contains("StoragePolicyMixin"),
+                "property protection must apply on the dedicated server, not only in single player");
+        assertFalse(mixins(TOWNSTEAD_CONFIG, "client").contains("StoragePolicyMixin"));
+    }
+
     @Test
     void everyListedMixinExistsOnDisk() {
         for (Path config : List.of(CONFIG, TOWNSTEAD_CONFIG)) {

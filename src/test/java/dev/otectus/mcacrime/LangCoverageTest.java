@@ -168,6 +168,12 @@ class LangCoverageTest {
                 : dev.otectus.mcacrime.mask.MaskRestyleRejection.values()) {
             require(lang, missing, rejection.labelKey());
         }
+        // A civic contract names its work from CivicTask.labelKey(), and that name is an argument to
+        // the acceptance and completion lines -- so a task added without a key reaches the player as a
+        // raw id inside an otherwise correct sentence, which is the hardest version of this bug to spot.
+        for (dev.otectus.mcacrime.civic.CivicTask task : dev.otectus.mcacrime.civic.CivicTask.values()) {
+            require(lang, missing, task.labelKey());
+        }
 
         assertTrue(missing.isEmpty(),
                 "These translation keys are built by concatenation and have no entry in en_us.json:\n  "
