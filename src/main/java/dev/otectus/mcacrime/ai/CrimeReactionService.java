@@ -103,7 +103,7 @@ public final class CrimeReactionService {
         if (!McaCrimeConfig.COMMON.enableVillagerReactions.get() || level == null || villager == null) {
             return null;
         }
-        if (!McaCompat.isMcaVillager(villager) || !NpcAwareness.isAwake(villager)) {
+        if (!McaCompat.isMcaVillager(villager) || !NpcAwareness.canObserveAct(villager)) {
             return null;
         }
         if (initial != VictimReactionState.CAPTIVE && dev.otectus.mcacrime.state.world.CrimeWorldData
@@ -128,6 +128,13 @@ public final class CrimeReactionService {
         }
         ActiveCrimeReactionController controller = new ActiveCrimeReactionController(villager.getUUID(),
                 level.dimension().location(), offender, observationId, level.getGameTime());
+        // A reaction is the weakest thing MCA: Crime does to a villager, so this claim is refused
+        // outright while anything stronger holds them -- and a refusal is not a reason to abandon the
+        // reaction, only a statement that this controller does not own their movement.
+        controller.setActivityGeneration(dev.otectus.mcacrime.activity.CrimeActivityRegistry.claim(
+                villager.getUUID(), level.dimension().location(),
+                dev.otectus.mcacrime.activity.CrimeActivityView.Kind.REACTION, "reaction",
+                level.getGameTime()));
         ACTIVE.put(villager.getUUID(), controller);
         transition(level, controller, initial, durationOf(initial));
         return controller;
@@ -233,10 +240,15 @@ public final class CrimeReactionService {
                 continue;
             }
             if (!ReactionControlPolicy.mayControl(EntitySelectors.isResponder(villager),
-                    LawHold.isHeld(villager.getUUID(), now), controller.state())) {
+                    LawHold.isHeld(villager.getUUID(), now), controller.state(),
+                    controller.activityGeneration(),
+                    dev.otectus.mcacrime.activity.CrimeActivityRegistry.generationOf(
+                            villager.getUUID(), now))) {
                 finished.add(controller.villagerId());
                 continue;
             }
+            dev.otectus.mcacrime.activity.CrimeActivityRegistry.renew(villager.getUUID(),
+                    controller.activityGeneration(), now);
             if (!think(level, controller, villager, now)) {
                 finished.add(controller.villagerId());
             }
@@ -247,8 +259,10 @@ public final class CrimeReactionService {
             if (controller != null) {
                 ServerLevel level = levelOf(server, controller.dimension());
                 if (level != null) {
-                    release(level, villager);
+                    releaseIfStillOwner(level, villager, controller.activityGeneration());
                 }
+                dev.otectus.mcacrime.activity.CrimeActivityRegistry.release(villager,
+                        controller.activityGeneration());
                 dev.otectus.mcacrime.incident.IncidentNotifications.post(new WitnessReactionChangedEvent(villager,
                         controller.offenderId(), controller.state(), VictimReactionState.CALM));
             }
@@ -669,6 +683,28 @@ public final class CrimeReactionService {
     }
 
     /**
+     * Hands the villager back, but only while this controller is still the one holding them.
+     *
+     * <p>{@code heldGeneration} is what the controller claimed with. If something stronger took the
+     * villager since — an arrest, an escort, custody — the ordinary hand-back would clear the walk
+     * target and the combat target that newer owner had just set, which is the exact tug-of-war the
+     * activity registry exists to end. The speed modifier is dropped either way: it is invisible, it
+     * is permanent if it is ever left behind, and it belongs to the reaction rather than to whoever
+     * owns the villager now.
+     */
+    private static void releaseIfStillOwner(ServerLevel level, UUID villagerId, long heldGeneration) {
+        long current = dev.otectus.mcacrime.activity.CrimeActivityRegistry
+                .generationOf(villagerId, level.getGameTime());
+        if (ReactionControlPolicy.mayRestore(heldGeneration, current)) {
+            release(level, villagerId);
+            return;
+        }
+        if (level.getEntity(villagerId) instanceof LivingEntity preempted) {
+            ReactionSpeedModifier.remove(preempted);
+        }
+    }
+
+    /**
      * Stops this mod's navigation and clears its target, handing the villager back to MCA.
      *
      * <p>A villager under a {@link LawHold} keeps its target: it is a responder that took an
@@ -751,7 +787,7 @@ public final class CrimeReactionService {
         LivingEntity best = null;
         double bestDistance = Double.MAX_VALUE;
         for (LivingEntity candidate : level.getEntitiesOfClass(LivingEntity.class, box,
-                entity -> entity != villager && NpcAwareness.isAwake(entity) && McaCompat.isMcaVillager(entity)
+                entity -> entity != villager && NpcAwareness.canSpeakOrReport(entity) && McaCompat.isMcaVillager(entity)
                         && McaCompat.isAdult(entity))) {
             double distance = villager.distanceToSqr(candidate);
             if (distance < bestDistance) {

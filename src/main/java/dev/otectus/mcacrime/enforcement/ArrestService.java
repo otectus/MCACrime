@@ -15,6 +15,7 @@ import dev.otectus.mcacrime.ledger.SentenceAssignmentService;
 import dev.otectus.mcacrime.memory.ReportService;
 import dev.otectus.mcacrime.engine.CrimeState;
 import dev.otectus.mcacrime.jail.HoldingCell;
+import dev.otectus.mcacrime.facility.CrimeFacilityService;
 import dev.otectus.mcacrime.jail.HoldingCellService;
 import dev.otectus.mcacrime.jail.JailAnchor;
 import dev.otectus.mcacrime.jail.JailRegistry;
@@ -118,7 +119,7 @@ public final class ArrestService {
         }
         double authorityReach = cause == Cause.VOLUNTARY_SURRENDER
                 ? McaCrimeConfig.COMMON.surrenderNearRadius.get() : McaCrimeConfig.COMMON.guardChallengeRadius.get();
-        if (arrestingResponder != null && (!dev.otectus.mcacrime.ai.NpcAwareness.isAwake(arrestingResponder)
+        if (arrestingResponder != null && (!dev.otectus.mcacrime.ai.NpcAwareness.canRespondAsGuard(arrestingResponder)
                 || arrestingResponder.level() != level || !EntitySelectors.isResponder(arrestingResponder)
                 || !arrestingResponder.hasLineOfSight(player)
                 || arrestingResponder.distanceToSqr(player) > authorityReach * authorityReach)) return Outcome.REFUSED;
@@ -242,6 +243,10 @@ public final class ArrestService {
      * Recovering here rather than in the callers means a future caller cannot forget to.
      */
     private static Outcome abort(ServerPlayer player, Outcome outcome, @Nullable String reasonKey) {
+        // Exactly once, whatever went wrong: an arrest that ends here is not walking anywhere, and a
+        // reservation nobody is coming to spend would hold a village's cell until its lease ran out.
+        CrimeFacilityService.releaseFor(player == null ? null : player.getServer(),
+                player == null ? null : player.getUUID());
         if (ArrestStates.isRestrained(player)) {
             GuardChallengeService.standDownAndRecover(player, reasonKey);
         } else if (reasonKey != null) {
@@ -263,11 +268,27 @@ public final class ArrestService {
     private static JailAnchor resolveDestination(MinecraftServer server, ServerLevel level,
                                                  ServerPlayer player, @Nullable LivingEntity responder,
                                                  UUID sentenceId) {
-        JailAnchor assigned = JailRegistry
-                .nearestTo(player, McaCrimeConfig.COMMON.jailAssignedMaxDistance.get())
-                .orElse(null);
-        if (assigned != null) {
-            return assigned;
+        double ceiling = McaCrimeConfig.COMMON.jailAssignedMaxDistance.get();
+        JailRegistry.Destination automatic = JailRegistry.automatic(player, ceiling).orElse(null);
+        if (automatic != null && !automatic.reservable()) {
+            return automatic.anchor();
+        }
+        if (automatic != null) {
+            // A facility cell is only a destination once a slot is actually held. Reserving here rather
+            // than on arrival is what stops two simultaneous arrests from walking to the same cell and
+            // the second prisoner finding it already serving somebody else's sentence.
+            long lease = Math.max(dev.otectus.mcacrime.facility.CellReservation.DEFAULT_LEASE_TICKS,
+                    McaCrimeConfig.COMMON.arrestEscortTimeoutTicks.get());
+            if (CrimeFacilityService.reserve(CrimeWorldData.get(server), automatic.facility(),
+                    player.getUUID(), level.getGameTime(), lease).isPresent()) {
+                return automatic.anchor();
+            }
+            // Every slot is taken. Fall through to the manual anchor rather than refusing the arrest:
+            // a full jail is a reason to use the next destination, not a reason to let somebody go.
+            JailAnchor manual = JailRegistry.nearestTo(player, ceiling).orElse(null);
+            if (manual != null) {
+                return manual;
+            }
         }
         HoldingCell existing = HoldingCellService.existingFor(server, player.getUUID());
         if (existing != null) {

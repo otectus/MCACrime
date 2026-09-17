@@ -9,17 +9,28 @@ displayName="${mod_name}"
 authors="${mod_authors}"
 description='''${mod_description}'''
 
-# The mod ships two narrowly scoped mixins: common MobDeathEquipmentMixin observes
-# Mob.setItemSlot before MCA clears a dying villager's equipment, and client-only
-# client.RestraintPoseMixin poses a restrained player's arms. Everything else reaches Minecraft
-# through NeoForge events on purpose; the pose is the one thing no event can express, because
+# The required config ships eight narrowly scoped vanilla mixins -- seven common and client-only
+# client.RestraintPoseMixin, which poses a restrained player's arms because
 # PlayerRenderer.setModelProperties and HumanoidModel.setupAnim both run after
-# RenderPlayerEvent.Pre and overwrite whatever it set.
+# RenderPlayerEvent.Pre and overwrite whatever it set. Everything else reaches Minecraft through
+# NeoForge events on purpose; the pose is the one thing no event can express.
 #
 # On NeoForge the config is declared here, not through the Forge-era MixinConfigs JAR manifest
 # attribute.
 [[mixins]]
     config="mcacrime.mixins.json"
+
+# The optional Townstead layer, kept in a second config on purpose. mcacrime.mixins.json is
+# required:true and targets nothing but vanilla; this one is required:false, gated by
+# TownsteadMixinPlugin, and its four mixins name Townstead classes as dotted strings because Townstead
+# is never on this mod's compile classpath. Merged into the first config, either the vanilla hooks
+# would have to become optional (a real break becomes silence) or the Townstead hooks mandatory (a
+# settlement mod's point release stops the game from starting).
+#
+# Omitted from this file the config would simply never be read: NeoForge does not honour the
+# Forge-era MixinConfigs manifest attribute.
+[[mixins]]
+    config="mcacrime.townstead.mixins.json"
 
 [[dependencies.${mod_id}]]
     modId="neoforge"

@@ -47,8 +47,49 @@ public final class RestraintSync {
         if (server == null) {
             return;
         }
-        CrimeNetwork.broadcastRestraint(subject.getUUID(),
-                RestraintVisualResolver.resolve(server, subject));
+        RestraintVisualState state = RestraintVisualResolver.resolve(server, subject);
+        CrimeNetwork.broadcastRestraint(subject.getUUID(), state);
+        if (state.restrained()) {
+            // The rig rides with the restraint, not on its own schedule. It is only ever consulted to
+            // draw cuffs, so the one moment it becomes interesting is the moment cuffs appear.
+            CrimeNetwork.broadcastRestraintRig(subject, rigHumanoid(subject), rigId(subject));
+        }
+    }
+
+    /**
+     * Whether this subject's settlement rig has arms the cuffs can sit on.
+     *
+     * <p>Resolved here, on the server, because this is the only side where it can be: the Townstead
+     * bridge binds at {@code ServerStartedEvent}, so a multiplayer client asking the same question gets
+     * "humanoid" for everybody. Unknown answers "humanoid" for the same reason the client fallback does
+     * — a wrong yes is a cosmetic oddity on an unusual body, a wrong no replaces the cuffs with a band
+     * for every ordinary villager on the server.
+     */
+    private static boolean rigHumanoid(Entity subject) {
+        if (!(subject instanceof net.minecraft.world.entity.LivingEntity living)) {
+            return true;
+        }
+        try {
+            return dev.otectus.mcacrime.compat.TownsteadBridge.lifeStage(living).asOptional()
+                    .map(dev.otectus.mcacrime.compat.TownsteadLifeStageView::humanoidRig)
+                    .orElse(true);
+        } catch (Throwable ignored) {
+            return true;
+        }
+    }
+
+    /** The rig id itself, for the client's own diagnostics. Empty when the stage overrode nothing. */
+    private static String rigId(Entity subject) {
+        if (!(subject instanceof net.minecraft.world.entity.LivingEntity living)) {
+            return "";
+        }
+        try {
+            return dev.otectus.mcacrime.compat.TownsteadBridge.lifeStage(living).asOptional()
+                    .map(dev.otectus.mcacrime.compat.TownsteadLifeStageView::rig)
+                    .orElse("");
+        } catch (Throwable ignored) {
+            return "";
+        }
     }
 
     /**
@@ -109,6 +150,9 @@ public final class RestraintSync {
         RestraintVisualState state = RestraintVisualResolver.resolve(server, target);
         if (state.restrained()) {
             CrimeNetwork.sendRestraintTo(viewer, target.getUUID(), state);
+            // A client that has just come into range missed the broadcast, and the cuffs it is about to
+            // draw are exactly the ones that need to know what they are being drawn on.
+            CrimeNetwork.sendRestraintRig(viewer, target.getUUID(), rigHumanoid(target), rigId(target));
         }
         sendCriminalJob(viewer, server, target.getUUID());
     }

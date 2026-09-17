@@ -1,0 +1,7 @@
+[
+  { "building": "townstead:guardhouse", "role": "guardhouse" },
+  { "building": "townstead:barracks",   "role": "guard_post" },
+  { "building": "townstead:watchtower", "role": "guard_post" },
+  { "building": "townstead:infirmary",  "role": "care_room", "capacity": 1 },
+  { "building": "townstead:notice_board", "role": "public_notice" }
+]

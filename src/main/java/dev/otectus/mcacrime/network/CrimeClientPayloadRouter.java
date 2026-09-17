@@ -86,6 +86,14 @@ public final class CrimeClientPayloadRouter {
         handler.onMaskSelection(payload);
     }
 
+    public static void handleRestraintRig(RestraintRigSyncS2CPacket payload, IPayloadContext context) {
+        handler.onRestraintRig(payload);
+    }
+
+    public static void handleVillageSecurity(VillageSecurityS2CPacket payload, IPayloadContext context) {
+        handler.onVillageSecurity(payload);
+    }
+
     /** What the client side supplies. Every method defaults to doing nothing, which is what a server does. */
     public interface Handler {
 
@@ -132,6 +140,12 @@ public final class CrimeClientPayloadRouter {
         }
 
         default void onMaskSelection(MaskSelectionS2CPacket payload) {
+        }
+
+        default void onRestraintRig(RestraintRigSyncS2CPacket payload) {
+        }
+
+        default void onVillageSecurity(VillageSecurityS2CPacket payload) {
         }
     }
 }

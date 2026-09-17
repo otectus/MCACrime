@@ -7,6 +7,7 @@ import dev.otectus.mcacrime.api.model.CrimeRecordView;
 import dev.otectus.mcacrime.compat.ReputationBridge;
 import dev.otectus.mcacrime.compat.ReputationDelivery;
 import dev.otectus.mcacrime.compat.ReputationOps;
+import dev.otectus.mcacrime.compat.TownsteadBridge;
 import dev.otectus.mcacrime.ledger.CrimeCaseService;
 import dev.otectus.mcacrime.ledger.CrimeRecord;
 import dev.otectus.mcacrime.relationship.RelationshipConsequences;
@@ -54,6 +55,15 @@ public final class CrimeIntegrationPump {
     /** How much of a backlog the start-up and login drains may clear in one go. */
     private static final int STARTUP_BUDGET_MULTIPLIER = 20;
 
+    /**
+     * The most villagers one public reaction is played for.
+     *
+     * <p>A crowd of eight is already more than a player reads as a reaction; past that it is a village
+     * doing one thing in unison, which looks like a bug. It is also the only bound on the entity work
+     * the outbox does.
+     */
+    private static final int MAX_REACTION_AUDIENCE = 8;
+
     private static int tickCounter;
 
     private CrimeIntegrationPump() {
@@ -66,6 +76,10 @@ public final class CrimeIntegrationPump {
         // question about the installed companion, and /crime debug integrations should be able to
         // answer it even on a server that has replayPendingOperations switched off.
         ReputationBridge.negotiate(event.getServer());
+        // Townstead binds beside the Reputation handshake and for the same reason: it is a read-only
+        // question about an installed companion, it needs a server to be meaningful, and an operator
+        // reading the log wants both answers in one place. Binding is idempotent and never throws.
+        TownsteadBridge.bind();
         if (!McaCrimeConfig.COMMON.replayPendingOperations.get()) {
             return;
         }
@@ -85,6 +99,10 @@ public final class CrimeIntegrationPump {
         // Hand detection back before we go, so a second world in the same session does not start with
         // an authority claim nobody is honouring.
         ReputationBridge.releaseAuthority();
+        // Drop the Townstead binding too, so a second world in one session re-binds against whatever is
+        // installed then rather than inheriting this server's answer.
+        TownsteadBridge.release();
+        TownsteadReactions.clearAll();
         tickCounter = 0;
     }
 
@@ -133,6 +151,10 @@ public final class CrimeIntegrationPump {
 
     private static void record(MinecraftServer server, CrimeWorldData data,
                                CrimeIntegrationOperation operation, DeliveryOutcome outcome, long now) {
+        if (IntegrationTargets.isTownstead(operation.target())) {
+            recordTownstead(data, operation, outcome);
+            return;
+        }
         McaCrimeConfig.Common c = McaCrimeConfig.COMMON;
         if (outcome.successful()) {
             data.updateOperation(operation.complete());
@@ -152,8 +174,11 @@ public final class CrimeIntegrationPump {
                             + "ships, which usually means a datapack is overriding or missing it.",
                     operation.target(), operation.crimeRecordId(), operation.attempts() + 1, outcome);
             // Nobody recorded the civic consequence, so apply our own after all -- otherwise the deed
-            // costs the player nothing publicly, which is worse than counting it locally.
-            if (operation.action().equals(IntegrationTargets.ACTION_CREATE)) {
+            // costs the player nothing publicly, which is worse than counting it locally. The rule is
+            // DeliveryPolicy's rather than an inline check, because it is the one decision on this queue
+            // that can take something from a player and it must never be reachable from another mod's
+            // target: see appliesLocalVillagePenalty.
+            if (DeliveryPolicy.appliesLocalVillagePenalty(operation.target(), operation.action(), next)) {
                 RelationshipConsequences.applyDeferredVillagePenalty(server, operation.crimeRecordId());
             }
             return;
@@ -163,7 +188,105 @@ public final class CrimeIntegrationPump {
         data.updateOperation(operation.withAttempt(nextAttempt, outcome.name()));
     }
 
+    /**
+     * What happens to a Townstead delivery, which is nothing like what happens to a civic one.
+     *
+     * <p>Two rules, and the second is the whole reason this method exists rather than an extra branch
+     * in {@link #record}:
+     *
+     * <ul>
+     *   <li><b>Success is recorded once, durably.</b> The one-shot receipt is what makes a replayed
+     *       queue, a relog and an operator retry produce one reaction between them rather than three.</li>
+     *   <li><b>Failure is logged and dropped, here and nowhere else.</b> Not retried, because a
+     *       reaction is a thing that happens at a moment and playing it a minute later is worse than
+     *       not playing it. Not dead-lettered, because the dead-letter list is an operator's queue of
+     *       work still owed. And emphatically never routed through the civic path above, where giving
+     *       up applies a local village-standing penalty on the grounds that the crime went unrecorded
+     *       — the crime was recorded, and charging a player standing because an animation did not play
+     *       would be a punishment with no deed behind it.</li>
+     * </ul>
+     */
+    private static void recordTownstead(CrimeWorldData data, CrimeIntegrationOperation operation,
+                                        DeliveryOutcome outcome) {
+        if (outcome.successful()) {
+            data.recordOneShotReceipt(operation.operationId());
+            data.updateOperation(operation.complete());
+            return;
+        }
+        McaCrime.LOGGER.debug("MCA: Crime — Townstead did not play the {} reaction for {} ({}); dropping "
+                        + "it. The case, its Heat and its sentence are unaffected.",
+                operation.payload().getString(IntegrationTargets.PAYLOAD_EVENT),
+                operation.crimeRecordId(), outcome);
+        data.discardOperation(operation.operationId());
+    }
+
+    /**
+     * Plays one public reaction for the villagers who could plausibly know about it.
+     *
+     * <p>Bounded three ways, because this is the only place in the outbox that touches loaded entities:
+     * the radius comes from the datapack binding and is capped there, the audience is capped here, and
+     * an unloaded destination simply does not happen rather than forcing a chunk load.
+     *
+     * <p>An empty street is a success, not a failure. Nobody was there to react; there is nothing owed
+     * and nothing to retry.
+     */
+    private static DeliveryOutcome deliverTownsteadReaction(MinecraftServer server,
+                                                            CrimeIntegrationOperation operation) {
+        if (!TownsteadBridge.has(dev.otectus.mcacrime.compat.TownsteadCapability.DISPATCH_REACTION)) {
+            return DeliveryOutcome.UNAVAILABLE;
+        }
+        CompoundTag payload = operation.payload();
+        ResourceLocation dimension =
+                ResourceLocation.tryParse(payload.getString(IntegrationTargets.PAYLOAD_DIMENSION));
+        ResourceLocation reaction =
+                ResourceLocation.tryParse(payload.getString(IntegrationTargets.PAYLOAD_REACTION_ID));
+        if (dimension == null || reaction == null) {
+            return DeliveryOutcome.INVALID;
+        }
+        net.minecraft.server.level.ServerLevel level = server.getLevel(
+                net.minecraft.resources.ResourceKey.create(net.minecraft.core.registries.Registries.DIMENSION,
+                        dimension));
+        if (level == null) {
+            return DeliveryOutcome.INVALID;
+        }
+        net.minecraft.core.BlockPos pos = new net.minecraft.core.BlockPos(
+                payload.getInt(IntegrationTargets.PAYLOAD_X),
+                payload.getInt(IntegrationTargets.PAYLOAD_Y),
+                payload.getInt(IntegrationTargets.PAYLOAD_Z));
+        int radius = Math.max(1, Math.min(
+                dev.otectus.mcacrime.compat.TownsteadReactionBindings.MAX_RADIUS,
+                payload.getInt(IntegrationTargets.PAYLOAD_RADIUS)));
+        if (!level.isLoaded(pos)) {
+            // Nobody is there to see it. Not an error and not worth loading a chunk for.
+            return DeliveryOutcome.SUCCESS;
+        }
+        net.minecraft.world.phys.AABB box = new net.minecraft.world.phys.AABB(pos).inflate(radius);
+        String phase = payload.getString(IntegrationTargets.PAYLOAD_EVENT);
+        int asked = 0;
+        for (net.minecraft.world.entity.LivingEntity villager : level.getEntitiesOfClass(
+                net.minecraft.world.entity.LivingEntity.class, box,
+                entity -> entity.isAlive()
+                        && dev.otectus.mcacrime.compat.McaCompat.isMcaVillager(entity))) {
+            if (asked >= MAX_REACTION_AUDIENCE) {
+                break;
+            }
+            asked++;
+            if (TownsteadBridge.dispatchReaction(level, villager, reaction, phase).isFailed()) {
+                return DeliveryOutcome.TRANSIENT_FAILURE;
+            }
+        }
+        return DeliveryOutcome.SUCCESS;
+    }
+
     private static DeliveryOutcome deliver(MinecraftServer server, CrimeIntegrationOperation operation) {
+        if (IntegrationTargets.isTownstead(operation.target())) {
+            try {
+                return deliverTownsteadReaction(server, operation);
+            } catch (Throwable t) {
+                McaCrime.LOGGER.debug("MCA: Crime — a Townstead reaction delivery threw; dropping it", t);
+                return DeliveryOutcome.TRANSIENT_FAILURE;
+            }
+        }
         Optional<ReputationOps> bridge = ReputationBridge.ops();
         if (bridge.isEmpty()) {
             return DeliveryOutcome.UNAVAILABLE;

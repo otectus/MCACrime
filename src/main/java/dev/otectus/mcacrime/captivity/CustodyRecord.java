@@ -49,6 +49,19 @@ public final class CustodyRecord {
     private double escapeRoll = 1.0D;
     private int escapeAttempts;
     private long captorDisconnectedAt;
+    /**
+     * Custody-recovery (§8.6): confinement is suspended so the captive can recover, and the sentence,
+     * the sentence id and the case set all stay exactly where they are.
+     *
+     * <p>A state on the record rather than a release reason, and that distinction is the whole point.
+     * Releasing a critically unfit prisoner through {@code SENTENCE_SERVED} or an admin release would
+     * clear a liability nobody discharged: they have not finished their sentence and nobody pardoned
+     * them, they were let out of a cell so they could eat. Absent in every record written before 0.7.3,
+     * and absent reads as false.
+     */
+    private boolean recovery;
+    private String recoveryReason = "";
+    private long recoverySince;
     private byte[] cuffCombination = new byte[0];
 
     public byte[] getCuffCombination() { return cuffCombination.clone(); }
@@ -161,6 +174,46 @@ public final class CustodyRecord {
     public long getCaptorDisconnectedAt() { return captorDisconnectedAt; }
     public void setCaptorDisconnectedAt(long value) { captorDisconnectedAt = Math.max(0L, value); }
 
+    /** Whether confinement is currently suspended for recovery. The sentence is unaffected. */
+    public boolean isInRecovery() {
+        return recovery;
+    }
+
+    public String getRecoveryReason() {
+        return recoveryReason;
+    }
+
+    /** The game time recovery began, for the operator-visible record. */
+    public long getRecoverySince() {
+        return recoverySince;
+    }
+
+    /**
+     * Suspends confinement for care.
+     *
+     * @return true when this call is what changed the state, so the caller logs once rather than every tick
+     */
+    public boolean enterRecovery(String reason, long gameTime) {
+        this.recoveryReason = reason == null ? "" : reason;
+        if (recovery) {
+            return false;
+        }
+        recovery = true;
+        recoverySince = gameTime;
+        return true;
+    }
+
+    /** Ends recovery and returns the captive to ordinary custody. */
+    public boolean exitRecovery() {
+        if (!recovery) {
+            return false;
+        }
+        recovery = false;
+        recoveryReason = "";
+        recoverySince = 0L;
+        return true;
+    }
+
     /** True when this custody has a resolvable hold location (otherwise soft-tether is impossible). */
     public boolean hasValidHold() {
         return holdPos != null && holdDim != null;
@@ -186,6 +239,9 @@ public final class CustodyRecord {
         c.escapeRoll = escapeRoll;
         c.escapeAttempts = escapeAttempts;
         c.captorDisconnectedAt = captorDisconnectedAt;
+        c.recovery = recovery;
+        c.recoveryReason = recoveryReason;
+        c.recoverySince = recoverySince;
         c.cuffCombination = cuffCombination.clone();
         return c;
     }
@@ -218,6 +274,13 @@ public final class CustodyRecord {
         tag.putDouble("escapeRoll", escapeRoll);
         tag.putInt("escapeAttempts", escapeAttempts);
         tag.putLong("captorDisconnectedAt", captorDisconnectedAt);
+        // Written only while it is true: a record that never recovered says nothing, and absent already
+        // reads as "not in recovery" on every older build.
+        if (recovery) {
+            tag.putBoolean("recovery", true);
+            tag.putString("recoveryReason", recoveryReason);
+            tag.putLong("recoverySince", recoverySince);
+        }
         if (cuffCombination.length > 0) tag.putByteArray("cuffCombination", cuffCombination);
         return tag;
     }
@@ -244,6 +307,9 @@ public final class CustodyRecord {
         r.escapeRoll = tag.contains("escapeRoll") ? Math.max(0.0D, Math.min(1.0D, tag.getDouble("escapeRoll"))) : 1.0D;
         r.escapeAttempts = Math.max(0, tag.getInt("escapeAttempts"));
         r.captorDisconnectedAt = Math.max(0L, tag.getLong("captorDisconnectedAt"));
+        r.recovery = tag.getBoolean("recovery");
+        r.recoveryReason = tag.getString("recoveryReason");
+        r.recoverySince = Math.max(0L, tag.getLong("recoverySince"));
         r.setCuffCombination(tag.getByteArray("cuffCombination"));
         return r;
     }

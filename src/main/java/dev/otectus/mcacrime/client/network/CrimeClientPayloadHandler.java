@@ -13,8 +13,10 @@ import dev.otectus.mcacrime.network.CriminalJobSyncS2CPacket;
 import dev.otectus.mcacrime.network.GuardChallengeS2CPacket;
 import dev.otectus.mcacrime.network.MaskSelectionS2CPacket;
 import dev.otectus.mcacrime.network.RestraintBulkSyncS2CPacket;
+import dev.otectus.mcacrime.network.RestraintRigSyncS2CPacket;
 import dev.otectus.mcacrime.network.RestraintSyncS2CPacket;
 import dev.otectus.mcacrime.network.SelfStatusS2CPacket;
+import dev.otectus.mcacrime.network.VillageSecurityS2CPacket;
 import dev.otectus.mcacrime.network.WeaponPolicyS2CPacket;
 
 /**
@@ -95,5 +97,15 @@ public final class CrimeClientPayloadHandler implements CrimeClientPayloadRouter
     @Override
     public void onMaskSelection(MaskSelectionS2CPacket payload) {
         CrimeClientHandlers.onMaskSelection(payload);
+    }
+
+    @Override
+    public void onRestraintRig(RestraintRigSyncS2CPacket payload) {
+        CrimeClientHandlers.onRestraintRig(payload);
+    }
+
+    @Override
+    public void onVillageSecurity(VillageSecurityS2CPacket payload) {
+        CrimeClientHandlers.onVillageSecurity(payload);
     }
 }

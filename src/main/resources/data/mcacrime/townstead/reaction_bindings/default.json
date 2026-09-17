@@ -1,0 +1,12 @@
+[
+  { "event": "crime_witnessed",        "reaction": "townstead:alarmed",   "radius": 24 },
+  { "event": "crime_threatened",       "reaction": "townstead:alarmed",   "radius": 16 },
+  { "event": "alarm_heard",            "reaction": "townstead:alarmed",   "radius": 32 },
+  { "event": "report_delivered",       "reaction": "townstead:concerned", "radius": 16 },
+  { "event": "custody_started",        "reaction": "townstead:concerned", "radius": 24 },
+  { "event": "custody_ended",          "reaction": "townstead:relieved",  "radius": 16 },
+  { "event": "jailbreak",              "reaction": "townstead:alarmed",   "radius": 32 },
+  { "event": "rescued",                "reaction": "townstead:relieved",  "radius": 16 },
+  { "event": "property_returned",      "reaction": "townstead:pleased",   "radius": 12 },
+  { "event": "restitution_completed",  "reaction": "townstead:pleased",   "radius": 12 }
+]

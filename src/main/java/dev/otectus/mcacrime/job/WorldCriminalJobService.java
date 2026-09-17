@@ -334,11 +334,27 @@ public final class WorldCriminalJobService implements CriminalJobService {
         }
         Entity entity = findLoaded(villager);
         if (entity != null) {
-            ResourceLocation previous = record.previousProfessionId().isBlank()
-                    ? ResourceLocation.fromNamespaceAndPath("minecraft", "none")
-                    : ResourceLocation.tryParse(record.previousProfessionId());
-            if (previous != null) {
-                McaCompat.setVillagerProfession(entity, previous);
+            // Only if this mod still owns the label. A player, a datapack or a settlement companion
+            // that gave this villager a profession after MCA: Crime wrote one has made a deliberate
+            // choice, and a silent revert to a value remembered from before it would undo that choice
+            // with no message anywhere saying so. See ProfessionPresentationRevision for why an
+            // unreadable current profession still restores rather than blocking.
+            ResourceLocation expected = ProfessionPresentationRevision.expectedFor(record.job());
+            ResourceLocation current = McaCompat.getProfessionId(entity).orElse(null);
+            ProfessionPresentationRevision.Decision decision =
+                    ProfessionPresentationRevision.decide(expected, current);
+            if (decision.restores()) {
+                ResourceLocation previous = record.previousProfessionId().isBlank()
+                        ? ResourceLocation.fromNamespaceAndPath("minecraft", "none")
+                        : ResourceLocation.tryParse(record.previousProfessionId());
+                if (previous != null) {
+                    McaCompat.setVillagerProfession(entity, previous);
+                }
+            } else {
+                // The memory goes with the claim: keeping it would have the next revert stomp whoever
+                // owns the profession now.
+                CrimeDebug.crime("Leaving {} as {} rather than reverting to {}: MCA: Crime last wrote {}",
+                        villager, current, record.previousProfessionId(), expected);
             }
         }
         if (raw(villager) != null) {

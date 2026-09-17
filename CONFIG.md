@@ -877,6 +877,42 @@ the mod the deed was taken from would have applied. The fold only ever applies w
 against the same victim, and while the earlier case is still unsettled: a fine already paid for the
 assault is an atonement the village accepted, and absorbing that record would quietly delete it.
 
+## `[townstead]`
+
+Every setting here is a no-op when Townstead is absent, and MCA: Crime behaves exactly as it does
+without it. A setting that is **on while the Townstead surface behind it is missing** is reported as
+`DEGRADED` — on, but not running — by `/crime validate` and `/crime debug townstead`; it is never
+silently ignored. `/crime debug townstead [entity <target>|village]` prints the bridge state, the
+capability list and the mixin layer.
+
+| Option | Default | Range | What it does |
+|---|---|---|---|
+| `enabled` | `true` | — | Master switch for the whole integration. Off means MCA: Crime never asks Townstead anything, even when it is installed. |
+| `respectIncapacity` | `true` | — | Treat a villager Townstead has collapsed, or whose life stage cannot move, as unable to witness, report, flee or be escorted. Needs `read_needs` + `stage_capabilities`. |
+| `protectWorkerAssignments` | `true` | — | Prefer villagers who are not on a Townstead work shift when drafting guards or responders. This can leave a village under its guard target while everyone is at work — the intended trade. A village whose roles cannot be read stops being recruited from at all, rather than being guessed at. Needs `read_schedule` + `read_profession`. |
+| `excludeWorksitesFromTemporaryCells` | `true` | — | Refuse to build a temporary holding cell inside a registered Townstead building. Needs `read_building`. |
+| `equipmentProvenance` | `true` | — | Ask where a villager's held item came from before treating it as their own, so a display tool is not dropped as extra loot or counted as an armed villager. Answered by a hook into Townstead's own work-tool ticker; without that hook this reports degraded and the fallback is the equipment-only rule, which never deletes inventory. Needs `equipment_provenance`. |
+| `publicReactions` | `true` | — | Let Townstead play its own villager reactions when a crime, an arrest or a release becomes public knowledge. Needs `dispatch_reaction`. |
+| `needResponseModifiers` | `false` | — | Let hunger, thirst and fatigue nudge how strongly a villager reacts to a crime. Off by default: it changes detection and threat numbers a server owner has already tuned. Needs `read_needs`. |
+| `propertyLaw` | `false` | — | Treat settlement-owned containers and buildings as property, so taking from one is a crime with an owner. Needs `storage_policy` + `read_building`; no Townstead build provides `storage_policy` today. |
+| `autoProtectGeneratedProperty` | `false` | — | Protect buildings Townstead generates without an operator marking each one. Only meaningful with `propertyLaw` on. Needs `building_enumeration`. |
+| `serviceRestrictions` | `false` | — | Let a settlement refuse services to an outlaw. Off by default: it can strand a player with no route back to lawful standing. Needs `read_profession` + `read_schedule`. |
+| `communityService` | `false` | — | Offer civic work as a way to settle a sentence. Needs `read_schedule` + `work_suspension`; the civic work layer is a later release. |
+| `economyProfiles` | `false` | — | Let a village's Townstead character shape fence prices and fine scales. Off by default: it makes the same crime cost different amounts in different villages. Needs `read_spirit`. |
+| `automaticShiftAssignment` | `false` | — | Assign guard shifts through Townstead's own scheduler. Needs `activity_coordination` + `read_schedule`. |
+| `snapshotCacheTicks` | `20` | `1 … 200` | How long a Townstead villager snapshot is reused before it is read again. Snapshots are never persisted; this only bounds how stale one may be inside a tick loop. |
+| `activityLeaseTicks` | `40` | `10 … 400` | How long MCA: Crime holds a villager for one enforcement action before the claim lapses. The default is four guard scans. |
+| `facilitySearchRadius` | `96` | `16 … 512` | How far an automatic arrest may look for an assigned civic facility — a jail cell, a care room — before falling back to the ordinary jail ladder. |
+
+Two of the validator's checks are about ordering rather than range:
+`activityLeaseTicks` shorter than `snapshotCacheTicks` is reported, because an enforcement claim
+could then expire while the snapshot it was made from is still being reused; `facilitySearchRadius`
+smaller than `jail.holdingCellSearchRadius` is reported, because an arrest would then dig a
+temporary cell closer than an assigned facility it had refused to consider. With Townstead installed
+but `enabled` false, any `[townstead]` switch still left on is reported too — none of them does
+anything until `enabled` is true. With Townstead **absent**, no capability is ever reported as
+missing; the two ordering checks above are pure number checks and still apply.
+
 ## Client — `[client]`
 
 | Option | Default | Range | What it does |
@@ -892,7 +928,7 @@ assault is an atonement the village accepted, and absorbing that record would qu
 | `hudChannelBar` | `true` | — | The action channel bar, and the reason an action broke off. Nine distinct interruption reasons exist; this is where they are shown. |
 | `hudStatusIndicator` | `true` | — | Heat and Wanted status. Draws nothing at all when you have neither. |
 | `hudCustodyIndicator` | `true` | — | Remaining jail sentence or captivity time, counted down continuously and shown as `1m 42s remaining`. The client runs its own clock between the server's periodic resyncs, so the number moves every tick without a packet every tick; the server remains the only thing that decides when a sentence actually ends. |
-| `renderRestraintPose` | `true` | — | Pose a restrained player's arms behind their back. The only thing in this mod that needs a mixin, and it is client-side only — a dedicated server never loads it. Presentation only: turning it off changes nothing the server knows or allows. |
+| `renderRestraintPose` | `true` | — | Pose a restrained player's arms behind their back. Drawn by a client-only mixin a dedicated server never loads. Presentation only: turning it off changes nothing the server knows or allows. |
 | `renderCuffs` | `true` | — | Draw cuffs on a restrained player's wrists. Parented to the arms, so they sit correctly with or without the pose above. |
 | `renderEscortRope` | `true` | — | Draw the lead between an escorting guard and their prisoner. Cosmetic: it is drawn from mod state rather than a real leash, because a vanilla lead cannot be attached to a player. |
 | `hudAnchor` | `BOTTOM_LEFT` | `TOP_LEFT`, `TOP_CENTER`, `TOP_RIGHT`, `CENTER_LEFT`, `CENTER_RIGHT`, `BOTTOM_LEFT`, `BOTTOM_CENTER`, `BOTTOM_RIGHT` | Anchor for one combined Heat/Sentence panel. BOTTOM_LEFT fits below chat and left of the hotbar; other bottom anchors clear the health rows (and the channel bar at BOTTOM_CENTER). |

@@ -2,6 +2,7 @@ package dev.otectus.mcacrime.command;
 
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
+import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.context.CommandContext;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import dev.otectus.mcacrime.McaCrime;
@@ -20,6 +21,7 @@ import dev.otectus.mcacrime.compat.McaCompat;
 import dev.otectus.mcacrime.compat.LocksReforgedBridge;
 import dev.otectus.mcacrime.compat.McaQuestsBridge;
 import dev.otectus.mcacrime.compat.ReputationBridge;
+import dev.otectus.mcacrime.compat.TownsteadDiagnostics;
 import dev.otectus.mcacrime.config.ConfigValidator;
 import dev.otectus.mcacrime.crime.Band;
 import dev.otectus.mcacrime.crime.KarmaSource;
@@ -69,6 +71,7 @@ import net.neoforged.neoforge.event.RegisterCommandsEvent;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.ModList;
 import net.neoforged.fml.common.EventBusSubscriber;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.Comparator;
 import java.util.List;
@@ -208,6 +211,44 @@ public final class CrimeCommand {
                 .then(Commands.literal("mugtest")
                         .requires(src -> src.hasPermission(3))
                         .executes(CrimeCommand::mugTest))
+                .then(Commands.literal("duty")
+                        .requires(src -> src.hasPermission(2))
+                        .then(Commands.literal("inspect")
+                                .executes(ctx -> dutyInspect(ctx, null))
+                                .then(Commands.argument("village", StringArgumentType.word())
+                                        .executes(ctx -> dutyInspect(ctx,
+                                                StringArgumentType.getString(ctx, "village")))))
+                        .then(Commands.literal("suggest")
+                                .executes(ctx -> dutySuggest(ctx, null))
+                                .then(Commands.argument("village", StringArgumentType.word())
+                                        .executes(ctx -> dutySuggest(ctx,
+                                                StringArgumentType.getString(ctx, "village"))))))
+                .then(Commands.literal("facility")
+                        .requires(src -> src.hasPermission(2))
+                        .then(Commands.literal("list")
+                                .executes(ctx -> facilityList(ctx, null))
+                                .then(Commands.argument("role", StringArgumentType.word())
+                                        .executes(ctx -> facilityList(ctx,
+                                                StringArgumentType.getString(ctx, "role")))))
+                        .then(Commands.literal("validate")
+                                .executes(ctx -> facilityList(ctx, null)))
+                        .then(Commands.literal("assign")
+                                .requires(src -> src.hasPermission(3))
+                                .then(Commands.argument("role", StringArgumentType.word())
+                                        .executes(ctx -> facilityAssign(ctx, null))
+                                        .then(Commands.argument("pos", BlockPosArgument.blockPos())
+                                                .executes(ctx -> facilityAssign(ctx,
+                                                        BlockPosArgument.getSpawnablePos(ctx, "pos"))))))
+                        .then(Commands.literal("recognise")
+                                .requires(src -> src.hasPermission(3))
+                                .executes(ctx -> facilityRecognise(ctx, null))
+                                .then(Commands.argument("pos", BlockPosArgument.blockPos())
+                                        .executes(ctx -> facilityRecognise(ctx,
+                                                BlockPosArgument.getSpawnablePos(ctx, "pos")))))
+                        .then(Commands.literal("remove")
+                                .requires(src -> src.hasPermission(3))
+                                .then(Commands.argument("id", StringArgumentType.word())
+                                        .executes(CrimeCommand::facilityRemove))))
                 .then(Commands.literal("debug")
                         .requires(src -> src.hasPermission(2))
                         .then(Commands.literal("witness").executes(ctx -> debugAwareness(ctx, "witness", null))
@@ -244,6 +285,15 @@ public final class CrimeCommand {
                                 .executes(CrimeCommand::debugWeapon))
                         .then(Commands.literal("compat")
                                 .executes(CrimeCommand::debugCompat))
+                        .then(Commands.literal("townstead")
+                                .executes(CrimeCommand::debugTownsteadSummary)
+                                .then(Commands.literal("entity")
+                                        .executes(ctx -> debugTownsteadEntity(ctx, null))
+                                        .then(Commands.argument("target", EntityArgument.entity())
+                                                .executes(ctx -> debugTownsteadEntity(ctx,
+                                                        EntityArgument.getEntity(ctx, "target")))))
+                                .then(Commands.literal("village")
+                                        .executes(CrimeCommand::debugTownsteadVillage)))
                         .then(Commands.literal("outbox")
                                 .executes(ctx -> debugOutbox(ctx, false))
                                 .then(Commands.literal("dead")
@@ -292,6 +342,48 @@ public final class CrimeCommand {
                     + " -> " + newest.lastError()).withStyle(ChatFormatting.RED), false);
         }
         return data.pendingOperationCount();
+    }
+
+    /**
+     * Townstead's side of the same question: what is installed, what bound, and which of MCA: Crime's
+     * Townstead-aware features are actually running.
+     *
+     * <p>Every line comes from {@link TownsteadDiagnostics}, which also backs the {@code [townstead]}
+     * half of {@code /crime validate} — so the command and the validator cannot disagree about what a
+     * setting needs or whether it is degraded.
+     */
+    private static int debugTownsteadSummary(CommandContext<CommandSourceStack> ctx) {
+        return send(ctx.getSource(), TownsteadDiagnostics.summary());
+    }
+
+    /**
+     * What Townstead knows about one villager. With no target, the nearest MCA villager within eight
+     * blocks, which is the same reach {@code /crime debug witness} uses.
+     */
+    private static int debugTownsteadEntity(CommandContext<CommandSourceStack> ctx, @Nullable Entity selected)
+            throws CommandSyntaxException {
+        CommandSourceStack source = ctx.getSource();
+        Entity target = selected != null ? selected : nearestMcaVillager(source.getPlayerOrException(), 8);
+        if (target == null) {
+            source.sendFailure(Component.literal("No villager nearby; name one with "
+                    + "/crime debug townstead entity <target>."));
+            return 0;
+        }
+        return send(source, TownsteadDiagnostics.entity(target));
+    }
+
+    /** The building and settlement at the caller's feet, plus Townstead's calendar for this server. */
+    private static int debugTownsteadVillage(CommandContext<CommandSourceStack> ctx) {
+        CommandSourceStack source = ctx.getSource();
+        return send(source, TownsteadDiagnostics.village(source.getLevel(),
+                BlockPos.containing(source.getPosition())));
+    }
+
+    private static int send(CommandSourceStack source, List<String> lines) {
+        for (String line : lines) {
+            source.sendSuccess(() -> Component.literal(line), false);
+        }
+        return lines.size();
     }
 
     private static int debugAwareness(CommandContext<CommandSourceStack> ctx, String mode, Entity selected)
@@ -577,6 +669,177 @@ public final class CrimeCommand {
      * answer. It also makes the overlap with MCA's own pass legible: a village already at target
      * because MCA got there first reports needed=0 rather than looking broken.
      */
+    /**
+     * Coverage as it stands, per village: guards, on duty, engaged, resting, unfit.
+     *
+     * <p>Read-only and derived on the spot. The distinction the output exists for is the one an
+     * operator cannot see from the street: a village with four sleeping guards and a village with no
+     * guards look identical until something asks.
+     */
+    private static int dutyInspect(CommandContext<CommandSourceStack> ctx, @Nullable String village)
+            throws CommandSyntaxException {
+        CommandSourceStack source = ctx.getSource();
+        ServerLevel level = source.getLevel();
+        List<dev.otectus.mcacrime.enforcement.GuardDutyService.DutyView> views = village == null
+                ? dev.otectus.mcacrime.enforcement.GuardDutyService.inspect(level)
+                : dev.otectus.mcacrime.enforcement.GuardDutyService.inspect(level, village)
+                        .map(List::of).orElse(List.of());
+        if (views.isEmpty()) {
+            source.sendSuccess(() -> Component.literal(village == null
+                    ? "No MCA villages in this dimension, or MCA village data is unavailable."
+                    : "No MCA village matching '" + village + "' in this dimension."), false);
+            return 0;
+        }
+        for (var view : views) {
+            String line = view.describe();
+            source.sendSuccess(() -> Component.literal(line), false);
+        }
+        return views.size();
+    }
+
+    /** Bounded, advisory coverage suggestions. Nothing is applied; applying a plan stays explicit. */
+    private static int dutySuggest(CommandContext<CommandSourceStack> ctx, @Nullable String village)
+            throws CommandSyntaxException {
+        CommandSourceStack source = ctx.getSource();
+        BlockPos from = BlockPos.containing(source.getPosition());
+        List<String> lines = dev.otectus.mcacrime.enforcement.GuardDutyService
+                .suggest(source.getLevel(), village, from);
+        for (String line : lines) {
+            source.sendSuccess(() -> Component.literal(line), false);
+        }
+        return lines.size();
+    }
+
+    /**
+     * Every assigned facility with its current validation status.
+     *
+     * <p>{@code list} and {@code validate} are the same output on purpose: the status is re-read on
+     * every call, so a separate "validate" that did the same work and printed the same thing would only
+     * invite the belief that {@code list} was showing something cached.
+     */
+    private static int facilityList(CommandContext<CommandSourceStack> ctx, @Nullable String role)
+            throws CommandSyntaxException {
+        CommandSourceStack source = ctx.getSource();
+        dev.otectus.mcacrime.facility.FacilityRole filter = role == null ? null
+                : dev.otectus.mcacrime.facility.FacilityRole.parse(role).orElse(null);
+        if (role != null && filter == null) {
+            source.sendFailure(Component.literal("Unknown facility role '" + role + "'. Expected one of "
+                    + roleNames()));
+            return 0;
+        }
+        for (String line : dev.otectus.mcacrime.facility.CrimeFacilityService
+                .report(source.getLevel(), filter)) {
+            source.sendSuccess(() -> Component.literal(line), false);
+        }
+        return 1;
+    }
+
+    /**
+     * Assigns whatever role the datapack recognises for the building here.
+     *
+     * <p>The same assignment as {@code /crime facility assign}, with the role read from
+     * {@code data/<ns>/townstead/building_roles/} instead of typed. Nothing is assigned when nothing is
+     * recognised: this mod does not guess what a building is for, and a wrong guess here is a prisoner
+     * locked in somebody's pantry.
+     */
+    private static int facilityRecognise(CommandContext<CommandSourceStack> ctx, @Nullable BlockPos pos) {
+        CommandSourceStack source = ctx.getSource();
+        ServerLevel level = source.getLevel();
+        BlockPos anchor = pos != null ? pos : BlockPos.containing(source.getPosition());
+        var recognition = dev.otectus.mcacrime.facility.CrimeFacilityService
+                .recognise(level, anchor).orElse(null);
+        if (recognition == null) {
+            source.sendFailure(Component.literal("No building role is declared for whatever stands there. "
+                    + "Either the settlement mod does not recognise a building at that position, or no "
+                    + "datapack gives its type a role. Use /crime facility assign <role> to say so "
+                    + "yourself."));
+            return 0;
+        }
+        var assignment = dev.otectus.mcacrime.facility.CrimeFacilityService
+                .assignRecognised(level, anchor, source.getTextName()).orElse(null);
+        if (assignment == null) {
+            source.sendFailure(Component.literal("Recognised '" + recognition.buildingType() + "' as "
+                    + recognition.role().label() + ", but the facility could not be stored; the table may "
+                    + "be full or read-only this session."));
+            return 0;
+        }
+        var validation = dev.otectus.mcacrime.facility.CrimeFacilityService.validate(level, assignment);
+        source.sendSuccess(() -> Component.literal("Recognised '" + recognition.buildingType() + "' and "
+                + "assigned " + assignment.describe() + " — "
+                + validation.status().name().toLowerCase(java.util.Locale.ROOT) + ": "
+                + validation.reason()), true);
+        return 1;
+    }
+
+    /** Assigns a role to the building at a position, or to where the operator is standing. */
+    private static int facilityAssign(CommandContext<CommandSourceStack> ctx, @Nullable BlockPos pos)
+            throws CommandSyntaxException {
+        CommandSourceStack source = ctx.getSource();
+        String raw = StringArgumentType.getString(ctx, "role");
+        dev.otectus.mcacrime.facility.FacilityRole role =
+                dev.otectus.mcacrime.facility.FacilityRole.parse(raw).orElse(null);
+        if (role == null) {
+            source.sendFailure(Component.literal("Unknown facility role '" + raw + "'. Expected one of "
+                    + roleNames()));
+            return 0;
+        }
+        ServerLevel level = source.getLevel();
+        BlockPos anchor = pos != null ? pos : BlockPos.containing(source.getPosition());
+        var assignment = dev.otectus.mcacrime.facility.CrimeFacilityService
+                .assign(level, role, anchor, source.getTextName()).orElse(null);
+        if (assignment == null) {
+            source.sendFailure(Component.literal("Could not assign the facility; the store may be full or "
+                    + "read-only this session."));
+            return 0;
+        }
+        var validation = dev.otectus.mcacrime.facility.CrimeFacilityService.validate(level, assignment);
+        source.sendSuccess(() -> Component.literal("Assigned " + assignment.describe() + " — "
+                + validation.status().name().toLowerCase(java.util.Locale.ROOT) + ": "
+                + validation.reason()), true);
+        // Said at assignment time rather than discovered at the first arrest: a cell whose anchor is
+        // inside a wall is a destination every arrest will refuse, and the operator is standing right
+        // here with the ability to move it.
+        if (assignment.holdsPrisoners()
+                && dev.otectus.mcacrime.jail.SafeCustodyDestination.validate(level, anchor, 4).isEmpty()) {
+            source.sendSuccess(() -> Component.literal("  warning: nothing within 4 blocks of that anchor "
+                    + "is a safe place to put a prisoner, so arrests will not be routed here.")
+                    .withStyle(ChatFormatting.YELLOW), false);
+        }
+        return 1;
+    }
+
+    private static int facilityRemove(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
+        CommandSourceStack source = ctx.getSource();
+        String id = StringArgumentType.getString(ctx, "id");
+        var facility = dev.otectus.mcacrime.facility.CrimeFacilityService
+                .byId(source.getServer(), id).orElse(null);
+        if (facility == null) {
+            source.sendFailure(Component.literal("No single facility matches '" + id
+                    + "'. Run /crime facility list for the ids."));
+            return 0;
+        }
+        if (!dev.otectus.mcacrime.facility.CrimeFacilityService.remove(source.getServer(), facility.id())) {
+            source.sendFailure(Component.literal("Could not remove that facility; the store is read-only "
+                    + "this session."));
+            return 0;
+        }
+        source.sendSuccess(() -> Component.literal("Removed " + facility.describe()
+                + "; any cell slot held against it was released."), true);
+        return 1;
+    }
+
+    private static String roleNames() {
+        StringBuilder out = new StringBuilder();
+        for (dev.otectus.mcacrime.facility.FacilityRole role
+                : dev.otectus.mcacrime.facility.FacilityRole.values()) {
+            if (out.length() > 0) {
+                out.append(", ");
+            }
+            out.append(role.id());
+        }
+        return out.toString();
+    }
+
     private static int debugGuards(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
         ServerPlayer player = ctx.getSource().getPlayerOrException();
         if (!(player.level() instanceof ServerLevel level)) {

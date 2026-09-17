@@ -237,6 +237,81 @@ test {
     }
 }
 
+// Resolves TownsteadBinding's manifest against a real Townstead jar, in its own JVM and its own class
+// loader. Separate from `test` because it needs a jar nobody can resolve from a Maven: Townstead is
+// published on CurseForge only, so the path is supplied by the person running it.
+// TownsteadBindingProbeTest itself stays in the ordinary `test` run and skips there on an assumption,
+// exactly as McaBindingProbeTest does when no jar resolves -- one test class, two ways of reaching it,
+// and no exclusion filter anybody has to remember to keep in step.
+//
+//     gradlew townsteadProbeTest -PtownsteadJar=/path/townstead-0.7.7+1.21.1.jar
+//
+// With no property the task skips with one line and does not fail.
+//
+// The Townstead jar is opened together with the MCA probe fleet, and that pairing is load-bearing:
+// Townstead is compiled against MCA, so enumerating TownsteadAPI's methods resolves an MCA parameter
+// type; with no MCA on the loader the whole class reads as unbound and the probe would pass
+// vacuously. The fleet is the same mcaProbe<N> set McaBindingProbeTest uses, so no second copy of
+// those jars is declared here.
+tasks.register('townsteadProbeTest', Test) {
+    group = 'verification'
+    description = 'Verifies the Townstead binding manifest against a supplied Townstead jar.'
+    useJUnitPlatform()
+    filter {
+        includeTestsMatching 'dev.otectus.mcacrime.compat.TownsteadBindingProbeTest'
+        // The mixin layer's half of the same question. The binding probe proves the reflective manifest
+        // still resolves; this proves the classes, methods and vanilla call sites the Townstead mixins
+        // name are still where the annotations say they are -- which nothing else can check, because
+        // those targets are strings the compiler never sees a class for.
+        includeTestsMatching 'dev.otectus.mcacrime.compat.TownsteadMixinTargetTest'
+    }
+    outputs.upToDateWhen { false }
+    testLogging { showStandardStreams = true }
+    systemProperty 'mcacrime.projectRoot', project.projectDir.absolutePath
+
+    // The SKIPPED report lives in onlyIf rather than doFirst: onlyIf is evaluated first, and a
+    // doFirst on a skipped task never runs.
+    onlyIf {
+        if (project.hasProperty('townsteadJar')) {
+            return true
+        }
+        logger.lifecycle('townsteadProbeTest: no -PtownsteadJar supplied; skipping (nothing to probe against).')
+        false
+    }
+
+    // Resolved in doFirst, not at configuration time, so configuring the build never has to reach the
+    // network for the MCA probe fleet.
+    doFirst {
+        systemProperty 'mcacrime.townstead.probe.jars', project.property('townsteadJar').toString()
+        systemProperty 'mcacrime.probe.jars', mcaProbeVersions.indices
+                .collect { i -> configurations.getByName("mcaProbe${i}").files }
+                .flatten()
+                .findAll { it.name.contains('mca-neoforge') }
+                .join(File.pathSeparator)
+    }
+}
+
+// ModDevGradle configures `test` late -- unitTest wires in the Minecraft classpath, the NeoForge JUnit
+// runner, its JVM args and the build/minecraft-junit working directory -- so townsteadProbeTest
+// inherits that configuration here rather than assembling a second, subtly different runtime out of
+// sourceSets. Without it the runner aborts with "Failed to start Minecraft: mainargs.txt".
+afterEvaluate {
+    def base = tasks.named('test', Test).get()
+    tasks.named('townsteadProbeTest', Test).configure {
+        classpath = base.classpath
+        testClassesDirs = base.testClassesDirs
+        jvmArgs = base.jvmArgs
+        // MDG supplies fml.modFolders lazily through a provider; without it the mod is not loaded.
+        jvmArgumentProviders.addAll(base.jvmArgumentProviders)
+        javaLauncher = base.javaLauncher
+        // Includes MDG's generated launch files and manifest stub without running `test` itself.
+        dependsOn { base.taskDependencies.getDependencies(base) }
+        base.systemProperties.each { key, value -> systemProperty(key, value) }
+        workingDir = base.workingDir
+        environment base.environment
+    }
+}
+
 // Expand metadata placeholders into neoforge.mods.toml at build time.
 tasks.named('processResources', ProcessResources).configure {
     // Without this the expansion is written in the platform charset (windows-1252 here), which
@@ -302,6 +377,14 @@ tasks.withType(JavaCompile).configureEach {
     options.encoding = 'UTF-8'
     options.release = 21
     options.compilerArgs << '-Xmaxerrs' << '2000'
+    // NOTE: no -AMSG_MIXIN_SOFT_TARGET_NOT_FOUND here, unlike the Forge 1.20.1 baseline. That option
+    // downgrades a Mixin *annotation processor* diagnostic, and this project runs no annotation
+    // processor at all (see the dependencies note above: NeoForge 1.21.1 is Mojang-named, so there is
+    // nothing to remap and no refmap to generate). The Townstead mixins' dotted `targets =` strings
+    // are therefore just strings to javac, and an unresolvable one is not a compile error. What would
+    // have been checked at build time is checked instead by TownsteadMixinPlugin at load time, which
+    // refuses to apply a mixin whose target class is absent, and by TownsteadMixinTargetTest, which
+    // reads the real class out of a Townstead jar.
 }
 
 /**
@@ -339,6 +422,7 @@ tasks.register('checkJarContents') {
                          'forge/net/mca/', 'net/mca/', 'dev/architectury/', 'me/shedaniel/',
                          'dev/otectus/mcareputation/', 'dev/otectus/mcaquests/',
                          'dev/otectus/mcaconversations/', 'org/junit/', 'melonslise/locks/',
+                         'com/aetherianartificer/townstead/',
                          'dev/otectus/mcacrime/gametest/']
         // Text entries whose expanded content is inspected below (spec 13.4).
         def texts = [:]
@@ -395,12 +479,20 @@ tasks.register('checkJarContents') {
         if (!plural.isEmpty()) {
             problems << "1.20.1 plural data director(ies): ${plural.take(5)}"
         }
-        // Exactly one: the client-only restraint pose mixin. Zero means the [[mixins]] block points
-        // at nothing; two means a config was added without being declared in neoforge.mods.toml.
-        // No refmap is expected - NeoForge 1.21.1 production runs on Mojang names.
-        def mixinConfigs = entries.findAll { it.endsWith('.mixins.json') }
-        if (mixinConfigs.size() != 1) {
-            problems << "expected exactly one mixin config, found ${mixinConfigs.size()}: ${mixinConfigs}"
+        // Exactly these two, by name. The required vanilla config and the optional, plugin-gated
+        // Townstead one; a missing entry means the matching [[mixins]] block points at nothing, and an
+        // extra one means a config was added without being declared in neoforge.mods.toml.
+        // No refmap is expected in either - NeoForge 1.21.1 production runs on Mojang names.
+        def expectedMixinConfigs = ['mcacrime.mixins.json', 'mcacrime.townstead.mixins.json']
+        def mixinConfigs = entries.findAll { it.endsWith('.mixins.json') }.sort()
+        if (mixinConfigs != expectedMixinConfigs.sort()) {
+            problems << "expected exactly ${expectedMixinConfigs}, found ${mixinConfigs}"
+        }
+        // Each one has to be declared, or the jar carries a config the loader never reads.
+        expectedMixinConfigs.each { config ->
+            if (!(texts['META-INF/neoforge.mods.toml'] ?: '').contains("config=\"${config}\"")) {
+                problems << "${config} is packaged but no [[mixins]] block in neoforge.mods.toml names it"
+            }
         }
         mixinConfigs.each { config ->
             if (texts[config]?.contains('refmap')) {

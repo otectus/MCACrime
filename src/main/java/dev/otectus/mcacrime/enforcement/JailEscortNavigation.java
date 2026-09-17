@@ -40,6 +40,10 @@ public final class JailEscortNavigation {
     public static Progress advance(ServerLevel level, Entity guard, Entity prisoner, JailAnchor anchor) {
         if (!anchor.dim().equals(level.dimension().location())) return new Progress(false, true);
         if (!(guard instanceof Mob mob)) return new Progress(false, true);
+        // The escort is still under way, whether or not this pass issues a fresh path: a guard waiting
+        // for a prisoner on the lead is as much mid-escort as one walking, and a lease that lapsed
+        // there would hand the guard straight back to a workbench.
+        dev.otectus.mcacrime.activity.CrimeActivityRegistry.touch(guard.getUUID(), level.getGameTime());
         Route route = ROUTES.computeIfAbsent(prisoner.getUUID(), id -> new Route());
         if (!guard.getUUID().equals(route.guard) || !anchor.equals(route.jail)) {
             route = new Route();

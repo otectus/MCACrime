@@ -12,7 +12,6 @@ import net.minecraft.client.renderer.RenderType;
 import net.minecraft.core.BlockPos;
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.Entity;
-import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.neoforge.client.event.RenderLevelStageEvent;
@@ -66,13 +65,24 @@ public final class EscortRopeRenderer {
         Vec3 camera = event.getCamera().getPosition();
         float partialTick = event.getPartialTick().getGameTimeDeltaPartialTick(false);
         PoseStack pose = event.getPoseStack();
+        Map<UUID, Entity> loaded = null;
 
         for (Map.Entry<UUID, ClientRestraintData.ClientRestraintEntry> entry : restrained.entrySet()) {
             int guardId = entry.getValue() == null ? -1 : entry.getValue().guardEntityId();
             if (guardId < 0) {
                 continue; // nobody is escorting them, or the captive is on a real vanilla leash
             }
-            Player prisoner = level.getPlayerByUUID(entry.getKey());
+            Entity prisoner = level.getPlayerByUUID(entry.getKey());
+            if (prisoner == null) {
+                // A villager rather than a player. Worth the one pass: on a body with no wrists the
+                // cuff layer draws a band instead of cuffs, and the rope is then the only thing that
+                // shows who is holding them. Built once per frame, and only when a rope is actually
+                // wanted -- the common case leaves this null and never walks the entity list.
+                if (loaded == null) {
+                    loaded = byUuid(level);
+                }
+                prisoner = loaded.get(entry.getKey());
+            }
             Entity guard = level.getEntity(guardId);
             // Entity ids are per level, so a prisoner or guard in another dimension simply does not
             // resolve. Requiring both is what stops a stale id pairing the rope with the wrong entity.
@@ -93,7 +103,7 @@ public final class EscortRopeRenderer {
      * games.
      */
     private static void render(PoseStack pose, MultiBufferSource buffers, Vec3 camera,
-                               Entity guard, Player prisoner, float partialTick) {
+                               Entity guard, Entity prisoner, float partialTick) {
         Vec3 from = guard.getPosition(partialTick).add(0.0, guard.getBbHeight() * 0.6, 0.0);
         Vec3 to = prisoner.getPosition(partialTick).add(0.0, prisoner.getBbHeight() * 0.55, 0.0);
 
@@ -145,6 +155,22 @@ public final class EscortRopeRenderer {
                 .setColor(0.35F * shade, 0.28F * shade, 0.22F * shade, 1.0F).setLight(light);
         buffer.addVertex(matrix, x - offsetX, y + width - yOffset, z - offsetZ)
                 .setColor(0.35F * shade, 0.28F * shade, 0.22F * shade, 1.0F).setLight(light);
+    }
+
+    /**
+     * Every loaded entity by UUID.
+     *
+     * <p>{@code ClientLevel} indexes entities by network id, not by UUID, and the restraint cache is
+     * keyed by UUID because a restrained subject may not be loaded when the packet arrives. One pass
+     * over the render list closes the gap; it is built lazily so a world with no escorted villager
+     * never pays for it.
+     */
+    private static Map<UUID, Entity> byUuid(ClientLevel level) {
+        Map<UUID, Entity> byId = new java.util.HashMap<>();
+        for (Entity entity : level.entitiesForRendering()) {
+            byId.put(entity.getUUID(), entity);
+        }
+        return byId;
     }
 
     /** Blends the packed block/sky light of the two ends, each channel separately. */

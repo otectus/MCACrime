@@ -22,6 +22,19 @@ public final class ActiveCrimeReactionController {
     private final UUID villagerId;
     /** Where the villager was when the reaction started, so the service can find it again. */
     private final ResourceLocation dimension;
+    /**
+     * The activity generation this controller took, or 0 when a stronger claim refused it.
+     *
+     * <p>Carried so the controller can release exactly what it took, and so it can tell "my claim is
+     * still mine" from "something outranked me two ticks ago". Without it, a controller shutting down
+     * late would hand the villager back to MCA — clearing the walk target and the target of whatever
+     * arrest had just pre-empted it.
+     */
+    private long activityGeneration;
+
+    public long activityGeneration() { return activityGeneration; }
+
+    public void setActivityGeneration(long generation) { this.activityGeneration = generation; }
     @Nullable
     private UUID offenderId;
     @Nullable

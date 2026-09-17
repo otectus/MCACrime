@@ -1,5 +1,10 @@
 package dev.otectus.mcacrime.enforcement;
 
+import dev.otectus.mcacrime.activity.CrimeActivityRegistry;
+import dev.otectus.mcacrime.activity.CrimeActivityView;
+import net.minecraft.world.entity.Entity;
+
+import org.jetbrains.annotations.Nullable;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -27,6 +32,19 @@ public final class LawHold {
 
     private static final Map<UUID, Long> HELD = new ConcurrentHashMap<>();
 
+    /**
+     * The activity generation each hold took, so the release can be its own and nobody else's.
+     *
+     * <p>Only holds that actually won a claim appear here. A hold refused by a stronger claim — a
+     * guard already escorting somebody, a villager already in custody — still stamps {@link #HELD},
+     * because being off-limits to the reaction system is exactly as true then as it was before this
+     * registry existed; it simply has no claim to give back.
+     */
+    private static final Map<UUID, Long> CLAIMS = new ConcurrentHashMap<>();
+
+    /** The owner token every hold claims under, so a re-stamp renews instead of re-taking. */
+    private static final String OWNER = "law_hold";
+
     private LawHold() {
     }
 
@@ -34,6 +52,39 @@ public final class LawHold {
     public static void hold(UUID responder, long untilGameTime) {
         if (responder != null) {
             HELD.merge(responder, untilGameTime, Math::max);
+        }
+    }
+
+    /**
+     * The same hold, as an activity claim the rest of the world can see.
+     *
+     * <p>{@code LawHold} answers one question — "is law busy with this entity?" — for MCA: Crime's own
+     * reaction ticker. The claim answers a wider one for everybody else, including the behaviour gates
+     * that keep a villager from wandering off to a workbench mid-arrest. Both are stamped here so
+     * there is one call at each site rather than two that can drift apart.
+     *
+     * <p>{@code kind} is what law is actually doing, because the yield table differs: a guard standing
+     * still reciting charges may be interrupted by things a guard walking a prisoner to a cell may not.
+     */
+    public static void hold(@Nullable Entity responder, long untilGameTime,
+                            CrimeActivityView.Kind kind) {
+        if (responder == null) {
+            return;
+        }
+        UUID id = responder.getUUID();
+        hold(id, untilGameTime);
+        try {
+            long now = responder.level().getGameTime();
+            int lease = (int) Math.max(1L, Math.min(Integer.MAX_VALUE, untilGameTime - now));
+            long generation = CrimeActivityRegistry.claim(id,
+                    responder.level().dimension().location(), kind, OWNER, now, lease);
+            if (generation != CrimeActivityRegistry.REFUSED) {
+                CLAIMS.put(id, generation);
+            }
+        } catch (Throwable t) {
+            // The hold itself is already recorded. A registry that could break an arrest would be a
+            // worse coordination layer than none.
+            CLAIMS.remove(id);
         }
     }
 
@@ -47,19 +98,36 @@ public final class LawHold {
     public static void clear(UUID responder) {
         if (responder != null) {
             HELD.remove(responder);
+            releaseClaim(responder);
         }
     }
 
     /** Drops expired holds. Called from the guard scan, which is already throttled. */
     public static void prune(long now) {
         if (!HELD.isEmpty()) {
-            HELD.values().removeIf(until -> until <= now);
+            HELD.entrySet().removeIf(entry -> {
+                if (entry.getValue() > now) {
+                    return false;
+                }
+                releaseClaim(entry.getKey());
+                return true;
+            });
+        }
+    }
+
+    private static void releaseClaim(UUID responder) {
+        Long generation = CLAIMS.remove(responder);
+        if (generation != null) {
+            // Generation-scoped: a hold that ended after an escort or a custody transfer took the same
+            // villager must not clear the claim that replaced it.
+            CrimeActivityRegistry.release(responder, generation);
         }
     }
 
     /** Drops every hold. Called on server stop, beside the other enforcement caches. */
     public static void clearAll() {
         HELD.clear();
+        CLAIMS.clear();
     }
 
     /** Exposed for {@code /crime debug}: how many responders are enforcing right now. */

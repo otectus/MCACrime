@@ -91,6 +91,59 @@ class NoMcaStaticLinkTest {
                         + "across MCA's package renames. Offenders: " + violations);
     }
 
+    /**
+     * The same question asked again of the one package that could answer it differently.
+     *
+     * <p>The scan above already covers every class, so this adds no reach — it adds a <em>reason</em>.
+     * {@code mixin/townstead/} holds mixins that are merged into Townstead's own classes, and
+     * Townstead is compiled against MCA: every method it declares that takes a villager carries a
+     * relocated MCA type in its descriptor. Writing one of those descriptors into an {@code @At}
+     * target or capturing such a parameter in a handler is the natural way to write these hooks and
+     * is exactly what must never happen, because it would put an MCA type back into MCA: Crime's
+     * constant pool and re-link the mod to one MCA package layout — through a third mod, where nobody
+     * would think to look for it.
+     *
+     * <p>So the rule is stated where it can be read next to the code it constrains, with the roots
+     * spelled out rather than inherited, and its failure message says what to do instead.
+     */
+    @Test
+    void theTownsteadMixinLayerNamesNoMcaType() throws IOException {
+        String projectRoot = System.getProperty("mcacrime.projectRoot");
+        assertTrue(projectRoot != null && !projectRoot.isBlank(),
+                "mcacrime.projectRoot is not set; the test task in build.gradle supplies it");
+        Path classesDir = Paths.get(projectRoot, "build", "classes", "java", "main");
+        Path mixinDir = classesDir.resolve("dev/otectus/mcacrime/mixin/townstead/");
+        if (!Files.isDirectory(mixinDir)) {
+            return; // the layer has not landed yet
+        }
+
+        String[] roots = {"net/mca", "net/conczin/mca", "forge/net/mca", "forge/net/conczin/mca",
+                "net/minecraftforge/"};
+        List<String> violations = new ArrayList<>();
+        try (Stream<Path> paths = Files.walk(mixinDir)) {
+            paths.filter(p -> p.toString().endsWith(".class")).forEach(p -> {
+                try {
+                    byte[] bytes = Files.readAllBytes(p);
+                    for (String root : roots) {
+                        if (containsNeedle(bytes, root.getBytes(StandardCharsets.UTF_8))) {
+                            violations.add(classesDir.relativize(p).toString().replace('\\', '/')
+                                    + " -> " + root);
+                        }
+                    }
+                } catch (IOException e) {
+                    throw new UncheckedIOException(e);
+                }
+            });
+        }
+
+        assertTrue(violations.isEmpty(),
+                "The Townstead mixin layer names an MCA or Forge package. Target methods whose signature "
+                        + "carries an MCA type must be matched by name only (method = \"tick\"), handler "
+                        + "parameters must be vanilla, and every @At target must name a vanilla owner. "
+                        + "Villager identity comes from TownsteadTickContext, not from a captured "
+                        + "argument. Offenders: " + violations);
+    }
+
     private static boolean containsNeedle(byte[] haystack, byte[] needle) {
         outer:
         for (int i = 0; i <= haystack.length - needle.length; i++) {

@@ -91,7 +91,7 @@ public final class EntitySelectors {
 
     /** A responder who can currently notice, converse, or perform an arrest. */
     public static boolean isAvailableResponder(Entity entity) {
-        return dev.otectus.mcacrime.ai.NpcAwareness.isAwake(entity) && isResponder(entity);
+        return dev.otectus.mcacrime.ai.NpcAwareness.canRespondAsGuard(entity) && isResponder(entity);
     }
 
     /** Drops the compiled forms so the next lookup rebuilds them. Called on config reload. */

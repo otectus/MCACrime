@@ -27,8 +27,14 @@ public final class ClientCaches {
             ClientChallengeData::clear,
             ClientCaseData::clear,
             ClientRestraintData::clear,
+            ClientRestraintRig::clear,
             ClientWeaponPolicy::clear,
-            ClientCriminalJobData::clear);
+            ClientCriminalJobData::clear,
+            ClientVillageSecurityData::clear,
+            // Not a cache of server data but a marker about one screen on one connection: carrying it
+            // across a disconnect would apply this session's interruption to the next session's first
+            // conversation. Cleared here so the list stays the single place that knows.
+            dev.otectus.mcacrime.compat.TownsteadDialogueState::clear);
 
     private ClientCaches() {
     }

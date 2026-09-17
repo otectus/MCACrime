@@ -11,6 +11,11 @@ import dev.otectus.mcacrime.captivity.CustodyService;
 import dev.otectus.mcacrime.compat.McaCompat;
 import dev.otectus.mcacrime.detect.EntitySelectors;
 import dev.otectus.mcacrime.jail.HoldingCell;
+import dev.otectus.mcacrime.facility.CareHandoverPolicy;
+import dev.otectus.mcacrime.facility.CellReservation;
+import dev.otectus.mcacrime.facility.CrimeFacilityService;
+import dev.otectus.mcacrime.facility.FacilityAssignment;
+import dev.otectus.mcacrime.facility.FacilityRole;
 import dev.otectus.mcacrime.jail.HoldingCellService;
 import dev.otectus.mcacrime.jail.JailAnchor;
 import dev.otectus.mcacrime.jail.JailService;
@@ -64,6 +69,17 @@ public final class NpcCustodyService {
         private long nextNavAt;
         /** When the escort lost its guard, or 0 while it still has one. */
         private long orphanSince;
+        /**
+         * The prisoner's total held time when this escort began.
+         *
+         * <p>Zero for an arrest, which is the case the deadline was written for: custody starts at the
+         * moment the escort does, so the two clocks are the same clock. They stop being the same clock
+         * the moment an escort starts <em>during</em> a sentence — the care-room handover below — where
+         * a prisoner who has served an hour would be overdue on the first tick and the walk would end
+         * before it began. Subtracting the baseline measures this escort rather than this captivity,
+         * and leaves the arrest path arithmetically identical.
+         */
+        private long heldTicksAtStart;
 
     }
 
@@ -141,6 +157,7 @@ public final class NpcCustodyService {
 
     public static void clearAll() {
         ESCORTS.clear();
+        CARE_HANDOVER_NEXT.clear();
     }
 
     public static int activeCount() {
@@ -169,10 +186,16 @@ public final class NpcCustodyService {
                 CustodyService.release(server, record.getCaptive(), CustodyReleaseReason.ADMIN);
                 ThiefBehaviorService.markReleased(record.getCaptive());
                 ESCORTS.remove(record.getCaptive());
+                CARE_HANDOVER_NEXT.remove(record.getCaptive());
                 JailEscortNavigation.forget(record.getCaptive());
                 continue;
             }
             inferLegacySentenceMembership(server, record.getCaptive());
+            // Custody outlives any activity lease, so the claim is re-asserted on the scan that is
+            // already walking these records rather than taken once and left to expire under a prisoner.
+            if (level.getEntity(record.getCaptive()) instanceof LivingEntity heldEntity) {
+                CustodyService.assertCustodyClaim(heldEntity);
+            }
             switch (record.getOwner().type()) {
                 case GUARD -> tickEscort(server, data, level, record, elapsedTicks);
                 case JAIL -> tickSentence(server, data, level, record, elapsedTicks);
@@ -199,11 +222,12 @@ public final class NpcCustodyService {
 
         UUID guardId = record.getOwner().ownerUuid().orElse(null);
         LivingEntity guard = guardId != null && level.getEntity(guardId) instanceof LivingEntity found
-                && dev.otectus.mcacrime.ai.NpcAwareness.isAwake(found) ? found : null;
+                && dev.otectus.mcacrime.ai.NpcAwareness.canRespondAsGuard(found) ? found : null;
         int timeout = McaCrimeConfig.COMMON.arrestEscortTimeoutTicks.get();
-        boolean overdue = escortOverdue(record.getRealTicksHeld(), timeout);
+        boolean overdue = escortOverdue(
+                Math.max(0L, record.getRealTicksHeld() - escort.heldTicksAtStart), timeout);
         if (overdue) {
-            JailAnchor anchor = nearestAnchor(data, level, thief.blockPosition());
+            JailAnchor anchor = nearestAnchor(data, level, thief.blockPosition(), captiveId);
             commit(server, data, level, record, thief, guard,
                     anchor == null ? thief.blockPosition() : anchor.pos());
             return;
@@ -213,9 +237,10 @@ public final class NpcCustodyService {
             return;
         }
         escort.orphanSince = 0L;
-        LawHold.hold(guard.getUUID(), now + 3L * Math.max(1, McaCrimeConfig.COMMON.guardScanIntervalTicks.get()));
+        LawHold.hold(guard, now + 3L * Math.max(1, McaCrimeConfig.COMMON.guardScanIntervalTicks.get()),
+                dev.otectus.mcacrime.activity.CrimeActivityView.Kind.ESCORT);
 
-        JailAnchor anchor = nearestAnchor(data, level, thief.blockPosition());
+        JailAnchor anchor = nearestAnchor(data, level, thief.blockPosition(), captiveId);
         if (anchor == null) {
             // No jail anywhere in this dimension. The cell is built where the arrest happened rather
             // than marching the pair toward a destination that does not exist.
@@ -256,7 +281,7 @@ public final class NpcCustodyService {
         if (now - escort.orphanSince < McaCrimeConfig.COMMON.npcEscortOrphanTicks.get()) {
             return;
         }
-        JailAnchor anchor = nearestAnchor(data, level, thief.blockPosition());
+        JailAnchor anchor = nearestAnchor(data, level, thief.blockPosition(), record.getCaptive());
         BlockPos near = anchor == null ? thief.blockPosition() : anchor.pos();
         CrimeDebug.crime("escort of {} was orphaned; jailing in place", record.getCaptive());
         commit(server, data, level, record, thief, null, near);
@@ -276,10 +301,25 @@ public final class NpcCustodyService {
         // The cell projects the custody sentence. Its absence never loses the assessed cases.
         UUID sentenceId = record.getSentenceId();
         if (sentenceId == null) return; // reconcile assigns legacy identity before this path
-        HoldingCell cell = HoldingCellService.provision(level, near, captiveId, sentenceId);
+        // Arrival revalidation: the reserved cell is confirmed and spent here, or released because the
+        // building went away while the pair were walking to it. Either way the slot is not left held.
+        CrimeFacilityService.Arrival arrival = CrimeFacilityService.arrive(level, captiveId);
+        if (arrival == CrimeFacilityService.Arrival.INVALID) {
+            CrimeDebug.crime("the facility {} was being escorted to no longer validates; "
+                    + "the cell is provisioned at the destination instead", captiveId);
+        }
+        dev.otectus.mcacrime.jail.CellBuilder.Outcome provisioning =
+                HoldingCellService.provisionChecked(level, near, captiveId, sentenceId);
+        HoldingCell cell = provisioning.cell();
+        if (cell == null && provisioning.refusal() != dev.otectus.mcacrime.jail.CellBuilder.Refusal.NONE) {
+            // Never silent: a settlement-aware refusal cannot be fixed by walking somewhere else, and an
+            // operator reading the log is the only person who can act on it.
+            CrimeDebug.crime("no holding cell for {}: {}", captiveId, provisioning.describe());
+        }
         BlockPos hold = SafeCustodyDestination.validate(level, cell == null ? near : cell.anchor(), 4)
                 .orElseGet(() -> SafeCustodyDestination.validate(level, thief.blockPosition(), 4).orElse(null));
         if (hold == null) {
+            CrimeFacilityService.releaseFor(server, captiveId);
             CustodyService.release(server, captiveId, CustodyReleaseReason.ADMIN);
             HoldingCellService.releaseAndDismantle(server, captiveId);
             CrimeReactionService.endCaptive(level, captiveId);
@@ -314,6 +354,15 @@ public final class NpcCustodyService {
     /** The sentence clock, and the release at the end of it. */
     private static void tickSentence(MinecraftServer server, CrimeWorldData data, ServerLevel level,
                                      CustodyRecord record, long elapsedTicks) {
+        // Care first, because it can stop the clock. A prisoner whose needs have collapsed is not
+        // serving: custody-recovery suspends the confinement and keeps the sentence, so the remaining
+        // ticks stand still until they are well enough to be held again.
+        dev.otectus.mcacrime.captivity.CustodyCareService.tick(level, data, record,
+                level.getEntity(record.getCaptive()) instanceof LivingEntity held ? held : null);
+        if (record.isInRecovery()) {
+            considerCareHandover(server, data, level, record);
+            return;
+        }
         long remaining = record.getRemainingJailTicks() - elapsedTicks;
         record.setRemainingJailTicks(Math.max(0L, remaining));
         data.setDirty();
@@ -326,17 +375,136 @@ public final class NpcCustodyService {
             SentenceResolutionService.markServed(server, captiveId, record.getSentenceId());
         }
         CustodyService.release(server, captiveId, CustodyReleaseReason.SENTENCE_SERVED);
+        dev.otectus.mcacrime.captivity.CustodyCareService.forget(captiveId);
+        CrimeFacilityService.releaseFor(server, captiveId);
         HoldingCellService.releaseAndDismantle(server, captiveId);
         CrimeReactionService.endCaptive(level, captiveId);
         // The criminal job survives the sentence (spec §"Guards and thief arrests"): a thief comes out
         // of jail still a thief, and goes back to work after its ordinary cooldown.
         ThiefBehaviorService.markReleased(captiveId);
         ESCORTS.remove(captiveId);
+        CARE_HANDOVER_NEXT.remove(captiveId);
         JailEscortNavigation.forget(captiveId);
         CrimeDebug.crime("thief {} served its sentence and was released", captiveId);
     }
 
     // ------------------------------------------------------------------ helpers
+
+    /**
+     * Where this captive is being walked, facility first.
+     *
+     * <p>An assigned {@code JAIL_CELL} outranks a manual anchor for the same reason it does on the
+     * player side: it carries a capacity that can be reserved and a building that can be revalidated on
+     * arrival. A captive who already holds a reservation keeps walking to the cell it names rather than
+     * being re-routed every scan, which also means the expensive validation runs once per escort and
+     * not once per tick.
+     */
+    @Nullable
+    private static JailAnchor nearestAnchor(CrimeWorldData data, ServerLevel level, BlockPos from,
+                                            @Nullable UUID captive) {
+        if (captive != null) {
+            long now = level.getGameTime();
+            CellReservation held = data.cellReservationForPrisoner(captive, now);
+            FacilityAssignment reserved = held == null ? null : data.facility(held.facilityId());
+            if (reserved != null) {
+                return facilityAnchor(reserved);
+            }
+            FacilityAssignment chosen = CrimeFacilityService
+                    .selectDestination(level, FacilityRole.JAIL_CELL, from).orElse(null);
+            if (chosen != null && CrimeFacilityService.reserve(data, chosen, captive, now,
+                    Math.max(CellReservation.DEFAULT_LEASE_TICKS,
+                            McaCrimeConfig.COMMON.arrestEscortTimeoutTicks.get())).isPresent()) {
+                return facilityAnchor(chosen);
+            }
+        }
+        return nearestAnchor(data, level, from);
+    }
+
+    // ------------------------------------------------------------------ care-room handover
+
+    /** How often one recovering prisoner is reconsidered for a care room. Ten seconds. */
+    private static final int CARE_HANDOVER_INTERVAL_TICKS = 200;
+
+    /** How close to a care room's anchor counts as already being in it. */
+    private static final double CARE_ROOM_REACH_SQR = 36.0D;
+
+    /** captive id -> the next game time a care-room handover may be considered. Memory-only. */
+    private static final Map<UUID, Long> CARE_HANDOVER_NEXT = new ConcurrentHashMap<>();
+
+    /**
+     * Walks a recovering prisoner to an assigned care room, when there is one and somebody to walk them.
+     *
+     * <p>Custody recovery already stopped the sentence clock and suspended the confinement — that is
+     * {@code CustodyCareService}'s decision and this cannot reverse it. What this adds is the other half
+     * of reference §8.6 step 2: a settlement that has designated a care room has said where an unfit
+     * prisoner should be, and the alternative to walking them there is leaving them in a cell that has
+     * already been established as having nothing they can use.
+     *
+     * <p>Every way this could go wrong is {@link CareHandoverPolicy}'s to say, and it says so as a pure
+     * function so the rule is asserted rather than inferred. This method is the plumbing: look the
+     * inputs up, ask, and — only on a yes — reserve the room, hand the prisoner to the guard and start
+     * the ordinary escort, which already knows how to lose a guard, get stuck, and arrive.
+     *
+     * <p>Bounded twice over: once per prisoner per ten seconds, and only while the prisoner is loaded.
+     * A world with no care room assigned pays one map lookup and a facility list scan that finds
+     * nothing.
+     */
+    private static void considerCareHandover(MinecraftServer server, CrimeWorldData data,
+                                             ServerLevel level, CustodyRecord record) {
+        UUID captiveId = record.getCaptive();
+        long now = level.getGameTime();
+        Long next = CARE_HANDOVER_NEXT.get(captiveId);
+        if (next != null && now < next) {
+            return;
+        }
+        CARE_HANDOVER_NEXT.put(captiveId, now + CARE_HANDOVER_INTERVAL_TICKS);
+
+        if (!(level.getEntity(captiveId) instanceof LivingEntity prisoner) || !prisoner.isAlive()) {
+            return; // unloaded or dead: nothing to walk anywhere
+        }
+        BlockPos from = record.getHoldPos() == null ? prisoner.blockPosition() : record.getHoldPos();
+        FacilityAssignment careRoom = CrimeFacilityService
+                .selectDestination(level, FacilityRole.CARE_ROOM, from).orElse(null);
+        boolean alreadyThere = careRoom != null && careRoom.anchor().distSqr(from) <= CARE_ROOM_REACH_SQR;
+        boolean escorting = ESCORTS.containsKey(captiveId)
+                || record.getOwner().type() == CustodyOwnerType.GUARD;
+        LivingEntity guard = careRoom == null || alreadyThere || escorting
+                ? null // do not pay for the entity scan on a decision that is already made
+                : nearestResponder(level, prisoner);
+
+        CareHandoverPolicy.Decision decision = CareHandoverPolicy.decide(record.isInRecovery(), careRoom,
+                alreadyThere, escorting, guard != null,
+                careRoom == null ? Double.MAX_VALUE : careRoom.anchor().distSqr(from), 0.0D);
+        if (!decision.handOver() || careRoom == null || guard == null) {
+            return;
+        }
+        // The reservation is what makes the escort walk to the care room rather than to the nearest
+        // jail: nearestAnchor prefers a prisoner's live reservation over everything else. Without one
+        // the pair would set off for a cell, which is the place custody has already decided is not
+        // keeping this prisoner alive.
+        if (CrimeFacilityService.reserve(data, careRoom, captiveId, now,
+                Math.max(CellReservation.DEFAULT_LEASE_TICKS,
+                        McaCrimeConfig.COMMON.arrestEscortTimeoutTicks.get())).isEmpty()) {
+            return;
+        }
+        if (!CustodyService.transferLawfulCustody(server, captiveId, CustodyOwner.guard(guard.getUUID()))) {
+            CrimeFacilityService.releaseFor(server, captiveId);
+            return;
+        }
+        Escort escort = new Escort();
+        // This escort's own clock. See Escort.heldTicksAtStart: a prisoner who has already served an
+        // hour would otherwise be overdue before taking a step.
+        escort.heldTicksAtStart = record.getRealTicksHeld();
+        ESCORTS.put(captiveId, escort);
+        McaCompat.leashTo(prisoner, guard);
+        CrimeDebug.crime("recovering prisoner {} is being walked to the care room {}: {}", captiveId,
+                careRoom.shortId(), decision.reason());
+    }
+
+    private static JailAnchor facilityAnchor(FacilityAssignment facility) {
+        return new JailAnchor(facility.anchor(), facility.ref().dimension(),
+                McaCrimeConfig.COMMON.jailRadiusDefault.get());
+    }
 
     @Nullable
     private static JailAnchor nearestAnchor(CrimeWorldData data, ServerLevel level, BlockPos from) {

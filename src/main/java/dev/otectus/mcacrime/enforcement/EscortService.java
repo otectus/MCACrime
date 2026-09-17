@@ -1,11 +1,13 @@
 package dev.otectus.mcacrime.enforcement;
 
+import dev.otectus.mcacrime.McaCrime;
 import dev.otectus.mcacrime.McaCrimeConfig;
 import dev.otectus.mcacrime.captivity.CustodyOwner;
 import dev.otectus.mcacrime.captivity.CustodyService;
 import dev.otectus.mcacrime.compat.McaCompat;
 import dev.otectus.mcacrime.detect.EntitySelectors;
 import dev.otectus.mcacrime.engine.CrimeState;
+import dev.otectus.mcacrime.facility.CrimeFacilityService;
 import dev.otectus.mcacrime.jail.JailAnchor;
 import dev.otectus.mcacrime.jail.JailRegion;
 import dev.otectus.mcacrime.jail.JailService;
@@ -194,10 +196,10 @@ public final class EscortService {
         }
 
         Entity guard = state.getGuard() == null ? null : level.getEntity(state.getGuard());
-        if (!dev.otectus.mcacrime.ai.NpcAwareness.isAwake(guard)) {
+        if (!dev.otectus.mcacrime.ai.NpcAwareness.canRespondAsGuard(guard)) {
             guard = reassign(level, prisoner, state);
         }
-        boolean guardPresent = dev.otectus.mcacrime.ai.NpcAwareness.isAwake(guard);
+        boolean guardPresent = dev.otectus.mcacrime.ai.NpcAwareness.canRespondAsGuard(guard);
 
         double tether = McaCrimeConfig.COMMON.escortTetherBlocks.get();
         double tetherSqr = tether * tether;
@@ -218,8 +220,9 @@ public final class EscortService {
                 here, level.dimension().location());
         JailEscortNavigation.Progress progress = new JailEscortNavigation.Progress(false, false);
         if (guardPresent && !inRegion && guard.distanceToSqr(prisoner) <= tetherSqr) {
-            LawHold.hold(guard.getUUID(), level.getGameTime()
-                    + 3L * Math.max(1, McaCrimeConfig.COMMON.guardScanIntervalTicks.get()));
+            LawHold.hold(guard, level.getGameTime()
+                    + 3L * Math.max(1, McaCrimeConfig.COMMON.guardScanIntervalTicks.get()),
+                    dev.otectus.mcacrime.activity.CrimeActivityView.Kind.ESCORT);
             progress = JailEscortNavigation.advance(level, guard, prisoner, anchor);
         }
         long online = CrimeAttachments.get(prisoner).getOnlineTicksLived();
@@ -301,6 +304,16 @@ public final class EscortService {
         }
         ArrestState state = ArrestStates.of(prisoner);
         UUID sentenceId = state == null ? null : state.getSentenceId();
+        // Arrival is the last cheap moment to notice that the destination changed under the escort: a
+        // demolished building, a restructured village, or a lease that ran out during a long walk. The
+        // slot is spent here or given back here, and either way it is not left held.
+        if (prisoner.level() instanceof ServerLevel level) {
+            CrimeFacilityService.Arrival arrival = CrimeFacilityService.arrive(level, prisoner.getUUID());
+            if (arrival == CrimeFacilityService.Arrival.INVALID) {
+                McaCrime.LOGGER.debug("MCA: Crime completed an escort into a facility that no longer "
+                        + "validates; the sentence still starts at the recorded anchor.");
+            }
+        }
         if (!JailService.jail(prisoner, sentenceTicks, anchor, sentenceId, false)) {
             // The anchor stopped resolving between the arrest and here. Do not leave the player in
             // custody with no sentence: let them go and let the guard start over.
@@ -327,6 +340,7 @@ public final class EscortService {
     /** The prisoner ran. Custody ends, and running from a surrender is itself resisting arrest. */
     private static void abandon(MinecraftServer server, ServerPlayer prisoner, ArrestState state) {
         forget(prisoner.getUUID());
+        CrimeFacilityService.releaseFor(server, prisoner.getUUID());
         UUID guard = state.getGuard();
         ArrestStates.clear(prisoner);
         releaseCustodyQuietly(server, prisoner);
@@ -339,6 +353,9 @@ public final class EscortService {
 
     private static void releaseCustodyQuietly(MinecraftServer server, ServerPlayer prisoner) {
         forget(prisoner.getUUID());
+        // Whatever ended this escort, nobody is arriving at the reserved cell. Released once, through
+        // the store, so a second path into here finds nothing to do.
+        CrimeFacilityService.releaseFor(server, prisoner.getUUID());
         if (ArrestService.inLawfulCustody(server, prisoner.getUUID())) {
             CustodyService.release(server, prisoner.getUUID(),
                     dev.otectus.mcacrime.captivity.CustodyReleaseReason.ADMIN);

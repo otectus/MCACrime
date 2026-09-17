@@ -2,6 +2,10 @@ package dev.otectus.mcacrime.jail;
 
 import dev.otectus.mcacrime.McaCrime;
 import dev.otectus.mcacrime.McaCrimeConfig;
+import dev.otectus.mcacrime.compat.TownsteadBridge;
+import dev.otectus.mcacrime.compat.TownsteadBuildingView;
+import dev.otectus.mcacrime.compat.TownsteadCapability;
+import dev.otectus.mcacrime.compat.TownsteadQueryResult;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.tags.BlockTags;
@@ -53,12 +57,73 @@ public final class CellBuilder {
      */
     @Nullable
     public static HoldingCell build(ServerLevel level, BlockPos near, UUID prisoner, UUID sentenceId) {
-        if (level == null || near == null || prisoner == null) {
-            return null;
+        return buildChecked(level, near, prisoner, sentenceId).cell();
+    }
+
+    /**
+     * Why no cell was built, when the caller has somewhere to say it.
+     *
+     * <p>A refusal used to be a bare null, which reads as "the terrain was busy" and is exactly wrong
+     * for the two cases this release adds. A site inside a settlement building is a deliberate
+     * exclusion an operator configured; a site MCA: Crime could not ask about is a check that did not
+     * happen. Both have to be distinguishable from ordinary dense terrain, because the fix is different
+     * in each case and because building anyway would put a cage in somebody's workshop.
+     */
+    public enum Refusal {
+        /** A site was found. */
+        NONE,
+        /** Nothing within the search radius was clear enough to build on. */
+        NO_CLEAR_SITE,
+        /** Every candidate overlapped a registered settlement building. */
+        SETTLEMENT_BUILDING,
+        /**
+         * The settlement could not be asked, so no automatic build is allowed here.
+         *
+         * <p>Refusing rather than proceeding is the point (§8.5). "I could not check" is not
+         * "there is nothing there", and a cage raised on that assumption lands in a village's granary.
+         */
+        UNANSWERABLE,
+        /** The caller passed nothing to build for. */
+        NO_REQUEST,
+        /** {@code buildHoldingCell} is off, or the store is read-only, so nothing may be built. */
+        DISABLED,
+        /** The holding-cell roster is at its ceiling; a cage nothing points at can never come down. */
+        ROSTER_FULL
+    }
+
+    /** A build attempt: the cell, or the reason there is not one. */
+    public record Outcome(@Nullable HoldingCell cell, Refusal refusal) {
+
+        public boolean built() {
+            return cell != null;
         }
-        BlockPos anchor = findSite(level, near, McaCrimeConfig.COMMON.holdingCellSearchRadius.get());
+
+        /** One line for an operator or a debug log; never empty. */
+        public String describe() {
+            return switch (refusal) {
+                case NONE -> "a holding cell was built";
+                case NO_CLEAR_SITE -> "no clear site within the holding-cell search radius";
+                case SETTLEMENT_BUILDING -> "every candidate site overlapped a registered settlement "
+                        + "building, and townstead.excludeWorksitesFromTemporaryCells is on";
+                case UNANSWERABLE -> "the settlement's buildings could not be read here, so no cell was "
+                        + "built automatically; assign a jail with /crime assignjail or /crime facility";
+                case NO_REQUEST -> "nothing to build for";
+                case DISABLED -> "temporary holding cells are switched off, or the crime store is "
+                        + "read-only this session";
+                case ROSTER_FULL -> "the holding-cell roster is full";
+            };
+        }
+    }
+
+    /** The same as {@link #build}, keeping the reason a site was refused. */
+    public static Outcome buildChecked(ServerLevel level, BlockPos near, UUID prisoner, UUID sentenceId) {
+        if (level == null || near == null || prisoner == null) {
+            return new Outcome(null, Refusal.NO_REQUEST);
+        }
+        Site site = findSite(level, near, McaCrimeConfig.COMMON.holdingCellSearchRadius.get());
+        BlockPos anchor = site.anchor();
         if (anchor == null) {
-            return null;
+            return new Outcome(null, site.refusal());
         }
         Map<BlockPos, BlockState> replaced = new LinkedHashMap<>();
         Map<BlockPos, BlockState> placed = new LinkedHashMap<>();
@@ -81,10 +146,10 @@ public final class CellBuilder {
             // Half a cell is worse than none: undo what went down and report failure.
             McaCrime.LOGGER.warn("MCA: Crime failed to build a holding cell at {}; rolling back", anchor, t);
             restoreBlocks(level, replaced, Map.of());
-            return null;
+            return new Outcome(null, Refusal.NO_CLEAR_SITE);
         }
-        return new HoldingCell(prisoner, sentenceId, anchor, level.dimension().location(),
-                CellBlueprint.RADIUS, level.getGameTime(), replaced, placed);
+        return new Outcome(new HoldingCell(prisoner, sentenceId, anchor, level.dimension().location(),
+                CellBlueprint.RADIUS, level.getGameTime(), replaced, placed), Refusal.NONE);
     }
 
     /**
@@ -165,8 +230,15 @@ public final class CellBuilder {
      * height comes from the surface of each column rather than from the arrest, so an arrest on a roof
      * does not produce a cell hanging in the air.
      */
-    @Nullable
-    private static BlockPos findSite(ServerLevel level, BlockPos near, int searchRadius) {
+    /** A chosen site, or the reason there is not one. */
+    public record Site(@Nullable BlockPos anchor, Refusal refusal) {
+    }
+
+    private static Site findSite(ServerLevel level, BlockPos near, int searchRadius) {
+        // The strongest refusal seen wins the report. A search that found only settlement buildings
+        // should say so rather than blaming the terrain, and one that could not ask at all outranks
+        // both -- that is the case an operator has to act on.
+        Refusal worst = Refusal.NO_CLEAR_SITE;
         for (int ring = 2; ring <= searchRadius; ring++) {
             for (int dx = -ring; dx <= ring; dx++) {
                 for (int dz = -ring; dz <= ring; dz++) {
@@ -174,13 +246,108 @@ public final class CellBuilder {
                         continue; // covered by a previous, tighter ring
                     }
                     BlockPos candidate = surfaceAnchor(level, near.getX() + dx, near.getZ() + dz, near.getY());
-                    if (candidate != null && siteIsClear(level, candidate)) {
-                        return candidate;
+                    if (candidate == null || !siteIsClear(level, candidate)) {
+                        continue;
                     }
+                    Refusal settlement = settlementRefusal(level, candidate);
+                    if (settlement == Refusal.NONE) {
+                        return new Site(candidate, Refusal.NONE);
+                    }
+                    if (settlement == Refusal.UNANSWERABLE) {
+                        // No point continuing: the same question would be unanswerable at every other
+                        // candidate in this village, and each attempt costs another read.
+                        return new Site(null, Refusal.UNANSWERABLE);
+                    }
+                    worst = Refusal.SETTLEMENT_BUILDING;
                 }
             }
         }
-        return null;
+        return new Site(null, worst);
+    }
+
+    /**
+     * Whether the settlement allows a cell here.
+     *
+     * <p>Three answers, and the third is the one that matters. With building enumeration bound, the
+     * whole footprint is tested against every recognised building that overlaps it. With only the
+     * single-position facade, the five probe points are the best question that can be asked. With
+     * neither — no settlement mod, or the switch off — the answer is {@link Refusal#NONE} and behaviour
+     * is exactly what it was before this release.
+     */
+    private static Refusal settlementRefusal(ServerLevel level, BlockPos anchor) {
+        boolean exclude;
+        try {
+            exclude = McaCrimeConfig.COMMON.townsteadExcludeWorksitesFromTemporaryCells.get();
+        } catch (Throwable t) {
+            exclude = false; // no config loaded; behave as this code did before the switch existed
+        }
+        if (!exclude) {
+            return Refusal.NONE;
+        }
+        boolean enumeration = TownsteadBridge.has(TownsteadCapability.BUILDING_ENUMERATION);
+        boolean facade = TownsteadBridge.has(TownsteadCapability.READ_BUILDING);
+        if (!enumeration && !facade) {
+            return Refusal.NONE;
+        }
+        for (BlockPos probe : probePoints(anchor)) {
+            if (enumeration) {
+                TownsteadQueryResult<java.util.List<TownsteadBuildingView>> result =
+                        TownsteadBridge.buildingsAt(level, probe);
+                java.util.List<TownsteadBuildingView> here = result.orElse(null);
+                if (here == null) {
+                    return Refusal.UNANSWERABLE;
+                }
+                if (overlapsFootprint(here, anchor)) {
+                    return Refusal.SETTLEMENT_BUILDING;
+                }
+                continue;
+            }
+            TownsteadQueryResult<TownsteadBuildingView> single = TownsteadBridge.buildingAt(level, probe);
+            if (single.isFailed()) {
+                return Refusal.UNANSWERABLE;
+            }
+            if (single.isAvailable()) {
+                return Refusal.SETTLEMENT_BUILDING;
+            }
+        }
+        return Refusal.NONE;
+    }
+
+    /** The footprint's four corners and its centre — the cheapest probe that still covers the box. */
+    private static List<BlockPos> probePoints(BlockPos anchor) {
+        int r = CellBlueprint.RADIUS;
+        int y = anchor.getY();
+        return List.of(anchor,
+                new BlockPos(anchor.getX() - r, y, anchor.getZ() - r),
+                new BlockPos(anchor.getX() - r, y, anchor.getZ() + r),
+                new BlockPos(anchor.getX() + r, y, anchor.getZ() - r),
+                new BlockPos(anchor.getX() + r, y, anchor.getZ() + r));
+    }
+
+    /**
+     * Pure: whether the whole blueprint footprint at {@code anchor} overlaps any of these buildings.
+     *
+     * <p>The box, not the probe point. A building whose corner clips one block of the cell wall is
+     * still a building the cell is being dug into, and testing only the point that found it would let
+     * exactly that through.
+     */
+    public static boolean overlapsFootprint(List<TownsteadBuildingView> buildings, BlockPos anchor) {
+        if (buildings == null || buildings.isEmpty() || anchor == null) {
+            return false;
+        }
+        int r = CellBlueprint.RADIUS;
+        int minX = anchor.getX() - r;
+        int maxX = anchor.getX() + r;
+        int minZ = anchor.getZ() - r;
+        int maxZ = anchor.getZ() + r;
+        int minY = anchor.getY() + CellBlueprint.lowestOffset();
+        int maxY = anchor.getY() + CellBlueprint.highestOffset();
+        for (TownsteadBuildingView building : buildings) {
+            if (building != null && building.intersects(minX, minY, minZ, maxX, maxY, maxZ)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

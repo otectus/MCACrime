@@ -1,0 +1,18 @@
+{
+  "required": false,
+  "minVersion": "0.8",
+  "package": "dev.otectus.mcacrime.mixin.townstead",
+  "compatibilityLevel": "JAVA_21",
+  "plugin": "dev.otectus.mcacrime.mixin.townstead.TownsteadMixinPlugin",
+  "mixins": [
+    "GuardRestYieldMixin",
+    "ReactionLockGateMixin",
+    "WorkToolProvenanceMixin"
+  ],
+  "client": [
+    "client.RpgDialogueEntryMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 0
+  }
+}

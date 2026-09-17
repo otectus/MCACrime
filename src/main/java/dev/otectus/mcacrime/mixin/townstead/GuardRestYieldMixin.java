@@ -1,0 +1,120 @@
+package dev.otectus.mcacrime.mixin.townstead;
+
+import dev.otectus.mcacrime.activity.CrimeActivityOperation;
+import dev.otectus.mcacrime.activity.CrimeActivityRegistry;
+import dev.otectus.mcacrime.compat.TownsteadBridge;
+import dev.otectus.mcacrime.compat.TownsteadMixinStatus;
+import dev.otectus.mcacrime.compat.TownsteadTickContext;
+import net.minecraft.world.entity.ai.Brain;
+import net.minecraft.world.entity.ai.memory.MemoryModuleType;
+import net.minecraft.world.entity.ai.navigation.PathNavigation;
+import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.injection.At;
+import org.spongepowered.asm.mixin.injection.Redirect;
+
+import java.util.UUID;
+
+/**
+ * Stops Townstead's guard-rest ticker from erasing a walk order MCA: Crime is currently issuing.
+ *
+ * <h2>The collision</h2>
+ *
+ * <p>Townstead keeps off-duty guards from patrolling aimlessly: during {@code REST}, with no attack
+ * target, not drowsy, not asleep and with no home, it erases the guard's {@code WALK_TARGET} and
+ * {@code LOOK_TARGET} and stops their navigation. Every tick.
+ *
+ * <p>MCA: Crime's lawful approach is a walk target and no attack target — that is what makes it
+ * lawful. So a guard told to walk over and challenge a suspect at night has that order erased before
+ * the next guard scan can even see it. MCA: Crime re-issues, Townstead erases, and the guard stands
+ * still while the ledger fills with pursuits that never start. Crime scans every ten ticks; the
+ * ticker runs every one, so no amount of re-asserting from outside can win. The order has to be
+ * defended where it is erased.
+ *
+ * <h2>Why redirects, and why these three</h2>
+ *
+ * <p>{@code GuardRestEnforcerTicker.tick} takes MCA's villager type, so its descriptor cannot be
+ * written down in this mod and the method is matched by name alone. What the hook then intercepts are
+ * the three <em>vanilla</em> calls inside it — two {@code Brain.eraseMemory} and one
+ * {@code PathNavigation.stop}, each with a vanilla owner in Townstead's own bytecode.
+ *
+ * <p>Every {@code remap} here is {@code false}, including on the {@code @At}s, and that is the one
+ * real difference from the Forge 1.20.1 baseline. NeoForge 1.21.1 ships Mojang names in production,
+ * so this mod builds with no Mixin annotation processor and no {@code mcacrime.refmap.json} exists to
+ * write these members into; the names below are already the names in the shipped Townstead jar.
+ * {@code TownsteadMixinTargetTest} proves that against a real one rather than assuming it.
+ *
+ * <p>One redirect covers both {@code eraseMemory} calls: {@code WALK_TARGET} and {@code LOOK_TARGET}
+ * are erased by the same instruction shape and the answer is the same for both, so no {@code ordinal}
+ * is used and a Townstead that erased a third memory would be covered too.
+ *
+ * <h2>Whose villager is this?</h2>
+ *
+ * <p>A {@code Brain} does not know whose it is and {@code PathNavigation#getMob} does not exist in
+ * 1.21.1, so identity comes from {@link TownsteadTickContext} — the villager NeoForge's
+ * {@code EntityTickEvent.Pre} recorded at the start of this very tick, which is the same entity whose
+ * {@code aiStep} Townstead's dispatcher is running inside. With no context, or a stale one, the
+ * original call goes through: not knowing is treated as not interfering.
+ */
+@Mixin(targets = "com.aetherianartificer.townstead.tick.GuardRestEnforcerTicker", remap = false)
+public abstract class GuardRestYieldMixin {
+
+    /**
+     * Keeps {@code WALK_TARGET} and {@code LOOK_TARGET} while a claim forbids rest travel.
+     *
+     * <p>{@code expect = 1} rather than 2 on purpose: two invocations match today, and a Townstead
+     * that stopped erasing the look target would still be correctly handled — what is worth a warning
+     * is matching none at all.
+     */
+    @Redirect(method = "tick", remap = false, require = 0, expect = 1,
+            at = @At(value = "INVOKE",
+                    target = "Lnet/minecraft/world/entity/ai/Brain;eraseMemory"
+                            + "(Lnet/minecraft/world/entity/ai/memory/MemoryModuleType;)V",
+                    remap = false))
+    private static void mcacrime$keepWalkOrder(Brain<?> brain, MemoryModuleType<?> memory) {
+        if (!mcacrime$yields()) {
+            brain.eraseMemory(memory);
+        }
+    }
+
+    /** The same decision for the navigation stop that follows the two erases. */
+    @Redirect(method = "tick", remap = false, require = 0, expect = 1,
+            at = @At(value = "INVOKE",
+                    target = "Lnet/minecraft/world/entity/ai/navigation/PathNavigation;stop()V",
+                    remap = false))
+    private static void mcacrime$keepPath(PathNavigation navigation) {
+        if (!mcacrime$yields()) {
+            navigation.stop();
+        }
+    }
+
+    /**
+     * Whether Townstead must stand aside for this villager right now.
+     *
+     * <p>Marks the hook as fired first and unconditionally — that is the evidence
+     * {@code /crime debug townstead} reports, and it has to be recorded on the ordinary pass where
+     * nothing is claimed as well as on the rare one where something is. Then: no context, no claim, or
+     * a claim that tolerates rest travel all answer "no", and the original call runs.
+     *
+     * <p>Never throws. It runs inside another mod's per-tick method, where an exception would be
+     * attributed to Townstead and would take its guard handling down with it; a thrown error here
+     * would also skip the original call, which is the worst of both outcomes.
+     */
+    private static boolean mcacrime$yields() {
+        try {
+            TownsteadMixinStatus.injected(TownsteadMixinStatus.HOOK_GUARD_REST);
+            UUID villager = TownsteadTickContext.currentEntityId();
+            if (villager == null) {
+                return false;
+            }
+            if (CrimeActivityRegistry.permits(villager, CrimeActivityOperation.REST_TRAVEL)) {
+                return false;
+            }
+            // The kill switch, read last and only here: on the ordinary pass there is no claim, so a
+            // config lookup never happens on the hot path, and an operator who switched the
+            // integration off gets Townstead's behaviour back exactly as it ships.
+            return TownsteadBridge.integrationEnabled();
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+}

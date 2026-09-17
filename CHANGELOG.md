@@ -40,6 +40,59 @@ because what this mod uses is decided by a capability handshake rather than by a
   settles has been filed is now queued and delivered once the link exists, rather than dropped. It
   waits under the new `AWAITING_LINK` outcome, which counts against the attempt budget so a
   settlement whose create dead-lettered does not retry forever.
+- **Townstead integration, reflection plus four plugin-gated mixins.** `compat/TownsteadBridge` is
+  the facade — `State` is `ABSENT`, `OFF`, `DISABLED`, `PARTIAL` or `FULL` — over eighteen
+  independently reported `TownsteadCapability` values, twelve of which bind through the reflective
+  manifest; every query answers through a `TownsteadQueryResult` that is never a zeroed record and
+  never throws. The implementation lives under `compat/townstead`
+  (`TownsteadBinding`, `TownsteadHandles`, `ReflectiveTownsteadBridge`), matches Townstead members by
+  owner, name, arity and staticness against a manifest, and holds them as erased handles; the only
+  reference into it from anywhere else is a dotted `Class.forName`. That is not fastidiousness:
+  Townstead is compiled against MCA, so naming one Townstead class would put an MCA type into this
+  mod's constant pool and re-link it to one MCA package layout. Binding happens once at
+  `ServerStartedEvent` in `integration/CrimeIntegrationPump`, beside the MCA: Reputation handshake,
+  and is released on server stop.
+- **`/crime debug townstead [entity <target>|village]`** reports the bridge state, the detected
+  Townstead version, which capabilities bound and how each one is provided — `available (api)`,
+  `available (mixin)`, `degraded (mixin applied, hook not yet observed)`, `degraded (start-gate
+  only)` or `unavailable` — plus the unresolved manifest members and the mixin layer's applied/fired
+  record. `compat/TownsteadMixinStatus` is what makes "applied" and "actually reached" two separate
+  facts, so a moved injection point can be told from a world where nothing has happened yet.
+- **A `[townstead]` config section**, sixteen keys, documented in [CONFIG.md](CONFIG.md). Everything
+  in it is a no-op with Townstead absent. `config/ConfigValidator.validateTownstead` reports a switch
+  that is on while the capability behind it is missing as **DEGRADED** — on, but not running — rather
+  than letting it look configured while nothing checks anything.
+- **A second mixin config, `mcacrime.townstead.mixins.json`.** `required: false`, `defaultRequire 0`,
+  no refmap key, and a `mixin/townstead/TownsteadMixinPlugin` that applies nothing unless Townstead is
+  loaded *and* the named target class really resolves. Four mixins: `GuardRestYieldMixin`
+  (Townstead's guard-rest ticker yields to an MCA: Crime claim), `ReactionLockGateMixin` (a reaction
+  lock is refused over a villager this mod holds), `WorkToolProvenanceMixin` (a display tool is
+  recorded as Townstead's, not the villager's) and client `RpgDialogueEntryMixin` (a Crime entry point
+  on Townstead's dialogue screen). Both configs are declared by `[[mixins]]` blocks in
+  `neoforge.mods.toml`, which is how NeoForge reads them — the Forge-era `MixinConfigs` manifest
+  attribute is not honoured — and `checkJarContents` now asserts exactly those two configs and no
+  `refmap` string in either.
+- **`activity/`** — `CrimeActivityRegistry`, `CrimeActivityView`, `OperationPolicy` and
+  `CrimeActivityOperation`: one place that says which villagers an enforcement action currently owns
+  and what that ownership refuses.
+- **`facility/`** — `TownsteadBuildingRef`, `FacilityRole`, `FacilityAssignment`, `CellReservation`,
+  `CustodyCarePolicy`, `CareHandoverPolicy` and `CrimeFacilityService`, with `captivity/CustodyCareService`,
+  `enforcement/GuardDutyService` and custody-recovery state on `captivity/CustodyRecord`. New commands
+  `/crime duty inspect|suggest [village]` and `/crime facility list|validate|assign|remove|recognise`.
+  `jail/JailRegistry.automatic` puts an assigned facility at the top of the *automatic* arrest ladder;
+  `/crime jail` still means the jail an operator assigned, wherever it is.
+- **`civic/VillageSecurityView` and `VillageSecurityService`**, plus `api/model/CrimePublicView` and
+  `McaCrimeApi.publicView` / `effectiveStanding` — what one community may know about one person, with
+  the same knowledge rule the civic incident filing uses. See [API.md](API.md).
+- **Three datapack tables** under `data/mcacrime/townstead/`: `building_roles`,
+  `personality_profiles` and `reaction_bindings`, loaded by `compat/TownsteadBuildingRoles`,
+  `TownsteadPersonalityProfiles` and `TownsteadReactionBindings`. Each publishes whole or not at all.
+  See [DATAPACK.md](DATAPACK.md).
+- **A `townsteadProbeTest` Gradle task** (`-PtownsteadJar`) that resolves the binding manifest and the
+  mixin targets against a real Townstead jar in its own JVM, paired with this branch's `mcaProbe<N>`
+  MCA fleet. One jar, not the baseline's legacy/modern pair: a NeoForge 1.21.1 Townstead is built
+  against the single MCA package root this line ships (`net.conczin.mca`). `checkJarContents` now also
+  fails if any `com/aetherianartificer/townstead/` class is ever shaded into the jar.
 
 ### Changed
 
@@ -63,6 +116,43 @@ because what this mod uses is decided by a capability handshake rather than by a
   `compat/CrimeAuthorityPolicy` declares exactly `MCA_VILLAGER_ASSAULT` and `MCA_VILLAGER_KILL`
   through the companion's `declaredKinds()`, and implements `canDeliver(kind)` so a claim we cannot
   currently file — the outbox pump switched off — hands detection straight back.
+
+- **Mixins are no longer "vanilla only".** They were, and the required config still is; the rule that
+  replaces it is narrower where it matters. Townstead targets live in a second, optional,
+  plugin-gated config, and a mixin in it may name Townstead **only** as a dotted `targets=` string and
+  may never name a Townstead or an MCA type. Every `@Mixin`, `@Inject` and `@Redirect` in it is
+  `remap = false`, as is every `@At` that names a vanilla descriptor, because NeoForge 1.21.1 runs on
+  Mojang names and there is no refmap and no annotation processor on this line. `NoTownsteadStaticLinkTest`, `NoMcaStaticLinkTest`,
+  `MixinConfigTest` and `TownsteadMixinTargetTest` enforce that, and `OptionalClassloadTest` adds
+  `compat/townstead/` to the adapters nothing outside them may name — with `mixin/townstead/` the one
+  permitted namer, because those classes are not loaded on an install without Townstead either.
+- **Work suspension generalised.** `job/ThiefWorkRegistry` used to wrap the `Activity.WORK` behaviours
+  of employed Thieves only. It now also wraps the brain of any villager this mod holds an activity
+  claim on, so an arrest can stand a villager down from work MCA: Crime never installed — vanilla's,
+  MCA's or a settlement companion's. The cheap first question is still two `isEmpty()` calls.
+- **Guard recruitment consults the settlement.** `enforcement/GuardPopulationService` now produces a
+  `RecruitmentReport` — roster, available, protected workers, unreadable roles, and whether the pass
+  was halted — shared with `/crime debug guards` so the number an operator reads is the number the
+  pass acted on. `compat/TownsteadRolePolicy` supplies the stance, and an *unreadable* role halts
+  recruitment in that village rather than being read as "not a worker": a village briefly short of
+  guards recovers, a village whose baker was drafted does not. With Townstead absent, recruitment
+  behaves exactly as it did.
+- **World data schema 13** (`state/world/CrimeDataMigrations`): root `facilities` and
+  `cellReservations`, and the custody `recovery*` keys — byte-identical to the Forge baseline's
+  layout. The 12→13 step deliberately writes nothing but the version: both new collections read their
+  absence as empty, and seeding facilities from the existing jail roster would invent buildings and
+  capacities nobody ever validated.
+- **Network protocol 14.** Three new `CustomPacketPayload` records with `StreamCodec`s:
+  `RestraintRigSyncS2CPacket` (`mcacrime:restraint_rig_sync`), `RequestVillageSecurityC2SPacket`
+  (`mcacrime:request_village_security`) and `VillageSecurityS2CPacket`
+  (`mcacrime:village_security`); the client side is reached only through
+  `CrimeClientPayloadRouter`, as every other packet on this line is.
+  `integration/IntegrationTargets.TOWNSTEAD_REACTION` is a delivery target of its own, routed
+  separately in the pump — a reaction that does not play is dropped, not retried like a civic write —
+  and `DeliveryPolicy.appliesLocalVillagePenalty` now decides the local penalty per target.
+- **Restrained-player rendering** picks its attachment points from a rig read: `client/ClientRestraintRig`
+  and `client/render/RestraintWristLayer` fall back to the humanoid assumption on every uncertainty —
+  no Townstead, an unbound stage read, an unknown villager.
 
 ### Fixed
 
@@ -95,6 +185,33 @@ because what this mod uses is decided by a capability handshake rather than by a
   pre-0.4.1 build, retention — that probe *recorded a villager assault that never happened*. It is
   replaced by `findReceipt`/`findIncident`/`receiptFloor`, which write nothing; where those are
   unavailable, the answer is "unknown" and the keyed retry settles it.
+- **A settlement's display tool dropped as a second real one.** `loot/VillagerDeathLoot` decided
+  whether an equipped stack was extra loot by reference identity against the villager's inventory —
+  the only rule that works for MCA, which equips inventory items by reference. Townstead adds a third
+  case that rule cannot see: a copy it puts in the hand for the look of a work shift, owned by nobody.
+  That is how one hoe became two. `compat/TownsteadEquipmentProvenance` now classifies the stack, and
+  the old reference test survives as its `UNKNOWN` answer. Nothing anywhere compares by equality: two
+  identical hoes on one villager are still two drops.
+- **A criminal-job revert could overwrite somebody else's profession.** Restoring a villager's
+  previous profession no longer reverts when the current profession is not the one MCA: Crime last
+  wrote. `job/ProfessionPresentationRevision` makes that decision, and a player, a datapack or a
+  settlement companion that assigned a profession afterwards keeps it; the remembered value is dropped
+  with the claim rather than being left to stomp the new owner on the next revert.
+
+### Known limits
+
+- **Work suspension is start-gating only.** A work behaviour can be refused before it starts and
+  stopped through its own stop path; a Townstead producer task that has already committed staged
+  inputs is allowed to finish, because reconciling another mod's half-done recipe from the outside is
+  not something this mod can do correctly. `/crime debug townstead` reports the capability as
+  `degraded (start-gate only)` for exactly this reason.
+- **The restraint rig fallback only sees a stage-level rig override.** A rig difference expressed
+  anywhere other than the life stage record is not visible to it, and rendering falls back to the
+  humanoid assumption.
+- **The runtime matrix has not been run for this work.** Production jar, dedicated server, client,
+  multiplayer, save-and-reload, and Townstead removal from an existing save are all unexercised. What
+  has run is the unit suite, `build` (including `checkJarContents`), and the Townstead probe against
+  the NeoForge Townstead 0.7.7 jar.
 
 ### Platform
 
@@ -111,13 +228,28 @@ because what this mod uses is decided by a capability handshake rather than by a
   for the now-private constructor. The datapack files under `data/mcacrime/mcareputation/**` are
   byte-identical to the Forge line: MCA: Reputation's own loader reads them, and they are untouched
   by the 1.21 `recipe/`/`loot_table/` directory renames.
+- Townstead platform differences against the Forge adoption of the same work: no refmap anywhere
+  (neither mixin config declares one, `checkJarContents` fails if either does, and every Townstead
+  mixin `@Mixin`/`@Inject`/`@Redirect`, and every `@At` naming a vanilla descriptor, is
+  `remap = false`); no
+  `-AMSG_MIXIN_SOFT_TARGET_NOT_FOUND` compiler argument, because ModDevGradle runs no mixin annotation
+  processor; both mixin configs declared by `[[mixins]]` blocks in `neoforge.mods.toml` rather than a
+  JAR manifest attribute; the dialogue mixin selecting single `init()V` / `removed()V` where the
+  baseline needs a dual Mojang/SRG selector; one probe jar (`-PtownsteadJar`) rather than a
+  legacy/modern pair; data attachments rather than capabilities, with client caches cleared through
+  the `client/ClientCaches.ALL` registry; `ItemStack.getFoodProperties(null)` for edibility in
+  `captivity/CustodyCareService`; and `SavedData` load/save carrying a `HolderLookup.Provider`, which
+  the new facility records do not need because they serialise only scalars. See
+  [docs/0.7.3/TOWNSTEAD.md](docs/0.7.3/TOWNSTEAD.md).
 
 ---
 
 Compatibility: Minecraft 1.21.1 on NeoForge; requires the MCA Reborn version pinned in
 `gradle.properties`. Optional: MCA: Reputation `[0.2,)` — the integration itself needs `0.4.1` on
 this line, `0.6.0` unlocks public profiles, and every older companion degrades to the surface it
-does have rather than failing the load. Also optional: MCA: Quests, Locks Reforged.
+does have rather than failing the load. Also optional: MCA: Quests, Locks Reforged, and Townstead —
+reached only by reflection and a plugin-gated mixin config, and silently absent on an install that
+does not have it.
 
 ## [0.7.2] — unreleased
 

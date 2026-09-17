@@ -45,28 +45,46 @@ public final class HoldingCellService {
      */
     @Nullable
     public static HoldingCell provision(ServerLevel level, BlockPos near, UUID prisoner, UUID sentenceId) {
+        return provisionChecked(level, near, prisoner, sentenceId).cell();
+    }
+
+    /**
+     * The same, keeping the reason when nothing was built.
+     *
+     * <p>Split out because "there is nowhere to hold you" is an answer somebody has to be told. A
+     * settlement-aware refusal in particular is not a terrain problem and cannot be fixed by walking
+     * somewhere else: the operator has to assign a jail or turn the exclusion off, and a bare null
+     * never said so (§8.5).
+     */
+    public static CellBuilder.Outcome provisionChecked(ServerLevel level, BlockPos near, UUID prisoner,
+                                                       UUID sentenceId) {
         MinecraftServer server = level == null ? null : level.getServer();
-        if (server == null || !McaCrimeConfig.COMMON.buildHoldingCell.get()) {
-            return null;
+        if (server == null) {
+            return new CellBuilder.Outcome(null, CellBuilder.Refusal.NO_REQUEST);
+        }
+        if (!McaCrimeConfig.COMMON.buildHoldingCell.get()) {
+            return new CellBuilder.Outcome(null, CellBuilder.Refusal.DISABLED);
         }
         HoldingCell existing = existingFor(server, prisoner);
         if (existing != null) {
-            return existing;
+            return new CellBuilder.Outcome(existing, CellBuilder.Refusal.NONE);
         }
         if (!ServerMutationGate.allows(server)) {
-            return null; // a read-only store cannot record a cell, so nothing may be built into one
+            // a read-only store cannot record a cell, so nothing may be built into one
+            return new CellBuilder.Outcome(null, CellBuilder.Refusal.DISABLED);
         }
-        HoldingCell built = CellBuilder.build(level, near, prisoner, sentenceId);
+        CellBuilder.Outcome outcome = CellBuilder.buildChecked(level, near, prisoner, sentenceId);
+        HoldingCell built = outcome.cell();
         if (built == null) {
-            return null;
+            return outcome;
         }
         if (!CrimeWorldData.get(server).putHoldingCell(built).stored()) {
             // The roster is full. A cage nothing points at can never be taken down, so it comes back
             // out immediately rather than becoming somebody's permanent garden feature.
             CellBuilder.demolish(level, built);
-            return null;
+            return new CellBuilder.Outcome(null, CellBuilder.Refusal.ROSTER_FULL);
         }
-        return built;
+        return outcome;
     }
 
     /**

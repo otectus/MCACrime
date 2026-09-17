@@ -42,8 +42,13 @@ ai/thief   autonomous thief controller, target selection, guard evasion
 mug/npc    NPC mugging sessions, theft planning, stolen-goods recovery
 economy/fence  contraband pricing, goods registry, trading UI
 compat integration locksreforged mcaquests numismatic  optional companions; degrade at runtime
+compat/townstead  the reflective Townstead adapter; nothing outside it may name a Townstead type
+activity   enforcement claims over a villager and which operations they yield (work start, navigation)
+facility   civic facilities: building refs, roles, assignments, cell reservations, custody care
+civic      read-only village security projection for clients and companions
 client mixin/client  client-only; common code must never import these
 mixin      seven common vanilla-only mixins: equipment capture, Thief worksite and brain, sand sight
+mixin/townstead  plugin-gated Townstead mixins in a second, optional mixin config
 network item audio command config util  plumbing
 ```
 
@@ -53,13 +58,27 @@ network item audio command config util  plumbing
 - **MCA: Reputation** - optional companion, resolved by name at runtime. Compiles only when `../MCAReputation_1.21.1/build/classes/java/main` exists; override that path with `-PmcaReputationClasses=<dir>` to build against a snapshot instead of a sibling checkout. Pass `-PrequireReputation=true` to force the build to fail if it is absent.
 - **MCA: Quests** - optional integration, resolved by name at runtime. Publishes bounties as guard-given contracts. Compiles only when `../MCAQuests_1.21.1/build/classes/java/main` exists; override that path with `-PmcaQuestsClasses=<dir>`. Pass `-PrequireQuests=true` to force the build to fail if it is absent.
 - **Locks Reforged** - optional fence pricing and native cuff lockpicking. The isolated cuff menu compiles against `../Locks_Reforged_1.21.1/build/classes/java/main` (override with `-PlocksClasses=...`); release builds must set `-PrequireLocks=true`. Runtime presence is checked before loading the adapter. `-PlocksRuntimeJar=...` enables real-mod integration runs without bundling it.
+- **Townstead** - optional settlement companion, resolved entirely by reflection through
+  `compat/TownsteadBridge`; absent is the silent, normal path. Never on the compile classpath: the
+  mixins name their targets as dotted strings, and `townsteadProbeTest` takes a supplied jar
+  (`-PtownsteadJar`).
 - **Architectury** - MCA's own runtime requirement; deliberately not declared in `neoforge.mods.toml`.
 
 ## Conventions
 
 - Registration is imperative on the MOD bus in the `McaCrime` constructor. DeferredRegisters for items and creative tabs are attached in `item/CrimeItems.register`; villager professions are registered in `job/CriminalProfessions.register`. Gameplay handlers are `@EventBusSubscriber` (inherits FORGE bus) or on the mod bus. NeoForge uses a different annotation system; check the imports (`net.neoforged.*`).
 - Config is hand-written `ModConfigSpec`, **COMMON + CLIENT only, no SERVER spec**: common is server-authoritative, client is presentation only. `config/ConfigValidator` runs at setup and on every reload. 0.7.2 adds the common `[maskStation]` (`enableMaskStationCrafting`, `enableMaskRestyling`) and `[sandBottle]` sections, `memory.emptyHandApologyMode`, and client `sandParticles`.
-- Eight narrowly scoped mixins, every one of them on a vanilla class. Seven common:
+- Two mixin configs, both declared by `[[mixins]]` blocks in
+  `src/main/resources/META-INF/neoforge.mods.toml` (NeoForge does not honour the Forge-era
+  `MixinConfigs` manifest attribute), and `checkJarContents` asserts exactly those two and no refmap
+  in either. `mcacrime.mixins.json` is required and targets **vanilla classes only**.
+  `mcacrime.townstead.mixins.json` is `required: false` with `defaultRequire 0`, gated by
+  `mixin/townstead/TownsteadMixinPlugin` on Townstead being loaded *and* the target class existing;
+  its four mixins name Townstead only as dotted `targets=` strings and never name a Townstead or MCA
+  type. Nothing here carries a refmap - NeoForge 1.21.1 runs on Mojang names, so every `@Mixin`,
+  `@Inject` and `@Redirect` is `remap = false`, as is every `@At` that names a vanilla descriptor.
+  `NoTownsteadStaticLinkTest`, `NoMcaStaticLinkTest`, `MixinConfigTest` and
+  `TownsteadMixinTargetTest` enforce that. Eight vanilla-targeting mixins, seven common:
   `MobDeathEquipmentMixin` (`Mob.setItemSlot`, HEAD) observes equipment before MCA clears a dying
   villager's; `MaskStationAcquisitionMixin` (`VillagerProfession.acquirableJobSite`, RETURN) hides the
   Mask Station from every profession except Thief; `NativeJobAssignmentMixin`

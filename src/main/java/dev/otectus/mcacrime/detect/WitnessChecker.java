@@ -69,7 +69,7 @@ public final class WitnessChecker {
         double r = McaCrimeConfig.COMMON.witnessRadius.get() * lookoutMultiplier(level, offender);
         AABB box = victim.getBoundingBox().inflate(r);
         List<LivingEntity> nearby = level.getEntitiesOfClass(LivingEntity.class, box,
-                e -> e != victim && dev.otectus.mcacrime.ai.NpcAwareness.isAwake(e) && !e.isSpectator() && McaCompat.isMcaVillager(e));
+                e -> e != victim && dev.otectus.mcacrime.ai.NpcAwareness.canObserveAct(e) && !e.isSpectator() && McaCompat.isMcaVillager(e));
 
         List<WitnessSelection.Candidate> candidates = new ArrayList<>(nearby.size());
         for (LivingEntity witness : nearby) {
@@ -90,7 +90,7 @@ public final class WitnessChecker {
                 * lookoutMultiplier(level, actor);
         List<WitnessSelection.Candidate> candidates = new ArrayList<>();
         List<LivingEntity> nearby = level.getEntitiesOfClass(LivingEntity.class, center.getBoundingBox().inflate(radius),
-                e -> e != actor && e != victim && dev.otectus.mcacrime.ai.NpcAwareness.isAwake(e) && !e.isSpectator() && McaCompat.isMcaVillager(e));
+                e -> e != actor && e != victim && dev.otectus.mcacrime.ai.NpcAwareness.canObserveAct(e) && !e.isSpectator() && McaCompat.isMcaVillager(e));
         for (LivingEntity witness : nearby) {
             if (perceive(witness, actor, center, awareness).sawAct()) {
                 candidates.add(new WitnessSelection.Candidate(witness.getUUID(), witness.distanceToSqr(center)));
@@ -260,7 +260,7 @@ public final class WitnessChecker {
 
     public static PerceptionRules.Result perceive(LivingEntity observer, LivingEntity actor, LivingEntity center,
                                                    dev.otectus.mcacrime.crime.type.CrimeAwareness awareness) {
-        if (!dev.otectus.mcacrime.ai.NpcAwareness.isAwake(observer)) return new PerceptionRules.Result(false, false, 0);
+        if (!dev.otectus.mcacrime.ai.NpcAwareness.canObserveAct(observer)) return new PerceptionRules.Result(false, false, 0);
         var toward = center.getEyePosition().subtract(observer.getEyePosition()).normalize();
         boolean seesActor = observer.hasLineOfSight(actor);
         boolean seesAct = seesActor || observer.hasLineOfSight(center);

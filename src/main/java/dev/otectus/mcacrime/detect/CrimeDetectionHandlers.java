@@ -74,6 +74,32 @@ public final class CrimeDetectionHandlers {
         }
     }
 
+    /**
+     * Samples a death, without yet believing it happened.
+     *
+     * <h2>The ordering this depends on</h2>
+     *
+     * <p>A villager death is not final when {@code LivingDeathEvent} is posted. Any listener may
+     * cancel it, and mods that keep villagers alive do exactly that: MCA: Crime is installed alongside
+     * companions whose death listeners run at the default priority and cancel the event outright for
+     * an immortal or protected villager, and the same companions spawn extra loot of their own from
+     * that listener rather than from {@code LivingDropsEvent}.
+     *
+     * <p>So there is deliberately no second death handler anywhere in this mod, and this one commits
+     * nothing. It records the event and registers its cancellation flag as a <em>supplier</em>;
+     * {@link DamageFinality#resolve(boolean)} re-reads it, together with the victim's live
+     * {@code isDeadOrDying()}, when {@link DamageIncidentService#flush} runs from
+     * {@code ServerTickEvent.Post}. A death that was cancelled — at any priority, before or after this
+     * handler — resolves as {@code HARM} or {@code NONE} there, so the finality pipeline, the death
+     * consequences and the custody cleanup only ever run for a death that actually completed.
+     *
+     * <p>{@code LOWEST} with {@code receiveCanceled} therefore buys observation, not authority: it
+     * means this handler sees a death some other mod already cancelled rather than missing it, and the
+     * cancellation is honoured all the same. Death loot is a separate question and is answered where
+     * it belongs, on {@code LivingDropsEvent}, which vanilla posts only for a death that reached the
+     * drop stage — {@code LivingEntity.die} returns before {@code dropAllDeathLoot} when
+     * {@code CommonHooks.onLivingDeath} reports the event cancelled.
+     */
     @SubscribeEvent(priority = EventPriority.LOWEST, receiveCanceled = true)
     public static void onLivingDeath(LivingDeathEvent event) {
         if (event.getEntity().level() instanceof ServerLevel level) {

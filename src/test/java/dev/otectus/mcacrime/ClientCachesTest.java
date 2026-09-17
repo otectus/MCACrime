@@ -36,11 +36,28 @@ class ClientCachesTest {
     /** {@code ClientSelfData::clear} in the registry's list. */
     private static final Pattern REGISTERED = Pattern.compile("(\\w+)::clear");
 
+    /**
+     * Entries in the sweep that are not {@code client/} caches, and why each one is there.
+     *
+     * <p>{@code TownsteadDialogueState} is the only one. It is per-connection client state — the marker
+     * that says MCA: Crime took a settlement mod's dialogue screen away — and it must be dropped on
+     * disconnect for exactly the reason every cache below it must, or this session's interruption is
+     * applied to the next session's first conversation. It cannot live under {@code client/} because a
+     * Townstead mixin reads it and a mixin may name neither a client screen nor a Townstead type, so
+     * the marker sits in {@code compat/} typed as {@code Object}.
+     *
+     * <p>Named here rather than exempted by a looser assertion: the list still has to match exactly, so
+     * an entry nobody justified still fails.
+     */
+    private static final Set<String> NON_CACHE_ENTRIES = Set.of("TownsteadDialogueState");
+
     @Test
     void everyCacheWithAClearIsRegistered() {
         Set<String> declared = cachesOnDisk();
         assertFalse(declared.isEmpty(), "no client cache declares a static clear(); the scan is wrong");
-        assertEquals(declared, registered(),
+        Set<String> expected = new TreeSet<>(declared);
+        expected.addAll(NON_CACHE_ENTRIES);
+        assertEquals(expected, registered(),
                 "ClientCaches.ALL and the client caches that declare a static clear() have drifted; a "
                         + "cache missing from ALL survives a disconnect and leaks into the next server");
     }

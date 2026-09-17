@@ -510,7 +510,7 @@ class CrimeDataMigrationTest {
         CompoundTag migrated = CrimeDataMigrations.migrate(store);
 
         assertEquals(CrimeDataMigrations.CURRENT_SCHEMA, CrimeDataMigrations.schemaOf(migrated));
-        assertEquals(CrimeDataMigrations.SCHEMA_OCCUPATION, CrimeDataMigrations.CURRENT_SCHEMA);
+        assertEquals(CrimeDataMigrations.SCHEMA_TOWNSTEAD_FACILITIES, CrimeDataMigrations.CURRENT_SCHEMA);
         assertEquals(1, migrated.getList("ledger", Tag.TAG_COMPOUND).size());
         // The dimension-aware key the very first step wrote is still intact eight steps later.
         assertTrue(migrated.getList("ledger", Tag.TAG_COMPOUND).getCompound(0)

@@ -88,7 +88,7 @@ public final class CrimeDialogueService {
     public static boolean speak(@Nullable LivingEntity speaker, ServerPlayer listener,
                                 ResourceLocation event, DialogueContext context, Object... args) {
         if (!McaCrimeConfig.COMMON.enableDialogue.get() || listener == null
-                || speaker != null && !dev.otectus.mcacrime.ai.NpcAwareness.isAwake(speaker)) {
+                || speaker != null && !dev.otectus.mcacrime.ai.NpcAwareness.canSpeakOrReport(speaker)) {
             return false;
         }
         long now = listener.level().getGameTime();

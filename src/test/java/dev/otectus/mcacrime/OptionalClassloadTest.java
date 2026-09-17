@@ -38,6 +38,12 @@ class OptionalClassloadTest {
             "dev/otectus/mcareputation/",
             "dev/otectus/mcaquests/",
             "dev/otectus/mcaconversations/",
+            // Townstead in internal form. It belongs here as well as in NoTownsteadStaticLinkTest
+            // because this scan covers the mixin package too: the Townstead mixins name their targets
+            // as dotted strings precisely so that no class reference to a Townstead type -- and
+            // therefore to the relocated MCA types Townstead's own descriptors carry -- ever reaches
+            // this mod's constant pool.
+            "com/aetherianartificer/townstead/",
             "melonslise/locks/",
             "dev/architectury/",
             "me/shedaniel/");
@@ -69,7 +75,21 @@ class OptionalClassloadTest {
                     "dev.otectus.mcacrime.compat.mcaquests.McaQuestsBountyCompat"},
             new String[] {"dev/otectus/mcacrime/compat/locksreforged/",
                     "dev/otectus/mcacrime/compat/LocksReforgedBridge.class",
-                    "dev.otectus.mcacrime.compat.locksreforged.LocksReforgedCompat"});
+                    "dev.otectus.mcacrime.compat.locksreforged.LocksReforgedCompat"},
+            // Townstead is the strictest of the four: its adapter names no Townstead type either, because
+            // Townstead's own descriptors carry relocated MCA types and one import would re-link this mod
+            // to a single MCA layout. NoTownsteadStaticLinkTest enforces that half; what matters here is
+            // the other half -- that nothing outside compat/townstead/ names the package, so an install
+            // without Townstead never asks a classloader for any of it.
+            new String[] {"dev/otectus/mcacrime/compat/townstead/",
+                    "dev/otectus/mcacrime/compat/TownsteadBridge.class",
+                    "dev.otectus.mcacrime.compat.townstead.ReflectiveTownsteadBridge",
+                    // The one permitted namer, and the reason it is safe. The Townstead mixins are
+                    // themselves refused by TownsteadMixinPlugin unless Townstead is installed and the
+                    // target class resolves, so a reference from one of them into this adapter cannot
+                    // drag anything into a load that has no Townstead -- the mixin class is not loaded
+                    // there either. Every other class in the mod is still held to the blanket rule.
+                    "dev/otectus/mcacrime/mixin/townstead/"});
 
     /**
      * Every MCA package root, so this guard cannot pass vacuously. It used to test only
@@ -265,6 +285,7 @@ class OptionalClassloadTest {
         List<String> offenders = new ArrayList<>();
         for (String[] adapter : ADAPTERS) {
             String adapterPackage = adapter[0];
+            String permittedNamer = adapter.length > 3 ? adapter[3] : null;
             Path bridge = root.resolve(adapter[1]);
             assertTrue(Files.exists(bridge), adapter[1] + " not found");
             String bridgeBytes = new String(Files.readAllBytes(bridge), StandardCharsets.ISO_8859_1);
@@ -274,7 +295,8 @@ class OptionalClassloadTest {
             try (Stream<Path> files = Files.walk(root)) {
                 for (Path file : files.filter(path -> path.toString().endsWith(".class")).toList()) {
                     String relative = normalise(root, file);
-                    if (relative.startsWith(adapterPackage)) {
+                    if (relative.startsWith(adapterPackage)
+                            || (permittedNamer != null && relative.startsWith(permittedNamer))) {
                         continue;
                     }
                     String bytes = new String(Files.readAllBytes(file), StandardCharsets.ISO_8859_1);
@@ -286,5 +308,42 @@ class OptionalClassloadTest {
         }
         assertTrue(offenders.isEmpty(),
                 "these classes name an optional adapter package and would drag it into a load: " + offenders);
+    }
+
+    /**
+     * Nothing may name a Townstead mixin, not even another mixin.
+     *
+     * <p>Those classes exist to be merged into somebody else's code, and their config's plugin refuses
+     * to apply them at all when Townstead is absent — which is nearly every install. A class that
+     * named one would therefore ask a classloader for a mixin that was never applied, on a server that
+     * never had Townstead, and the failure would land at whatever point first touched the chain. The
+     * seam runs the other way instead: the mixins reach MCA: Crime (through
+     * {@code compat/TownsteadMixinStatus} and the activity registry), and MCA: Crime never reaches
+     * them.
+     *
+     * <p>{@code mixin/} as a whole cannot be checked this way, because {@code compat/OccupationCompat}
+     * legitimately names {@code mixin/MerchantOffersAccessor} — a vanilla accessor in the required
+     * config, which is always applied. The Townstead sub-package is the part with no such exception.
+     */
+    @Test
+    void nothingNamesATownsteadMixin() throws IOException {
+        String mixinPackage = "dev/otectus/mcacrime/mixin/townstead/";
+        Path root = compiledClasses();
+        List<String> offenders = new ArrayList<>();
+        try (Stream<Path> files = Files.walk(root)) {
+            for (Path file : files.filter(path -> path.toString().endsWith(".class")).toList()) {
+                String relative = normalise(root, file);
+                if (relative.startsWith(mixinPackage)) {
+                    continue;
+                }
+                String bytes = new String(Files.readAllBytes(file), StandardCharsets.ISO_8859_1);
+                if (bytes.contains(mixinPackage)) {
+                    offenders.add(relative + " -> " + mixinPackage);
+                }
+            }
+        }
+        assertTrue(offenders.isEmpty(),
+                "these classes name a plugin-gated Townstead mixin and would drag it into a load: "
+                        + offenders);
     }
 }

@@ -107,7 +107,7 @@ public final class ObservationService {
 
         // 1. The direct victim. They do not need line of sight to know it happened to them, and their
         //    identity confidence is total when the offender was standing in front of them.
-        if (victim != null && dev.otectus.mcacrime.ai.NpcAwareness.isAwake(victim) && McaCompat.isMcaVillager(victim)) {
+        if (victim != null && dev.otectus.mcacrime.ai.NpcAwareness.canObserveAct(victim) && McaCompat.isMcaVillager(victim)) {
             boolean faceToFace = !offender.isInvisible() && victim.hasLineOfSight(offender)
                     && !dev.otectus.mcacrime.effect.SandBlindness.blocksSight(victim, offender)
                     && !victim.hasEffect(net.minecraft.world.effect.MobEffects.BLINDNESS)
@@ -130,7 +130,7 @@ public final class ObservationService {
                 continue;
             }
             Entity entity = level.getEntity(witnessId);
-            if (!(entity instanceof LivingEntity witness) || !dev.otectus.mcacrime.ai.NpcAwareness.isAwake(witness)) {
+            if (!(entity instanceof LivingEntity witness) || !dev.otectus.mcacrime.ai.NpcAwareness.canObserveAct(witness)) {
                 continue;
             }
             ObserverRole role = EntitySelectors.isResponder(witness) ? ObserverRole.GUARD : ObserverRole.EYEWITNESS;
@@ -162,7 +162,7 @@ public final class ObservationService {
                 continue;
             }
             Entity entity = level.getEntity(loyalId);
-            if (!(entity instanceof LivingEntity relative) || !dev.otectus.mcacrime.ai.NpcAwareness.isAwake(relative)) {
+            if (!(entity instanceof LivingEntity relative) || !dev.otectus.mcacrime.ai.NpcAwareness.canObserveAct(relative)) {
                 continue;
             }
             var perceived = dev.otectus.mcacrime.detect.WitnessChecker.perceive(relative, offender,
@@ -184,7 +184,7 @@ public final class ObservationService {
         if (hearingRadius > 0) {
             AABB box = new AABB(where).inflate(hearingRadius);
             for (LivingEntity listener : level.getEntitiesOfClass(LivingEntity.class, box,
-                    entity -> entity != offender && dev.otectus.mcacrime.ai.NpcAwareness.isAwake(entity) && !entity.isSpectator()
+                    entity -> entity != offender && dev.otectus.mcacrime.ai.NpcAwareness.canObserveAct(entity) && !entity.isSpectator()
                             && McaCompat.isMcaVillager(entity))) {
                 if (!covered.add(listener.getUUID())) {
                     continue;
@@ -232,7 +232,7 @@ public final class ObservationService {
      * they are holding can file a report from inside the cell.
      */
     private static boolean canReport(ServerLevel level, LivingEntity observer) {
-        if (!dev.otectus.mcacrime.ai.NpcAwareness.isAwake(observer) || !McaCompat.isAdult(observer)) {
+        if (!dev.otectus.mcacrime.ai.NpcAwareness.canSpeakOrReport(observer) || !McaCompat.isAdult(observer)) {
             return false;
         }
         MinecraftServer server = level.getServer();
@@ -313,7 +313,7 @@ public final class ObservationService {
 
         // 1. The direct victim, on record's own gate: awake, an MCA villager, not a responder, and in a
         //    state to have reacted at all.
-        if (victim != null && dev.otectus.mcacrime.ai.NpcAwareness.isAwake(victim) && McaCompat.isMcaVillager(victim)) {
+        if (victim != null && dev.otectus.mcacrime.ai.NpcAwareness.canObserveAct(victim) && McaCompat.isMcaVillager(victim)) {
             boolean faceToFace = !offender.isInvisible() && victim.hasLineOfSight(offender)
                     && !dev.otectus.mcacrime.effect.SandBlindness.blocksSight(victim, offender)
                     && !victim.hasEffect(net.minecraft.world.effect.MobEffects.BLINDNESS)
@@ -332,7 +332,7 @@ public final class ObservationService {
                 continue;
             }
             Entity entity = level.getEntity(witnessId);
-            if (!(entity instanceof LivingEntity witness) || !dev.otectus.mcacrime.ai.NpcAwareness.isAwake(witness)) {
+            if (!(entity instanceof LivingEntity witness) || !dev.otectus.mcacrime.ai.NpcAwareness.canObserveAct(witness)) {
                 continue;
             }
             if (EntitySelectors.isResponder(witness) || !canReport(level, witness)) {

@@ -1,0 +1,8 @@
+[
+  { "personality": "townstead:brave",     "threat": -0.05, "report":  0.05, "flee": -0.05 },
+  { "personality": "townstead:timid",     "threat":  0.05, "report": -0.03, "flee":  0.05 },
+  { "personality": "townstead:stoic",     "threat": -0.03, "report":  0.02, "flee": -0.03 },
+  { "personality": "townstead:nervous",   "threat":  0.04, "report":  0.03, "flee":  0.04 },
+  { "personality": "townstead:gregarious","threat":  0.00, "report":  0.05, "flee":  0.00 },
+  { "personality": "townstead:reserved",  "threat":  0.00, "report": -0.04, "flee":  0.02 }
+]

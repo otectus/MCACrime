@@ -3,6 +3,7 @@ package dev.otectus.mcacrime.enforcement;
 import dev.otectus.mcacrime.McaCrime;
 import dev.otectus.mcacrime.McaCrimeConfig;
 import dev.otectus.mcacrime.compat.McaCompat;
+import dev.otectus.mcacrime.compat.TownsteadRolePolicy;
 import dev.otectus.mcacrime.compat.mca.McaHandles;
 import dev.otectus.mcacrime.detect.EntitySelectors;
 import net.minecraft.server.MinecraftServer;
@@ -120,15 +121,76 @@ public final class GuardPopulationService {
 
     /** Counts what a village has, and converts the shortfall. */
     private static void topUp(ServerLevel level, Object village) {
-        dev.otectus.mcacrime.job.WorldCriminalJobService jobs =
-                dev.otectus.mcacrime.job.WorldCriminalJobService.of(level.getServer());
-        int population = McaHandles.villagePopulation(village);
-        if (population <= 0) {
+        Assessment assessment = assess(level, village);
+        if (assessment == null) {
             return;
         }
+        RecruitmentReport report = assessment.report();
+        if (report.halted()) {
+            // Not a warning every cooldown: a village whose roles cannot be read stays that way, and a
+            // repeated warning would train an operator to ignore it. The reason is in
+            // /crime debug guards, where somebody looking for the shortfall will find it.
+            McaCrime.LOGGER.debug("MCA: Crime is not drafting guards in {}: {}",
+                    report.village(), report.reasons());
+            return;
+        }
+        int needed = report.conversions();
+        List<Entity> candidates = new ArrayList<>(assessment.candidates());
+        if (needed <= 0 || candidates.isEmpty()) {
+            return;
+        }
+        dev.otectus.mcacrime.job.WorldCriminalJobService jobs =
+                dev.otectus.mcacrime.job.WorldCriminalJobService.of(level.getServer());
+        // Random rather than nearest, so repeated passes do not always pick on whoever happens to stand
+        // closest to the village centre.
+        for (int i = 0; i < needed && !candidates.isEmpty(); i++) {
+            Entity chosen = candidates.remove(level.random.nextInt(candidates.size()));
+            // Re-read immediately before the promotion, not only at selection: the selection list is
+            // built once per pass and a job can be assigned by the sweep, a command or a listener in
+            // between.
+            if (dev.otectus.mcacrime.job.NpcMuggerEligibility.guardPromotionBlocked(
+                    jobs.isCriminal(chosen.getUUID()))) {
+                i--; // this one did not count towards the shortfall
+                continue;
+            }
+            // The same re-read for the settlement side, and for the same reason: a villager can be put
+            // on shift between the scan and the promotion, and a workshop lost that way is not
+            // recoverable by the next pass.
+            if (TownsteadRolePolicy.of(chosen).protectedWorker()) {
+                i--;
+                continue;
+            }
+            if (McaCompat.makeGuard(chosen)) {
+                McaCrime.LOGGER.debug("MCA: Crime promoted a villager to guard in {}", keyOf(level, village));
+            }
+        }
+    }
+
+    /** The candidate list a pass would draw from, alongside the report that explains it. */
+    private record Assessment(RecruitmentReport report, List<Entity> candidates) {
+    }
+
+    /**
+     * Counts one village, and decides whether it may be recruited from.
+     *
+     * <p>Shared by the pass and by {@code /crime debug guards} on purpose: the number an operator reads
+     * has to be the number the pass acted on, and the previous split — a counting loop here and a
+     * slightly different one in the report — is exactly how those two drift apart.
+     */
+    private static Assessment assess(ServerLevel level, Object village) {
+        int population = McaHandles.villagePopulation(village);
+        if (population <= 0) {
+            return null;
+        }
+        dev.otectus.mcacrime.job.WorldCriminalJobService jobs =
+                dev.otectus.mcacrime.job.WorldCriminalJobService.of(level.getServer());
         List<Object> residents = McaHandles.villageResidents(village, level);
         int loadedGuards = 0;
+        int roster = 0;
+        int protectedWorkers = 0;
+        int unknownRoles = 0;
         List<Entity> candidates = new ArrayList<>();
+        Set<String> reasons = new LinkedHashSet<>();
         for (Object resident : residents) {
             if (!(resident instanceof Entity entity) || !entity.isAlive()) {
                 continue;
@@ -145,36 +207,36 @@ public final class GuardPopulationService {
             }
             // The other half of the role invariant (0.7.2): excluding law from crime is worthless if
             // this pass can turn the village thief into a guard on the next cooldown.
-            if (McaCompat.isAdultVillager(entity) && !McaHandles.isProfessionImportant(entity)
-                    && !dev.otectus.mcacrime.job.NpcMuggerEligibility.guardPromotionBlocked(
+            if (!McaCompat.isAdultVillager(entity) || McaHandles.isProfessionImportant(entity)
+                    || dev.otectus.mcacrime.job.NpcMuggerEligibility.guardPromotionBlocked(
                             jobs.isCriminal(entity.getUUID()))) {
+                continue;
+            }
+            roster++;
+            TownsteadRolePolicy.Role role = TownsteadRolePolicy.of(entity);
+            if (role.protectedWorker()) {
+                protectedWorkers++;
+                reasons.add("a villager " + role.reason());
+            } else if (!role.roleKnown()) {
+                unknownRoles++;
+                reasons.add("role unreadable: " + role.reason());
+            } else {
                 candidates.add(entity);
             }
         }
 
-        int needed = GuardPopulation.conversionsNeeded(population, residents.size(), loadedGuards,
-                McaCrimeConfig.COMMON.guardPopulationRatio.get(),
-                McaCrimeConfig.COMMON.guardPopulationMinimum.get(),
-                McaCrimeConfig.COMMON.guardPopulationMaxPerPass.get());
-        if (needed <= 0 || candidates.isEmpty()) {
-            return;
-        }
-        // Random rather than nearest, so repeated passes do not always pick on whoever happens to stand
-        // closest to the village centre.
-        for (int i = 0; i < needed && !candidates.isEmpty(); i++) {
-            Entity chosen = candidates.remove(level.random.nextInt(candidates.size()));
-            // Re-read immediately before the promotion, not only at selection: the selection list is
-            // built once per pass and a job can be assigned by the sweep, a command or a listener in
-            // between.
-            if (dev.otectus.mcacrime.job.NpcMuggerEligibility.guardPromotionBlocked(
-                    jobs.isCriminal(chosen.getUUID()))) {
-                i--; // this one did not count towards the shortfall
-                continue;
-            }
-            if (McaCompat.makeGuard(chosen)) {
-                McaCrime.LOGGER.debug("MCA: Crime promoted a villager to guard in {}", keyOf(level, village));
-            }
-        }
+        double ratio = McaCrimeConfig.COMMON.guardPopulationRatio.get();
+        int minimum = McaCrimeConfig.COMMON.guardPopulationMinimum.get();
+        int shortfall = GuardPopulation.conversionsNeeded(population, residents.size(), loadedGuards,
+                ratio, minimum, McaCrimeConfig.COMMON.guardPopulationMaxPerPass.get());
+        // Halted, not merely short: one villager whose role cannot be read is enough to stop the whole
+        // village, because the pass picks at random and the unreadable one might be the baker.
+        boolean halted = unknownRoles > 0;
+        RecruitmentReport report = new RecruitmentReport(keyOf(level, village), population,
+                residents.size(), loadedGuards, GuardPopulation.targetGuards(population, ratio, minimum),
+                shortfall, roster, candidates.size(), protectedWorkers, unknownRoles, halted,
+                List.copyOf(reasons));
+        return new Assessment(report, candidates);
     }
 
     private static String keyOf(ServerLevel level, Object village) {
@@ -184,7 +246,10 @@ public final class GuardPopulationService {
     /**
      * A read-only report for {@code /crime debug guards}.
      *
-     * <p>Without this the only signal that the feature works is villagers slowly changing clothes.
+     * <p>Without this the only signal that the feature works is villagers slowly changing clothes —
+     * and with a settlement mod installed, the more common signal is villagers <em>not</em> changing
+     * clothes, which looks identical to a broken feature. {@link #reports(ServerLevel)} is what makes
+     * the difference legible.
      */
     public static List<String> report(ServerLevel level) {
         List<String> lines = new ArrayList<>();
@@ -195,33 +260,38 @@ public final class GuardPopulationService {
             lines.add("MCA village bindings are unavailable; the pass cannot run.");
             return lines;
         }
-        double ratio = McaCrimeConfig.COMMON.guardPopulationRatio.get();
-        int minimum = McaCrimeConfig.COMMON.guardPopulationMinimum.get();
-        Set<String> seen = new LinkedHashSet<>();
-        for (Object village : McaHandles.villagesIn(level)) {
-            if (!McaHandles.isRealVillage(village) || !seen.add(keyOf(level, village))) {
-                continue;
-            }
-            int population = McaHandles.villagePopulation(village);
-            List<Object> residents = McaHandles.villageResidents(village, level);
-            int guards = 0;
-            for (Object resident : residents) {
-                if (resident instanceof LivingEntity living && EntitySelectors.isResponder(living)) {
-                    guards++;
-                } else if (McaHandles.isMcaGuard(resident)) {
-                    guards++;
-                }
-            }
-            lines.add(String.format("%s: population %d, loaded %d, guards %d, target %d, needed %d",
-                    keyOf(level, village), population, residents.size(), guards,
-                    GuardPopulation.targetGuards(population, ratio, minimum),
-                    GuardPopulation.conversionsNeeded(population, residents.size(), guards, ratio, minimum,
-                            McaCrimeConfig.COMMON.guardPopulationMaxPerPass.get())));
+        for (RecruitmentReport report : reports(level)) {
+            lines.add(report.describe());
         }
         if (lines.isEmpty()) {
             lines.add("No MCA villages in this dimension.");
         }
         return lines;
+    }
+
+    /**
+     * One assessment per village in this dimension, as the pass itself would make it.
+     *
+     * <p>Exposed rather than folded into {@link #report(ServerLevel)} because the duty side of the
+     * enforcement work needs the numbers rather than the sentences, and because a caller that wants
+     * both must not get two different answers.
+     */
+    public static List<RecruitmentReport> reports(ServerLevel level) {
+        List<RecruitmentReport> reports = new ArrayList<>();
+        if (level == null || !McaHandles.populationAvailable()) {
+            return reports;
+        }
+        Set<String> seen = new LinkedHashSet<>();
+        for (Object village : McaHandles.villagesIn(level)) {
+            if (!McaHandles.isRealVillage(village) || !seen.add(keyOf(level, village))) {
+                continue;
+            }
+            Assessment assessment = assess(level, village);
+            if (assessment != null) {
+                reports.add(assessment.report());
+            }
+        }
+        return reports;
     }
 
     /** Drops every cooldown. Called on server stop. */
