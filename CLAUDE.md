@@ -45,10 +45,13 @@ compat integration locksreforged mcaquests numismatic  optional companions; degr
 compat/townstead  the reflective Townstead adapter; nothing outside it may name a Townstead type
 activity   enforcement claims over a villager and which operations they yield (work start, navigation)
 facility   civic facilities: building refs, roles, assignments, cell reservations, custody care
-civic      read-only village security projection for clients and companions
+civic      read-only village security projection, plus civic work: tasks, service contracts,
+           service-refusal rules (opt-in, townstead.communityService / serviceRestrictions)
+property   explicit property law (opt-in, townstead.propertyLaw): policies, pure access table,
+           per-tick matched-pair transfer attribution, loss receipts, bounded auto-protection
 client mixin/client  client-only; common code must never import these
 mixin      seven common vanilla-only mixins: equipment capture, Thief worksite and brain, sand sight
-mixin/townstead  plugin-gated Townstead mixins in a second, optional mixin config
+mixin/townstead  five plugin-gated Townstead mixins in a second, optional mixin config
 network item audio command config util  plumbing
 ```
 
@@ -74,8 +77,9 @@ network item audio command config util  plumbing
   in either. `mcacrime.mixins.json` is required and targets **vanilla classes only**.
   `mcacrime.townstead.mixins.json` is `required: false` with `defaultRequire 0`, gated by
   `mixin/townstead/TownsteadMixinPlugin` on Townstead being loaded *and* the target class existing;
-  its four mixins name Townstead only as dotted `targets=` strings and never name a Townstead or MCA
-  type. Nothing here carries a refmap - NeoForge 1.21.1 runs on Mojang names, so every `@Mixin`,
+  its five mixins - `GuardRestYieldMixin`, `ReactionLockGateMixin`, `WorkToolProvenanceMixin`,
+  `StoragePolicyMixin` and client `RpgDialogueEntryMixin` - name Townstead only as dotted `targets=`
+  strings and never name a Townstead or MCA type. Nothing here carries a refmap - NeoForge 1.21.1 runs on Mojang names, so every `@Mixin`,
   `@Inject` and `@Redirect` is `remap = false`, as is every `@At` that names a vanilla descriptor.
   `NoTownsteadStaticLinkTest`, `NoMcaStaticLinkTest`, `MixinConfigTest` and
   `TownsteadMixinTargetTest` enforce that. Eight vanilla-targeting mixins, seven common:

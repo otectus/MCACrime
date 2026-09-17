@@ -108,6 +108,11 @@ public final class CrimeReactionTicker {
         // converts one back.
         dev.otectus.mcacrime.enforcement.GuardPopulationService.clearAll();
         dev.otectus.mcacrime.enforcement.GuardEnforcement.clearAll();
+        // The civic layer's two memory-only pieces. The contracts themselves are persisted and must
+        // survive; what goes is the sweep clock and the cached settlement economy profiles, both of
+        // which describe a world that is unloading and are re-derived on the next boot.
+        dev.otectus.mcacrime.civic.CivicWorkHandlers.clearAll();
+        dev.otectus.mcacrime.economy.EconomyProfileResolver.clearAll();
         lastPrune = 0L;
         dev.otectus.mcacrime.memory.WitnessSocialService.clear();
     }

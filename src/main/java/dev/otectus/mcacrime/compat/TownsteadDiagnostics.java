@@ -75,12 +75,21 @@ public final class TownsteadDiagnostics {
             new SwitchRequirement("serviceRestrictions",
                     List.of(TownsteadCapability.READ_PROFESSION, TownsteadCapability.READ_SCHEDULE),
                     "a settlement may refuse services to an outlaw"),
+            // What community service actually consumes, which is not what this row used to claim. It
+            // asked for WORK_SUSPENSION, and TownsteadBridge.has never grants that -- the start-gate is
+            // MCA: Crime's own vanilla brain hook and is permanently partial, so the switch could only
+            // ever report DEGRADED however well the feature was working. What a contract really uses is
+            // an activity claim on an NPC offender (the coordination mixins are what make a claim stop
+            // anything) and that villager's schedule, so it does not hold somebody to civic work through
+            // their night. The start-gate's limitation is stated in the config comment instead, which is
+            // where a limitation belongs; a requirement list is for things that can be present.
             new SwitchRequirement("communityService",
-                    List.of(TownsteadCapability.READ_SCHEDULE, TownsteadCapability.WORK_SUSPENSION),
-                    "civic work can settle a sentence"),
+                    List.of(TownsteadCapability.ACTIVITY_COORDINATION, TownsteadCapability.READ_SCHEDULE),
+                    "civic work can settle a case instead of a fine"),
             new SwitchRequirement("economyProfiles",
                     List.of(TownsteadCapability.READ_SPIRIT),
-                    "a village's character shapes fence prices and fine scales"),
+                    "a village's character shapes fence prices, fine and bounty scales; without it "
+                            + "every settlement is priced as an ordinary town"),
             new SwitchRequirement("automaticShiftAssignment",
                     List.of(TownsteadCapability.ACTIVITY_COORDINATION, TownsteadCapability.READ_SCHEDULE),
                     "guard shifts are assigned through Townstead's own scheduler"));
@@ -178,6 +187,8 @@ public final class TownsteadDiagnostics {
      *   <li>{@link TownsteadCapability#EQUIPMENT_PROVENANCE} is the same shape with one mixin: the
      *       work-tool hook has to have been reached before MCA: Crime can claim it knows where a held
      *       item came from.</li>
+     *   <li>{@link TownsteadCapability#STORAGE_POLICY} is the same shape again, on the mixin that keeps
+     *       settlement workers out of evidence storage and reserved containers.</li>
      *   <li>{@link TownsteadCapability#WORK_SUSPENSION} is provided by MCA: Crime's own vanilla brain
      *       hook, and is permanently partial: it refuses a start and never interrupts. Reporting that
      *       as "available" would promise something no Townstead build can currently deliver, and
@@ -216,6 +227,15 @@ public final class TownsteadDiagnostics {
                 // The init hook is the criterion. The removal hook only fires when a conversation ends,
                 // so a player with a dialogue open right now would otherwise read as degraded.
                 yield TownsteadMixinStatus.isInjected(TownsteadMixinStatus.HOOK_DIALOGUE_INIT)
+                        ? AVAILABLE_MIXIN : DEGRADED_MIXIN_UNOBSERVED;
+            }
+            case STORAGE_POLICY -> {
+                if (!TownsteadBridge.storagePolicyInstalled()) {
+                    yield UNAVAILABLE;
+                }
+                // Unlike the work-tool hook, this one is reached constantly on a village with workers,
+                // so "applied but not observed" here is a much sharper signal that the method moved.
+                yield TownsteadMixinStatus.isInjected(TownsteadMixinStatus.HOOK_STORAGE_POLICY)
                         ? AVAILABLE_MIXIN : DEGRADED_MIXIN_UNOBSERVED;
             }
             case WORK_SUSPENSION -> startGateLive() ? DEGRADED_START_GATE : UNAVAILABLE;

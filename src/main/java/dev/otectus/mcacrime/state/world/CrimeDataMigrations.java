@@ -77,7 +77,21 @@ public final class CrimeDataMigrations {
      * convenience.
      */
     public static final int SCHEMA_TOWNSTEAD_FACILITIES = 13;
-    public static final int CURRENT_SCHEMA = SCHEMA_TOWNSTEAD_FACILITIES;
+    /**
+     * The 0.7.4 schema: property policies, the loss receipts written against them, and civic service
+     * contracts.
+     *
+     * <p>Additive only, and every one of the three is behind a switch that is off by default. All
+     * three collections are absent in every world written before this release, absent already reads as
+     * empty, and neither property law nor community service does anything at all until an operator
+     * turns it on -- so {@link #v13to14} writes nothing but the version, and a schema-13 world loads
+     * and plays exactly as it did.
+     *
+     * <p>The name is the one this schema was introduced under and is kept: renaming a released
+     * constant buys nothing and breaks every reference to it.
+     */
+    public static final int SCHEMA_PROPERTY_LAW = 14;
+    public static final int CURRENT_SCHEMA = SCHEMA_PROPERTY_LAW;
 
     /** Root NBT key holding the schema integer. Absent means 0. */
     public static final String TAG_SCHEMA = "schema";
@@ -139,6 +153,9 @@ public final class CrimeDataMigrations {
         }
         if (schema < 13) {
             working = v12to13(working);
+        }
+        if (schema < 14) {
+            working = v13to14(working);
         }
         working.putInt(TAG_SCHEMA, CURRENT_SCHEMA);
         return working;
@@ -468,6 +485,38 @@ public final class CrimeDataMigrations {
     public static CompoundTag v12to13(CompoundTag tag) {
         CompoundTag out = tag.copy();
         out.putInt(TAG_SCHEMA, SCHEMA_TOWNSTEAD_FACILITIES);
+        return out;
+    }
+
+    // ------------------------------------------------------------------ 13 -> 14
+
+    /**
+     * Stamps the 0.7.4 schema and writes nothing whatsoever.
+     *
+     * <p>Three collections arrive with this version -- {@code propertyPolicies},
+     * {@code propertyReceipts} and {@code serviceContracts} -- and all three read their absence as
+     * empty. A schema-13 world therefore loads with no property claimed, no losses recorded and no
+     * civic work outstanding, which is not merely the convenient answer but the only true one:
+     * property law and community service both ship off, and nothing in an older save was ever played
+     * under either.
+     *
+     * <p>The temptation this step refuses is seeding {@code propertyPolicies} from the facilities of
+     * schema 13. Evidence storage and jail cells are exactly the containers §10.1 wants protected, they
+     * are already recorded, and minting a policy for each would give an upgrading world working
+     * property protection with no further action. It would also make a claim nobody made. A policy
+     * decides whether taking from a container is a crime with a named victim, and turning an operator's
+     * facility assignment into one would start charging players for a rule that was introduced
+     * underneath them -- retroactively, on a save that has been played for a year, at a container they
+     * have been using since before this release existed. The automatic sweep can write exactly those
+     * policies, on a server whose operator switched {@code autoProtectGeneratedProperty} on and thereby
+     * asked for them.
+     *
+     * <p>Receipts are emptier still, and for the plainer reason: a receipt is the record of a loss under
+     * a law that did not exist in a schema-13 world.
+     */
+    public static CompoundTag v13to14(CompoundTag tag) {
+        CompoundTag out = tag.copy();
+        out.putInt(TAG_SCHEMA, SCHEMA_PROPERTY_LAW);
         return out;
     }
 

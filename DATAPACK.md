@@ -292,6 +292,13 @@ What a Townstead building type means to the law. Backs `/crime facility recognis
 | `role` | yes | One of `guard_post`, `jail_cell`, `guardhouse`, `evidence_storage`, `care_room`, `public_notice`. |
 | `capacity` | no | How many prisoners one such building holds. Defaults to the role's own; must be `0 … 16`, and a value outside that is an error rather than a clamp. |
 
+A type mapped to `evidence_storage` or `jail_cell` is also what automatic property protection works
+from: with `townstead.propertyLaw` and `townstead.autoProtectGeneratedProperty` both on, the facility
+anchor is written as protected property and reserved from settlement auto-sourcing; the recognised
+building at that anchor is written as a policy too, where building enumeration is available, but a
+building-scope policy is evaluated when a container is opened, not on the per-block sourcing scan. No
+other role is treated that way, and nothing is protected while either switch is off.
+
 ### `townstead/personality_profiles/`
 
 How a Townstead personality nudges a villager's reaction to a crime.

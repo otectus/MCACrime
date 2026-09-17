@@ -5,6 +5,139 @@ All notable changes to MCA: Crime.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); this project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.4] — unreleased
+
+Two optional layers on top of the Townstead seam: explicit property law, and civic work with
+optional village economy profiles, mirroring the Forge 0.7.4 release on the NeoForge 1.21.1 line.
+Every switch added here defaults to **off**, and an install with them off — or without Townstead at
+all — behaves exactly as 0.7.3 did.
+
+### Added
+
+- **Explicit property law (`townstead.propertyLaw`, off by default).** A new `property/` package.
+  `PropertyPolicy` is one statement of ownership — owner kind, container or building scope, an
+  access rule, and the source that declared it — held by `PropertyRegistry`. `PropertyAccess` is the
+  whole permission table as a pure function and answers `ALLOWED`, `DENIED` or `UNKNOWN`, where
+  **`UNKNOWN` never charges anyone**: no policy, an unidentifiable actor or an owner nobody can
+  compare against is reported, never prosecuted. Ownership is never inferred — a generated building
+  does not create ownership, and an existing player chest stays unclaimed until somebody claims it.
+- **Transfer attribution that has to prove who did it.** `ContainerTransferWatcher` re-counts the
+  container side and the actor side once per server tick and attributes a quantity only when the
+  container lost exactly what that actor gained, of the same item, in the same tick. Open-and-close
+  diffing is deliberately not used. Only four vanilla storage menus are watched — `ChestMenu`,
+  `ShulkerBoxMenu`, `HopperMenu`, `DispenserMenu` — positioned by the player's own right-click.
+  On this line an item is fingerprinted as its registry id plus a hash of the stack's
+  `DataComponentPatch`, 1.21.1 having no item NBT; the semantics are the baseline's.
+  `TransferAttribution` then produces exactly one of five outcomes, and only `CHARGED` creates a
+  crime: `PERMITTED`, `AUTHORISED_WORK` (a live `WorkTransferContext` covers this worker, this
+  source and this moment — a role label alone never does), `UNATTRIBUTED` and `UNSUPPORTED`.
+  Transfers group into one incident per actor, policy and 100-tick window. The hooks are this line's
+  `PlayerInteractEvent.RightClickBlock`, `PlayerContainerEvent.Open` / `.Close` and
+  `ServerTickEvent.Post`.
+- **Property receipts and restitution.** `PropertyReceipt` is the durable record of one loss —
+  `LOST`, `RESTORED` or `UNRESOLVED` — keyed by transfer id, so one committed transfer yields one
+  receipt however often the detector re-observes it, and the owner is copied in at the moment of
+  loss so a later change of owner cannot rewrite who was robbed. Returning the goods to the same
+  container, or paying the fine, marks the receipt restored.
+- **Bounded automatic protection (`townstead.autoProtectGeneratedProperty`, off by default).**
+  `PropertyAutoProtection` derives policies only from facilities an operator already assigned whose
+  role is `evidence_storage` or `jail_cell`, plus the recognised building at those anchors where
+  building enumeration is available. It never walks the world looking for chests and never touches a
+  policy an operator wrote.
+- **A fifth Townstead mixin, `mixin/townstead/StoragePolicyMixin`.** It forces
+  `StorageSearchContext#isProtectedStorage` to `true` for containers MCA: Crime marks protected from
+  auto-sourcing, so a settlement worker cannot quietly empty an impound chest. It never forces the
+  answer the other way. This is what moves the `storage_policy` capability from `unavailable` to
+  `available (mixin)`. Like every mixin on this line it names its target and descriptor in Mojang
+  names with `remap = false` and carries no refmap; `mcacrime.townstead.mixins.json` now lists five
+  mixins, four common and one client, and `checkJarContents` still asserts exactly two mixin configs
+  and no refmap in either.
+- **Typed jurisdiction for incidents.** `incident/IncidentContext` decides which community owns a
+  case in a fixed order — the property's community first, then the victim's home, then the event
+  location — and `ledger/CrimeContext` carries the new incident dimension and position, the
+  community basis, the property id and revision, and the transfer id and grouping key.
+- **Civic work (`townstead.communityService`, off by default).** `civic/CivicTask` has three kinds,
+  each credited by something MCA: Crime already observes — the bounty and apology tasks from
+  `BountyResolvedEvent` and `VictimCrimeMemoryChangedEvent`, restitution inline from the path that
+  marks a receipt restored: `GUARD_ASSIST_PATROL` (a bounty resolved with the target taken alive),
+  `RESTITUTION_DELIVERY` (a property receipt in the offender's name marked restored) and
+  `VICTIM_AMENDS` (an apology accepted by a villager who remembers the crime).
+  `civic/ServiceContract` is the durable state machine — `OFFERED`, `ACTIVE`, `COMPLETED`, `FAILED`,
+  `CANCELLED` — bound to one case id and carrying no price. `CivicWorkService` never discounts the
+  fine up front; completion settles through the ordinary fine path, and a failed or cancelled
+  contract leaves the original sentence exactly as it was. A `civic_service` action sits in the self
+  menu beside bail and settle. `CivicWorkHandlers` sweeps on `ServerTickEvent.Post` and clears its
+  own state on `ServerStoppingEvent`.
+- **Service restrictions (`townstead.serviceRestrictions`, off by default).**
+  `ServiceRestrictionPolicy` is pure and applies four rules in order: an essential service is never
+  refused; a villager who personally remembers being harmed may refuse, and that refusal decays with
+  the memory rather than being cached; an open case this settlement knows about refuses a
+  non-essential service, but only when the subject is wanted, or the service is a luxury and their
+  band is Outlaw — and a fence is exempt from the public rule entirely, because its trade is with
+  people the law is after; standing alone never refuses anything. `ServiceKind` marks food and
+  shelter essential, and surrender, restitution and settling a case are not routed through the
+  decision at all.
+- **Economy profiles (`townstead.economyProfiles`, off by default).** `EconomyProfile` is three
+  fixed profiles — `FRONTIER`, `TOWN`, `PROSPEROUS` — with every multiplier clamped to `[0.5, 2.0]`,
+  applied to `SettlementPolicy` fines, `BountyService` bounties, `FenceOfferBuilder` prices and
+  `VillagerPurse` refill. The refill multiplier may only ever select an amount at or below the
+  configured one, so no village can mint currency. `EconomyProfileResolver` re-reads the profile
+  rather than persisting it, behind the ordinary `townstead.snapshotCacheTicks` cache, and answers
+  `TOWN` for every question it cannot answer, which is why the switch reports degraded rather than
+  off when the settlement mod is absent.
+- **Read-only API for the new layers.** `McaCrimeApi.serviceRefusal` returns a `ServiceRefusalView`
+  (refused, service kind, and translation keys for the reason and the route back);
+  `McaCrimeApi.civicContracts` returns `CivicContractView`s. There is deliberately no method to
+  accept or advance a contract: this is an extension point for a quest mod's presentation, not an
+  adapter, because MCA: Quests has no runtime quest-creation API and completion authority stays here.
+- **Commands.** `/crime property list|inspect [pos]` at permission 2, `/crime property protect
+  <rule> [pos]` and `/crime property release [pos]` at permission 3; `/crime service list
+  [offender]` at permission 2, `/crime service offer <offender> <task>` and `/crime service cancel
+  <contract>` at permission 3.
+- Sixteen new language keys for the civic action, the three tasks, contract progress and the two
+  refusal reasons with their repair lines.
+
+### Changed
+
+- **World data is schema 14** (`CrimeDataMigrations.SCHEMA_PROPERTY_LAW`): root `propertyPolicies`,
+  `propertyReceipts` and `serviceContracts`, byte-identical to the Forge baseline's schema 14 and
+  written inside this line's lookup-aware `SavedData` save and load. The 13→14 step writes only the
+  version, so a schema-13 world loads unchanged and stays loadable by a build with every new switch
+  off.
+- **`communityService` now requires `activity_coordination` + `read_schedule`** in
+  `TownsteadDiagnostics.REQUIREMENTS`, instead of `work_suspension`. `TownsteadBridge.has` never
+  grants `work_suspension` — the start-gate is MCA: Crime's own vanilla brain hook and is
+  permanently partial — so the old row could only ever report degraded however well the feature was
+  working. What a contract actually consumes is an activity claim on an NPC offender and that
+  villager's schedule.
+- **Two new `/crime validate` rules.** `townstead.autoProtectGeneratedProperty` on while
+  `townstead.propertyLaw` is off is reported, because automatic protection only writes policies and
+  nothing evaluates one until property law is on. `townstead.communityService` on while
+  `jail.enableFines` is off is reported, because civic work is offered only where a fine could have
+  been paid.
+- `activity/CrimeActivityView.Kind` gains `CIVIC_SERVICE`, so a villager working off a contract
+  takes an ordinary routine claim.
+
+### Known limits
+
+- **What transfer detection cannot see.** Throwing an item out of a container slot (`Q`) is a loss
+  with no matched gain and is reported as unattributed rather than charged. Any menu outside the
+  four whitelisted vanilla storage menus is `UNSUPPORTED` and nothing is attributed. A container
+  opened without a right-click MCA: Crime saw is not positioned and so is not watched. An identical
+  item leaving the actor in the same tick it arrived nets to zero. Building-scope "no sourcing" is
+  enforced by neither the transfer hook nor the sourcing mixin: `PropertyRegistry` answers the
+  hot-path question from the container index only, so a container-scope policy at a known position
+  is what keeps settlement workers out.
+- **Everything new here is off by default**, and two of the switches need capabilities an install
+  may not have: `propertyLaw` needs `storage_policy` (now provided by MCA: Crime's own mixin) and
+  `read_building`; `autoProtectGeneratedProperty` needs `building_enumeration`. A switch on without
+  its capability reports `DEGRADED` rather than working silently.
+- **The runtime matrix has not been run for this release.** No production jar launched, no dedicated
+  server, no client session, no save-quit-reload with property policies and contracts in the world
+  data. What has run is the unit suite (2002 tests, 9 skipped), `build` including
+  `checkJarContents`, and `townsteadProbeTest` with all five mixin targets against the NeoForge
+  Townstead 0.7.7 jar.
+
 ## [0.7.3] — unreleased
 
 Adopts MCA: Reputation 0.6.0 on the NeoForge 1.21.1 line, mirroring the Forge 0.7.3 adoption.

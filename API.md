@@ -272,6 +272,43 @@ It reaches a client as the `mcacrime:village_security` payload, answered on requ
 `mcacrime:request_village_security`; both are `CustomPacketPayload` records with `StreamCodec`s, like
 every other packet on this line.
 
+### `ServiceRefusalView`
+
+Whether one villager will serve one person, and what they say if not.
+
+```java
+record ServiceRefusalView(boolean refused, String kind, String reasonKey, String repairKey)
+```
+
+`kind` is the service's stable id — one of `essential_food`, `essential_shelter`, `trade`, `luxury`,
+`fence`. Both `reasonKey` and `repairKey` are **translation keys, never sentences**, and are empty
+when nothing was refused; MCA: Crime never sends rendered text over the wire. A refusal is either
+personal (this villager remembers being harmed, and it fades as the memory decays) or public (a case
+this settlement knows about is open against the subject). Requires `townstead.serviceRestrictions`;
+with it off, every answer is "not refused".
+
+### `CivicContractView`
+
+One civic service contract, as much of it as anybody outside MCA: Crime needs.
+
+```java
+record CivicContractView(UUID contractId, UUID caseId, UUID offender, String community,
+                         String task, int requiredUnits, int completedUnits, long deadline,
+                         String state)
+```
+
+`community` is a `CrimeCommunityKey` in its `dimension/villageId` string form, with
+`communityKey()` to parse it; `remainingUnits()` is the work still owed. `task` is one of
+`guard_assist_patrol`, `restitution_delivery`, `victim_amends`, and `state` one of `offered`,
+`active`, `completed`, `failed`, `cancelled`.
+
+It deliberately carries no price, no case contents and no offender record: this is the extension
+point a quest mod would draw from — not an adapter, because MCA: Quests has no runtime
+quest-creation API — and a presentation layer that could see those could disagree with the screen
+the player already has. Crime keeps case and completion authority. No contract is created while
+`townstead.communityService` is off, so on a server that has never enabled it the list is always
+empty; contracts created earlier remain listed.
+
 ### `CrimeMutationStatus`
 
 One enum shared by every mutation result rather than one per operation: `APPLIED`, `DUPLICATE`,
@@ -306,7 +343,20 @@ static int effectiveStanding(MinecraftServer server, UUID playerId, CrimeCommuni
 static Optional<CrimePublicView> publicView(MinecraftServer server, CrimeCommunityKey community,
                                             UUID subject);
 static Optional<CrimePublicView> publicView(ServerPlayer player, CrimeCommunityKey community);
+
+static ServiceRefusalView       serviceRefusal(ServerLevel level, Entity provider,
+                                               UUID subject, String serviceKind);
+static List<CivicContractView>  civicContracts(MinecraftServer server, UUID offender);
 ```
+
+`serviceRefusal` answers the same question MCA: Crime asks itself before a villager serves somebody,
+so a companion does not re-implement the rule from a band and a wanted flag. An unrecognised service
+kind, a failure, or the feature being off all answer "not refused" — the safe direction, because the
+one rule that must never be got wrong is that an essential service is never refused.
+
+`civicContracts` is read-only and has no companion method to accept or advance a contract. Work is
+credited only from transitions MCA: Crime observed itself, so a presentation layer can draw a
+contract and cannot complete one.
 
 `custody` takes any entity UUID, player or villager.
 

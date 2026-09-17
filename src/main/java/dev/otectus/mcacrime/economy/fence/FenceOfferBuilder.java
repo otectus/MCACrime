@@ -1,5 +1,6 @@
 package dev.otectus.mcacrime.economy.fence;
 
+import dev.otectus.mcacrime.economy.EconomyProfile;
 import dev.otectus.mcacrime.economy.fence.FencePricing.PricingInputs;
 import net.minecraft.resources.ResourceLocation;
 
@@ -36,6 +37,22 @@ public final class FenceOfferBuilder {
 
     public static List<FenceOffer> build(long seed, int offerCount, Collection<FenceGood> goods,
                                          PricingInputs inputs, FencePolicy policy) {
+        return build(seed, offerCount, goods, inputs, policy, EconomyProfile.TOWN);
+    }
+
+    /**
+     * The same counter, priced for a settlement's economy profile (reference §12.2).
+     *
+     * <p>The profile scales the <em>base</em> price of each good and nothing else, which is what keeps
+     * the arbitrage invariant intact: {@code buyPrice} and {@code sellPrice} are both derived from the
+     * base, so multiplying it moves them together and {@code buy < sell} still holds by construction.
+     * Scaling the finished prices independently is the one thing that would open the loop, which is why
+     * the profile is applied here and not at either call site.
+     */
+    public static List<FenceOffer> build(long seed, int offerCount, Collection<FenceGood> goods,
+                                         PricingInputs inputs, FencePolicy policy,
+                                         EconomyProfile profile) {
+        EconomyProfile economy = profile == null ? EconomyProfile.TOWN : profile;
         List<FenceOffer> offers = new ArrayList<>();
         if (goods == null || goods.isEmpty() || offerCount <= 0) {
             return offers;
@@ -57,9 +74,10 @@ public final class FenceOfferBuilder {
         for (int i = 0; i < wanted; i++) {
             FenceGood good = pool.get(i);
             boolean playerSells = good.buys() && (!good.sells() || rng.nextBoolean());
+            long base = economy.scalePrice(good.basePrice());
             long price = playerSells
-                    ? FencePricing.buyPrice(good.basePrice(), inputs, policy)
-                    : FencePricing.sellPrice(good.basePrice(), inputs, policy);
+                    ? FencePricing.buyPrice(base, inputs, policy)
+                    : FencePricing.sellPrice(base, inputs, policy);
             offers.add(new FenceOffer(good.item(), price, playerSells));
         }
         return offers;

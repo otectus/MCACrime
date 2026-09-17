@@ -7,6 +7,8 @@ import dev.otectus.mcacrime.api.model.CrimePublicView;
 import dev.otectus.mcacrime.api.model.CrimeRecordQuery;
 import dev.otectus.mcacrime.api.model.CrimeRecordSelector;
 import dev.otectus.mcacrime.api.model.CrimeRecordView;
+import dev.otectus.mcacrime.api.model.CivicContractView;
+import dev.otectus.mcacrime.api.model.ServiceRefusalView;
 import dev.otectus.mcacrime.api.model.CustodyView;
 import dev.otectus.mcacrime.api.model.JailSentenceView;
 import dev.otectus.mcacrime.api.model.OutlawStatusView;
@@ -397,5 +399,70 @@ public final class McaCrimeApi {
         return player == null || player.getServer() == null
                 ? Optional.empty()
                 : publicView(player.getServer(), community, player.getUUID());
+    }
+
+    // ------------------------------------------------------------------ civic layer
+
+    /**
+     * Whether one villager will serve one person, and what they say if not (reference §11.5).
+     *
+     * <p>Published so a settlement companion can ask MCA: Crime's question instead of building its own
+     * answer out of a band and a wanted flag. The rule has one exception that must never be got wrong —
+     * food, shelter and care are never refused — and a second implementation of it is a second chance
+     * to strand a player with no route back.
+     *
+     * <p>Answers "served" for everything when {@code townstead.serviceRestrictions} is off, which is
+     * the default, and for any service kind it does not recognise. Never throws.
+     *
+     * @param provider    the villager being asked; their own memory is what makes a refusal personal
+     * @param subject     who is asking
+     * @param serviceKind one of {@code essential_food}, {@code essential_shelter}, {@code trade},
+     *                    {@code luxury}, {@code fence}
+     */
+    public static ServiceRefusalView serviceRefusal(net.minecraft.server.level.ServerLevel level,
+                                                    net.minecraft.world.entity.Entity provider,
+                                                    UUID subject, String serviceKind) {
+        try {
+            dev.otectus.mcacrime.civic.ServiceKind kind =
+                    dev.otectus.mcacrime.civic.ServiceKind.parse(serviceKind).orElse(null);
+            if (kind == null) {
+                return ServiceRefusalView.allowed(serviceKind == null ? "" : serviceKind);
+            }
+            dev.otectus.mcacrime.civic.ServiceRestrictionPolicy.Decision decision =
+                    dev.otectus.mcacrime.civic.ServiceRestrictions.decide(level, provider, subject, kind);
+            return new ServiceRefusalView(decision.refused(), kind.id(), decision.reasonKey(),
+                    decision.repairKey());
+        } catch (Throwable t) {
+            McaCrime.LOGGER.debug("MCA: Crime — service refusal query failed; serving", t);
+            return ServiceRefusalView.allowed(serviceKind == null ? "" : serviceKind);
+        }
+    }
+
+    /**
+     * Every civic service contract this offender has, newest last (reference §12.1).
+     *
+     * <p>Read-only, and there is deliberately no companion method to accept or advance one. Work is
+     * credited only from transitions MCA: Crime observed itself, so a presentation layer can show a
+     * contract and cannot complete one — which is what "Crime retains the case and completion
+     * authority" has to mean in code rather than in a comment.
+     */
+    public static List<CivicContractView> civicContracts(MinecraftServer server, UUID offender) {
+        if (server == null || offender == null) {
+            return List.of();
+        }
+        try {
+            List<CivicContractView> views = new ArrayList<>();
+            for (dev.otectus.mcacrime.civic.ServiceContract contract
+                    : CrimeWorldData.get(server).serviceContractsFor(offender)) {
+                views.add(new CivicContractView(contract.contractId(), contract.caseId(),
+                        contract.offender(), contract.community().asString(), contract.task().id(),
+                        contract.requiredUnits(), contract.completedUnits(), contract.deadline(),
+                        contract.state().id()));
+            }
+            return List.copyOf(views);
+        } catch (Throwable t) {
+            McaCrime.LOGGER.debug("MCA: Crime — civic contract query failed; returning empty", t);
+            return List.of();
+        }
     }
 }

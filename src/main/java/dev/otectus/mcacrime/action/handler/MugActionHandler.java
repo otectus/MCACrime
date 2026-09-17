@@ -167,7 +167,14 @@ public final class MugActionHandler implements CrimeActionHandler {
         CrimeWorldData world = CrimeWorldData.get(level.getServer());
         McaCrimeConfig.Common c = McaCrimeConfig.COMMON;
         VillagerCrimeProfile profile = CrimeMemoryService.profile(level.getServer(), target, now / 24000L);
-        profile.purse().refill(now / 24000L);
+        // The settlement's economy profile may select a smaller day's income than the configuration
+        // allows, and never a larger one (reference §12.2). With economy profiles off this is the
+        // configured income unchanged, so the purse behaves exactly as it always has.
+        profile.purse().refill(now / 24000L,
+                dev.otectus.mcacrime.economy.EconomyProfileResolver.of(level.getServer(),
+                                dev.otectus.mcacrime.detect.CrimeCommunityResolver.resolve(target, level)
+                                        .orElse(null))
+                        .scaleRefill(profile.purse().dailyIncome()));
         long actorRemaining = Math.max(0L, c.muggingActorValueCapPerDay.get()
                 - world.actionCounter(actorValueKey(actor.id(), now)));
         long villageRemaining = Math.max(0L, c.muggingVillageValueCapPerDay.get()

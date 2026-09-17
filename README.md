@@ -124,7 +124,7 @@ scoped mixins, all of them on vanilla classes and none on MCA: seven common —
 `ThiefBrainMixin` and `MerchantOffersAccessor` (the Thief profession and its worksite), and
 `SandSensingMixin` (`Sensing.hasLineOfSight`, for sand blindness) — plus client-only
 `RestraintPoseMixin`, which poses restrained arms. Those eight live in the required mixin config; a
-second, plugin-gated config applies four small hooks into Townstead and is skipped entirely when
+second, plugin-gated config applies five small hooks into Townstead and is skipped entirely when
 Townstead is not installed. No per-tick village scans, no AI text
 generation, no telemetry, no outbound network calls. Turning a subsystem off changes behaviour only,
 and deletes nothing; time-based retention does — stale criminal-villager records, expired bounty
@@ -169,15 +169,18 @@ on its own store. The handover is a real handshake rather than a guess — one m
 deed, never both and never neither. `/crime debug integrations` reports which.
 
 **Townstead is optional and reached only by reflection.** No class in this mod names a Townstead
-type; the adapter under `compat/townstead` matches members by name and arity, and the four Townstead
+type; the adapter under `compat/townstead` matches members by name and arity, and the five Townstead
 mixins name their targets as dotted strings in a `required: false` config whose plugin refuses to
 apply anything unless Townstead is installed and the target class is really there. With Townstead
 absent — the normal case — nothing is asked, nothing is logged as a problem, and crime behaves
 exactly as it does today. The whole integration can be switched off with `townstead.enabled`, and
 each part of it is a separate switch under `[townstead]`; a switch that is on while the Townstead
 surface behind it is missing is reported as *degraded* by `/crime validate` and
-`/crime debug townstead`, never silently ignored. See
-[the support matrix](docs/0.7.3/TOWNSTEAD.md) for what is available, degraded and unavailable.
+`/crime debug townstead`, never silently ignored. Two further layers are opt-in and off by default:
+**property law**, where marked settlement containers and buildings have an owner and taking from one
+can be a crime, and **civic work**, where an eligible case can be settled by doing something useful
+for the settlement instead of paying its fine. See
+[the support matrix](docs/0.7.4/TOWNSTEAD.md) for what is available, degraded and unavailable.
 
 ## Seeing where you stand
 

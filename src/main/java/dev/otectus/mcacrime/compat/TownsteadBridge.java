@@ -274,6 +274,9 @@ public final class TownsteadBridge {
         if (capability == TownsteadCapability.CLIENT_DIALOGUE_ENTRY) {
             return dialogueEntryInstalled();
         }
+        if (capability == TownsteadCapability.STORAGE_POLICY) {
+            return storagePolicyInstalled();
+        }
         Ops current = ops;
         return current != null && current.capabilities().contains(capability);
     }
@@ -321,6 +324,19 @@ public final class TownsteadBridge {
      * button, and a dedicated server draws none — and no config switch depends on it, so nothing reports
      * as degraded because of it.
      */
+    /**
+     * Whether the storage-policy mixin was merged into Townstead's sourcing search.
+     *
+     * <p>One mixin, and the same "applied, not fired" criterion as the others, for the same reason:
+     * {@code ConfigValidator} runs at setup and on every reload, long before any worker has looked for
+     * anything, and a check that waited for the hook to fire would report every boot as degraded. What
+     * "applied" buys is the fact that matters to a server owner turning property law on -- the hook is
+     * installed, so a reserved container really will be skipped the first time a worker looks at it.
+     */
+    public static boolean storagePolicyInstalled() {
+        return TownsteadMixinStatus.isApplied(TownsteadMixinStatus.MIXIN_STORAGE_POLICY);
+    }
+
     public static boolean dialogueEntryInstalled() {
         return TownsteadMixinStatus.isApplied(TownsteadMixinStatus.MIXIN_DIALOGUE_ENTRY);
     }

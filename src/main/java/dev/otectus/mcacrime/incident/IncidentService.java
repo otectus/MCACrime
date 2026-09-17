@@ -86,6 +86,28 @@ public final class IncidentService {
             WitnessResult witnesses, String detection, Map<String, String> provenance,
             @Nullable Long karmaOverride, @Nullable Long heatOverride,
             @Nullable ObservationSnapshot snapshot) {
+        return commitPlayer(incidentId, offender, crimeId, victim, level, witnesses, detection, provenance,
+                karmaOverride, heatOverride, snapshot, null);
+    }
+
+    /**
+     * The same commit against a typed {@link IncidentContext} rather than the entity-derived
+     * jurisdiction rule (0.7.4, spec §10.3).
+     *
+     * <p>One caller today, and it is the reason the type exists: a theft from a settlement's own
+     * container belongs to that settlement, not to the offender's home village and not to whichever
+     * villager the policy happens to name as owner. Every older caller passes nothing and keeps the
+     * original rule exactly -- victim home for a player's crime, offender home for an NPC's -- because
+     * for every other crime in this mod that rule is right.
+     *
+     * <p>The context also writes the place and the reason into the record's context map, so an operator
+     * reading a charge can see which of the three candidate communities won and why.
+     */
+    public static Optional<CrimeRecordView> commitPlayer(UUID incidentId, ServerPlayer offender,
+            ResourceLocation crimeId, @Nullable LivingEntity victim, ServerLevel level,
+            WitnessResult witnesses, String detection, Map<String, String> provenance,
+            @Nullable Long karmaOverride, @Nullable Long heatOverride,
+            @Nullable ObservationSnapshot snapshot, @Nullable IncidentContext incidentContext) {
         if (!available(level) || offender == null || offender.getServer() != level.getServer()) return Optional.empty();
         var type = CrimeTypeRegistry.getOrBuiltin(crimeId).orElse(null);
         if (type == null) return Optional.empty();
@@ -109,9 +131,12 @@ public final class IncidentService {
         Map<String, String> context = context(victim, effective, detection);
         if (masked) context.put(CrimeContext.MASKED, "true");
         if (deferred) context.put(CrimeContext.HEAT_DEFERRED, Long.toString(heat));
+        // The typed context first, the caller's own strings last: a caller that wants to override one
+        // of these keys may, and nothing silently overwrites what a caller deliberately passed.
+        if (incidentContext != null) context.putAll(incidentContext.provenance());
         context.putAll(provenance);
         CrimeRecord record = record(incidentId, offender, victim, crimeId, level, effective,
-                heat, karma, 0, context);
+                heat, karma, 0, context, incidentContext);
         boolean hideIdentity = dev.otectus.mcacrime.mask.MaskReactionPolicy.hidesAttribution(masked,
                 c.maskHidesIdentityFromWitnesses.get());
         return commitPrepared(CrimeWorldData.get(level.getServer()), record,
@@ -254,10 +279,26 @@ public final class IncidentService {
     private static CrimeRecord record(UUID id, LivingEntity offender, @Nullable LivingEntity victim,
             ResourceLocation crimeId, ServerLevel level, WitnessResult witnesses, long heat, long karma,
             long fine, Map<String, String> context) {
+        return record(id, offender, victim, crimeId, level, witnesses, heat, karma, fine, context, null);
+    }
+
+    private static CrimeRecord record(UUID id, LivingEntity offender, @Nullable LivingEntity victim,
+            ResourceLocation crimeId, ServerLevel level, WitnessResult witnesses, long heat, long karma,
+            long fine, Map<String, String> context, @Nullable IncidentContext incidentContext) {
         // Preserve the existing jurisdiction rule: victim home for player crime, thief home for NPC crime.
         LivingEntity anchor = offender instanceof ServerPlayer ? victim : offender;
         OptionalInt village = anchor == null ? OptionalInt.empty() : McaCompat.getHomeVillageId(anchor);
         CrimeCommunityKey community = CrimeCommunityResolver.resolve(anchor, level).orElse(null);
+        if (incidentContext != null) {
+            // The typed context replaces both halves together or neither. Taking the community from the
+            // property and the village integer from the victim would produce a record whose two
+            // jurisdiction fields disagreed, which every downstream reader would be entitled to trust.
+            CrimeCommunityKey selected = incidentContext.selected().orElse(null);
+            if (selected != null) {
+                community = selected;
+                village = OptionalInt.of(selected.villageId());
+            }
+        }
         return new CrimeRecord(id, offender.getUUID(), victim == null ? null : victim.getUUID(), crimeId,
                 village, community, witnesses.witnessed(), witnesses.witnessIds(), level.getGameTime(),
                 heat, karma, fine, 0, Resolution.UNRESOLVED, 0, List.of(), null, context);

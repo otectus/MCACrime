@@ -177,9 +177,32 @@ public final class BountyService {
         }
         ServerPlayer online = server.getPlayerList().getPlayer(offender);
         int priorWarrants = online == null ? 0 : CrimeAttachments.get(online).getPriorWarrants();
-        return BountyCalculator.compute(c.baseBounty.get(), unresolved.size(), heatSum,
+        long principal = BountyCalculator.compute(c.baseBounty.get(), unresolved.size(), heatSum,
                 c.severityRewardScale.get(), fines, c.fineRewardShare.get(), priorWarrants,
                 c.repeatOffenderBonus.get(), c.minBounty.get(), c.maxBounty.get());
+        // The settlement's economy profile, applied after the clamp rather than before it (reference
+        // §12.2). Before would let a rich village quietly raise the configured ceiling; after means a
+        // wealthy town pays more for the same outlaw but the operator's maximum is still a maximum.
+        return Math.min(Math.max(0L, c.maxBounty.get()),
+                dev.otectus.mcacrime.economy.EconomyProfileResolver.of(server, communityOf(unresolved))
+                        .scaleBounty(principal));
+    }
+
+    /**
+     * The settlement whose economy prices this bounty: the newest open case that names one.
+     *
+     * <p>Null when the offender's open cases all happened outside any settlement, which prices the
+     * bounty exactly as it was priced before economy profiles existed.
+     */
+    @Nullable
+    private static dev.otectus.mcacrime.api.model.CrimeCommunityKey communityOf(List<CrimeRecord> cases) {
+        for (CrimeRecord record : cases) {
+            var community = record.communityKey().orElse(null);
+            if (community != null) {
+                return community;
+            }
+        }
+        return null;
     }
 
     // ------------------------------------------------------------------ the kill route

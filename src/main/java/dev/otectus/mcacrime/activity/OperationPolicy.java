@@ -70,6 +70,12 @@ public final class OperationPolicy {
         row(CrimeActivityView.Kind.REACTION, CrimeActivityOperation.REACTION_LOCK);
         row(CrimeActivityView.Kind.THIEF_ACTION, CrimeActivityOperation.REACTION_LOCK);
         row(CrimeActivityView.Kind.MUGGING, CrimeActivityOperation.REACTION_LOCK);
+
+        // On civic duty. Only the three always-yielding behaviours stand aside: the work shift this
+        // replaces, the bed that would end it early, and the wander that would abandon it. A reaction
+        // may still play -- a villager doing community service who waves at a passing neighbour is not
+        // a bug -- and a tool in their hand is the point rather than a problem.
+        row(CrimeActivityView.Kind.CIVIC_SERVICE);
     }
 
     private OperationPolicy() {

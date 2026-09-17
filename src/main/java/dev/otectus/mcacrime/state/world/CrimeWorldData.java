@@ -3,12 +3,16 @@ package dev.otectus.mcacrime.state.world;
 import dev.otectus.mcacrime.McaCrime;
 import dev.otectus.mcacrime.api.model.CrimeCommunityKey;
 import dev.otectus.mcacrime.captivity.CustodyRecord;
+import dev.otectus.mcacrime.civic.ServiceContract;
 import dev.otectus.mcacrime.economy.account.TransactionReceipt;
 import dev.otectus.mcacrime.economy.account.ReconciliationDecision;
 import dev.otectus.mcacrime.economy.fence.FenceStockRecord;
 import dev.otectus.mcacrime.facility.CellReservation;
 import dev.otectus.mcacrime.facility.FacilityAssignment;
 import dev.otectus.mcacrime.facility.FacilityRole;
+import dev.otectus.mcacrime.property.PropertyPolicy;
+import dev.otectus.mcacrime.property.PropertyReceipt;
+import dev.otectus.mcacrime.property.PropertyScope;
 import dev.otectus.mcacrime.integration.CrimeIntegrationOperation;
 import dev.otectus.mcacrime.integration.DedupeEntry;
 import dev.otectus.mcacrime.jail.HoldingCell;
@@ -21,6 +25,7 @@ import dev.otectus.mcacrime.memory.CrimeReport;
 import dev.otectus.mcacrime.memory.ReportState;
 import dev.otectus.mcacrime.memory.VillagerCrimeProfile;
 import dev.otectus.mcacrime.ransom.RansomState;
+import net.minecraft.core.BlockPos;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
@@ -121,6 +126,23 @@ public final class CrimeWorldData extends SavedData {
      */
     private static final int MAX_FACILITIES = 512;
     private static final int MAX_CELL_RESERVATIONS = 512;
+    /**
+     * How many property policies and loss receipts one world may hold (0.7.4, schema 14).
+     *
+     * <p>512 each, refusing the insert rather than evicting. A property table that quietly dropped its
+     * oldest entry would unprotect a village's granary without telling anybody, and a receipt table
+     * that did would erase the only record of a loss somebody is still owed restitution for.
+     */
+    private static final int MAX_PROPERTY_POLICIES = 512;
+    private static final int MAX_PROPERTY_RECEIPTS = 512;
+    /**
+     * How many civic service contracts one world may hold (0.7.4, schema 14).
+     *
+     * <p>512, refusing the insert rather than evicting, for the same reason the property tables do: a
+     * contract is an obligation somebody accepted instead of paying a fine, and dropping the oldest
+     * one would quietly forgive a case while leaving the offender believing they still owed the work.
+     */
+    private static final int MAX_SERVICE_CONTRACTS = 512;
     private static final int MAX_QUARANTINE = 256;
     /** Ticks in a Minecraft day, the unit terminal-receipt retention is expressed in. */
     private static final long TICKS_PER_DAY = 24000L;
@@ -215,6 +237,40 @@ public final class CrimeWorldData extends SavedData {
      * carries a deadline, so the worst a lost escort can cost is one lease.
      */
     private final Map<UUID, CellReservation> cellReservations = new LinkedHashMap<>();
+    /**
+     * Explicit property policies, keyed by policy id (0.7.4, schema 14).
+     *
+     * <p>Persisted because ownership is a claim somebody made, never a reading of the world: §10.1 is
+     * explicit that a recognised building does not create ownership and that an existing container
+     * stays unclaimed until it is claimed. Nothing here can be re-derived at load.
+     */
+    private final Map<UUID, PropertyPolicy> propertyPolicies = new LinkedHashMap<>();
+    /**
+     * Container policies by dimension and position, rebuilt from {@link #propertyPolicies}.
+     *
+     * <p>Derived, never saved. It exists because the settlement storage hook asks "is this block
+     * protected" inside another mod's per-search method, where walking 512 policies would be a cost
+     * every worker pays on every sourcing scan. Building-scope policies are deliberately absent from
+     * it: answering those needs the settlement mod, which that hot path cannot afford to ask.
+     */
+    private final Map<String, UUID> propertyByContainer = new LinkedHashMap<>();
+    /**
+     * Property loss receipts, keyed by transfer id (0.7.4, schema 14).
+     *
+     * <p>The transfer id is the idempotency key, which is the whole point of persisting them: §10.2
+     * requires a crash or a reconnect mid-transfer to retain uncertainty rather than repeat a debit,
+     * and §10.6 requires a returned lot to settle exactly once.
+     */
+    private final Map<UUID, PropertyReceipt> propertyReceipts = new LinkedHashMap<>();
+    /**
+     * Civic service contracts, keyed by contract id (0.7.4, schema 14).
+     *
+     * <p>Persisted because reference §12.1 point 7 asks for "task regeneration after reconnect" to be
+     * prevented, and the only way to prevent it is for the obligation to survive the reconnect. A
+     * contract also records that a fine was <em>not</em> paid because work was done instead, which is
+     * a fact about a case's history and cannot be re-derived from anything else in the store.
+     */
+    private final Map<UUID, ServiceContract> serviceContracts = new LinkedHashMap<>();
     /**
      * Rows that could not be read, kept verbatim beside the reason (0.6.0).
      *
@@ -1716,6 +1772,254 @@ public final class CrimeWorldData extends SavedData {
         return removed;
     }
 
+    // --- explicit property law (0.7.4, schema 14) -------------------------------------------------
+
+    /**
+     * Records or replaces one property policy.
+     *
+     * <p>Replacing by id is how a rule change and the automatic sweep both work: a generated policy
+     * carries a derived id, so re-running the sweep rewrites the same row instead of laying a second
+     * one beside it.
+     *
+     * @return false when the table is full; an existing id may always be replaced
+     */
+    public boolean putPropertyPolicy(PropertyPolicy policy) {
+        if (policy == null || frozen()
+                || atCapacity(propertyPolicies, policy.id(), MAX_PROPERTY_POLICIES, "property policy")) {
+            return false;
+        }
+        PropertyPolicy previous = propertyPolicies.put(policy.id(), policy);
+        if (previous != null) {
+            dropContainerIndex(previous);
+        }
+        indexContainer(policy);
+        setDirty();
+        return true;
+    }
+
+    /** One policy by id, or null. */
+    @Nullable
+    public PropertyPolicy propertyPolicy(UUID id) {
+        return id == null ? null : propertyPolicies.get(id);
+    }
+
+    /** Every policy, in the order they were declared. A copy. */
+    public List<PropertyPolicy> propertyPolicies() {
+        return new ArrayList<>(propertyPolicies.values());
+    }
+
+    /**
+     * The container policy at one position, or null.
+     *
+     * <p>A map lookup, deliberately: this is the question the settlement storage hook asks inside
+     * another mod's sourcing scan, and it has to cost the same whether a world has one policy or five
+     * hundred.
+     */
+    @Nullable
+    public PropertyPolicy propertyPolicyAt(@Nullable ResourceLocation dimension, @Nullable BlockPos pos) {
+        if (dimension == null || pos == null) {
+            return null;
+        }
+        UUID id = propertyByContainer.get(containerKey(dimension, pos));
+        return id == null ? null : propertyPolicies.get(id);
+    }
+
+    /** Every building-scope policy naming this village and building. A copy. */
+    public List<PropertyPolicy> propertyPoliciesForBuilding(@Nullable ResourceLocation dimension,
+                                                            int villageId, int buildingId) {
+        List<PropertyPolicy> out = new ArrayList<>();
+        if (dimension == null || villageId < 0 || buildingId < 0) {
+            return out;
+        }
+        for (PropertyPolicy policy : propertyPolicies.values()) {
+            if (policy.scope() == PropertyScope.BUILDING && dimension.equals(policy.dimension())
+                    && policy.building().villageId() == villageId
+                    && policy.building().buildingId() == buildingId) {
+                out.add(policy);
+            }
+        }
+        return out;
+    }
+
+    /** Forgets a policy. Receipts already written against it are untouched -- they are history. */
+    public boolean removePropertyPolicy(UUID id) {
+        if (id == null || frozen()) {
+            return false;
+        }
+        PropertyPolicy removed = propertyPolicies.remove(id);
+        if (removed == null) {
+            return false;
+        }
+        dropContainerIndex(removed);
+        setDirty();
+        return true;
+    }
+
+    /**
+     * Records a loss receipt, keyed by its transfer id.
+     *
+     * <p>The insert is idempotent by construction: the same committed transfer always derives the same
+     * id, so replaying one after a reconnect replaces the row rather than adding a second charge.
+     *
+     * @return false when the table is full
+     */
+    public boolean putPropertyReceipt(PropertyReceipt receipt) {
+        if (receipt == null || frozen()
+                || atCapacity(propertyReceipts, receipt.transferId(), MAX_PROPERTY_RECEIPTS,
+                        "property receipt")) {
+            return false;
+        }
+        propertyReceipts.put(receipt.transferId(), receipt);
+        setDirty();
+        return true;
+    }
+
+    /** Whether a receipt for this transfer already exists. The replay check. */
+    public boolean hasPropertyReceipt(@Nullable UUID transferId) {
+        return transferId != null && propertyReceipts.containsKey(transferId);
+    }
+
+    /** One receipt by transfer id, or null. */
+    @Nullable
+    public PropertyReceipt propertyReceipt(UUID transferId) {
+        return transferId == null ? null : propertyReceipts.get(transferId);
+    }
+
+    /** Every receipt. A copy. */
+    public List<PropertyReceipt> propertyReceipts() {
+        return new ArrayList<>(propertyReceipts.values());
+    }
+
+    /** Every outstanding receipt against one actor at one container. A copy. */
+    public List<PropertyReceipt> outstandingPropertyReceipts(@Nullable UUID actor,
+                                                             @Nullable ResourceLocation dimension,
+                                                             @Nullable BlockPos container) {
+        List<PropertyReceipt> out = new ArrayList<>();
+        if (actor == null) {
+            return out;
+        }
+        for (PropertyReceipt receipt : propertyReceipts.values()) {
+            if (!receipt.outstanding() || !actor.equals(receipt.actor())) {
+                continue;
+            }
+            if (dimension != null && !dimension.equals(receipt.dimension())) {
+                continue;
+            }
+            if (container != null && !container.equals(receipt.container())) {
+                continue;
+            }
+            out.add(receipt);
+        }
+        return out;
+    }
+
+    /** Drops one receipt. Only an operator tool and the maintenance sweep ever do. */
+    public boolean removePropertyReceipt(UUID transferId) {
+        if (transferId == null || frozen()) {
+            return false;
+        }
+        if (propertyReceipts.remove(transferId) != null) {
+            setDirty();
+            return true;
+        }
+        return false;
+    }
+
+    private static String containerKey(ResourceLocation dimension, BlockPos pos) {
+        return dimension + "@" + pos.asLong();
+    }
+
+    private void indexContainer(PropertyPolicy policy) {
+        if (policy.scope() == PropertyScope.CONTAINER && policy.position() != null) {
+            propertyByContainer.put(containerKey(policy.dimension(), policy.position()), policy.id());
+        }
+    }
+
+    private void dropContainerIndex(PropertyPolicy policy) {
+        if (policy.scope() == PropertyScope.CONTAINER && policy.position() != null) {
+            propertyByContainer.remove(containerKey(policy.dimension(), policy.position()), policy.id());
+        }
+    }
+
+    // --- civic service contracts (0.7.4, schema 14) -----------------------------------------------
+
+    /**
+     * Records or replaces one service contract.
+     *
+     * <p>Replacing by id is the whole lifecycle: accepting, crediting a unit and completing all write
+     * the same contract id back, so a world holds exactly one row per contract however many times it
+     * changes state.
+     *
+     * @return false when the table is full; an existing id may always be replaced
+     */
+    public boolean putServiceContract(ServiceContract contract) {
+        if (contract == null || frozen()
+                || atCapacity(serviceContracts, contract.contractId(), MAX_SERVICE_CONTRACTS,
+                        "service contract")) {
+            return false;
+        }
+        serviceContracts.put(contract.contractId(), contract);
+        setDirty();
+        return true;
+    }
+
+    /** One contract by id, or null. */
+    @Nullable
+    public ServiceContract serviceContract(@Nullable UUID contractId) {
+        return contractId == null ? null : serviceContracts.get(contractId);
+    }
+
+    /** Every contract, in the order they were issued. A copy. */
+    public List<ServiceContract> serviceContracts() {
+        return new ArrayList<>(serviceContracts.values());
+    }
+
+    /** Every contract belonging to one offender, newest last. A copy. */
+    public List<ServiceContract> serviceContractsFor(@Nullable UUID offender) {
+        List<ServiceContract> out = new ArrayList<>();
+        if (offender == null) {
+            return out;
+        }
+        for (ServiceContract contract : serviceContracts.values()) {
+            if (offender.equals(contract.offender())) {
+                out.add(contract);
+            }
+        }
+        return out;
+    }
+
+    /**
+     * The one contract this offender still owes work on, or null.
+     *
+     * <p>One at a time, deliberately. §12.1's anti-farming rules are much easier to hold when an
+     * offender cannot hold four contracts crediting each other's outputs, and a settlement offering a
+     * second alternative before the first is answered is not offering an alternative at all.
+     */
+    @Nullable
+    public ServiceContract openServiceContractFor(@Nullable UUID offender) {
+        if (offender == null) {
+            return null;
+        }
+        for (ServiceContract contract : serviceContracts.values()) {
+            if (offender.equals(contract.offender()) && contract.open()) {
+                return contract;
+            }
+        }
+        return null;
+    }
+
+    /** Forgets a contract. Only an operator tool and the retention sweep ever do. */
+    public boolean removeServiceContract(@Nullable UUID contractId) {
+        if (contractId == null || frozen()) {
+            return false;
+        }
+        if (serviceContracts.remove(contractId) != null) {
+            setDirty();
+            return true;
+        }
+        return false;
+    }
+
     /**
      * Sets a row aside instead of discarding it.
      *
@@ -1895,6 +2199,18 @@ public final class CrimeWorldData extends SavedData {
         ListTag reservationList = new ListTag();
         cellReservations.values().forEach(reservation -> reservationList.add(reservation.save()));
         tag.put("cellReservations", reservationList);
+
+        // 0.7.4 (schema 14) collections. Both are empty in every world where nobody has claimed a
+        // container, which is why the v13 -> v14 migration writes nothing: absent already reads as empty.
+        ListTag policyList = new ListTag();
+        propertyPolicies.values().forEach(policy -> policyList.add(policy.save()));
+        tag.put("propertyPolicies", policyList);
+        ListTag receiptList = new ListTag();
+        propertyReceipts.values().forEach(receipt -> receiptList.add(receipt.save()));
+        tag.put("propertyReceipts", receiptList);
+        ListTag serviceContractList = new ListTag();
+        serviceContracts.values().forEach(contract -> serviceContractList.add(contract.save()));
+        tag.put("serviceContracts", serviceContractList);
         // Written back exactly as it was read. A row nobody can parse is still a row somebody's
         // history is in, and the one thing worse than not loading it is losing it.
         ListTag quarantineList = new ListTag();
@@ -2310,6 +2626,44 @@ public final class CrimeWorldData extends SavedData {
             }
         }
         warnOverflow("cell reservation", data.cellReservations.size(), MAX_CELL_RESERVATIONS);
+
+        ListTag policyList = tag.getList("propertyPolicies", Tag.TAG_COMPOUND);
+        for (int i = 0; i < policyList.size(); i++) {
+            PropertyPolicy policy = PropertyPolicy.load(policyList.getCompound(i));
+            if (policy != null) {
+                data.propertyPolicies.put(policy.id(), policy);
+                data.indexContainer(policy);
+            } else {
+                // Quarantined rather than dropped: a policy nobody can parse is still the reason a
+                // container was protected, and an operator has to be able to see that it was there.
+                data.quarantine("property policy", policyList.getCompound(i));
+            }
+        }
+        warnOverflow("property policy", data.propertyPolicies.size(), MAX_PROPERTY_POLICIES);
+
+        ListTag receiptList = tag.getList("propertyReceipts", Tag.TAG_COMPOUND);
+        for (int i = 0; i < receiptList.size(); i++) {
+            PropertyReceipt receipt = PropertyReceipt.load(receiptList.getCompound(i));
+            if (receipt != null) {
+                data.propertyReceipts.put(receipt.transferId(), receipt);
+            } else {
+                data.quarantine("property receipt", receiptList.getCompound(i));
+            }
+        }
+        warnOverflow("property receipt", data.propertyReceipts.size(), MAX_PROPERTY_RECEIPTS);
+
+        ListTag serviceContractList = tag.getList("serviceContracts", Tag.TAG_COMPOUND);
+        for (int i = 0; i < serviceContractList.size(); i++) {
+            ServiceContract contract = ServiceContract.load(serviceContractList.getCompound(i));
+            if (contract != null) {
+                data.serviceContracts.put(contract.contractId(), contract);
+            } else {
+                // Quarantined rather than dropped: an unreadable contract is still the reason an
+                // offender was not charged a fine, and an operator has to be able to see it existed.
+                data.quarantine("service contract", serviceContractList.getCompound(i));
+            }
+        }
+        warnOverflow("service contract", data.serviceContracts.size(), MAX_SERVICE_CONTRACTS);
 
         // Read straight back in, unexamined. Parsing a quarantined row is exactly what failed.
         ListTag quarantineList = tag.getList("quarantine", Tag.TAG_COMPOUND);

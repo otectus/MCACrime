@@ -11,11 +11,11 @@ crimes, witnesses, guard response, arrests and custody on top of MCA villagers. 
 statically link Townstead: Townstead's method descriptors carry MCA types whose package
 differs between the Forge legacy, Forge modern and NeoForge builds, so naming a Townstead
 type in Crime's bytecode would pin Crime to one MCA layout. Crime therefore reaches
-Townstead through reflection plus four narrowly scoped mixins into Townstead classes
-(`GuardRestEnforcerTicker`, `WorkToolTicker`, `ReactionLockTracker`, and the client
-`RpgDialogueScreen`).
+Townstead through reflection plus five narrowly scoped mixins into Townstead classes
+(`GuardRestEnforcerTicker`, `WorkToolTicker`, `ReactionLockTracker`, `StorageSearchContext`,
+and the client `RpgDialogueScreen`).
 
-The additions below would let those four mixins be retired and replace most of the
+The additions below would let those five mixins be retired and replace most of the
 reflection with a supported surface. None of them require Townstead to know anything about
 MCA: Crime.
 
@@ -48,7 +48,7 @@ on its own.*
 - Exposes: a Townstead-owned interface Crime implements (vanilla `LivingEntity` argument,
   returning something like "this entity is under an external activity claim until tick N"),
   which Townstead's tickers consult.
-- Why: one contract would replace all four of Crime's mixins into Townstead.
+- Why: one contract would replace all five of Crime's mixins into Townstead.
 - Today: Crime mixes `GuardRestEnforcerTicker`, `WorkToolTicker` and `ReactionLockTracker`,
   and gates brain behaviours, to achieve the same effect less safely.
 
@@ -109,8 +109,11 @@ on its own.*
   a way to add protected containers.
 - Why: Crime needs evidence, recovery and reserved-facility containers excluded from work
   searches, and needs to tell authorised withdrawal from theft.
-- Today: nothing — Crime does not touch Townstead storage. `storage_policy` is
-  `unavailable` and `townstead.propertyLaw` stays off.
+- Today: Crime `@Inject`s at the return of `isProtectedStorage` and forces `true` for a
+  container it has marked protected from auto-sourcing (evidence storage, reserved jail-cell
+  supplies), behind the opt-in `townstead.propertyLaw` switch. It cannot see who is searching
+  or why, so authorised withdrawal is still told apart from theft only by Crime's own
+  attribution, not by Townstead.
 
 **10. `VillagerConsumptionManager` overloads taking vanilla `LivingEntity`.**
 - Exposes: `startConsuming` (`hunger/VillagerConsumptionManager.java:55`, `:63`),

@@ -14,6 +14,7 @@ import dev.otectus.mcacrime.action.handler.RansomActionHandler;
 import dev.otectus.mcacrime.action.handler.ReleaseCaptiveActionHandler;
 import dev.otectus.mcacrime.action.handler.RescueActionHandler;
 import dev.otectus.mcacrime.action.handler.BailActionHandler;
+import dev.otectus.mcacrime.action.handler.CivicServiceActionHandler;
 import dev.otectus.mcacrime.action.handler.RestrainActionHandler;
 import dev.otectus.mcacrime.action.handler.SettleCaseActionHandler;
 import dev.otectus.mcacrime.action.handler.SurrenderActionHandler;
@@ -81,6 +82,7 @@ public final class CrimeActionService {
             CrimeActionIds.SURRENDER,
             CrimeActionIds.SETTLE_CASE,
             CrimeActionIds.BAIL,
+            CrimeActionIds.CIVIC_SERVICE,
             CrimeActionIds.PAY_RANSOM);
 
     private CrimeActionService() {}
@@ -103,6 +105,7 @@ public final class CrimeActionService {
         ActionHandlerRegistry.register(CrimeActionIds.ASK_DISTRACTION, new AskDistractionActionHandler());
         ActionHandlerRegistry.register(CrimeActionIds.ASK_ESCAPE_HELP, new AskEscapeHelpActionHandler());
         ActionHandlerRegistry.register(CrimeActionIds.PAY_BAIL, new PayBailActionHandler());
+        ActionHandlerRegistry.register(CrimeActionIds.CIVIC_SERVICE, new CivicServiceActionHandler());
         bootstrapped = true;
     }
 
