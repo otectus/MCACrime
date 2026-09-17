@@ -24,29 +24,33 @@ Machine-generated map of this mod. Read this first when picking the project up.
 dev.otectus.mcacrime                                 2 files
 dev.otectus.mcacrime.action                          25 files
 dev.otectus.mcacrime.action.handler                  17 files
+dev.otectus.mcacrime.activity                        4 files
 dev.otectus.mcacrime.ai                              16 files
 dev.otectus.mcacrime.ai.thief                        10 files
 dev.otectus.mcacrime.api                             1 file
 dev.otectus.mcacrime.api.event                       23 files
-dev.otectus.mcacrime.api.model                       9 files
+dev.otectus.mcacrime.api.model                       10 files
 dev.otectus.mcacrime.api.result                      1 file
 dev.otectus.mcacrime.audio                           1 file
 dev.otectus.mcacrime.block                           2 files
 dev.otectus.mcacrime.bounty                          9 files
-dev.otectus.mcacrime.captivity                       19 files
-dev.otectus.mcacrime.client                          19 files
+dev.otectus.mcacrime.captivity                       20 files
+dev.otectus.mcacrime.civic                           2 files
+dev.otectus.mcacrime.client                          21 files
 dev.otectus.mcacrime.client.hud                      3 files
 dev.otectus.mcacrime.client.render                   4 files
 dev.otectus.mcacrime.client.screen                   11 files
 dev.otectus.mcacrime.client.screen.widget            3 files
 dev.otectus.mcacrime.command                         2 files
-dev.otectus.mcacrime.compat                          15 files
+dev.otectus.mcacrime.compat                          38 files
 dev.otectus.mcacrime.compat.locksreforged            2 files
 dev.otectus.mcacrime.compat.mca                      2 files
 dev.otectus.mcacrime.compat.mca.client               1 file
 dev.otectus.mcacrime.compat.mcaquests                2 files
 dev.otectus.mcacrime.compat.numismatic               1 file
 dev.otectus.mcacrime.compat.reputation               1 file
+dev.otectus.mcacrime.compat.townstead                3 files
+dev.otectus.mcacrime.compat.townstead.client         1 file
 dev.otectus.mcacrime.config                          1 file
 dev.otectus.mcacrime.crime                           3 files
 dev.otectus.mcacrime.crime.type                      6 files
@@ -56,17 +60,18 @@ dev.otectus.mcacrime.economy                         15 files
 dev.otectus.mcacrime.economy.account                 6 files
 dev.otectus.mcacrime.economy.fence                   12 files
 dev.otectus.mcacrime.effect                          9 files
-dev.otectus.mcacrime.enforcement                     43 files
+dev.otectus.mcacrime.enforcement                     45 files
 dev.otectus.mcacrime.engine                          3 files
 dev.otectus.mcacrime.entity                          2 files
 dev.otectus.mcacrime.event                           3 files
+dev.otectus.mcacrime.facility                        7 files
 dev.otectus.mcacrime.incident                        3 files
-dev.otectus.mcacrime.integration                     8 files
+dev.otectus.mcacrime.integration                     9 files
 dev.otectus.mcacrime.item                            11 files
 dev.otectus.mcacrime.item.contraband                 4 files
 dev.otectus.mcacrime.item.weapon                     7 files
 dev.otectus.mcacrime.jail                            16 files
-dev.otectus.mcacrime.job                             25 files
+dev.otectus.mcacrime.job                             26 files
 dev.otectus.mcacrime.justice                         2 files
 dev.otectus.mcacrime.ledger                          12 files
 dev.otectus.mcacrime.loot                            3 files
@@ -75,9 +80,11 @@ dev.otectus.mcacrime.memory                          17 files
 dev.otectus.mcacrime.menu                            7 files
 dev.otectus.mcacrime.mixin                           7 files
 dev.otectus.mcacrime.mixin.client                    1 file
+dev.otectus.mcacrime.mixin.townstead                 4 files
+dev.otectus.mcacrime.mixin.townstead.client          1 file
 dev.otectus.mcacrime.mug                             1 file
 dev.otectus.mcacrime.mug.npc                         12 files
-dev.otectus.mcacrime.network                         26 files
+dev.otectus.mcacrime.network                         29 files
 dev.otectus.mcacrime.ransom                          8 files
 dev.otectus.mcacrime.recipe                          8 files
 dev.otectus.mcacrime.relationship                    5 files
@@ -185,6 +192,7 @@ Run `check_mod.py` for a full consistency check (missing models, lang keys, text
 
 
 
+
 ## Current focus
 
 _What you are working on right now. One or two lines._
@@ -220,3 +228,31 @@ _Bugs you know about but have not fixed, with the symptom and any lead._
 - `integration/SupersedePolicy` is pure and holds the assault-to-killing fold rules; the pump only
   asks it while MCA: Reputation advertises `supersede`.
 - Stage records for the 0.7.3 work: `docs/0.7.3/BASELINE.md`, `VERIFICATION.md`.
+- The Townstead seam is `compat/Townstead*` (always loadable: the `TownsteadBridge` facade, the
+  eighteen-value `TownsteadCapability`, `TownsteadQueryResult`, the `*View` records, diagnostics,
+  mixin status, snapshot cache, needs, role policy, equipment provenance, the three datapack loaders)
+  plus the adapter in `compat/townstead/` (`TownsteadBinding`, `TownsteadHandles`,
+  `ReflectiveTownsteadBridge`, and a `client` sub-package). Nothing outside `compat/townstead/`
+  names a Townstead type, and the only reference into the adapter is a dotted `Class.forName` in
+  `TownsteadBridge`.
+- `OptionalClassloadTest` now has a fourth adapter entry, `compat/townstead/`, whose one permitted
+  namer is `mixin/townstead/` — those mixin classes are not loaded on an install without Townstead
+  either, because `TownsteadMixinPlugin` refuses to apply them. It also asserts that nothing at all
+  names a Townstead mixin, and adds `com/aetherianartificer/townstead/` to the forbidden internal
+  package roots. Adding a class to `compat/townstead/` means updating its expectations.
+- Two mixin configs: `mcacrime.mixins.json` (required, vanilla-only, 8 mixins including the
+  client one) and `mcacrime.townstead.mixins.json` (`required: false`, `defaultRequire 0`,
+  plugin-gated, 3 common + 1 client). Both are listed in the jar manifest's `MixinConfigs`.
+  `MixinConfigTest` checks side separation and registration across both;
+  `NoTownsteadStaticLinkTest` and `TownsteadMixinTargetTest` cover the Townstead rules.
+- New packages: `activity/` (enforcement claims and what they refuse), `facility/` (civic facilities,
+  roles, assignments, cell reservations, custody-care policy) and `civic/` (the read-only village
+  security projection).
+- World data is schema 13 (`state/world/CrimeDataMigrations.SCHEMA_TOWNSTEAD_FACILITIES`): root
+  `facilities` and `cellReservations`, and custody `recovery*` keys. The 12→13 step writes only the
+  version.
+- `townsteadProbeTest` is a separate Gradle task, not part of `check`: it needs a real Townstead jar
+  supplied with `-PtownsteadLegacyJar` / `-PtownsteadModernJar`, paired with the MCA build that jar
+  was compiled against (`ext.townsteadProbePairs`).
+- Support matrix and known limits: `docs/0.7.3/TOWNSTEAD.md`; upstream asks:
+  `docs/TOWNSTEAD_API_REQUESTS.md`.

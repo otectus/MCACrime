@@ -239,6 +239,41 @@ public final class ThiefBehaviorService {
     // ------------------------------------------------------------------ ticking
 
     /** Advances every controller. One bounded map walk per tick, and nothing else when idle. */
+    /**
+     * States an open mugging session, as against the rest of a thief's working day.
+     *
+     * <p>Separated because the yield table is not the same: a thief standing over a victim may be
+     * frozen for a reaction without anything going wrong, while one walking to or away from a job may
+     * not. {@code THREATENING} counts as the mug because that is when the session is already open and
+     * the player is already being held at knifepoint.
+     */
+    private static boolean mugInProgress(ThiefState state) {
+        return state == ThiefState.MUGGING || state == ThiefState.THREATENING;
+    }
+
+    /**
+     * Says, once per think, that this thief owns their own movement.
+     *
+     * <p>One producer for the whole thief controller rather than one per phase: the controller already
+     * knows which state it is in, and two producers claiming the same villager in the same tick would
+     * spend their time replacing each other's claims. Re-asserted rather than held, so a thief that
+     * drops back to idle simply stops renewing and the lease lapses on its own.
+     */
+    private static void claimThiefActivity(ServerLevel level, LivingEntity thief, ThiefState state, long now) {
+        if (!ThiefWorkGate.crimeActive(state)) {
+            dev.otectus.mcacrime.activity.CrimeActivityRegistry.releaseOwned(thief.getUUID(),
+                    dev.otectus.mcacrime.activity.CrimeActivityView.Kind.THIEF_ACTION, "thief");
+            dev.otectus.mcacrime.activity.CrimeActivityRegistry.releaseOwned(thief.getUUID(),
+                    dev.otectus.mcacrime.activity.CrimeActivityView.Kind.MUGGING, "thief");
+            return;
+        }
+        var kind = mugInProgress(state)
+                ? dev.otectus.mcacrime.activity.CrimeActivityView.Kind.MUGGING
+                : dev.otectus.mcacrime.activity.CrimeActivityView.Kind.THIEF_ACTION;
+        dev.otectus.mcacrime.activity.CrimeActivityRegistry.claim(thief.getUUID(),
+                level.dimension().location(), kind, "thief", now);
+    }
+
     public static void tick(MinecraftServer server) {
         if (server == null || ACTIVE.isEmpty()) {
             return;
@@ -294,6 +329,7 @@ public final class ThiefBehaviorService {
                 finished.add(controller.thiefId());
                 continue;
             }
+            claimThiefActivity(level, thief, controller.state(), now);
             if (!think(server, level, controller, thief, policy, now)) {
                 finished.add(controller.thiefId());
             }

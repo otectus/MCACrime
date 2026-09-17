@@ -6,6 +6,8 @@ import dev.otectus.mcacrime.enforcement.RestraintPolicy;
 import dev.otectus.mcacrime.enforcement.RestraintSync;
 import dev.otectus.mcacrime.McaCrimeConfig;
 import dev.otectus.mcacrime.action.ActionSessionManager;
+import dev.otectus.mcacrime.activity.CrimeActivityRegistry;
+import dev.otectus.mcacrime.activity.CrimeActivityView;
 import dev.otectus.mcacrime.action.CancelReason;
 import dev.otectus.mcacrime.api.event.EntityKidnappedEvent;
 import dev.otectus.mcacrime.audio.CrimeSounds;
@@ -155,6 +157,7 @@ public final class CustodyService {
             RestraintHandlers.onRestrained(captivePlayer);
         } else {
             McaCompat.leashTo(captiveEntity, captor); // best-effort physical hold for an NPC
+            assertCustodyClaim(captiveEntity);
         }
         // Cuffs and rope are drawn from a client cache, and the cache only learns about a villager
         // when somebody says so. A capture is exactly such a moment.
@@ -323,6 +326,7 @@ public final class CustodyService {
         // Same reason as the kidnapping path: cuffs are drawn from a client cache that only learns
         // about a villager when somebody tells it.
         RestraintSync.broadcast(captive);
+        assertCustodyClaim(captive);
         return CaptureCommitResult.CAPTURED;
     }
 
@@ -346,6 +350,30 @@ public final class CustodyService {
         return true;
     }
 
+    /**
+     * Re-asserts the activity claim that says this villager is not free.
+     *
+     * <p>Custody outlasts any lease, so it is re-asserted from the sweeps that already walk the custody
+     * records rather than taken once and given a deadline nobody would renew. Idempotent: the owner
+     * token and kind are constant, so a re-assertion renews the same claim and keeps its generation,
+     * which is what lets the release below be generation-safe.
+     *
+     * <p>{@link CrimeActivityView.Kind#CUSTODY} is the strongest authority there is, so a claim taken
+     * here is never pre-empted by a guard hold, a challenge or a reaction. That is the point: a
+     * prisoner does not stop being a prisoner because somebody shouted at them.
+     */
+    public static void assertCustodyClaim(@Nullable Entity captive) {
+        if (captive == null || captive instanceof ServerPlayer || captive.level() == null) {
+            return;
+        }
+        try {
+            CrimeActivityRegistry.claim(captive.getUUID(), captive.level().dimension().location(),
+                    CrimeActivityView.Kind.CUSTODY, "custody", captive.level().getGameTime());
+        } catch (Throwable t) {
+            // Coordination is an improvement on top of custody, never a precondition for it.
+        }
+    }
+
     // ------------------------------------------------------------------ release (idempotent)
 
     public static void release(MinecraftServer server, UUID captiveUuid, CustodyReleaseReason reason) {
@@ -355,6 +383,14 @@ public final class CustodyService {
             return; // the guard that makes double-release a no-op
         }
         data.removeCustody(captiveUuid);
+        // Unconditional rather than generation-scoped, and one of only two places that is right: the
+        // custody record is gone, so every claim that existed because of it is meaningless, whoever
+        // took it.
+        CrimeActivityRegistry.forget(captiveUuid);
+        // The same reasoning for the two 0.7.3 registries: a cell slot held for a captivity that has
+        // ended can never be spent, and a care interval for a released prisoner names nobody.
+        CustodyCareService.forget(captiveUuid);
+        dev.otectus.mcacrime.facility.CrimeFacilityService.releaseFor(server, captiveUuid);
         dev.otectus.mcacrime.enforcement.JailEscortNavigation.forget(captiveUuid);
         data.removeRansom(captiveUuid);
         ActionSessionManager.clearFor(captiveUuid, CancelReason.TARGET_GONE);
@@ -733,6 +769,7 @@ public final class CustodyService {
                 RestraintSync.broadcast(npc);
             }
 
+            assertCustodyClaim(npc);
             record.setRealTicksHeld(record.getRealTicksHeld() + elapsedTicks);
             dirty = true;
             if (capTicks > 0L && record.getRealTicksHeld() >= capTicks) {

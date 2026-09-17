@@ -247,7 +247,7 @@ public final class NpcMuggingService {
         if (thief == null || !thief.isAlive() || thief.isRemoved() || thief.level() != level)
             return NpcMugAbortReason.THIEF_DEAD;
         if (!ServerMutationGate.allows(level.getServer())
-                || !dev.otectus.mcacrime.ai.NpcAwareness.isAwake(thief)
+                || !dev.otectus.mcacrime.ai.NpcAwareness.canPerformCriminalAction(thief)
                 || victim.isSpectator() || victim.isCreative() || victim.isInvulnerable()
                 || EntitySelectors.isProtected(victim) || JailService.isJailed(victim))
             return NpcMugAbortReason.CANCELLED;

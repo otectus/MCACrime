@@ -68,7 +68,16 @@ public final class CrimeDataMigrations {
      * kind on every criminal record.
      */
     public static final int SCHEMA_OCCUPATION = 12;
-    public static final int CURRENT_SCHEMA = SCHEMA_OCCUPATION;
+    /**
+     * The 0.7.3 civic-facility schema: facility assignments and the cell reservations against them.
+     *
+     * <p>Additive only. Both collections are absent in every world written before this release, and
+     * absent already reads as empty, so {@link #v12to13} writes nothing at all -- see its javadoc for
+     * why seeding either one from the existing jail roster would be a fabrication rather than a
+     * convenience.
+     */
+    public static final int SCHEMA_TOWNSTEAD_FACILITIES = 13;
+    public static final int CURRENT_SCHEMA = SCHEMA_TOWNSTEAD_FACILITIES;
 
     /** Root NBT key holding the schema integer. Absent means 0. */
     public static final String TAG_SCHEMA = "schema";
@@ -127,6 +136,9 @@ public final class CrimeDataMigrations {
         }
         if (schema < 12) {
             working = v11to12(working);
+        }
+        if (schema < 13) {
+            working = v12to13(working);
         }
         working.putInt(TAG_SCHEMA, CURRENT_SCHEMA);
         return working;
@@ -426,6 +438,36 @@ public final class CrimeDataMigrations {
                     + "station was placed and no previous profession was invented.", thieves);
         }
         out.putInt(TAG_SCHEMA, SCHEMA_OCCUPATION);
+        return out;
+    }
+
+    // ------------------------------------------------------------------ 12 -> 13
+
+    /**
+     * Stamps the 0.7.3 civic-facility schema and writes nothing whatsoever.
+     *
+     * <p>Two collections arrive with this version -- {@code facilities} and {@code cellReservations} --
+     * and both read their absence as empty, which makes an empty step the correct step rather than a
+     * lazy one. A schema-12 world therefore loads with no facilities and no reservations, and behaves
+     * exactly as it did before the update until an operator assigns one.
+     *
+     * <p>The temptation this step refuses is seeding {@code facilities} from the existing
+     * {@code jailRoster}. Those anchors are real, they are in the right places, and turning each one
+     * into a {@code JAIL_CELL} assignment would give every existing world a working facility layer for
+     * free. It would also be a fabrication in two directions at once. A facility assignment asserts a
+     * <em>building</em> -- a village, a building id and the revision it was read at -- and a jail
+     * anchor knows none of those, so every reference would have to be minted unbound and would then
+     * claim to have been validated when nothing had looked at it. And an assignment carries a capacity
+     * that arrests are reserved against, so inventing one would start routing arrests into a structure
+     * whose suitability nobody ever assessed; the anchor ladder already handles those anchors correctly
+     * and does not need a facility record to do it.
+     *
+     * <p>Reservations are emptier still, and for a simpler reason: a reservation is a lease held by a
+     * live escort, and no escort survives the restart that runs this migration.
+     */
+    public static CompoundTag v12to13(CompoundTag tag) {
+        CompoundTag out = tag.copy();
+        out.putInt(TAG_SCHEMA, SCHEMA_TOWNSTEAD_FACILITIES);
         return out;
     }
 

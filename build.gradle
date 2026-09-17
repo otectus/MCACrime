@@ -204,6 +204,78 @@ test {
     }
 }
 
+// Resolves TownsteadBinding's manifest against a real Townstead jar, in its own JVM and its own class
+// loader. Separate from `test` because it needs a jar nobody can resolve from a Maven: Townstead is
+// published on CurseForge only, so the path is supplied by the person running it.
+// TownsteadBindingProbeTest itself stays in the ordinary `test` run and skips there on an assumption,
+// exactly as McaBindingProbeTest does when no jar resolves -- one test class, two ways of reaching it,
+// and no exclusion filter anybody has to remember to keep in step.
+//
+//     ./gradlew townsteadProbeTest -PtownsteadLegacyJar=/path/townstead-0.7.7+1.20.1.jar
+//     ./gradlew townsteadProbeTest -PtownsteadModernJar=/path/townstead-0.7.7+1.20.1.jar
+//
+// Either property may be given alone; with neither, the task skips with one line and does not fail.
+//
+// Each Townstead jar is opened together with *its own* MCA build, and that pairing is load-bearing.
+// Townstead is compiled against MCA, so enumerating TownsteadAPI's methods resolves an MCA parameter
+// type; with no MCA on the loader the whole class reads as unbound and the probe would pass vacuously.
+// The legacy variant is built against MCA 7.7.0-beta.2 and the modern one against 7.7.1-alpha.2 -- both
+// already resolved for McaBindingProbeTest, so the existing mcaProbe<N> configurations are reused
+// rather than a second copy of the same jars being declared.
+ext.townsteadProbePairs = ['townsteadLegacyJar': '7.7.0-beta.2+1.20.1',
+                           'townsteadModernJar': '7.7.1-alpha.2+1.20.1']
+
+tasks.register('townsteadProbeTest', Test) {
+    group = 'verification'
+    description = 'Verifies the Townstead binding manifest against a supplied Townstead jar.'
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform()
+    filter {
+        includeTestsMatching 'dev.otectus.mcacrime.compat.TownsteadBindingProbeTest'
+        // The mixin layer's half of the same question. The binding probe proves the reflective manifest
+        // still resolves; this proves the classes, methods and vanilla call sites the Townstead mixins
+        // name are still where the annotations say they are -- which nothing else can check, because
+        // those targets are strings the compiler never sees a class for.
+        includeTestsMatching 'dev.otectus.mcacrime.compat.TownsteadMixinTargetTest'
+    }
+    outputs.upToDateWhen { false }
+    testLogging { showStandardStreams = true }
+
+    def supplied = townsteadProbePairs.keySet().findAll { project.hasProperty(it) }
+    onlyIf {
+        if (supplied.isEmpty()) {
+            logger.lifecycle('townsteadProbeTest: no -PtownsteadLegacyJar / -PtownsteadModernJar supplied; '
+                    + 'skipping (nothing to probe against).')
+            return false
+        }
+        return true
+    }
+
+    // Resolved in doFirst for the same reason the MCA probe jars are: resolving a configuration at
+    // configuration time freezes ForgeGradle's deobf repository before every fg.deobf dependency has
+    // been registered.
+    doFirst {
+        supplied.each { property ->
+            String mcaVersion = townsteadProbePairs[property]
+            int index = mcaProbeVersions.indexOf(mcaVersion)
+            if (index < 0) {
+                throw new GradleException("-P${property} needs MCA ${mcaVersion} on the probe classpath, "
+                        + "but mca_probe_versions does not list it. Add it in gradle.properties (or pass "
+                        + "-PmcaProbeVersions) so the Townstead jar is read against the MCA it was built "
+                        + "for; without it every TownsteadAPI method reads as unbound and the probe would "
+                        + "pass while proving nothing.")
+            }
+            String variant = property == 'townsteadLegacyJar' ? 'legacy' : 'modern'
+            systemProperty "mcacrime.townstead.probe.${variant}Jar", project.property(property).toString()
+            systemProperty "mcacrime.townstead.probe.${variant}McaJars",
+                    configurations.getByName("mcaProbe${index}").files
+                            .findAll { it.name.contains('minecraft-comes-alive') }
+                            .join(File.pathSeparator)
+        }
+    }
+}
+
 // Expand metadata placeholders into mods.toml / pack.mcmeta at build time.
 tasks.named('processResources', ProcessResources).configure {
     var replaceProperties = [
@@ -227,6 +299,13 @@ tasks.named('processResources', ProcessResources).configure {
 mixin {
     add sourceSets.main, "${mod_id}.refmap.json"
     config "${mod_id}.mixins.json"
+    // The Townstead config. Its mixins name their targets as dotted strings -- Townstead is never on
+    // this mod's compile classpath and never may be, since its own descriptors carry relocated MCA
+    // types -- but every vanilla member they redirect still has to be remapped, so the config is
+    // registered here and shares `${mod_id}.refmap.json` with the main one. Without this line the
+    // annotation processor would write no entries for those mixins and each redirect would resolve in
+    // dev and silently miss in a production jar.
+    config "${mod_id}.townstead.mixins.json"
 }
 
 tasks.named('jar', Jar).configure {
@@ -238,8 +317,11 @@ tasks.named('jar', Jar).configure {
                 'Implementation-Title'    : project.name,
                 'Implementation-Version'  : project.jar.archiveVersion,
                 'Implementation-Vendor'   : mod_authors,
-                // Forge reads mixin configs from this manifest attribute on 1.20.1.
-                'MixinConfigs'            : "${mod_id}.mixins.json"
+                // Forge reads mixin configs from this manifest attribute on 1.20.1 -- there is no
+                // [[mixins]] block in this mod's mods.toml -- and multiple configs are comma-separated.
+                // The second one is the Townstead layer: optional, plugin-gated, and omitted from this
+                // list it would simply never be read.
+                'MixinConfigs'            : "${mod_id}.mixins.json,${mod_id}.townstead.mixins.json"
         ])
     }
     finalizedBy 'reobfJar'
@@ -247,6 +329,15 @@ tasks.named('jar', Jar).configure {
 
 tasks.withType(JavaCompile).configureEach {
     options.encoding = 'UTF-8'
+    // The Townstead mixins name their targets as dotted strings, and those classes are never on this
+    // mod's compile classpath -- deliberately, because Townstead is compiled against MCA and one
+    // import would put a relocated MCA descriptor into MCA: Crime's constant pool. The Mixin
+    // annotation processor treats a soft target it cannot resolve as an error by default, so it is
+    // downgraded to a note here. Nothing is lost: what the processor would have checked is checked
+    // instead by TownsteadMixinPlugin at load time, which refuses to apply a mixin whose target class
+    // is not present, and by TownsteadMixinTargetTest, which reads the real class out of a Townstead
+    // jar and asserts the target method is there with the shape the hook expects.
+    options.compilerArgs += ['-AMSG_MIXIN_SOFT_TARGET_NOT_FOUND=note']
 }
 
 /**
@@ -266,6 +357,7 @@ tasks.register('checkJarContents') {
                          'dev/otectus/mcaconversations/', 'dev/architectury/',
                          'me/shedaniel/', 'forge/net/mca/', 'net/mca/',
                          'forge/net/conczin/mca/', 'net/conczin/mca/',
+                         'com/aetherianartificer/townstead/',
                          'locks/', 'melonslise/locks/']
         def jarFile = tasks.named('jar').get().archiveFile.get().asFile
         def offenders = []

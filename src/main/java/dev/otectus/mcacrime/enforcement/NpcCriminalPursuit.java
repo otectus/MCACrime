@@ -59,13 +59,17 @@ public final class NpcCriminalPursuit {
      * left alone rather than being re-pointed every scan.
      */
     public static void engage(ServerLevel level, LivingEntity guard, ActiveIncidentRegistry.ActiveIncident incident) {
-        if (level == null || guard == null || incident == null || !dev.otectus.mcacrime.ai.NpcAwareness.isAwake(guard)) {
+        if (level == null || guard == null || incident == null || !dev.otectus.mcacrime.ai.NpcAwareness.canRespondAsGuard(guard)) {
             return;
         }
         if (guard.getUUID().equals(incident.offenderId())) {
             return; // a guard is not sent after itself
         }
         long now = level.getGameTime();
+        if (ResponderAssignments.isCommitted(guard.getUUID(),
+                dev.otectus.mcacrime.activity.CrimeActivityView.Kind.PURSUIT, now)) {
+            return; // in custody, or otherwise owned by something a chase must not interrupt
+        }
         Pursuit existing = ACTIVE.get(guard.getUUID());
         if (existing != null && existing.thiefId().equals(incident.offenderId())) {
             return;
@@ -134,7 +138,7 @@ public final class NpcCriminalPursuit {
                 ACTIVE.remove(guardId);
                 continue;
             }
-            if (!dev.otectus.mcacrime.ai.NpcAwareness.isAwake(guard)) {
+            if (!dev.otectus.mcacrime.ai.NpcAwareness.canRespondAsGuard(guard)) {
                 giveUp(guardId, guard, null, "guard asleep");
                 continue;
             }

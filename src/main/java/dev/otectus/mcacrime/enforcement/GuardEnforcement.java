@@ -49,6 +49,18 @@ public final class GuardEnforcement {
     private record Alert(long until, String reasonKey) {
     }
 
+    /**
+     * The last walk order MCA: Crime gave a guard, so the scan can give it again.
+     *
+     * <p>Memory-only and bounded by the claim it belongs to. A guard with no live claim has its entry
+     * dropped on the next scan, so this never outlives the enforcement action that created it.
+     */
+    private record WalkOrder(java.util.UUID target, double x, double y, double z, double speed, long until) {
+    }
+
+    private static final java.util.Map<java.util.UUID, WalkOrder> ORDERS =
+            new java.util.concurrent.ConcurrentHashMap<>();
+
     private GuardEnforcement() {
     }
 
@@ -72,6 +84,9 @@ public final class GuardEnforcement {
         GuardChallengeService.tick(server);
         EscortService.tick(server);
         HoldingCellService.sweep(server);
+        // Lapsed cell reservations ride along on the same throttled scan: a lease that ran out is a
+        // slot a village is not using, and nothing else would ever collect it.
+        dev.otectus.mcacrime.facility.CrimeFacilityService.sweep(server);
         // Rides this scan for the same reason everything else does: it is already throttled and already
         // holds the server, and a fifth ticker for a pass that examines one village a minute would be
         // four more than the work needs.
@@ -90,6 +105,9 @@ public final class GuardEnforcement {
 
         long serverTime = server.overworld().getGameTime();
         LawHold.prune(serverTime);
+        // Derived Townstead readings are bounded by their own interval on read; this only stops the
+        // map growing for villagers that have since unloaded. Rides the scan because it walks entries.
+        dev.otectus.mcacrime.compat.TownsteadSnapshotCache.sweep(serverTime);
         ALERTS.entrySet().removeIf(entry -> entry.getValue().until() < serverTime);
         double radius = McaCrimeConfig.COMMON.guardAggroRadius.get();
 
@@ -138,9 +156,11 @@ public final class GuardEnforcement {
         AABB box = player.getBoundingBox().inflate(radius);
         List<LivingEntity> guards = level.getEntitiesOfClass(LivingEntity.class, box,
                 EntitySelectors::isResponder);
-        guards = guards.stream().filter(guard -> dev.otectus.mcacrime.ai.NpcAwareness.isAwake(guard)
+        guards = guards.stream().filter(guard -> dev.otectus.mcacrime.ai.NpcAwareness.canRespondAsGuard(guard)
                 && !dev.otectus.mcacrime.state.world.CrimeWorldData.get(level.getServer()).isCaptive(guard.getUUID())
                 && !ResponderAssignments.isEscorting(level.getServer(), guard.getUUID(), player.getUUID())
+                && !ResponderAssignments.isCommitted(guard.getUUID(),
+                        dev.otectus.mcacrime.activity.CrimeActivityView.Kind.PURSUIT, now)
                 && !NpcCriminalPursuit.isAssignedElsewhere(guard.getUUID(), player.getUUID())).toList();
         guards = guards.stream().filter(guard -> {
             boolean authorized = dev.otectus.mcacrime.justice.JusticeService.forGuard(level, guard, player).mayChallenge();
@@ -151,6 +171,7 @@ public final class GuardEnforcement {
             standDown(level, player, radius);
             return;
         }
+        reassertWalkOrders(guards, player, now);
 
         if (LegalTarget.isEscapedPrisoner(player)) {
             LivingEntity recapturing = nearestWithin(guards, player,
@@ -172,7 +193,8 @@ public final class GuardEnforcement {
             for (LivingEntity guard : guards) {
                 McaCompat.clearGuardTarget(guard, player);
             }
-            LawHold.hold(challenger.getUUID(), now + 3L * Math.max(1, McaCrimeConfig.COMMON.guardScanIntervalTicks.get()));
+            LawHold.hold(challenger, now + 3L * Math.max(1, McaCrimeConfig.COMMON.guardScanIntervalTicks.get()),
+                    dev.otectus.mcacrime.activity.CrimeActivityView.Kind.CHALLENGE);
             McaCompat.holdPosition(challenger);
             McaCompat.faceEntity(challenger, player);
             return;
@@ -207,7 +229,7 @@ public final class GuardEnforcement {
             if (McaCompat.setGuardTarget(guard, player)) {
                 // Hold the guard against the reaction system, which ticks twice as often as this scan
                 // and would otherwise clear the target on its way out of a panic controller.
-                LawHold.hold(guard.getUUID(), holdUntil);
+                LawHold.hold(guard, holdUntil, dev.otectus.mcacrime.activity.CrimeActivityView.Kind.PURSUIT);
                 targeted = true;
             }
         }
@@ -228,15 +250,97 @@ public final class GuardEnforcement {
                 publicScope, false, false).mayChallenge();
     }
 
+    /**
+     * Drops the scan's memory-only state. Called on server stop, beside the other enforcement caches.
+     *
+     * <p>Both maps describe the current few seconds — an alert that has not expired yet and a walk
+     * order a guard has not carried out — so a restart inheriting either would be describing an
+     * enforcement action nobody is taking any more.
+     */
+    public static void clearAll() {
+        ALERTS.clear();
+        ORDERS.clear();
+    }
+
     /** Walks one guard toward the suspect without making it hostile. Best-effort; failure is a no-op. */
     private static void approach(@Nullable LivingEntity guard, ServerPlayer player) {
         if (guard == null) {
             return;
         }
+        long until = player.level().getGameTime()
+                + 3L * Math.max(1, McaCrimeConfig.COMMON.guardScanIntervalTicks.get());
         McaCompat.faceEntity(guard, player);
-        LawHold.hold(guard.getUUID(), player.level().getGameTime()
-                + 3L * Math.max(1, McaCrimeConfig.COMMON.guardScanIntervalTicks.get()));
-        McaCompat.moveVillagerTo(guard, player.getX(), player.getY(), player.getZ(), 1.1);
+        LawHold.hold(guard, until, dev.otectus.mcacrime.activity.CrimeActivityView.Kind.PURSUIT);
+        if (McaCompat.moveVillagerTo(guard, player.getX(), player.getY(), player.getZ(), 1.1)) {
+            ORDERS.put(guard.getUUID(), new WalkOrder(player.getUUID(),
+                    player.getX(), player.getY(), player.getZ(), 1.1, until));
+        }
+    }
+
+    /**
+     * Whether a guard's walk order has to be given again this scan.
+     *
+     * <p>Pure, because the interesting part of it is a judgement rather than a lookup. A settlement
+     * companion that manages villager rest can erase {@code WALK_TARGET} and stop the navigator on
+     * <em>every</em> tick for a guard it considers off duty — Townstead's {@code GuardRestEnforcerTicker}
+     * does exactly that for a guard in REST with no attack target and no home. MCA: Crime's scan runs
+     * once every {@code guardScanIntervalTicks}, so left alone the guard would take one step per scan
+     * and be stopped nine times in between.
+     *
+     * <p>Re-asserting is the Crime-side half of the fix and is deliberately cheap: while the guard
+     * holds a live claim, the order is simply given again. The other half — not erasing it in the
+     * first place — belongs upstream, and the hook it consults is
+     * {@code CrimeActivityRegistry.activeFor}.
+     */
+    public static boolean shouldReassertWalkOrder(boolean claimActive, boolean orderStillWanted,
+                                                  boolean walkTargetPresent) {
+        return claimActive && orderStillWanted && !walkTargetPresent;
+    }
+
+    /**
+     * Whether a lost walk order is a path failure or just somebody else's ticker.
+     *
+     * <p>A guard whose {@code WALK_TARGET} vanished while MCA: Crime holds a claim on them has not
+     * failed to reach anything — nothing even tried. Counting it as a failure is what turns an
+     * external stop into a give-up, and a give-up into a suspect nobody ever walks over to.
+     */
+    public static boolean walkTargetLossCountsAsFailure(boolean claimActive, boolean walkTargetPresent) {
+        return !walkTargetPresent && !claimActive;
+    }
+
+    /**
+     * Gives claimed guards their walk order again, once per scan.
+     *
+     * <p>Only guards MCA: Crime is actually holding, only while the order is still wanted, and only
+     * when the order is gone: a guard still walking is left alone, so this costs one memory read per
+     * claimed guard on a scan that has already queried the world.
+     */
+    private static void reassertWalkOrders(List<LivingEntity> guards, ServerPlayer player, long now) {
+        if (ORDERS.isEmpty()) {
+            return;
+        }
+        for (LivingEntity guard : guards) {
+            WalkOrder order = ORDERS.get(guard.getUUID());
+            if (order == null) {
+                continue;
+            }
+            boolean claimActive = dev.otectus.mcacrime.activity.CrimeActivityRegistry
+                    .activeFor(guard.getUUID(), now).isPresent();
+            boolean wanted = order.until() > now && order.target().equals(player.getUUID())
+                    && LawHold.isHeld(guard.getUUID(), now);
+            if (!claimActive || !wanted) {
+                if (!claimActive || order.until() <= now) {
+                    ORDERS.remove(guard.getUUID());
+                }
+                continue;
+            }
+            boolean walkTarget = guard.getBrain()
+                    .hasMemoryValue(net.minecraft.world.entity.ai.memory.MemoryModuleType.WALK_TARGET);
+            if (shouldReassertWalkOrder(true, true, walkTarget)) {
+                // Deliberately not counted as a path failure: see walkTargetLossCountsAsFailure.
+                McaCompat.moveVillagerTo(guard, player.getX(), player.getY(), player.getZ(), order.speed());
+            }
+        }
     }
 
     @Nullable
@@ -260,8 +364,10 @@ public final class GuardEnforcement {
                 EntitySelectors::isResponder)) {
             McaCompat.clearGuardTarget(guard, player);
             if (!ResponderAssignments.isEscorting(level.getServer(), guard.getUUID(), player.getUUID())
-                    && !NpcCriminalPursuit.isAssignedElsewhere(guard.getUUID(), player.getUUID()))
+                    && !NpcCriminalPursuit.isAssignedElsewhere(guard.getUUID(), player.getUUID())) {
                 LawHold.clear(guard.getUUID());
+                ORDERS.remove(guard.getUUID());
+            }
         }
         // A recovery window expires on the player's own clock; Heat decaying out from under a failed
         // arrest must not cut it short, or the guard that just failed re-challenges immediately.

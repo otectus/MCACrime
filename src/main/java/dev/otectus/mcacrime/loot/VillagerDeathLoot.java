@@ -3,6 +3,7 @@ package dev.otectus.mcacrime.loot;
 import dev.otectus.mcacrime.McaCrime;
 import dev.otectus.mcacrime.McaCrimeConfig;
 import dev.otectus.mcacrime.compat.McaCompat;
+import dev.otectus.mcacrime.compat.TownsteadEquipmentProvenance;
 import dev.otectus.mcacrime.economy.fence.FenceDeathStock;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.EquipmentSlot;
@@ -35,17 +36,26 @@ public final class VillagerDeathLoot {
         if (mob.level().isClientSide || mob.isAlive() || !replacement.isEmpty()
                 || !McaCompat.isMcaVillager(mob) || !McaCrimeConfig.COMMON.dropVillagerEquipment.get()) return;
         ItemStack equipped = mob.getItemBySlot(slot);
-        if (equipped.isEmpty() || inventoryOwns(mob, equipped)) return;
+        if (equipped.isEmpty() || !dropsAsEquipment(mob, slot, equipped)) return;
         Gear gear = PENDING.computeIfAbsent(mob, ignored -> new Gear());
         if (!gear.handled && gear.identities.add(equipped)) gear.removed.putIfAbsent(slot, equipped.copy());
     }
 
-    private static boolean inventoryOwns(LivingEntity entity, ItemStack stack) {
-        if (!(entity instanceof AbstractVillager villager)) return false;
-        var inventory = villager.getInventory();
-        // MCA equips inventory items by reference. An equal but separate item really is extra loot.
-        for (int i = 0; i < inventory.getContainerSize(); i++) if (inventory.getItem(i) == stack) return true;
-        return false;
+    /**
+     * Whether this mod has to make sure an equipped stack drops.
+     *
+     * <p>The old rule was "is this the same object as an inventory stack?", and it survives here as
+     * the {@code UNKNOWN} answer: MCA equips inventory items by reference, so an equal but separate
+     * item really is extra loot, and reference identity is the only way to tell. Townstead adds a
+     * third possibility the rule cannot see — a stack that belongs to nobody because it is a copy the
+     * settlement mod put in the hand for the look of a work shift. Dropping that is how one hoe
+     * became two.
+     *
+     * <p>Note what does not appear here: no comparison by equality, anywhere. Two identical iron hoes
+     * on one villager are two items and have to produce two drops.
+     */
+    private static boolean dropsAsEquipment(LivingEntity entity, EquipmentSlot slot, ItemStack stack) {
+        return TownsteadEquipmentProvenance.classify(entity, slot, stack).dropsAsEquipment();
     }
 
     @SubscribeEvent
@@ -67,7 +77,8 @@ public final class VillagerDeathLoot {
             // Older/newer MCA builds may leave gear for vanilla. Cover both without duplicating it.
             for (EquipmentSlot slot : EquipmentSlot.values()) {
                 ItemStack stack = victim.getItemBySlot(slot);
-                if (!stack.isEmpty() && !inventoryOwns(victim, stack)) gear.removed.putIfAbsent(slot, stack.copy());
+                if (!stack.isEmpty() && dropsAsEquipment(victim, slot, stack))
+                    gear.removed.putIfAbsent(slot, stack.copy());
             }
             List<ItemStack> existing = new ArrayList<>();
             event.getDrops().forEach(drop -> existing.add(drop.getItem().copy()));
@@ -76,6 +87,16 @@ public final class VillagerDeathLoot {
                 ItemStack missing = DeathLoot.missingEquipment(stack, existing);
                 if (!missing.isEmpty()) add(level, victim, event, List.of(missing));
             }
+            // The other half of the Townstead swap, and the only item in this method that nothing else
+            // can possibly have dropped: while a villager is on shift, whatever they were carrying
+            // before it lives in Townstead's own map -- not in the inventory MCA drops, and not in a
+            // hand anything reads. It is therefore added verbatim rather than reconciled against the
+            // existing drops: the reconciliation above exists to avoid duplicating what MCA already
+            // dropped, and applying it here would delete a genuine second copy of a tool the villager
+            // happened to own twice.
+            ItemStack stashed = TownsteadEquipmentProvenance.unclaimedStash(victim);
+            if (!stashed.isEmpty() && !DeathLoot.vanishes(stashed))
+                add(level, victim, event, List.of(stashed.copy()));
         }
 
         if (McaCrimeConfig.COMMON.dropVillagerTradeStock.get() && !villager.isBaby()) {
@@ -96,6 +117,9 @@ public final class VillagerDeathLoot {
         }
         gear.removed.clear();
         gear.identities.clear();
+        // The villager is gone, so Townstead's work-tool record for them is too. Townstead clears
+        // its own on the next tick that reaches it, but a dead villager may never get one.
+        TownsteadEquipmentProvenance.forget(victim.getUUID());
     }
 
     private static void add(ServerLevel level, LivingEntity victim, LivingDropsEvent event, List<ItemStack> stacks) {

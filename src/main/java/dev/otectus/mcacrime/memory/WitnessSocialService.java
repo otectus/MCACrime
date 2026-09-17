@@ -65,7 +65,7 @@ public final class WitnessSocialService {
                             || !observation.identifiesActor() || !observation.sawAct()
                             || observation.role() == ObserverRole.INFORMED || now - observation.observedAt() < 200) continue;
                     for (UUID relative : VictimMemoryService.familyOf(speaker)) {
-                        if (!(level.getEntity(relative) instanceof LivingEntity listener) || !dev.otectus.mcacrime.ai.NpcAwareness.isAwake(listener)
+                        if (!(level.getEntity(relative) instanceof LivingEntity listener) || !dev.otectus.mcacrime.ai.NpcAwareness.canSpeakOrReport(listener)
                                 || !McaCompat.isMcaVillager(listener) || speaker.distanceToSqr(listener) > 36
                                 || !speaker.hasLineOfSight(listener) || McaCompat.isVillagerSleeping(listener)) continue;
                         boolean alreadyKnows = data.observationsBy(relative).stream().anyMatch(o -> o.incidentId().equals(observation.incidentId()));

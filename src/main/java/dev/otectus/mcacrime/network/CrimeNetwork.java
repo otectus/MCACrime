@@ -36,8 +36,9 @@ import java.util.function.Supplier;
  */
 public final class CrimeNetwork {
 
-    // 13 adds the 0.7.2 Mask Station selection pair. Update clients and server together.
-    private static final String PROTOCOL_VERSION = "13";
+    // 14 adds the Townstead-era pair: the restraint rig a subject is drawn on, and the public village
+    // security summary with its request. Update clients and server together.
+    private static final String PROTOCOL_VERSION = "14";
 
     public static final SimpleChannel CHANNEL = NetworkRegistry.newSimpleChannel(
             new ResourceLocation(McaCrime.MOD_ID, "main"),
@@ -104,6 +105,41 @@ public final class CrimeNetwork {
         toClient(MaskSelectionS2CPacket.class,
                 MaskSelectionS2CPacket::encode, MaskSelectionS2CPacket::decode,
                 MaskSelectionS2CPacket::handle);
+        toClient(RestraintRigSyncS2CPacket.class,
+                RestraintRigSyncS2CPacket::encode, RestraintRigSyncS2CPacket::decode,
+                RestraintRigSyncS2CPacket::handle);
+        toServer(RequestVillageSecurityC2SPacket.class,
+                RequestVillageSecurityC2SPacket::encode, RequestVillageSecurityC2SPacket::decode,
+                RequestVillageSecurityC2SPacket::handle);
+        toClient(VillageSecurityS2CPacket.class,
+                VillageSecurityS2CPacket::encode, VillageSecurityS2CPacket::decode,
+                VillageSecurityS2CPacket::handle);
+    }
+
+    /**
+     * Tells one client which body a restrained subject is being drawn on.
+     *
+     * <p>To the people who can see them rather than to everybody: the rig only matters because cuffs
+     * are being drawn on it, and a broadcast would be a packet per restrained villager per client that
+     * will never render one.
+     */
+    public static void sendRestraintRig(ServerPlayer to, UUID subject, boolean humanoid, String rig) {
+        CHANNEL.send(PacketDistributor.PLAYER.with(() -> to),
+                new RestraintRigSyncS2CPacket(subject, humanoid, rig));
+    }
+
+    /** Tells everybody tracking this subject what body their restraint is being drawn on. */
+    public static void broadcastRestraintRig(Entity subject, boolean humanoid, String rig) {
+        if (subject == null) {
+            return;
+        }
+        CHANNEL.send(PacketDistributor.TRACKING_ENTITY.with(() -> subject),
+                new RestraintRigSyncS2CPacket(subject.getUUID(), humanoid, rig));
+    }
+
+    /** Answers a player's own settlement-safety enquiry. Never sent unsolicited. */
+    public static void sendVillageSecurity(ServerPlayer player, VillageSecurityS2CPacket packet) {
+        CHANNEL.send(PacketDistributor.PLAYER.with(() -> player), packet);
     }
 
     /**

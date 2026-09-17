@@ -53,7 +53,7 @@ public final class ReportService {
      */
     public static Optional<CrimeReport> fileDirect(ServerLevel level, LivingEntity responder,
                                                    CrimeObservation observation) {
-        if (!dev.otectus.mcacrime.ai.NpcAwareness.isAwake(responder)) return Optional.empty();
+        if (!dev.otectus.mcacrime.ai.NpcAwareness.canSpeakOrReport(responder)) return Optional.empty();
         return file(level, responder, observation, true);
     }
 
@@ -72,8 +72,8 @@ public final class ReportService {
         }
         CrimeObservation observation = CrimeWorldData.get(server).observation(observationId).orElse(null);
         if (observation == null || !observation.pending() || observation.expired(level.getGameTime())
-                || !observation.observerId().equals(reporter.getUUID()) || !dev.otectus.mcacrime.ai.NpcAwareness.isAwake(reporter)
-                || !dev.otectus.mcacrime.ai.NpcAwareness.isAwake(responder) || responder.level() != level || reporter.level() != level
+                || !observation.observerId().equals(reporter.getUUID()) || !dev.otectus.mcacrime.ai.NpcAwareness.canSpeakOrReport(reporter)
+                || !dev.otectus.mcacrime.ai.NpcAwareness.canSpeakOrReport(responder) || responder.level() != level || reporter.level() != level
                 || !EntitySelectors.isResponder(responder) || reporter.distanceToSqr(responder) > 9
                 || !reporter.hasLineOfSight(responder) || dataSuppressed(server, reporter)) {
             return Optional.empty();

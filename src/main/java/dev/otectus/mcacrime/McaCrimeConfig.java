@@ -499,6 +499,27 @@ public final class McaCrimeConfig {
         public final ForgeConfigSpec.ConfigValue<String> servedResolutionStatus;
         public final ForgeConfigSpec.IntValue reputationSupersedeWindowTicks;
 
+        // --- townstead (optional settlement companion) ---
+        // Every switch here is a no-op without Townstead installed. The ones defaulting to false need
+        // a Townstead cooperation surface that does not exist yet; they are declared now so an
+        // operator can see them reported as unavailable rather than wonder why nothing happened.
+        public final ForgeConfigSpec.BooleanValue townsteadEnabled;
+        public final ForgeConfigSpec.BooleanValue townsteadRespectIncapacity;
+        public final ForgeConfigSpec.BooleanValue townsteadProtectWorkerAssignments;
+        public final ForgeConfigSpec.BooleanValue townsteadExcludeWorksitesFromTemporaryCells;
+        public final ForgeConfigSpec.BooleanValue townsteadEquipmentProvenance;
+        public final ForgeConfigSpec.BooleanValue townsteadPublicReactions;
+        public final ForgeConfigSpec.BooleanValue townsteadNeedResponseModifiers;
+        public final ForgeConfigSpec.BooleanValue townsteadPropertyLaw;
+        public final ForgeConfigSpec.BooleanValue townsteadAutoProtectGeneratedProperty;
+        public final ForgeConfigSpec.BooleanValue townsteadServiceRestrictions;
+        public final ForgeConfigSpec.BooleanValue townsteadCommunityService;
+        public final ForgeConfigSpec.BooleanValue townsteadEconomyProfiles;
+        public final ForgeConfigSpec.BooleanValue townsteadAutomaticShiftAssignment;
+        public final ForgeConfigSpec.IntValue townsteadSnapshotCacheTicks;
+        public final ForgeConfigSpec.IntValue townsteadActivityLeaseTicks;
+        public final ForgeConfigSpec.IntValue townsteadFacilitySearchRadius;
+
         Common(ForgeConfigSpec.Builder b) {
             b.push("bands");
             karmaBlueThreshold = b.comment("Karma at or above this is the Blue (lawful) band. Must be > redThreshold.")
@@ -1659,6 +1680,86 @@ public final class McaCrimeConfig {
                     "supersession.")
                     .defineInRange("supersedeWindowTicks", 1200, 0, 24000);
             b.pop();
+            b.pop();
+
+            b.comment(
+                    "Townstead, the settlement companion. Every setting here is a no-op when Townstead is",
+                    "absent, and MCA: Crime behaves exactly as it does today. A setting that is on while the",
+                    "capability behind it is missing is reported as degraded by /crime validate and",
+                    "/crime debug townstead -- it is never silently ignored.")
+                    .push("townstead");
+            townsteadEnabled = b.comment(
+                    "Master switch for the whole Townstead integration. Off means MCA: Crime never asks",
+                    "Townstead anything, even when it is installed.")
+                    .define("enabled", true);
+            townsteadRespectIncapacity = b.comment(
+                    "Treat a villager Townstead has collapsed, or whose life stage cannot move, as unable to",
+                    "witness, report, flee or be escorted. Off means crime treats a floored villager as an",
+                    "ordinary participant.")
+                    .define("respectIncapacity", true);
+            townsteadProtectWorkerAssignments = b.comment(
+                    "Prefer villagers who are not on a Townstead work shift when MCA: Crime needs to draft",
+                    "guards or responders. This can leave a village under its guard target while everyone is",
+                    "at work, which is the intended trade: a settlement that empties its workshops the moment",
+                    "a crime happens reads worse than one that is briefly short of guards.")
+                    .define("protectWorkerAssignments", true);
+            townsteadExcludeWorksitesFromTemporaryCells = b.comment(
+                    "Refuse to build a temporary holding cell inside a registered Townstead building.")
+                    .define("excludeWorksitesFromTemporaryCells", true);
+            townsteadEquipmentProvenance = b.comment(
+                    "Ask where a villager's held item came from before treating it as their own, so a",
+                    "Townstead display tool is not dropped as extra loot or counted as an armed villager.",
+                    "Answered by a hook into Townstead's own work-tool ticker. Where that hook is not",
+                    "installed -- no Townstead, or a release that moved it -- this reports as degraded and",
+                    "MCA: Crime falls back to its own equipment-only rule, which never deletes inventory.")
+                    .define("equipmentProvenance", true);
+            townsteadPublicReactions = b.comment(
+                    "Let Townstead play its own villager reactions when a crime, an arrest or a release",
+                    "becomes public knowledge.")
+                    .define("publicReactions", true);
+            townsteadNeedResponseModifiers = b.comment(
+                    "Let hunger, thirst and fatigue nudge how strongly a villager reacts to a crime. Off by",
+                    "default: it changes detection and threat numbers a server owner has already tuned.")
+                    .define("needResponseModifiers", false);
+            townsteadPropertyLaw = b.comment(
+                    "Treat settlement-owned containers and buildings as property, so taking from one is a",
+                    "crime with an owner. Needs a Townstead storage-access surface; off by default.")
+                    .define("propertyLaw", false);
+            townsteadAutoProtectGeneratedProperty = b.comment(
+                    "Automatically apply property protection to buildings Townstead generates, rather than",
+                    "only to ones an operator marked. Only meaningful with propertyLaw on.")
+                    .define("autoProtectGeneratedProperty", false);
+            townsteadServiceRestrictions = b.comment(
+                    "Let a settlement refuse services to an outlaw -- trade, healing, lodging. Off by",
+                    "default: it can strand a player with no route back to lawful standing.")
+                    .define("serviceRestrictions", false);
+            townsteadCommunityService = b.comment(
+                    "Offer civic work as a way to settle a sentence. Off by default; needs the civic work",
+                    "layer, which is a later release.")
+                    .define("communityService", false);
+            townsteadEconomyProfiles = b.comment(
+                    "Let a village's Townstead character shape fence prices and fine scales. Off by default:",
+                    "it makes the same crime cost different amounts in different villages.")
+                    .define("economyProfiles", false);
+            townsteadAutomaticShiftAssignment = b.comment(
+                    "Let MCA: Crime assign guard shifts through Townstead's own scheduler. Needs an activity",
+                    "coordination surface that does not exist yet; off by default.")
+                    .define("automaticShiftAssignment", false);
+            townsteadSnapshotCacheTicks = b.comment(
+                    "How long a Townstead villager snapshot is reused before it is read again. Snapshots are",
+                    "never persisted; this only bounds how stale one may be within a tick loop.")
+                    .defineInRange("snapshotCacheTicks", 20, 1, 200);
+            townsteadActivityLeaseTicks = b.comment(
+                    "How long MCA: Crime holds a villager for one enforcement action before the claim lapses.",
+                    "Should be at least as long as snapshotCacheTicks, or a decision can outlive the reading",
+                    "it was made from. The default is four guard scans.")
+                    .defineInRange("activityLeaseTicks", 40, 10, 400);
+            townsteadFacilitySearchRadius = b.comment(
+                    "How far an automatic arrest may look for an assigned civic facility -- a jail cell, a",
+                    "care room -- before falling back to the ordinary jail ladder. Bounded on purpose: an",
+                    "operator running /crime jail means the jail they assigned wherever it is, but an arrest",
+                    "that could reach any facility in the dimension would teleport prisoners across the map.")
+                    .defineInRange("facilitySearchRadius", 96, 16, 512);
             b.pop();
         }
     }

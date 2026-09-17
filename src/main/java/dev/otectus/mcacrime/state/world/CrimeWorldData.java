@@ -6,6 +6,9 @@ import dev.otectus.mcacrime.captivity.CustodyRecord;
 import dev.otectus.mcacrime.economy.account.TransactionReceipt;
 import dev.otectus.mcacrime.economy.account.ReconciliationDecision;
 import dev.otectus.mcacrime.economy.fence.FenceStockRecord;
+import dev.otectus.mcacrime.facility.CellReservation;
+import dev.otectus.mcacrime.facility.FacilityAssignment;
+import dev.otectus.mcacrime.facility.FacilityRole;
 import dev.otectus.mcacrime.integration.CrimeIntegrationOperation;
 import dev.otectus.mcacrime.integration.DedupeEntry;
 import dev.otectus.mcacrime.jail.HoldingCell;
@@ -115,6 +118,8 @@ public final class CrimeWorldData extends SavedData {
      * diagnostic, not a second copy of the store, and a systematically corrupt file would otherwise
      * make the save file grow every time it was loaded.
      */
+    private static final int MAX_FACILITIES = 512;
+    private static final int MAX_CELL_RESERVATIONS = 512;
     private static final int MAX_QUARANTINE = 256;
     /** Ticks in a Minecraft day, the unit terminal-receipt retention is expressed in. */
     private static final long TICKS_PER_DAY = 24000L;
@@ -192,6 +197,23 @@ public final class CrimeWorldData extends SavedData {
      * the rest.
      */
     private final Map<UUID, HoldingCell> pendingCellRestorations = new LinkedHashMap<>();
+    /**
+     * Civic facilities an operator has assigned, keyed by assignment id (0.7.3, schema 13).
+     *
+     * <p>Persisted rather than derived because it is a decision somebody made, not a reading: the
+     * building it points at can be re-read every session, but "this is the village's jail" cannot be
+     * inferred from anything in the world.
+     */
+    private final Map<UUID, FacilityAssignment> facilities = new LinkedHashMap<>();
+    /**
+     * Live cell reservations, keyed by their token (0.7.3, schema 13).
+     *
+     * <p>Persisted, and deliberately so: an escort that is walking across a village when the server
+     * stops still has a cell held for it, and a memory-only reservation would hand that cell to the
+     * next arrest on restart while the original prisoner was still on their way to it. Every entry
+     * carries a deadline, so the worst a lost escort can cost is one lease.
+     */
+    private final Map<UUID, CellReservation> cellReservations = new LinkedHashMap<>();
     /**
      * Rows that could not be read, kept verbatim beside the reason (0.6.0).
      *
@@ -372,6 +394,35 @@ public final class CrimeWorldData extends SavedData {
             if (record != null) {
                 out.add(record);
             }
+        }
+        return out;
+    }
+
+    /**
+     * The most recent records committed in one community, newest first, capped.
+     *
+     * <p>There is no index by community and deliberately so: the one that exists — by offender — is
+     * what every legal question asks, and a second index would have to be rebuilt on load, kept in step
+     * on every write, and would exist for one derived read. So this is a walk, bounded at both ends: the
+     * ledger itself is capped, and the answer is capped by {@code limit}.
+     *
+     * <p>Newest first because the callers are derived views with a decay window — the oldest rows are
+     * the ones that stop mattering, so truncating the tail loses nothing they would have used. Iteration
+     * order is append order, which is commit order.
+     */
+    public List<CrimeRecord> recordsInCommunity(CrimeCommunityKey community, int limit) {
+        if (community == null || limit <= 0) {
+            return new ArrayList<>();
+        }
+        List<CrimeRecord> matching = new ArrayList<>();
+        for (CrimeRecord record : ledger.values()) {
+            if (record != null && record.communityKey().filter(community::equals).isPresent()) {
+                matching.add(record);
+            }
+        }
+        List<CrimeRecord> out = new ArrayList<>(Math.min(limit, matching.size()));
+        for (int i = matching.size() - 1; i >= 0 && out.size() < limit; i--) {
+            out.add(matching.get(i));
         }
         return out;
     }
@@ -953,6 +1004,43 @@ public final class CrimeWorldData extends SavedData {
         return false;
     }
 
+    /**
+     * Removes a pending operation without recording it as delivered or as given up on.
+     *
+     * <p>For work that is worth attempting and not worth keeping. The outbox's whole shape assumes the
+     * opposite — a queued cross-mod write is owed, and a failure is a delay — which is right for a civic
+     * record and wrong for a one-shot social reaction: replaying it an hour later would have a village
+     * react to an arrest that has since been served. Dead-lettering would be worse still, because the
+     * dead-letter list is an operator's queue of things that still need doing, and an animation that did
+     * not play is not one of them.
+     */
+    public boolean discardOperation(UUID operationId) {
+        if (operationId == null || frozen()) {
+            return false;
+        }
+        if (outbox.remove(operationId) == null) {
+            return false;
+        }
+        setDirty();
+        return true;
+    }
+
+    /**
+     * Whether a one-shot effect with this id has already been applied.
+     *
+     * <p>Shares the bounded receipt set with the economy's transaction receipts, which is what it is:
+     * a capped, least-recently-written ledger of "this exact thing has happened once". Ids are derived
+     * from a namespaced string, so the two uses cannot collide.
+     */
+    public boolean hasOneShotReceipt(UUID id) {
+        return hasTransactionReceipt(id);
+    }
+
+    /** Records a one-shot effect as applied. See {@link #hasOneShotReceipt}. */
+    public boolean recordOneShotReceipt(UUID id) {
+        return recordTransactionReceipt(id);
+    }
+
     public boolean dropDeadLetter(UUID operationId) {
         if (deadLetters.removeIf(operation -> operation.operationId().equals(operationId))) {
             setDirty();
@@ -1484,6 +1572,145 @@ public final class CrimeWorldData extends SavedData {
         }
     }
 
+    // --- civic facilities and cell reservations (0.7.3, schema 13) ---
+
+    /**
+     * Records or replaces one facility assignment.
+     *
+     * @return false when the table is full; an existing id may always be replaced
+     */
+    public boolean putFacility(FacilityAssignment facility) {
+        if (facility == null || frozen()
+                || atCapacity(facilities, facility.id(), MAX_FACILITIES, "facility assignment")) {
+            return false;
+        }
+        facilities.put(facility.id(), facility);
+        setDirty();
+        return true;
+    }
+
+    /** One assignment by id, or null. */
+    @Nullable
+    public FacilityAssignment facility(UUID id) {
+        return id == null ? null : facilities.get(id);
+    }
+
+    /** Every assignment, in the order they were made. A copy. */
+    public List<FacilityAssignment> facilities() {
+        return new ArrayList<>(facilities.values());
+    }
+
+    /** Every assignment with this role. A copy. */
+    public List<FacilityAssignment> facilities(@Nullable FacilityRole role) {
+        List<FacilityAssignment> out = new ArrayList<>();
+        for (FacilityAssignment facility : facilities.values()) {
+            if (role == null || facility.role() == role) {
+                out.add(facility);
+            }
+        }
+        return out;
+    }
+
+    /**
+     * Forgets an assignment and every reservation that belonged to it.
+     *
+     * <p>Both together, always. A reservation whose facility is gone can never be consumed and can
+     * never be released by whoever holds its token, so leaving one behind would occupy a slot in a
+     * facility that no longer exists for the rest of the save.
+     */
+    public boolean removeFacility(UUID id) {
+        if (id == null || frozen()) {
+            return false;
+        }
+        if (facilities.remove(id) == null) {
+            return false;
+        }
+        cellReservations.values().removeIf(reservation -> reservation.facilityId().equals(id));
+        setDirty();
+        return true;
+    }
+
+    /** Records a reservation. False when the table is full. */
+    public boolean putCellReservation(CellReservation reservation) {
+        if (reservation == null || frozen()
+                || atCapacity(cellReservations, reservation.token(), MAX_CELL_RESERVATIONS,
+                        "cell reservation")) {
+            return false;
+        }
+        cellReservations.put(reservation.token(), reservation);
+        setDirty();
+        return true;
+    }
+
+    /** One reservation by token, or null. */
+    @Nullable
+    public CellReservation cellReservation(UUID token) {
+        return token == null ? null : cellReservations.get(token);
+    }
+
+    /** Every reservation. A copy. */
+    public List<CellReservation> cellReservations() {
+        return new ArrayList<>(cellReservations.values());
+    }
+
+    /** The live reservations against one facility at {@code now}. A copy. */
+    public List<CellReservation> cellReservationsFor(UUID facilityId, long now) {
+        List<CellReservation> out = new ArrayList<>();
+        if (facilityId == null) {
+            return out;
+        }
+        for (CellReservation reservation : cellReservations.values()) {
+            if (reservation.facilityId().equals(facilityId) && reservation.live(now)) {
+                out.add(reservation);
+            }
+        }
+        return out;
+    }
+
+    /** The live reservation held for one prisoner, or null. */
+    @Nullable
+    public CellReservation cellReservationForPrisoner(UUID prisoner, long now) {
+        if (prisoner == null) {
+            return null;
+        }
+        for (CellReservation reservation : cellReservations.values()) {
+            if (reservation.prisoner().equals(prisoner) && reservation.live(now)) {
+                return reservation;
+            }
+        }
+        return null;
+    }
+
+    /** Drops one reservation by token. */
+    public boolean removeCellReservation(UUID token) {
+        if (token == null || frozen()) {
+            return false;
+        }
+        if (cellReservations.remove(token) != null) {
+            setDirty();
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * Drops reservations whose lease has run out.
+     *
+     * @return how many were dropped
+     */
+    public int pruneCellReservations(long now) {
+        if (frozen()) {
+            return 0;
+        }
+        int before = cellReservations.size();
+        cellReservations.values().removeIf(reservation -> !reservation.live(now));
+        int removed = before - cellReservations.size();
+        if (removed > 0) {
+            setDirty();
+        }
+        return removed;
+    }
+
     /**
      * Sets a row aside instead of discarding it.
      *
@@ -1652,6 +1879,15 @@ public final class CrimeWorldData extends SavedData {
         ListTag pendingCellList = new ListTag();
         pendingCellRestorations.values().forEach(cell -> pendingCellList.add(cell.save()));
         tag.put("pendingCellRestorations", pendingCellList);
+
+        // 0.7.3 (schema 13) collections. Both are empty in every world that has never had a facility
+        // assigned, which is why the v12 -> v13 migration writes nothing: absent already reads as empty.
+        ListTag facilityList = new ListTag();
+        facilities.values().forEach(facility -> facilityList.add(facility.save()));
+        tag.put("facilities", facilityList);
+        ListTag reservationList = new ListTag();
+        cellReservations.values().forEach(reservation -> reservationList.add(reservation.save()));
+        tag.put("cellReservations", reservationList);
         // Written back exactly as it was read. A row nobody can parse is still a row somebody's
         // history is in, and the one thing worse than not loading it is losing it.
         ListTag quarantineList = new ListTag();
@@ -2015,6 +2251,31 @@ public final class CrimeWorldData extends SavedData {
                 data.quarantine("pending cell restoration", pendingCellList.getCompound(i));
             }
         }
+
+        ListTag facilityList = tag.getList("facilities", Tag.TAG_COMPOUND);
+        for (int i = 0; i < facilityList.size(); i++) {
+            FacilityAssignment facility = FacilityAssignment.load(facilityList.getCompound(i));
+            if (facility != null) {
+                data.facilities.put(facility.id(), facility);
+            } else {
+                data.quarantine("facility assignment", facilityList.getCompound(i));
+            }
+        }
+        warnOverflow("facility assignment", data.facilities.size(), MAX_FACILITIES);
+
+        ListTag reservationList = tag.getList("cellReservations", Tag.TAG_COMPOUND);
+        for (int i = 0; i < reservationList.size(); i++) {
+            CellReservation reservation = CellReservation.load(reservationList.getCompound(i));
+            // A reservation whose facility did not survive the load is dropped rather than quarantined:
+            // it is a lease on a slot that no longer exists, and keeping it would hold that slot for a
+            // facility nothing can reach.
+            if (reservation != null && data.facilities.containsKey(reservation.facilityId())) {
+                data.cellReservations.put(reservation.token(), reservation);
+            } else if (reservation == null) {
+                data.quarantine("cell reservation", reservationList.getCompound(i));
+            }
+        }
+        warnOverflow("cell reservation", data.cellReservations.size(), MAX_CELL_RESERVATIONS);
 
         // Read straight back in, unexamined. Parsing a quarantined row is exactly what failed.
         ListTag quarantineList = tag.getList("quarantine", Tag.TAG_COMPOUND);

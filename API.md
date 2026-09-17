@@ -235,6 +235,37 @@ Both tick counts are **online** ticks. `linkedCaseIds` is what makes serving a s
 something specific: those cases resolve, and no others. It is the difference between atonement and
 blanket amnesty.
 
+### `CrimePublicView`
+
+What one community may know about one person, and nothing else — the projection with the knowledge
+rule applied.
+
+```java
+record CrimePublicView(CrimeCommunityKey community, UUID subject, Band band, boolean wanted,
+                       int standing, int publicIncidents, int openIncidents,
+                       long openBountyAmount, List<PublicIncident> recent) {
+
+    record PublicIncident(UUID caseId, ResourceLocation crimeType, long gameTime,
+                          Resolution resolution) {
+        boolean open();           // UNRESOLVED or ESCAPED
+    }
+
+    static final int MAX_RECENT = 16;
+    static CrimePublicView empty(CrimeCommunityKey community, UUID subject);
+    boolean known();              // any public incident, wanted, or a posted bounty
+}
+```
+
+`recent` is capped at `MAX_RECENT`, newest first; the counts carry the magnitude. `standing` is
+`effectiveStanding` for that community. A `PublicIncident` deliberately carries no witnesses, no
+victim, no heat and no fine: it is a thing the village can say out loud.
+
+The membership rule is `CrimePublicView.isPublic`, and it is the same rule the civic incident filing
+uses, so what a village reacts to and what MCA: Reputation recorded cannot drift apart. In order: the
+case must belong to this community; somebody must have seen it, unless an authority knew by its
+nature (a jailbreak, an operator command); and, unless the authority already knew, with the
+observation layer enabled it must also have reached an authority.
+
 ### `CrimeMutationStatus`
 
 One enum shared by every mutation result rather than one per operation: `APPLIED`, `DUPLICATE`,
@@ -264,11 +295,31 @@ static Optional<CustodyView>      custody(MinecraftServer server, UUID entityId)
 static Optional<JailSentenceView> sentence(ServerPlayer player);
 
 static int communityStanding(MinecraftServer server, UUID playerId, CrimeCommunityKey community);
+static int effectiveStanding(MinecraftServer server, UUID playerId, CrimeCommunityKey community);
+
+static Optional<CrimePublicView> publicView(MinecraftServer server, CrimeCommunityKey community,
+                                            UUID subject);
+static Optional<CrimePublicView> publicView(ServerPlayer player, CrimeCommunityKey community);
 ```
 
-`custody` takes any entity UUID, player or villager. `communityStanding` reads from whichever store
-is authoritative — the built-in one, or MCA: Reputation when it holds authority — so you do not have
-to know which is in charge.
+`custody` takes any entity UUID, player or villager.
+
+**The two standing methods are not interchangeable.** `communityStanding` reads MCA: Crime's *own*
+per-village store and nothing else — it always did, and it was left that way so no existing caller
+silently changes meaning. `effectiveStanding` is the number a settlement should act on: MCA:
+Reputation's, when it is installed and holding the authority for these deeds, and MCA: Crime's own
+store otherwise. It falls back rather than failing on every uncertainty — companion absent,
+integration switched off, a score it does not hold.
+
+`publicView` is the method to call from a settlement reaction, a dialogue condition, or anything that
+draws a status where other people can see it. `selectRecords` is the player's own file and is scoped
+to them for exactly that reason; a public view is one *community's* knowledge, and the difference is
+every unwitnessed crime, every crime in another village, and every crime nobody has reported yet.
+Both overloads answer `Optional.empty()` on bad input or an internal failure rather than throwing.
+
+`compat/TownsteadBridge` and everything under `compat/` is **not** public API. It is this mod's own
+optional-classloading seam, it may change shape in any release, and a companion should read the
+`api` package instead.
 
 ## Forge events
 

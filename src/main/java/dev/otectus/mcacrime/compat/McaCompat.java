@@ -272,10 +272,12 @@ public final class McaCompat {
      * @return true when a lever actually took effect, so a caller can tell aggro from silence
      */
     public static boolean setGuardTarget(Entity guard, LivingEntity target) {
-        if (!(guard instanceof Mob mob) || target == null || !dev.otectus.mcacrime.ai.NpcAwareness.isAwake(guard)) {
+        if (!(guard instanceof Mob mob) || target == null || !dev.otectus.mcacrime.ai.NpcAwareness.canRespondAsGuard(guard)) {
             return false;
         }
         boolean applied = false;
+        dev.otectus.mcacrime.activity.CrimeActivityRegistry.touch(guard.getUUID(),
+                guard.level().getGameTime());
         try {
             if (mob.getBrain().checkMemory(MemoryModuleType.ATTACK_TARGET, MemoryStatus.REGISTERED)) {
                 mob.getBrain().setMemory(MemoryModuleType.ATTACK_TARGET, target);
@@ -370,7 +372,7 @@ public final class McaCompat {
      * exists, which the controller treats as a path failure rather than as arrival.
      */
     public static boolean moveVillagerTo(Entity villager, double x, double y, double z, double speed) {
-        if (!(villager instanceof Mob mob) || !dev.otectus.mcacrime.ai.NpcAwareness.isAwake(villager)) {
+        if (!(villager instanceof Mob mob) || !dev.otectus.mcacrime.ai.NpcAwareness.canNavigate(villager)) {
             return false;
         }
         try {
@@ -457,6 +459,8 @@ public final class McaCompat {
         }
         stopModNavigation(villager);
         try {
+            dev.otectus.mcacrime.activity.CrimeActivityRegistry.touch(villager.getUUID(),
+                    villager.level().getGameTime());
             Vec3 motion = villager.getDeltaMovement();
             villager.setDeltaMovement(0.0D, motion.y, 0.0D);
         } catch (Throwable t) {
@@ -471,10 +475,12 @@ public final class McaCompat {
      * always runs.
      */
     public static boolean makeVillagerResist(Entity villager, LivingEntity offender) {
-        if (!isMcaVillager(villager) || !(villager instanceof Mob mob) || !dev.otectus.mcacrime.ai.NpcAwareness.isAwake(villager)) {
+        if (!isMcaVillager(villager) || !(villager instanceof Mob mob) || !dev.otectus.mcacrime.ai.NpcAwareness.canNavigate(villager)) {
             return false;
         }
         try {
+            dev.otectus.mcacrime.activity.CrimeActivityRegistry.touch(villager.getUUID(),
+                    villager.level().getGameTime());
             mob.setTarget(offender);
             return true;
         } catch (Throwable t) {
@@ -502,7 +508,7 @@ public final class McaCompat {
 
     /** Turns a villager to face an entity. Cosmetic, and safe to fail. */
     public static void faceEntity(Entity villager, Entity target) {
-        if (villager instanceof Mob mob && target != null && dev.otectus.mcacrime.ai.NpcAwareness.isAwake(villager)) {
+        if (villager instanceof Mob mob && target != null && dev.otectus.mcacrime.ai.NpcAwareness.canNavigate(villager)) {
             try {
                 mob.getLookControl().setLookAt(target, 30.0F, 30.0F);
             } catch (Throwable t) {
@@ -533,6 +539,8 @@ public final class McaCompat {
     public static boolean leashTo(Entity captive, Entity holder) {
         if (captive instanceof Mob mob) {
             try {
+                dev.otectus.mcacrime.activity.CrimeActivityRegistry.touch(captive.getUUID(),
+                        captive.level().getGameTime());
                 mob.setLeashedTo(holder, true);
                 // Physical restraint wakes the captive; mere proximity never does.
                 if (mob.isSleeping()) mob.stopSleeping();

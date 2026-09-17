@@ -119,6 +119,12 @@ public final class CrimeIntegrationHooks {
         enqueue(server, CrimeIntegrationOperation.create(UUID.randomUUID(),
                 IntegrationTargets.REPUTATION_RECORD_INCIDENT, view.offenderId(), view.id(),
                 IntegrationTargets.ACTION_CREATE, payload, view.committedGameTime()));
+
+        // The settlement's own reaction to the same moment, queued on the same outbox and routed
+        // separately. Here rather than at the top of this method on purpose: everything above is the
+        // knowledge gate -- attributed to a player, reported to an authority, in a community -- and a
+        // village reacting to something that did not pass it would be reacting to private information.
+        TownsteadReactions.onPublicIncident(server, view);
     }
 
     /**

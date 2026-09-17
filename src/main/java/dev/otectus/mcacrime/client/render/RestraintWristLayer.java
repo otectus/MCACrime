@@ -5,6 +5,7 @@ import com.mojang.blaze3d.vertex.VertexConsumer;
 import dev.otectus.mcacrime.McaCrime;
 import dev.otectus.mcacrime.McaCrimeConfig;
 import dev.otectus.mcacrime.client.ClientRestraintData;
+import dev.otectus.mcacrime.client.ClientRestraintRig;
 import dev.otectus.mcacrime.enforcement.RestraintVisualType;
 import net.minecraft.client.model.HumanoidModel;
 import net.minecraft.client.model.geom.ModelLayerLocation;
@@ -42,6 +43,17 @@ import net.minecraft.world.entity.LivingEntity;
  *
  * <p>Reads only {@link ClientRestraintData}, which the server populates. Nothing drawn here can make a
  * subject restrained.
+ *
+ * <h2>Bodies with no wrists</h2>
+ *
+ * <p>The arm assumption is not universal once a settlement mod can give a life stage its own rig: a
+ * villager may be rendered as an egg or a grub, and two bands parented to arms that are not there
+ * would hang in the air beside them. So the rig is consulted through {@link ClientRestraintRig}, and
+ * when it is not humanoid — or when the parent model's arms have been hidden by whatever is drawing
+ * that body — the wrist cuffs are replaced by a single band around the middle of the hitbox: the
+ * tether anchor a lead would be tied to. It is derived from {@code getBbWidth}/{@code getBbHeight}
+ * rather than from a skeleton, so it lands correctly on a body this mod knows nothing about, and it
+ * keeps the same texture and the same rope/metal tint so the restraint still reads at a glance.
  */
 public class RestraintWristLayer<T extends LivingEntity, M extends HumanoidModel<T>>
         extends RenderLayer<T, M> {
@@ -56,13 +68,28 @@ public class RestraintWristLayer<T extends LivingEntity, M extends HumanoidModel
     private static final float ROPE_GREEN = 0.62F;
     private static final float ROPE_BLUE = 0.36F;
 
+    /**
+     * Where the tether band sits in model space.
+     *
+     * <p>{@code LivingEntityRenderer} flips the pose in Y and lifts it by 1.501 blocks before a layer
+     * runs, so model {@code y = 0} is 1.501 blocks above the entity's feet and {@code y} grows
+     * downwards. Sixteen model units to the block, as everywhere else in a Minecraft model.
+     */
+    private static final float MODEL_ORIGIN_HEIGHT = 1.501F;
+    private static final float UNITS_PER_BLOCK = 16.0F;
+
+    /** The band's own half-width in model units, matching the cuff geometry below. */
+    private static final float BAND_HALF_WIDTH = 2.5F;
+
     private final ModelPart rightCuff;
     private final ModelPart leftCuff;
+    private final ModelPart tetherBand;
 
     public RestraintWristLayer(RenderLayerParent<T, M> parent, ModelPart root) {
         super(parent);
         this.rightCuff = root.getChild("right_cuff");
         this.leftCuff = root.getChild("left_cuff");
+        this.tetherBand = root.getChild("tether_band");
     }
 
     /**
@@ -81,6 +108,12 @@ public class RestraintWristLayer<T extends LivingEntity, M extends HumanoidModel
         root.addOrReplaceChild("left_cuff",
                 CubeListBuilder.create().texOffs(0, 8)
                         .addBox(-2.0F, 7.0F, -2.5F, 5.0F, 2.0F, 5.0F),
+                PartPose.ZERO);
+        // The tether band: the same 5x2x5 ring at the same texture offset as a cuff, centred on its
+        // own origin so it can be scaled to whatever body it has to go round.
+        root.addOrReplaceChild("tether_band",
+                CubeListBuilder.create().texOffs(0, 0)
+                        .addBox(-2.5F, -1.0F, -2.5F, 5.0F, 2.0F, 5.0F),
                 PartPose.ZERO);
         return LayerDefinition.create(mesh, 32, 16);
     }
@@ -102,9 +135,50 @@ public class RestraintWristLayer<T extends LivingEntity, M extends HumanoidModel
         float green = type == RestraintVisualType.ROPE ? ROPE_GREEN : 1.0F;
         float blue = type == RestraintVisualType.ROPE ? ROPE_BLUE : 1.0F;
 
+        if (!hasWrists(model, entity)) {
+            renderTetherBand(pose, buffer, light, entity, red, green, blue);
+            return;
+        }
+
         rightCuff.copyFrom(model.rightArm);
         leftCuff.copyFrom(model.leftArm);
         rightCuff.render(pose, buffer, light, OverlayTexture.NO_OVERLAY, red, green, blue, 1.0F);
         leftCuff.render(pose, buffer, light, OverlayTexture.NO_OVERLAY, red, green, blue, 1.0F);
+    }
+
+    /**
+     * Whether there are arms to put cuffs on.
+     *
+     * <p>Two independent questions, because they fail in different worlds. The model's own arm
+     * visibility catches a body whose renderer hid the vanilla parts to draw something else, which is
+     * true whatever mod did it. The Townstead rig catches a life stage that declares a different model
+     * outright, which is knowable before anything is drawn.
+     */
+    private boolean hasWrists(M model, T entity) {
+        return model.rightArm.visible && model.leftArm.visible && ClientRestraintRig.humanoid(entity);
+    }
+
+    /**
+     * One band round the middle of the hitbox, for a body with no wrists.
+     *
+     * <p>Sized and placed from {@code getBbWidth}/{@code getBbHeight} rather than from model parts,
+     * which is the whole point: there is no skeleton to trust here, and a hitbox is the one description
+     * of the body that every entity has. The band is scaled to sit just outside the hitbox so it reads
+     * as something fastened round the creature rather than as a texture on it.
+     */
+    private void renderTetherBand(PoseStack pose, VertexConsumer buffer, int light, T entity,
+                                  float red, float green, float blue) {
+        float half = Math.max(0.05F, entity.getBbWidth() * 0.5F);
+        float scale = (half * UNITS_PER_BLOCK + 0.6F) / BAND_HALF_WIDTH;
+        // Model y grows downwards from 1.501 blocks above the feet; half the body height up from the
+        // feet is therefore that offset minus half the height, in model units.
+        float y = (MODEL_ORIGIN_HEIGHT - entity.getBbHeight() * 0.5F) * UNITS_PER_BLOCK;
+
+        tetherBand.loadPose(PartPose.ZERO);
+        pose.pushPose();
+        pose.translate(0.0F, y / UNITS_PER_BLOCK, 0.0F);
+        pose.scale(scale, 1.0F, scale);
+        tetherBand.render(pose, buffer, light, OverlayTexture.NO_OVERLAY, red, green, blue, 1.0F);
+        pose.popPose();
     }
 }

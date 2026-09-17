@@ -3,6 +3,7 @@ package dev.otectus.mcacrime.api;
 import dev.otectus.mcacrime.McaCrime;
 import dev.otectus.mcacrime.api.model.CrimeCommunityKey;
 import dev.otectus.mcacrime.api.model.CrimePlayerSnapshot;
+import dev.otectus.mcacrime.api.model.CrimePublicView;
 import dev.otectus.mcacrime.api.model.CrimeRecordQuery;
 import dev.otectus.mcacrime.api.model.CrimeRecordSelector;
 import dev.otectus.mcacrime.api.model.CrimeRecordView;
@@ -288,7 +289,15 @@ public final class McaCrimeApi {
 
     // ------------------------------------------------------------------ communities
 
-    /** This player's standing with a community, from whichever store is authoritative. */
+    /**
+     * This player's standing with a community, from MCA: Crime's own store.
+     *
+     * <p>Named for what it actually reads, and deliberately left that way. It has always answered from
+     * this mod's fallback table, and a companion that treated it as "the reputation mod's number" was
+     * reading something else than it thought (reference §11.6). Changing it to consult MCA: Reputation
+     * would silently move the ground under every existing caller, so the companion-aware answer is a
+     * second method instead — see {@link #effectiveStanding}.
+     */
     public static int communityStanding(MinecraftServer server, UUID playerId, CrimeCommunityKey community) {
         if (server == null || playerId == null || community == null) {
             return 0;
@@ -298,5 +307,97 @@ public final class McaCrimeApi {
         } catch (Throwable t) {
             return 0;
         }
+    }
+
+    /**
+     * The standing a settlement should actually act on: MCA: Reputation's, when it is keeping it.
+     *
+     * <p>The two stores are not redundant copies, they are two different claims. When MCA: Reputation is
+     * installed and MCA: Crime has handed it the authority for these deeds, <em>its</em> number is the
+     * one the deeds were filed against and this mod's fallback table has stopped being updated for
+     * them; reading the fallback then would report standing frozen at whenever the companion arrived.
+     * With no companion, the fallback is the only number there is and is exactly right.
+     *
+     * <p>Falls back rather than failing on every uncertainty — companion absent, integration switched
+     * off, a score it does not hold — because a neutral-but-stale answer is a village that is slightly
+     * behind, and a thrown exception is a dialogue that does not open.
+     */
+    public static int effectiveStanding(MinecraftServer server, UUID playerId, CrimeCommunityKey community) {
+        if (server == null || playerId == null || community == null) {
+            return 0;
+        }
+        try {
+            java.util.OptionalInt companion = dev.otectus.mcacrime.compat.ReputationBridge.ops()
+                    .map(ops -> ops.score(server, playerId, community))
+                    .orElse(java.util.OptionalInt.empty());
+            if (companion.isPresent()) {
+                return companion.getAsInt();
+            }
+        } catch (Throwable t) {
+            McaCrime.LOGGER.debug("MCA: Crime — effective standing lookup failed; using the local store", t);
+        }
+        return communityStanding(server, playerId, community);
+    }
+
+    // ------------------------------------------------------------------ public projections
+
+    /**
+     * What one community may know about one person.
+     *
+     * <p>The method to call from a settlement reaction, a dialogue condition or anything that draws a
+     * status where other people can see it. {@link #selectRecords} is the player's own file and is
+     * scoped to them for exactly that reason; this is the village's knowledge, and the difference is
+     * every unwitnessed crime, every crime in another village, and every crime nobody has yet reported
+     * (reference §11.1). A companion that populated a village alert from the record list would be
+     * broadcasting things nobody saw.
+     *
+     * <p>The knowledge rule lives in {@link CrimePublicView#isPublic} and is the same one the civic
+     * incident filing uses, so what a village reacts to and what MCA: Reputation recorded cannot drift
+     * apart.
+     */
+    public static Optional<CrimePublicView> publicView(MinecraftServer server, CrimeCommunityKey community,
+                                                       UUID subject) {
+        if (server == null || community == null || subject == null) {
+            return Optional.empty();
+        }
+        try {
+            CrimeWorldData data = CrimeWorldData.get(server);
+            List<CrimeRecordView> views = new ArrayList<>();
+            data.recordsForOffender(subject).forEach(record -> views.add(record.view()));
+
+            boolean observations = dev.otectus.mcacrime.McaCrimeConfig.COMMON.enableObservations.get();
+            double confidence =
+                    dev.otectus.mcacrime.McaCrimeConfig.COMMON.reportConfidenceThreshold.get();
+            // Built once from the report index rather than re-scanned per case: the projection is asked
+            // for on a dialogue open and on a reaction, and a scan per case would be quadratic in a
+            // long-running world.
+            Set<UUID> reported = new java.util.HashSet<>();
+            data.reportsAgainst(subject).stream()
+                    .filter(report -> report.supportsArrest(confidence))
+                    .forEach(report -> reported.add(report.incidentId()));
+
+            ServerPlayer online = server.getPlayerList().getPlayer(subject);
+            Band band = online == null
+                    ? Band.fromKarma(0L)
+                    : CrimeState.getBand(online);
+            boolean wanted = online != null
+                    ? CrimeState.isWanted(online)
+                    : data.warrant(subject) != null;
+            long bounty = wanted ? dev.otectus.mcacrime.bounty.BountyService.price(server, subject) : 0L;
+
+            return Optional.of(CrimePublicView.of(community, subject, band, wanted,
+                    effectiveStanding(server, subject, community), bounty, views, observations,
+                    reported::contains));
+        } catch (Throwable t) {
+            McaCrime.LOGGER.debug("MCA: Crime — public view failed; returning empty", t);
+            return Optional.empty();
+        }
+    }
+
+    /** The same, for a player who is online, where band and wanted status are read directly. */
+    public static Optional<CrimePublicView> publicView(ServerPlayer player, CrimeCommunityKey community) {
+        return player == null || player.getServer() == null
+                ? Optional.empty()
+                : publicView(player.getServer(), community, player.getUUID());
     }
 }

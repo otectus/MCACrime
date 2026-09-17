@@ -2,6 +2,9 @@ package dev.otectus.mcacrime.config;
 
 import dev.otectus.mcacrime.McaCrimeConfig;
 import dev.otectus.mcacrime.compat.CrimeIncidentMapping;
+import dev.otectus.mcacrime.compat.TownsteadBridge;
+import dev.otectus.mcacrime.compat.TownsteadCapability;
+import dev.otectus.mcacrime.compat.TownsteadDiagnostics;
 import dev.otectus.mcacrime.crime.type.CrimeTypeRegistry;
 import dev.otectus.mcacrime.relationship.FamilyTier;
 import net.minecraft.resources.ResourceLocation;
@@ -10,6 +13,8 @@ import net.minecraftforge.registries.IForgeRegistry;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.function.Predicate;
 
 /**
  * Config validation (spec §12.3). The core checks are a pure function of plain values, so they are
@@ -1109,9 +1114,129 @@ public final class ConfigValidator {
             problems.add("Locked cuffs have a non-zero escape chance but no work duration; use keys/rescue or set the chance to 0.");
         }
 
+        problems.addAll(validateTownstead(
+                TownsteadBridge.installed(),
+                c.townsteadEnabled.get(),
+                TownsteadDiagnostics.currentSwitches(),
+                TownsteadBridge::has,
+                c.townsteadSnapshotCacheTicks.get(),
+                c.townsteadActivityLeaseTicks.get(),
+                c.townsteadFacilitySearchRadius.get(),
+                c.holdingCellSearchRadius.get()));
+
         // Surface crime-definition JSON parse errors from the last datapack load (spec §12.3).
         for (String crimeError : CrimeTypeRegistry.lastErrors()) {
             problems.add("Crime JSON: " + crimeError);
+        }
+        problems.addAll(townsteadDataProblems());
+        return problems;
+    }
+
+    /**
+     * What the three Townstead datapack loaders refused at the last reload.
+     *
+     * <p>Surfaced here as well as logged, and that is the point of the whole arrangement. Those loaders
+     * publish a mapping whole or not at all, so the visible symptom of a bad file is that an old mapping
+     * is still in force — which looks exactly like a pack that has not been reloaded yet. An operator
+     * running {@code /crime validate} gets the file name and the bad id instead of a mystery.
+     */
+    public static List<String> townsteadDataProblems() {
+        List<String> problems = new ArrayList<>();
+        for (dev.otectus.mcacrime.compat.TownsteadDataProblem problem
+                : dev.otectus.mcacrime.compat.TownsteadBuildingRoles.problems()) {
+            problems.add("Townstead building role JSON: " + problem.describe());
+        }
+        for (dev.otectus.mcacrime.compat.TownsteadDataProblem problem
+                : dev.otectus.mcacrime.compat.TownsteadPersonalityProfiles.problems()) {
+            problems.add("Townstead personality profile JSON: " + problem.describe());
+        }
+        for (dev.otectus.mcacrime.compat.TownsteadDataProblem problem
+                : dev.otectus.mcacrime.compat.TownsteadReactionBindings.problems()) {
+            problems.add("Townstead reaction binding JSON: " + problem.describe());
+        }
+        return problems;
+    }
+
+    /**
+     * The {@code [townstead]} section, as a pure function of its values and of what actually bound.
+     *
+     * <p>The rule this enforces is the one the whole integration is written around: <b>a switch that is
+     * on while the capability behind it is missing must be reported as degraded, never left to read as
+     * off.</b> "Off" is a decision the operator made; "degraded" is a fact about the installed mods, and
+     * conflating them is how somebody ends up believing a protection is in force when nothing is doing
+     * it.
+     *
+     * <p>Nothing is said about capabilities when Townstead is absent. That is the ordinary state of most
+     * installs, and filling {@code /crime validate} with a dozen lines about a mod that is not there
+     * would bury the problems that matter.
+     *
+     * @param installed whether Townstead is present at all
+     * @param enabled the master switch
+     * @param switches every {@code [townstead]} switch by config name, from
+     *                 {@link TownsteadDiagnostics#currentSwitches()}
+     * @param available whether one capability bound, normally {@code TownsteadBridge::has}
+     */
+    public static List<String> validateTownstead(boolean installed, boolean enabled,
+                                                 Map<String, Boolean> switches,
+                                                 Predicate<TownsteadCapability> available,
+                                                 int snapshotCacheTicks, int activityLeaseTicks,
+                                                 int facilitySearchRadius, int holdingCellSearchRadius) {
+        List<String> problems = new ArrayList<>();
+
+        if (facilitySearchRadius < 1) {
+            problems.add("townstead.facilitySearchRadius (" + facilitySearchRadius + ") must be at least 1.");
+        }
+        if (facilitySearchRadius > 0 && holdingCellSearchRadius > 0
+                && facilitySearchRadius < holdingCellSearchRadius) {
+            // Not fatal, but it inverts the ladder the operator thinks they configured: an assigned cell
+            // further away than the radius is skipped and a temporary cage is dug instead, next to the
+            // jail somebody built.
+            problems.add("townstead.facilitySearchRadius (" + facilitySearchRadius + ") is smaller than "
+                    + "holdingCellSearchRadius (" + holdingCellSearchRadius + "), so an arrest can build a "
+                    + "temporary cell closer than an assigned facility it refused to consider.");
+        }
+
+        if (snapshotCacheTicks < 1) {
+            problems.add("townstead.snapshotCacheTicks (" + snapshotCacheTicks + ") must be at least 1.");
+        }
+        if (activityLeaseTicks < 1) {
+            problems.add("townstead.activityLeaseTicks (" + activityLeaseTicks + ") must be at least 1.");
+        }
+        if (activityLeaseTicks > 0 && snapshotCacheTicks > 0 && activityLeaseTicks < snapshotCacheTicks) {
+            problems.add("townstead.activityLeaseTicks (" + activityLeaseTicks + ") is shorter than "
+                    + "snapshotCacheTicks (" + snapshotCacheTicks + "), so an enforcement claim can expire "
+                    + "while the snapshot it was made from is still being reused.");
+        }
+
+        if (!installed) {
+            return problems; // absent is the normal case and is never reported as a problem
+        }
+
+        long on = switches.values().stream().filter(Boolean.TRUE::equals).count();
+        if (!enabled) {
+            if (on > 0) {
+                problems.add("townstead.enabled is false while " + on + " [townstead] setting(s) are on; "
+                        + "none of them does anything until enabled is true.");
+            }
+            return problems;
+        }
+
+        for (TownsteadDiagnostics.SwitchRequirement requirement : TownsteadDiagnostics.REQUIREMENTS) {
+            boolean switchedOn = Boolean.TRUE.equals(switches.get(requirement.setting()));
+            if (TownsteadDiagnostics.stateOf(requirement, switchedOn, available)
+                    != TownsteadDiagnostics.FeatureState.DEGRADED) {
+                continue;
+            }
+            List<String> missing = new ArrayList<>();
+            for (TownsteadCapability capability : requirement.capabilities()) {
+                if (!available.test(capability)) {
+                    missing.add(capability.id());
+                }
+            }
+            problems.add("townstead." + requirement.setting() + " is on but the installed Townstead does "
+                    + "not provide " + String.join(", ", missing) + "; the feature is DEGRADED (not running), "
+                    + "not off. " + requirement.summary() + " — until then MCA: Crime uses its own "
+                    + "behaviour unchanged.");
         }
         return problems;
     }

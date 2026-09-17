@@ -1,5 +1,7 @@
 package dev.otectus.mcacrime.job;
 
+import dev.otectus.mcacrime.activity.CrimeActivityOperation;
+import dev.otectus.mcacrime.activity.CrimeActivityRegistry;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.ai.Brain;
 import net.minecraft.world.entity.ai.behavior.BehaviorControl;
@@ -23,8 +25,8 @@ import java.util.concurrent.ConcurrentHashMap;
  *
  * <p>{@code ThiefBrainMixin} runs at the head of <em>every</em> {@code Brain.tick} — every mob, every
  * tick — so its first question has to be answerable without touching saved data, an entity's
- * capabilities or a map lookup. {@link #EMPLOYED} is usually empty, so that first question is one
- * {@code isEmpty()}.
+ * capabilities or a map lookup. {@link #EMPLOYED} is usually empty and so is the activity registry, so
+ * that first question is two {@code isEmpty()} calls.
  *
  * <h2>Why brains are re-wrapped</h2>
  *
@@ -66,9 +68,29 @@ public final class ThiefWorkRegistry {
         WRAPPED.clear();
     }
 
-    /** The mixin's first question, and the cheap one. */
+    /**
+     * The mixin's first question, and the cheap one.
+     *
+     * <p>Two sets now, and the first statement is still one {@code isEmpty()} each: a world with no
+     * employed Thieves and nothing under an enforcement claim — the great majority of ticks on the
+     * great majority of worlds — pays exactly that and nothing else.
+     *
+     * <p>The second set is what generalises the gate. Wrapping used to be for employed Thieves, whose
+     * station work MCA: Crime installed itself. A villager MCA: Crime is arresting, escorting or
+     * holding has work behaviours it did not install and does not recognise — vanilla's, MCA's, or a
+     * settlement companion's — and the honest way to stop them is the same one: wrap this brain's
+     * {@link Activity#WORK} entries and let {@code ThiefWorkGate} refuse the start.
+     */
     public static boolean needsWrapping(@Nullable LivingEntity entity) {
-        return !EMPLOYED.isEmpty() && entity instanceof Villager && EMPLOYED.contains(entity.getUUID());
+        if (EMPLOYED.isEmpty() && CrimeActivityRegistry.isEmpty()) {
+            return false;
+        }
+        if (!(entity instanceof Villager)) {
+            return false;
+        }
+        UUID id = entity.getUUID();
+        return EMPLOYED.contains(id)
+                || !CrimeActivityRegistry.permits(id, CrimeActivityOperation.WORK_START);
     }
 
     /**

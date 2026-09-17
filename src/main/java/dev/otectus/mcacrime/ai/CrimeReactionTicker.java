@@ -33,9 +33,23 @@ public final class CrimeReactionTicker {
 
     @SubscribeEvent
     public static void onLivingTick(net.minecraftforge.event.entity.living.LivingEvent.LivingTickEvent event) {
-        if (event.getEntity().level() instanceof ServerLevel
-                && event.getEntity().isSleeping()) {
+        if (!(event.getEntity().level() instanceof ServerLevel)) {
+            return;
+        }
+        if (event.getEntity().isSleeping()) {
             NpcAwareness.settleSleeping(event.getEntity());
+        }
+        // Whose tick this is, for the Townstead hooks that are handed a Brain or a PathNavigation and
+        // no villager at all. Recorded here rather than from a handler of its own because this event
+        // already fires for every living entity on the server and a second subscriber would pay the
+        // dispatch again for nothing. LivingTickEvent fires at the start of LivingEntity.tick(), so
+        // the context is in place well before Townstead's tickers run from the TAIL of aiStep.
+        //
+        // Villager-only because nothing else can be a Townstead villager -- MCA's villager extends
+        // net.minecraft.world.entity.npc.Villager -- and TownsteadTickContext itself does nothing at
+        // all until a Townstead mixin has actually been applied.
+        if (event.getEntity() instanceof net.minecraft.world.entity.npc.Villager) {
+            dev.otectus.mcacrime.compat.TownsteadTickContext.observe(event.getEntity());
         }
     }
 
@@ -48,15 +62,26 @@ public final class CrimeReactionTicker {
         if (server == null) {
             return;
         }
+        long now = server.overworld().getGameTime();
+        // Before anything reads a claim, not after: activity claims lapse rather than being cleared,
+        // and a consumer that saw an expired one would be steering a villager nobody owns. Costs one
+        // isEmpty() check on a world where MCA: Crime is doing nothing, which is nearly every tick.
+        dev.otectus.mcacrime.activity.CrimeActivityRegistry.sweep(now);
+
         CrimeReactionService.tick(server);
         dev.otectus.mcacrime.enforcement.GuardChallengeService.holdConversations(server);
         dev.otectus.mcacrime.memory.WitnessSocialService.tick(server);
 
-        long now = server.overworld().getGameTime();
         if (now - lastPrune >= PRUNE_INTERVAL_TICKS) {
             lastPrune = now;
             ReportService.prune(server, now);
         }
+
+        // Every entity in every level has finished ticking by the END phase, so whatever villager the
+        // context still names is finished with. Dropping it here means a Townstead hook that somehow
+        // ran outside an entity tick reads "no context" and leaves the villager alone, instead of
+        // acting on whoever happened to be last.
+        dev.otectus.mcacrime.compat.TownsteadTickContext.clear();
     }
 
     /** Drops every controller on shutdown, so a restart never inherits a stale reaction. */
@@ -67,11 +92,23 @@ public final class CrimeReactionTicker {
         // hold and an escort both describe the current few seconds, and a restart has no business
         // inheriting either.
         LawHold.clearAll();
+        dev.otectus.mcacrime.activity.CrimeActivityRegistry.clearAll();
+        // Derived Townstead state goes with it: every entry describes a villager in a world that is
+        // no longer loaded, and a second world in one session must read the companion again.
+        dev.otectus.mcacrime.compat.TownsteadSnapshotCache.clearAll();
+        dev.otectus.mcacrime.compat.TownsteadTickContext.clear();
+        // Work-tool provenance too: every entry names a display copy held by an entity in a world that
+        // is being unloaded, and a second world in one session must be told again which stack is a prop.
+        dev.otectus.mcacrime.compat.TownsteadEquipmentProvenance.clearAll();
         dev.otectus.mcacrime.enforcement.EscortService.clearAll();
+        // The custody-care interval table is the same shape of state: it names captives in a world that
+        // is unloading, and losing it costs one extra needs check on the next boot.
+        dev.otectus.mcacrime.captivity.CustodyCareService.clearAll();
         // Village cooldowns too. Losing them costs each village one extra evaluation on the next boot,
         // and that evaluation is idempotent: the pass counts guards from the live world and never
         // converts one back.
         dev.otectus.mcacrime.enforcement.GuardPopulationService.clearAll();
+        dev.otectus.mcacrime.enforcement.GuardEnforcement.clearAll();
         lastPrune = 0L;
         dev.otectus.mcacrime.memory.WitnessSocialService.clear();
     }

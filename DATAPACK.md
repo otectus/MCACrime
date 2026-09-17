@@ -230,6 +230,73 @@ check it with `/mcareputation debug` rather than assuming.
 
 ---
 
+## Townstead tables
+
+Three optional tables under `data/<namespace>/townstead/`. They are read on every reload whether or
+not Townstead is installed — they are plain data — but nothing reads their results until the
+integration is bound. This mod ships one `default.json` in each directory; replace an entry by
+shipping a file at the same path (`data/mcacrime/townstead/<table>/default.json`) from a pack that
+loads later. Declaring the same key in a different file is a duplicate, and a duplicate refuses the
+whole table.
+
+Each file is one JSON object or a list of them. All three publish **whole or not at all**: if any
+entry in a reload fails, the last good table stays in effect, every problem is logged, and
+`/crime validate` lists them. With `strictJsonValidation = true` the reload throws on the first
+problem instead, which is what you want while authoring.
+
+### `townstead/building_roles/`
+
+What a Townstead building type means to the law. Backs `/crime facility recognise`.
+
+```json
+[{ "building": "townstead:jail_l1", "role": "jail_cell", "capacity": 2 }]
+```
+
+| Key | Required | Rule |
+|---|---|---|
+| `building` | yes | A valid resource location for the Townstead building type. An unparsable id is an error. |
+| `role` | yes | One of `guard_post`, `jail_cell`, `guardhouse`, `evidence_storage`, `care_room`, `public_notice`. |
+| `capacity` | no | How many prisoners one such building holds. Defaults to the role's own; must be `0 … 16`, and a value outside that is an error rather than a clamp. |
+
+### `townstead/personality_profiles/`
+
+How a Townstead personality nudges a villager's reaction to a crime.
+
+```json
+[{ "personality": "townstead:brave", "threat": -0.05, "report": 0.05, "flee": -0.05 }]
+```
+
+| Key | Required | Rule |
+|---|---|---|
+| `personality` | yes | A valid resource location for the Townstead personality id. |
+| `threat` / `report` / `flee` | no | Additive nudges, each `-0.10 … 0.10`. A non-numeric value is an error, and so is one outside the cap — refused rather than clamped, so a `0.8` you meant does not silently become `0.1`. |
+
+The cap is deliberate: these are nudges on numbers a server owner has already tuned, not a second
+tuning surface. A personality with no entry is neutral.
+
+### `townstead/reaction_bindings/`
+
+Which Townstead reaction plays when something becomes public knowledge.
+
+```json
+[{ "event": "custody_started", "reaction": "townstead:concerned", "radius": 24 }]
+```
+
+| Key | Required | Rule |
+|---|---|---|
+| `event` | yes | One of MCA: Crime's ten public events: `crime_witnessed`, `crime_threatened`, `alarm_heard`, `report_delivered`, `custody_started`, `custody_ended`, `jailbreak`, `rescued`, `property_returned`, `restitution_completed`. |
+| `reaction` | yes | A valid resource location for the Townstead reaction to play. This mod does not and cannot verify that Townstead defines it. |
+| `radius` | no | Blocks, `1 … 48`; defaults to `24`. Outside the range is an error. The ceiling bounds an entity scan attached to every arrest. |
+
+One event has exactly one reaction: binding the same event twice, in one file or across two, is an
+error naming both files. An event with no binding simply plays nothing.
+
+Nothing here fires when `townstead.publicReactions` is off, when the integration is off, or when the
+installed Townstead does not provide the `dispatch_reaction` capability — in the last case
+`/crime validate` reports the switch as degraded.
+
+---
+
 ## Validation checklist
 
 Before shipping a pack:
@@ -250,3 +317,6 @@ Before shipping a pack:
       two policy files disagreeing about one credit group drops the **whole** profile bundle for that
       reload, while the scalar incident definitions keep loading. `/mcareputation reload` reports
       which file failed.
+- [ ] If you wrote a `townstead/` table, run `/crime validate` **and** `/crime debug townstead`: the
+      first reports a refused table, the second reports whether the capability the table feeds is
+      actually available.

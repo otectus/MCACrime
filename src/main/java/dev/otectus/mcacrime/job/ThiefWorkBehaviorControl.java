@@ -7,10 +7,12 @@ import net.minecraft.world.entity.ai.behavior.Behavior;
 import net.minecraft.world.entity.ai.behavior.BehaviorControl;
 
 /**
- * One {@code Activity.WORK} behaviour of one Thief, wrapped so it yields (0.7.2 §10.3).
+ * One {@code Activity.WORK} behaviour of one villager, wrapped so it yields (0.7.2 §10.3).
  *
  * <p>Refuses to start while {@link ThiefWorkGate} says something more important owns the villager, and
- * stops a behaviour that was already running when that becomes true. Everything else — which work
+ * stops a behaviour that was already running when that becomes true. "Something more important" began
+ * as a Thief's own five conditions and now includes any live MCA: Crime activity claim, which is what
+ * lets the same wrapper stand a villager down from work this mod did not install. Everything else — which work
  * behaviours exist, what they do, how long they run — is MCA's and vanilla's, unchanged.
  *
  * <p>Wrapping the individual behaviours rather than suppressing the whole activity is what keeps this

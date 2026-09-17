@@ -37,8 +37,13 @@ ai/thief   autonomous thief controller, target selection, guard evasion
 mug/npc    NPC mugging sessions, theft planning, stolen-goods recovery
 economy/fence  contraband pricing, goods registry, trading UI
 compat integration locksreforged mcaquests numismatic  optional companions; degrade at runtime
+compat/townstead  the reflective Townstead adapter; nothing outside it may name a Townstead type
+activity   enforcement claims over a villager and which operations they yield (work start, navigation)
+facility   civic facilities: building refs, roles, assignments, cell reservations, custody care
+civic      read-only village security projection for clients and companions
 client mixin/client  client-only; common code must never import these
 mixin      narrowly scoped vanilla-only mixins (equipment capture, thief worksite/brain, sand sensing)
+mixin/townstead  plugin-gated Townstead mixins in a second, optional mixin config
 network item audio command config util  plumbing
 ```
 
@@ -49,6 +54,8 @@ Build note: `compat/mcaquests` compiles only when `../MCAQuests/build/classes/ja
 - **MCA Reborn** - mandatory at runtime, but `runtimeOnly` in Gradle; no MCA type may appear
   anywhere in `src/main/java`.
 - **MCA: Reputation** - optional companion, resolved by name at runtime.
+- **Townstead** - optional settlement companion, resolved entirely by reflection through
+  `compat/TownsteadBridge`; absent is the silent, normal path.
 - **Architectury** - MCA's own runtime requirement; deliberately not declared in `mods.toml`.
 
 ## Conventions
@@ -60,7 +67,13 @@ Build note: `compat/mcaquests` compiles only when `../MCAQuests/build/classes/ja
 - Config is hand-written `ForgeConfigSpec`, **COMMON + CLIENT only, no SERVER spec**: common is
   server-authoritative, client is presentation only. `config/ConfigValidator` runs at setup and
   on every reload.
-- Mixins target vanilla classes only and stay narrowly scoped. Common: `mixin/MobDeathEquipmentMixin`
+- Two mixin configs, both listed in the jar manifest's `MixinConfigs` (`build.gradle`).
+  `mcacrime.mixins.json` is required and targets **vanilla classes only**, narrowly scoped.
+  `mcacrime.townstead.mixins.json` is `required: false` with `defaultRequire 0`, gated by
+  `mixin/townstead/TownsteadMixinPlugin` on Townstead being loaded *and* the target class existing;
+  its mixins name Townstead only as dotted `targets=` strings and never name a Townstead or MCA
+  type. `NoTownsteadStaticLinkTest`, `NoMcaStaticLinkTest`, `MixinConfigTest` and
+  `TownsteadMixinTargetTest` enforce that. Common: `mixin/MobDeathEquipmentMixin`
   (equipment capture before MCA clears dying villagers' gear), `MaskStationAcquisitionMixin` and
   `NativeJobAssignmentMixin` (route Mask Station job-site acquisition through the occupation
   transaction), `ThiefPoiValidationMixin` and `ThiefBrainMixin` (defer unloaded-site validation; make

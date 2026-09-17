@@ -2,6 +2,7 @@ package dev.otectus.mcacrime.client;
 
 import dev.otectus.mcacrime.McaCrimeConfig;
 import dev.otectus.mcacrime.action.ActionMenuKind;
+import dev.otectus.mcacrime.compat.TownsteadDialogueState;
 import dev.otectus.mcacrime.network.BailQuoteS2CPacket;
 import dev.otectus.mcacrime.network.BandBulkSyncS2CPacket;
 import dev.otectus.mcacrime.network.BandSyncS2CPacket;
@@ -61,6 +62,10 @@ public final class CrimeClientHandlers {
         Minecraft minecraft = Minecraft.getInstance();
         boolean captivePanel = msg.kind() == ActionMenuKind.CAPTIVE
                 && McaCrimeConfig.CLIENT.captiveScreenToggle.get();
+        // The screen being replaced may be a settlement mod's dialogue, which does not treat removal as
+        // an ending: it queues itself to reopen over whatever took its place and only restores the
+        // camera and the HUD on an explicit close. Saying so here is what makes this an explicit close.
+        TownsteadDialogueState.markExternalClose(minecraft.screen);
         minecraft.setScreen(captivePanel
                 ? new CaptiveActionScreen(msg, minecraft.screen)
                 : new CrimeInteractionScreen(msg, minecraft.screen));
@@ -93,6 +98,10 @@ public final class CrimeClientHandlers {
             boolean sameEncounter = previous != null && previous.open()
                     && previous.encounterId().equals(msg.encounterId());
             if (!sameEncounter || !(minecraft.screen instanceof GuardChallengeScreen)) {
+                // A timed demand from somebody standing in front of the player. Whatever it takes the
+                // screen away from has to be told that it was taken, or a dialogue queues itself back on
+                // top of the challenge and the player answers a guard they can no longer see.
+                TownsteadDialogueState.markExternalClose(minecraft.screen);
                 minecraft.setScreen(new GuardChallengeScreen());
             } else if (minecraft.screen instanceof GuardChallengeScreen screen) {
                 screen.refreshOffer();
@@ -104,6 +113,20 @@ public final class CrimeClientHandlers {
 
     public static void onCaseLedger(CaseLedgerS2CPacket msg) {
         ClientCaseData.update(msg);
+    }
+
+    /**
+     * The body a restrained subject is drawn on, as the server sees it.
+     *
+     * <p>Stored rather than acted on: the wrist layer asks for it on the next frame it draws them.
+     */
+    public static void onRestraintRig(dev.otectus.mcacrime.network.RestraintRigSyncS2CPacket msg) {
+        ClientRestraintRig.accept(msg.subject(), msg.humanoid(), msg.rig());
+    }
+
+    /** The public safety summary for the settlement the player asked about. */
+    public static void onVillageSecurity(dev.otectus.mcacrime.network.VillageSecurityS2CPacket msg) {
+        ClientVillageSecurityData.update(msg);
     }
 
     public static void onRestraint(RestraintSyncS2CPacket msg) {

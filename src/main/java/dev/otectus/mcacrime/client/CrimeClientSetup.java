@@ -89,7 +89,12 @@ public final class CrimeClientSetup {
         ClientChallengeData.clear();
         ClientCaseData.clear();
         ClientRestraintData.clear();
+        ClientRestraintRig.clear();
+        ClientVillageSecurityData.clear();
         ClientWeaponPolicy.clear();
         ClientCriminalJobData.clear();
+        // The close reason belongs to one screen on one server. Carrying it across a disconnect would
+        // apply this session's interruption to the next session's first conversation.
+        dev.otectus.mcacrime.compat.TownsteadDialogueState.clear();
     }
 }

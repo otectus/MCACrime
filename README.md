@@ -103,8 +103,10 @@ No hearts replacement. No trials. Villagers still never decide to commit a crime
 thief targets only players. A player can recruit an eligible relative as an accomplice, though:
 that villager is then individually wanted, arrestable, and bailable by family for what they did. No
 positive karma for trading, gifting, or clicking through dialogue;
-those are farmable and belong to systems that already own them. One client-only mixin, for
-restraint pose rendering, and no others. No per-tick village scans, no AI text generation, no
+those are farmable and belong to systems that already own them. Mixins stay narrow and are all
+either vanilla-targeted or optional: the required config touches vanilla classes only, and a second,
+plugin-gated config applies four small hooks into Townstead and is skipped entirely when Townstead
+is not installed. No per-tick village scans, no AI text generation, no
 telemetry, no outbound network calls. Turning a subsystem off changes behaviour only, and deletes
 nothing — but time-based retention does: stale criminal-villager records, expired bounty contracts,
 and claims past their retention window are dropped on a timer.
@@ -136,10 +138,22 @@ Each add-on works alone, and any combination works.
 |---|---|
 | **Crime** alone | Karma and Heat, the fourteen crimes, witnesses, guards, jail, kidnapping, ransom, mugging, fines, the ledger, and a built-in per-village standing store |
 | **+ MCA: Reputation** | Crime becomes the single producer for villager assault and killing; every case becomes a public incident the village can gossip about, and paying a fine or serving a sentence reads publicly as making good |
+| **+ Townstead** | Crime reads the settlement: a collapsed or immobile villager stops being treated as a witness or a suspect, villagers on shift are passed over when guards are drafted, temporary cells are never dug inside a registered building, a display tool is no longer dropped as duplicate loot, and Townstead plays its own reactions when a crime, an arrest or a release becomes public |
 
 Nothing here depends on MCA: Reputation at compile time, and removing it leaves this mod working
 on its own store. The handover is a real handshake rather than a guess — one mod produces each
 deed, never both and never neither. `/crime debug integrations` reports which.
+
+**Townstead is optional and reached only by reflection.** No class in this mod names a Townstead
+type; the adapter under `compat/townstead` matches members by name and arity, and the four Townstead
+mixins name their targets as dotted strings in a `required: false` config whose plugin refuses to
+apply anything unless Townstead is installed and the target class is really there. With Townstead
+absent — the normal case — nothing is asked, nothing is logged as a problem, and crime behaves
+exactly as it does today. The whole integration can be switched off with `townstead.enabled`, and
+each part of it is a separate switch under `[townstead]`; a switch that is on while the Townstead
+surface behind it is missing is reported as *degraded* by `/crime validate` and
+`/crime debug townstead`, never silently ignored. See
+[the support matrix](docs/0.7.3/TOWNSTEAD.md) for what is available, degraded and unavailable.
 
 ## Seeing where you stand
 

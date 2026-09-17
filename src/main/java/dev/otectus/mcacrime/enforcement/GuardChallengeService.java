@@ -431,8 +431,8 @@ public final class GuardChallengeService {
         for (GuardChallenge challenge : OPEN.values()) {
             ServerPlayer player = server.getPlayerList().getPlayer(challenge.playerId());
             if (player == null || !(player.serverLevel().getEntity(challenge.guardId()) instanceof LivingEntity guard)
-                    || !dev.otectus.mcacrime.ai.NpcAwareness.isAwake(guard)) continue;
-            LawHold.hold(guard.getUUID(), player.level().getGameTime() + 2L);
+                    || !dev.otectus.mcacrime.ai.NpcAwareness.canRespondAsGuard(guard)) continue;
+            LawHold.hold(guard, player.level().getGameTime() + 2L, dev.otectus.mcacrime.activity.CrimeActivityView.Kind.CHALLENGE);
             McaCompat.clearGuardTarget(guard, player);
             McaCompat.holdPosition(guard);
             McaCompat.faceEntity(guard, player);

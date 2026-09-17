@@ -19,7 +19,7 @@ public final class CrimeNavigation {
     }
 
     public static boolean start(Mob mob, Path path, BlockPos destination, double requested, boolean mca) {
-        if (!NpcAwareness.isAwake(mob) || path == null || !path.canReach()) return false;
+        if (!NpcAwareness.canNavigate(mob) || path == null || !path.canReach()) return false;
         double speed = speed(requested, mob.getAttributeValue(Attributes.MOVEMENT_SPEED), mca);
         if (!mob.getNavigation().moveTo(path, speed)) return false;
         // MoveToTargetSink otherwise resumes a previous panic/work target at its old speed.
@@ -27,6 +27,11 @@ public final class CrimeNavigation {
         brain.setMemory(MemoryModuleType.WALK_TARGET, new WalkTarget(destination, (float) speed, 1));
         brain.setMemory(MemoryModuleType.PATH, path);
         brain.eraseMemory(MemoryModuleType.CANT_REACH_WALK_TARGET_SINCE);
+        // A walk order is evidence that whoever claimed this villager is still working. Extending the
+        // lease here rather than in each producer means a long escort cannot lapse between two guard
+        // scans, and an unclaimed villager is untouched.
+        dev.otectus.mcacrime.activity.CrimeActivityRegistry.touch(mob.getUUID(),
+                mob.level().getGameTime());
         return true;
     }
 }
