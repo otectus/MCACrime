@@ -221,10 +221,20 @@ class TownsteadMixinTargetTest {
                 for (Hook hook : hooks()) {
                     ClassNode target = classNode(zip, hook.targetClass());
                     for (Injector injector : hook.injectors()) {
-                        assertNotNull(findAny(target, injector.methods()),
+                        MethodNode found = findAny(target, injector.methods());
+                        assertNotNull(found,
                                 injector.methods() + " named by " + hook.source() + " is absent from "
                                         + hook.targetClass() + " in the " + jar.getKey() + " jar, or has "
                                         + "a different parameter count.");
+                        int expected = switch (found.name) {
+                            case "tick", "restore", "forget", "freeze" -> 1;
+                            case "restoreWalkTarget", "isProtectedStorage" -> 2;
+                            case "<init>" -> 3;
+                            case "lock" -> 4;
+                            default -> 0; // Screen init/removed, including their SRG names
+                        };
+                        assertEquals(expected, org.objectweb.asm.Type.getArgumentTypes(found.desc).length,
+                                hook.source() + " captures arguments from " + found.name + " in " + jar.getKey());
                     }
                 }
             }

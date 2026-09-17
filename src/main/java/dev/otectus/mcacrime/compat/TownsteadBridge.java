@@ -197,6 +197,13 @@ public final class TownsteadBridge {
         status = "not initialised";
     }
 
+    /** Re-negotiate on the server thread after a common-config reload, including off-to-on changes. */
+    public static synchronized void reload() {
+        TownsteadSnapshotCache.clearAll();
+        release();
+        bind();
+    }
+
     /** Test hook; identical to {@link #release()} and named for what a test means by it. */
     public static synchronized void reset() {
         release();
@@ -215,7 +222,7 @@ public final class TownsteadBridge {
     /** Whether any capability is live. */
     public static boolean isAvailable() {
         Ops current = ops;
-        return current != null && !current.capabilities().isEmpty();
+        return integrationEnabled() && current != null && !current.capabilities().isEmpty();
     }
 
     public static State state() {
@@ -440,6 +447,9 @@ public final class TownsteadBridge {
             return TownsteadQueryResult.unavailable(status);
         }
         try {
+            if (!integrationEnabled()) {
+                return TownsteadQueryResult.unavailable("disabled by config");
+            }
             TownsteadQueryResult<T> result = call.apply(current);
             return result == null ? TownsteadQueryResult.unavailable("no answer") : result;
         } catch (Throwable t) {

@@ -257,6 +257,10 @@ tasks.register('townsteadProbeTest', Test) {
     // been registered.
     doFirst {
         supplied.each { property ->
+            File suppliedJar = file(project.property(property))
+            if (!suppliedJar.isFile() || !suppliedJar.canRead()) {
+                throw new GradleException("-P${property} must name a readable Townstead jar: ${suppliedJar}")
+            }
             String mcaVersion = townsteadProbePairs[property]
             int index = mcaProbeVersions.indexOf(mcaVersion)
             if (index < 0) {
@@ -267,7 +271,7 @@ tasks.register('townsteadProbeTest', Test) {
                         + "pass while proving nothing.")
             }
             String variant = property == 'townsteadLegacyJar' ? 'legacy' : 'modern'
-            systemProperty "mcacrime.townstead.probe.${variant}Jar", project.property(property).toString()
+            systemProperty "mcacrime.townstead.probe.${variant}Jar", suppliedJar.absolutePath
             systemProperty "mcacrime.townstead.probe.${variant}McaJars",
                     configurations.getByName("mcaProbe${index}").files
                             .findAll { it.name.contains('minecraft-comes-alive') }

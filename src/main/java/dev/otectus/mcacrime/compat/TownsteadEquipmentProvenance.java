@@ -37,8 +37,8 @@ import java.util.concurrent.ConcurrentHashMap;
  * <h2>How it is populated</h2>
  *
  * <p>{@code mixin/townstead/WorkToolProvenanceMixin} redirects the two {@code ItemStack.copy()} calls
- * inside Townstead's work-tool ticker and hands the resulting stacks here, keyed by the villager the
- * {@link TownsteadTickContext} says is being ticked. Townstead's own {@code restore} and {@code forget}
+ * inside Townstead's work-tool ticker and hands the resulting stacks here, keyed by the villager that
+ * the intercepted method's argument identifies. Townstead's own {@code restore} and {@code forget}
  * clear the record. With no Townstead installed nothing is ever recorded, every classification comes
  * back {@link Origin#UNKNOWN} or {@link Origin#INVENTORY_MIRROR}, and the death loot behaves exactly as
  * it did before this class existed.

@@ -1,0 +1,21 @@
+// Test-only mod, compiled and reobfuscated by the same pipeline as the release jar.
+allprojects {
+    afterEvaluate {
+        sourceSets {
+            townsteadRuntime {
+                java.srcDir 'tools/townstead/java'
+                compileClasspath = sourceSets.main.compileClasspath + sourceSets.main.output
+            }
+        }
+        tasks.register('townsteadRuntimeJar', Jar) {
+            dependsOn tasks.named('townsteadRuntimeClasses')
+            archiveBaseName = 'townstead-runtime-checks'
+            from sourceSets.townsteadRuntime.output
+            from('tools/townstead/resources')
+            // MixinGradle adds main configs to every Jar task; the harness provides none.
+            doFirst { manifest.attributes.remove('MixinConfigs') }
+        }
+        reobf { townsteadRuntimeJar {} }
+        tasks.named('townsteadRuntimeJar').configure { finalizedBy 'reobfTownsteadRuntimeJar' }
+    }
+}

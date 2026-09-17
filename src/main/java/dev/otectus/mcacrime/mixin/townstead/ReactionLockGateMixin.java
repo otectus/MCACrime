@@ -6,8 +6,10 @@ import dev.otectus.mcacrime.compat.TownsteadBridge;
 import dev.otectus.mcacrime.compat.TownsteadMixinStatus;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.ai.memory.WalkTarget;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
+import org.spongepowered.asm.mixin.injection.Coerce;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
@@ -24,8 +26,8 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
  *
  * <p>{@code OperationPolicy} already says which MCA: Crime activities can tolerate a freeze: standing
  * as law and sitting in custody can, an arrest, an escort, a pursuit and a chase cannot. This hook is
- * where that table finally binds: the lock is refused at its own entry point, so Townstead never
- * enters the state at all rather than being fought tick by tick afterwards.
+ * where that table binds: it refuses new locks and makes existing reactions yield after an escort
+ * takes control. The old reaction's saved walk order is also discarded if it expires during escort.
  *
  * <h2>Why this shape</h2>
  *
@@ -42,6 +44,35 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
  */
 @Mixin(targets = "com.aetherianartificer.townstead.reaction.ReactionLockTracker", remap = false)
 public abstract class ReactionLockGateMixin {
+
+    /** A lock may predate the escort that now owns movement. */
+    @Inject(method = "freeze(Lnet/minecraft/world/entity/LivingEntity;)V",
+            at = @At("HEAD"), cancellable = true, remap = false, require = 0, expect = 1)
+    private static void mcacrime$yieldExistingLock(LivingEntity entity, CallbackInfo ci) {
+        if (mcacrime$mustYield(entity)) {
+            ci.cancel();
+        }
+    }
+
+    /** Expiring a pre-escort reaction must not restore a walk order saved before the handover. */
+    @Inject(method = "restoreWalkTarget", at = @At("HEAD"), cancellable = true,
+            remap = false, require = 0, expect = 1)
+    private static void mcacrime$discardStaleWalk(@Coerce LivingEntity entity, WalkTarget saved,
+                                                CallbackInfo ci) {
+        if (mcacrime$mustYield(entity)) {
+            ci.cancel();
+        }
+    }
+
+    private static boolean mcacrime$mustYield(LivingEntity entity) {
+        try {
+            return entity != null && TownsteadBridge.integrationEnabled()
+                    && !CrimeActivityRegistry.permits(entity.getUUID(), CrimeActivityOperation.REACTION_LOCK);
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
 
     /**
      * Cancels the lock when a live MCA: Crime claim does not allow one.

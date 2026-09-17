@@ -13,7 +13,7 @@ companion degrades to the surface it does have rather than failing the load. Als
 Townstead, reached only by reflection and a plugin-gated mixin config, and silently absent on an
 install that does not have it.
 
-## [0.7.4] — unreleased
+## [0.7.4] — 2026-09-17
 
 Two optional layers on top of the Townstead seam: explicit property law, and civic work with
 optional village economy profiles. Every switch added here defaults to **off**, and an install with
@@ -114,6 +114,33 @@ them off — or without Townstead at all — behaves exactly as 0.7.3 did.
 - `activity/CrimeActivityView.Kind` gains `CIVIC_SERVICE`, so a villager working off a contract
   takes an ordinary routine claim.
 
+### Fixed
+
+- Townstead work-tool copy, restore, and cleanup hooks now use the actual villager argument.
+  A different previous tick can no longer delete another villager's equipment record or leave the
+  target's stash behind. Cleanup also runs with recording disabled, preventing obsolete stashes
+  from returning when the integration is enabled again.
+- Townstead guard-rest handling now preserves the actual claimed guard's walk order, including
+  calls outside that guard's entity tick.
+- Reactions that started before an escort now yield their ongoing freeze and saved walk-order
+  restoration when Crime takes control of movement.
+- Protected-storage searches now use their own dimension, including scans outside entity ticks and
+  Overworld/Nether lookups made after a villager in another dimension ticked.
+- The global Townstead switch now stops live queries and cached awareness immediately. Common
+  config reloads rebind the integration, including enabling a bridge disabled at startup.
+- Supplying a missing or unreadable Townstead probe jar now fails verification instead of silently
+  skipping it. Mixin probes also assert target argument counts.
+
+### Verification
+
+- Added a reusable, isolated production-server harness under `tools/townstead/`.
+- Passed 1,908 unit tests (16 skipped), 12 Townstead jar probes, and build/package checks.
+- Passed 62 dedicated-server checks: 27 each for Townstead 0.7.7 legacy and modern, plus four each
+  with Townstead absent and with the integration disabled. Checks cover live reads, incapacity,
+  navigation handovers, equipment, storage dimensions, custody supply accounting and recovery,
+  config changes, and server/client separation.
+- Full evidence and reproduction instructions: [Townstead verification](docs/0.7.4/TOWNSTEAD_VERIFICATION.md).
+
 ### Known limits
 
 - **What transfer detection cannot see.** Throwing an item out of a container slot (`Q`) is a loss
@@ -128,11 +155,10 @@ them off — or without Townstead at all — behaves exactly as 0.7.3 did.
   may not have: `propertyLaw` needs `storage_policy` (now provided by MCA: Crime's own mixin) and
   `read_building`; `autoProtectGeneratedProperty` needs `building_enumeration`. A switch on without
   its capability reports `DEGRADED` rather than working silently.
-- **The runtime matrix has not been run for this release.** No dedicated server,
-  no client session, no save-quit-reload with property policies and contracts in the world data. The
-  production jar was built but has not been launched.
-  What has run is the unit suite (1924 tests), `build` including `checkJarContents`, and the
-  Townstead probe against both Forge jars with all five mixins.
+- Client UI, multiplayer, populated-building lifecycles, and long-running world reload scenarios
+  still need playtesting; the automated checks do not certify every interaction as bug-free.
+- Six nonfatal client-class startup errors also reproduce in the Townstead/MCA/Patchouli control
+  with Crime removed. They remain upstream; all tested servers start and shut down successfully.
 
 ## [0.7.3] — unreleased
 

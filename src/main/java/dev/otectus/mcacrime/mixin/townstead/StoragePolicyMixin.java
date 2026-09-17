@@ -2,16 +2,16 @@ package dev.otectus.mcacrime.mixin.townstead;
 
 import dev.otectus.mcacrime.compat.TownsteadBridge;
 import dev.otectus.mcacrime.compat.TownsteadMixinStatus;
-import dev.otectus.mcacrime.compat.TownsteadTickContext;
 import dev.otectus.mcacrime.property.PropertyRegistry;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.block.state.BlockState;
-import net.minecraftforge.server.ServerLifecycleHooks;
 import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 import javax.annotation.Nullable;
 
@@ -43,15 +43,24 @@ import javax.annotation.Nullable;
  *
  * <h2>Whose level is this?</h2>
  *
- * <p>The search context holds its own {@code ServerLevel} in a private field, and shadowing it would
- * make a moved or renamed field a hard startup failure rather than a degraded capability — the one
- * thing this whole layer is built to avoid. So the level comes from {@link TownsteadTickContext}, the
- * villager whose tick this search is running inside, and falls back to the overworld only when a single
- * level is the only possible answer. Anything less certain than that leaves the value exactly as
- * Townstead computed it: not knowing is treated as not interfering.
+ * <p>Capture the context's constructor argument rather than borrowing the last entity tick's
+ * dimension. Storage scans can run outside a villager tick, and a context for another dimension
+ * must never consult the previous villager's property registry. If the constructor moves in a
+ * future Townstead, the optional injection leaves the field null and the query degrades safely.
  */
 @Mixin(targets = "com.aetherianartificer.townstead.storage.StorageSearchContext", remap = false)
 public abstract class StoragePolicyMixin {
+
+    @Unique
+    @Nullable
+    private ServerLevel mcacrime$storageLevel;
+
+    @Inject(method = "<init>(Lnet/minecraft/server/level/ServerLevel;II)V",
+            at = @At("RETURN"), remap = false, require = 0, expect = 1)
+    private void mcacrime$captureLevel(ServerLevel level, int expectedObservedBlocks,
+                                      int expectedHandlers, CallbackInfo ci) {
+        mcacrime$storageLevel = level;
+    }
 
     /**
      * Forces {@code true} for a container MCA: Crime has reserved.
@@ -76,7 +85,7 @@ public abstract class StoragePolicyMixin {
                 // one boolean read per block and Townstead behaves exactly as it ships.
                 return;
             }
-            ServerLevel level = mcacrime$level();
+            ServerLevel level = mcacrime$storageLevel;
             if (level == null) {
                 return;
             }
@@ -88,31 +97,4 @@ public abstract class StoragePolicyMixin {
         }
     }
 
-    /**
-     * The level this search is running in, or null when it cannot be established.
-     *
-     * <p>Null is a real answer and the common one on any server with more than one dimension in play:
-     * the overworld fallback is taken only when the server has exactly one level, where it is not a
-     * guess at all. Answering with the wrong dimension would protect a container at the same
-     * coordinates in another world, which is a worse failure than not protecting this one.
-     */
-    @Nullable
-    private static ServerLevel mcacrime$level() {
-        ServerLevel ticking = TownsteadTickContext.currentServerLevel();
-        if (ticking != null) {
-            return ticking;
-        }
-        var server = ServerLifecycleHooks.getCurrentServer();
-        if (server == null) {
-            return null;
-        }
-        ServerLevel only = null;
-        for (ServerLevel level : server.getAllLevels()) {
-            if (only != null) {
-                return null;
-            }
-            only = level;
-        }
-        return only;
-    }
 }

@@ -83,10 +83,18 @@ is a dotted string, and no mixin here names a Townstead or an MCA type.
 | Mixin | Target class | Hook |
 |---|---|---|
 | `GuardRestYieldMixin` | `com.aetherianartificer.townstead.tick.GuardRestEnforcerTicker` | Two `@Redirect`s in `tick`, on `Brain.eraseMemory` and `PathNavigation.stop`, so a rest enforcement yields over a villager MCA: Crime holds |
-| `ReactionLockGateMixin` | `com.aetherianartificer.townstead.reaction.ReactionLockTracker` | `@Inject` at the head of `lock(LivingEntity, long, int, ResourceLocation)`, refusing a reaction lock over a held villager |
+| `ReactionLockGateMixin` | `com.aetherianartificer.townstead.reaction.ReactionLockTracker` | Gates new locks, ongoing `freeze` calls, and `restoreWalkTarget`, so an existing reaction yields when an escort takes control |
 | `WorkToolProvenanceMixin` | `com.aetherianartificer.townstead.tick.WorkToolTicker` | Two `@Redirect`s on `ItemStack.copy()` in `tick` (record the display tool as Townstead's), plus `@Inject`s at the head of `restore` and `forget` (drop the record) |
-| `StoragePolicyMixin` | `com.aetherianartificer.townstead.storage.StorageSearchContext` | `@Inject` at the `RETURN` of `isProtectedStorage(BlockPos, BlockState)`, forcing `true` for a container MCA: Crime marks protected from auto-sourcing. It never forces the answer the other way: a block Townstead already protects stays protected. Never throws — this runs inside another mod's per-block sourcing scan |
+| `StoragePolicyMixin` | `com.aetherianartificer.townstead.storage.StorageSearchContext` | Captures the context's own level from its constructor; `@Inject` at the `RETURN` of `isProtectedStorage(BlockPos, BlockState)`, forcing `true` for a container MCA: Crime marks protected from auto-sourcing. It never forces the answer the other way: a block Townstead already protects stays protected. Never throws — this runs inside another mod's per-block sourcing scan |
 | client `RpgDialogueEntryMixin` | `com.aetherianartificer.townstead.client.gui.dialogue.RpgDialogueScreen` | `@Inject` at the tail of `init()` and the head of `removed()`, adding and clearing MCA: Crime's entry point |
+
+Guard and equipment hooks capture Townstead's actual villager argument as a vanilla `LivingEntity`
+with `@Coerce`; neither MCA package root is linked. Storage protection uses the search context's
+own level, including scans outside entity ticks and searches in another dimension. Equipment cleanup
+continues while recording is disabled, so enabling it again cannot revive an obsolete stash.
+
+The global `townstead.enabled` switch gates live queries and cached awareness immediately. Common
+config reloads rebind the integration and clear snapshots, including when it was disabled at startup.
 
 `compat/TownsteadMixinStatus` records applied (from the plugin's `postApply`) and fired (from the
 handler itself) as two separate facts, which is what lets the command tell a moved injection point
@@ -112,7 +120,8 @@ Both jars had to be built from source; no Maven serves them. The modern one was 
 load-bearing: Townstead's descriptors carry MCA types, so enumerating its API without the right MCA
 on the probe classpath reads every method as unbound.
 
-With no jar supplied, the task logs that it was skipped rather than failing, and
+With no jar supplied, the task logs that it was skipped rather than failing. An explicitly supplied
+missing or unreadable jar fails the task. Separately,
 `TownsteadBindingProbeTest` skips on an assumption inside the ordinary `test` run.
 
 ## Property law (0.7.4, `townstead.propertyLaw`, off by default)
@@ -314,3 +323,8 @@ What has run is the JUnit suite (1924 tests), `build` (including `checkJarConten
 
 The surfaces this integration would need from upstream, and what each one would unlock, are written
 up in [docs/TOWNSTEAD_API_REQUESTS.md](../TOWNSTEAD_API_REQUESTS.md).
+
+## Runtime verification
+
+See [the September 17 verification report](TOWNSTEAD_VERIFICATION.md) for the tested jar hashes,
+unit/probe results, dedicated-server matrix, fixed regressions, and remaining manual coverage.
