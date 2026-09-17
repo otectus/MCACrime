@@ -282,7 +282,11 @@ tasks.register('townsteadProbeTest', Test) {
     // Resolved in doFirst, not at configuration time, so configuring the build never has to reach the
     // network for the MCA probe fleet.
     doFirst {
-        systemProperty 'mcacrime.townstead.probe.jars', project.property('townsteadJar').toString()
+        File suppliedJar = file(project.property('townsteadJar'))
+        if (!suppliedJar.isFile() || !suppliedJar.canRead()) {
+            throw new GradleException("-PtownsteadJar must name a readable Townstead jar: ${suppliedJar}")
+        }
+        systemProperty 'mcacrime.townstead.probe.jars', suppliedJar.absolutePath
         systemProperty 'mcacrime.probe.jars', mcaProbeVersions.indices
                 .collect { i -> configurations.getByName("mcaProbe${i}").files }
                 .flatten()

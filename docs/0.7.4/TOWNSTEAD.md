@@ -97,10 +97,10 @@ target is written in Mojang names.
 
 | Mixin | Target class | Hook |
 |---|---|---|
-| `GuardRestYieldMixin` | `com.aetherianartificer.townstead.tick.GuardRestEnforcerTicker` | Two `@Redirect`s in `tick`, on `Lnet/minecraft/world/entity/ai/Brain;eraseMemory` and `Lnet/minecraft/world/entity/ai/navigation/PathNavigation;stop()V`, so a rest enforcement yields over a villager MCA: Crime holds |
-| `ReactionLockGateMixin` | `com.aetherianartificer.townstead.reaction.ReactionLockTracker` | `@Inject` at the head of `lock(Lnet/minecraft/world/entity/LivingEntity;JILnet/minecraft/resources/ResourceLocation;)V`, refusing a reaction lock over a held villager |
-| `WorkToolProvenanceMixin` | `com.aetherianartificer.townstead.tick.WorkToolTicker` | Two `@Redirect`s on `Lnet/minecraft/world/item/ItemStack;copy()Lnet/minecraft/world/item/ItemStack;` in `tick` (record the display tool as Townstead's), plus `@Inject`s at the head of `restore` and `forget` (drop the record) |
-| `StoragePolicyMixin` | `com.aetherianartificer.townstead.storage.StorageSearchContext` | `@Inject` at the `RETURN` of `isProtectedStorage(BlockPos, BlockState)` — the descriptor written in Mojang names, `remap = false`, `require = 0` — forcing `true` for a container MCA: Crime marks protected from auto-sourcing. It never forces the answer the other way: a block Townstead already protects stays protected. Never throws — this runs inside another mod's per-block sourcing scan |
+| `GuardRestYieldMixin` | `com.aetherianartificer.townstead.tick.GuardRestEnforcerTicker` | Two `@Redirect`s in `tick`, on `Lnet/minecraft/world/entity/ai/Brain;eraseMemory` and `Lnet/minecraft/world/entity/ai/navigation/PathNavigation;stop()V`, capturing the actual villager argument so rest enforcement yields over the guard MCA: Crime holds |
+| `ReactionLockGateMixin` | `com.aetherianartificer.townstead.reaction.ReactionLockTracker` | `@Inject` at the head of `lock(Lnet/minecraft/world/entity/LivingEntity;JILnet/minecraft/resources/ResourceLocation;)V`, refusing a reaction lock over a held villager; `freeze(LivingEntity)` and `restoreWalkTarget` also yield when Crime takes movement control after a reaction has already started |
+| `WorkToolProvenanceMixin` | `com.aetherianartificer.townstead.tick.WorkToolTicker` | Two `@Redirect`s on `Lnet/minecraft/world/item/ItemStack;copy()Lnet/minecraft/world/item/ItemStack;` in `tick` (record the display tool as Townstead's), plus `@Inject`s at the head of `restore` and `forget` (drop the actual argument's record, including while recording is disabled) |
+| `StoragePolicyMixin` | `com.aetherianartificer.townstead.storage.StorageSearchContext` | Constructor `RETURN` capture of `ServerLevel`, then `@Inject` at the `RETURN` of `isProtectedStorage(BlockPos, BlockState)` — the descriptor written in Mojang names, `remap = false`, `require = 0` — forcing `true` for a container MCA: Crime marks protected from auto-sourcing. It never forces the answer the other way: a block Townstead already protects stays protected. Never throws — this runs inside another mod's per-block sourcing scan |
 | client `RpgDialogueEntryMixin` | `com.aetherianartificer.townstead.client.gui.dialogue.RpgDialogueScreen` | `@Inject` at the tail of `init()V` and the head of `removed()V`, adding and clearing MCA: Crime's entry point. Single Mojang-name selectors, where the Forge baseline needs a dual Mojang/SRG selector |
 
 `compat/TownsteadMixinStatus` records applied (from the plugin's `postApply`) and fired (from the
@@ -249,7 +249,8 @@ The probe was run against the NeoForge Townstead 0.7.7 jar, with all five mixin 
 `StorageSearchContext.isProtectedStorage`, and bound all twelve declared manifest capabilities. The jar had to be built from source; no Maven serves it.
 
 With no jar supplied, the task logs that it was skipped rather than failing, and
-`TownsteadBindingProbeTest` skips on an assumption inside the ordinary `test` run.
+`TownsteadBindingProbeTest` skips on an assumption inside the ordinary `test` run. An explicitly
+supplied missing or unreadable jar fails the probe task; target probes assert method argument counts.
 
 ## Commands
 
@@ -269,7 +270,9 @@ With no jar supplied, the task logs that it was skipped rather than failing, and
 ## Config
 
 Sixteen keys under `[townstead]`, documented in [CONFIG.md](../../CONFIG.md). Everything is a no-op
-with Townstead absent. `enabled` is the master switch. Seven switches default to off, and five of
+with Townstead absent. `enabled` is the master switch: live queries and cached awareness honor it immediately, and a common
+config reload clears snapshots and rebinds the bridge, including one disabled at startup. Seven
+switches default to off, and five of
 them are what this release is about:
 
 | Switch | What turning it on does | Needs |
@@ -336,22 +339,15 @@ platform, not the design, differs:
   and carries no refmap, like every other mixin on this line; `checkJarContents` still asserts exactly
   the two mixin configs and no refmap in either.
 
-## Not run in this job
+## Verification
 
-The runtime matrix is outstanding. None of the following has been exercised for this work:
+The Java 21 / NeoForge 21.1.248 release passes 1,993 unit tests (9 skipped), 12 Townstead jar probes,
+32 GameTests, and 35 production-server checks with Townstead present, absent, and disabled.
+All twelve reflective capabilities bind; all common mixins apply and the dedicated server excludes
+the client dialogue mixin. The release includes the Reputation, Quests, and Locks adapters.
 
-- the production jar, as opposed to a dev run;
-- a dedicated server, or a multiplayer client against one;
-- a client session at all, which is where `client_dialogue_entry` and the restraint rig live;
-- save, quit and reload with facilities, cell reservations, property policies, receipts and service
-  contracts in the world data;
-- removing Townstead from a save that had it;
-- property law or civic work exercised in a live world at all — no container has been robbed, no
-  contract completed, and no worker has been turned away from a reserved chest in play.
-
-What has run is the JUnit suite, `build` (including `checkJarContents`), and the Townstead probe,
-whose mixin-target checks now include `StorageSearchContext.isProtectedStorage`, against the
-NeoForge Townstead 0.7.7 jar.
+See [the verification report](TOWNSTEAD_VERIFICATION.md) for artifacts, reproduction commands,
+coverage limits, and the companion-only control for nonfatal Townstead startup errors.
 
 ## Known limits
 
@@ -369,10 +365,9 @@ NeoForge Townstead 0.7.7 jar.
   container-permission surface. A Townstead release that moves or renames
   `StorageSearchContext#isProtectedStorage` degrades the capability — `require = 0`, so the game
   still loads — and settlement workers may then source from a reserved container again.
-- **The storage hook needs to know which level it is in.** It takes the level from the villager
-  whose tick the search is running inside, and falls back to the overworld only when the server has
-  exactly one level. Anything less certain leaves Townstead's own answer alone, so on a multi-level
-  server a search outside a villager tick is not filtered.
+- **The storage hook captures its search context's level at construction.** Searches outside entity
+  ticks and across dimensions are covered. If an upstream constructor changes, the optional hook
+  leaves the level unknown and preserves Townstead's answer; it never guesses the overworld.
 - **An unreadable Townstead role halts guard recruitment for that village** rather than being read as
   "not a worker". That is deliberate — a village briefly short of guards recovers, a village whose
   baker was drafted does not — but it means a partially-bound bridge can leave a village under its

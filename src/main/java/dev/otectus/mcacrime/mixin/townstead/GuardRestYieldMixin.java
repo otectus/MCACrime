@@ -4,12 +4,13 @@ import dev.otectus.mcacrime.activity.CrimeActivityOperation;
 import dev.otectus.mcacrime.activity.CrimeActivityRegistry;
 import dev.otectus.mcacrime.compat.TownsteadBridge;
 import dev.otectus.mcacrime.compat.TownsteadMixinStatus;
-import dev.otectus.mcacrime.compat.TownsteadTickContext;
+import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.ai.Brain;
 import net.minecraft.world.entity.ai.memory.MemoryModuleType;
 import net.minecraft.world.entity.ai.navigation.PathNavigation;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
+import org.spongepowered.asm.mixin.injection.Coerce;
 import org.spongepowered.asm.mixin.injection.Redirect;
 
 import java.util.UUID;
@@ -49,11 +50,9 @@ import java.util.UUID;
  *
  * <h2>Whose villager is this?</h2>
  *
- * <p>A {@code Brain} does not know whose it is and {@code PathNavigation#getMob} does not exist in
- * 1.21.1, so identity comes from {@link TownsteadTickContext} — the villager NeoForge's
- * {@code EntityTickEvent.Pre} recorded at the start of this very tick, which is the same entity whose
- * {@code aiStep} Townstead's dispatcher is running inside. With no context, or a stale one, the
- * original call goes through: not knowing is treated as not interfering.
+ * <p>Each redirect captures the target method's villager argument as a vanilla
+ * {@link LivingEntity} with {@code @Coerce}. This works with either MCA package layout and
+ * protects the actual guard even when a caller runs the ticker outside NeoForge's entity tick.
  */
 @Mixin(targets = "com.aetherianartificer.townstead.tick.GuardRestEnforcerTicker", remap = false)
 public abstract class GuardRestYieldMixin {
@@ -70,8 +69,9 @@ public abstract class GuardRestYieldMixin {
                     target = "Lnet/minecraft/world/entity/ai/Brain;eraseMemory"
                             + "(Lnet/minecraft/world/entity/ai/memory/MemoryModuleType;)V",
                     remap = false))
-    private static void mcacrime$keepWalkOrder(Brain<?> brain, MemoryModuleType<?> memory) {
-        if (!mcacrime$yields()) {
+    private static void mcacrime$keepWalkOrder(Brain<?> brain, MemoryModuleType<?> memory,
+                                                @Coerce LivingEntity entity) {
+        if (!mcacrime$yields(entity)) {
             brain.eraseMemory(memory);
         }
     }
@@ -81,8 +81,8 @@ public abstract class GuardRestYieldMixin {
             at = @At(value = "INVOKE",
                     target = "Lnet/minecraft/world/entity/ai/navigation/PathNavigation;stop()V",
                     remap = false))
-    private static void mcacrime$keepPath(PathNavigation navigation) {
-        if (!mcacrime$yields()) {
+    private static void mcacrime$keepPath(PathNavigation navigation, @Coerce LivingEntity entity) {
+        if (!mcacrime$yields(entity)) {
             navigation.stop();
         }
     }
@@ -92,17 +92,17 @@ public abstract class GuardRestYieldMixin {
      *
      * <p>Marks the hook as fired first and unconditionally — that is the evidence
      * {@code /crime debug townstead} reports, and it has to be recorded on the ordinary pass where
-     * nothing is claimed as well as on the rare one where something is. Then: no context, no claim, or
+     * nothing is claimed as well as on the rare one where something is. Then: no entity, no claim, or
      * a claim that tolerates rest travel all answer "no", and the original call runs.
      *
      * <p>Never throws. It runs inside another mod's per-tick method, where an exception would be
      * attributed to Townstead and would take its guard handling down with it; a thrown error here
      * would also skip the original call, which is the worst of both outcomes.
      */
-    private static boolean mcacrime$yields() {
+    private static boolean mcacrime$yields(LivingEntity entity) {
         try {
             TownsteadMixinStatus.injected(TownsteadMixinStatus.HOOK_GUARD_REST);
-            UUID villager = TownsteadTickContext.currentEntityId();
+            UUID villager = entity == null ? null : entity.getUUID();
             if (villager == null) {
                 return false;
             }

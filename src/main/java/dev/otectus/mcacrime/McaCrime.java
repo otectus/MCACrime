@@ -79,6 +79,9 @@ public final class McaCrime {
         net.minecraft.server.MinecraftServer running =
                 net.neoforged.neoforge.server.ServerLifecycleHooks.getCurrentServer();
         Runnable refresh = () -> {
+            if (running != null) {
+                dev.otectus.mcacrime.compat.TownsteadBridge.reload();
+            }
             ConfigValidator.validateCurrentConfig().forEach(problem ->
                     LOGGER.warn("MCA: Crime config reload: {}", problem));
             dev.otectus.mcacrime.detect.EntitySelectors.invalidate();

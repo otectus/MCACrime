@@ -5,7 +5,7 @@ All notable changes to MCA: Crime.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); this project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.7.4] — unreleased
+## [0.7.4] — 2026-09-17
 
 Two optional layers on top of the Townstead seam: explicit property law, and civic work with
 optional village economy profiles, mirroring the Forge 0.7.4 release on the NeoForge 1.21.1 line.
@@ -118,6 +118,36 @@ all — behaves exactly as 0.7.3 did.
 - `activity/CrimeActivityView.Kind` gains `CIVIC_SERVICE`, so a villager working off a contract
   takes an ordinary routine claim.
 
+### Fixed
+
+- Townstead work-tool copy, restore, and cleanup hooks now use the actual villager argument.
+  A different previous tick can no longer delete another villager's equipment record or leave the
+  target's stash behind. Cleanup also runs with recording disabled, preventing obsolete stashes
+  from returning when the integration is enabled again.
+- Townstead guard-rest handling now preserves the actual claimed guard's walk order, including
+  calls outside that guard's entity tick.
+- Reactions that started before an escort now yield their ongoing freeze and saved walk-order
+  restoration when Crime takes control of movement.
+- Protected-storage searches now use their own dimension, including scans outside entity ticks and
+  Overworld/Nether lookups made after a villager in another dimension ticked.
+- The global Townstead switch now stops live queries and cached awareness immediately. Common
+  config reloads rebind the integration, including enabling a bridge disabled at startup.
+- Supplying a missing or unreadable Townstead probe jar now fails verification instead of silently
+  skipping it. Mixin probes also assert target argument counts.
+
+- Updated the NeoForge world-data GameTest to expect the current schema 14 instead of schema 12.
+
+### Verification
+
+- Ported the isolated production-server harness to Java 21 and NeoForge 1.21.1.
+- Passed 1,993 unit tests (9 skipped), 12 Townstead jar probes, 32 GameTests, and build/package
+  checks with the Reputation, Quests, and Locks adapters included.
+- Passed 35 production-server checks: 27 with Townstead 0.7.7 and MCA 7.7.36-beta.3, plus four each
+  with Townstead absent and with the integration disabled. Checks cover live reads, incapacity,
+  navigation handovers, equipment, storage dimensions, custody supply accounting and recovery,
+  config changes, and server/client separation.
+- Full evidence and reproduction instructions: [Townstead verification](docs/0.7.4/TOWNSTEAD_VERIFICATION.md).
+
 ### Known limits
 
 - **What transfer detection cannot see.** Throwing an item out of a container slot (`Q`) is a loss
@@ -132,11 +162,11 @@ all — behaves exactly as 0.7.3 did.
   may not have: `propertyLaw` needs `storage_policy` (now provided by MCA: Crime's own mixin) and
   `read_building`; `autoProtectGeneratedProperty` needs `building_enumeration`. A switch on without
   its capability reports `DEGRADED` rather than working silently.
-- **The runtime matrix has not been run for this release.** No production jar launched, no dedicated
-  server, no client session, no save-quit-reload with property policies and contracts in the world
-  data. What has run is the unit suite (2002 tests, 9 skipped), `build` including
-  `checkJarContents`, and `townsteadProbeTest` with all five mixin targets against the NeoForge
-  Townstead 0.7.7 jar.
+- Interactive client and multiplayer playtests remain outstanding. Dialogue layout and packet round
+  trips, populated-building lifecycle, and whole-world property/civic save-reload scenarios have not
+  been exercised by the server fixtures.
+- Townstead startup logs eight nonfatal client-class loading errors on the dedicated server. The
+  same errors reproduce with Crime and the harness absent; see the verification report.
 
 ## [0.7.3] — unreleased
 

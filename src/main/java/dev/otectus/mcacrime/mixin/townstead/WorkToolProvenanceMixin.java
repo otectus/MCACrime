@@ -2,10 +2,11 @@ package dev.otectus.mcacrime.mixin.townstead;
 
 import dev.otectus.mcacrime.compat.TownsteadEquipmentProvenance;
 import dev.otectus.mcacrime.compat.TownsteadMixinStatus;
-import dev.otectus.mcacrime.compat.TownsteadTickContext;
+import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.item.ItemStack;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
+import org.spongepowered.asm.mixin.injection.Coerce;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.Redirect;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
@@ -47,12 +48,9 @@ import java.util.UUID;
  *
  * <h2>Whose villager</h2>
  *
- * <p>A {@code copy()} redirect is handed one {@code ItemStack} and nothing else, and the method's own
- * parameter is MCA's villager type, which this mod may not name. Identity comes from
- * {@link TownsteadTickContext}: Townstead's per-villager tickers run inside that villager's own
- * {@code aiStep}, strictly after NeoForge's {@code EntityTickEvent.Pre} recorded them. No context
- * means the copy is simply not recorded, and the death loot falls back to the rule it has always
- * used.
+ * <p>Capture Townstead's actual argument as a vanilla {@link LivingEntity}, using {@code @Coerce}
+ * to accept either MCA package layout. Cleanup can run outside the entity's tick, so a previous
+ * tick's context cannot identify the owner of a stash or display tool.
  *
  * <p>Every handler performs the original call first and returns its result unconditionally. Recording
  * is a side effect and is wrapped so that it cannot become anything else: an exception here would be
@@ -72,11 +70,11 @@ public abstract class WorkToolProvenanceMixin {
             at = @At(value = "INVOKE", ordinal = 0,
                     target = "Lnet/minecraft/world/item/ItemStack;copy()Lnet/minecraft/world/item/ItemStack;",
                     remap = false))
-    private static ItemStack mcacrime$recordStash(ItemStack original) {
+    private static ItemStack mcacrime$recordStash(ItemStack original, @Coerce LivingEntity entity) {
         ItemStack copy = original.copy();
         try {
             TownsteadMixinStatus.injected(TownsteadMixinStatus.HOOK_WORK_TOOL_COPY);
-            UUID villager = mcacrime$villager();
+            UUID villager = mcacrime$villager(entity);
             if (villager != null) {
                 TownsteadEquipmentProvenance.stashedOriginal(villager, copy);
             }
@@ -97,11 +95,11 @@ public abstract class WorkToolProvenanceMixin {
             at = @At(value = "INVOKE", ordinal = 1,
                     target = "Lnet/minecraft/world/item/ItemStack;copy()Lnet/minecraft/world/item/ItemStack;",
                     remap = false))
-    private static ItemStack mcacrime$recordDisplayTool(ItemStack tool) {
+    private static ItemStack mcacrime$recordDisplayTool(ItemStack tool, @Coerce LivingEntity entity) {
         ItemStack copy = tool.copy();
         try {
             TownsteadMixinStatus.injected(TownsteadMixinStatus.HOOK_WORK_TOOL_COPY);
-            UUID villager = mcacrime$villager();
+            UUID villager = mcacrime$villager(entity);
             if (villager != null) {
                 TownsteadEquipmentProvenance.displayTool(villager, copy);
             }
@@ -115,36 +113,29 @@ public abstract class WorkToolProvenanceMixin {
      * The shift ended and Townstead is putting the stash back.
      *
      * <p>Both halves of the record stop being true at once — the display copy leaves the hand and the
-     * stash goes back into it — so the whole entry goes. The handler takes no target arguments at all:
-     * {@code restore}'s parameter is MCA's villager type, and Mixin accepts a callback whose descriptor
-     * is the simple {@code (CallbackInfo)V} form, which is what makes a hook into an MCA-typed method
-     * possible without naming one.
+     * stash goes back into it — so the whole entry goes. The target argument is captured as its
+     * vanilla superclass; no MCA type is linked. Cleanup also runs while recording is disabled,
+     * so re-enabling the integration cannot resurrect an obsolete stash.
      */
     @Inject(method = "restore", at = @At("HEAD"), remap = false, require = 0, expect = 1)
-    private static void mcacrime$onRestore(CallbackInfo ci) {
-        mcacrime$forget(TownsteadMixinStatus.HOOK_WORK_TOOL_RESTORE);
+    private static void mcacrime$onRestore(@Coerce LivingEntity entity, CallbackInfo ci) {
+        mcacrime$forget(entity, TownsteadMixinStatus.HOOK_WORK_TOOL_RESTORE);
     }
 
     /** Townstead dropping its own record — usually because the villager died or unloaded. */
     @Inject(method = "forget", at = @At("HEAD"), remap = false, require = 0, expect = 1)
-    private static void mcacrime$onForget(CallbackInfo ci) {
-        mcacrime$forget(TownsteadMixinStatus.HOOK_WORK_TOOL_FORGET);
+    private static void mcacrime$onForget(@Coerce LivingEntity entity, CallbackInfo ci) {
+        mcacrime$forget(entity, TownsteadMixinStatus.HOOK_WORK_TOOL_FORGET);
     }
 
     /**
-     * Clears the tick-context villager's record, and records that the hook ran.
-     *
-     * <p>{@code restore} and {@code forget} are both reached from the same per-villager dispatch as
-     * {@code tick}, so the context names the villager whose record is being dropped. Without a context
-     * nothing is cleared, which is the harmless direction: a stale entry is superseded by the next
-     * shift's recording and removed at the latest on death or at server stop.
+     * Clears only the villager passed to Townstead, even when another villager ticked last.
      */
-    private static void mcacrime$forget(String hookId) {
+    private static void mcacrime$forget(LivingEntity entity, String hookId) {
         try {
             TownsteadMixinStatus.injected(hookId);
-            UUID villager = mcacrime$villager();
-            if (villager != null) {
-                TownsteadEquipmentProvenance.forget(villager);
+            if (entity != null) {
+                TownsteadEquipmentProvenance.forget(entity.getUUID());
             }
         } catch (Throwable ignored) {
             // Never propagate; see the class comment.
@@ -158,7 +149,7 @@ public abstract class WorkToolProvenanceMixin {
      * integration off gets Townstead's behaviour and MCA: Crime's original equipment rule, with nothing
      * recorded in between to half-apply.
      */
-    private static UUID mcacrime$villager() {
-        return TownsteadEquipmentProvenance.active() ? TownsteadTickContext.currentEntityId() : null;
+    private static UUID mcacrime$villager(LivingEntity entity) {
+        return entity != null && TownsteadEquipmentProvenance.active() ? entity.getUUID() : null;
     }
 }

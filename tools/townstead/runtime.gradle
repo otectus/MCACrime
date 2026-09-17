@@ -1,0 +1,17 @@
+// Test-only mod compiled against the NeoForge/Mojang production namespace.
+allprojects {
+    afterEvaluate {
+        sourceSets {
+            townsteadRuntime {
+                java.srcDir 'tools/townstead/java'
+                compileClasspath = sourceSets.main.compileClasspath + sourceSets.main.output
+            }
+        }
+        tasks.register('townsteadRuntimeJar', Jar) {
+            dependsOn tasks.named('townsteadRuntimeClasses')
+            archiveBaseName = 'townstead-runtime-checks'
+            from sourceSets.townsteadRuntime.output
+            from('tools/townstead/resources')
+        }
+    }
+}
