@@ -10,6 +10,7 @@ never hears about it.
 - **Minecraft** 1.20.1 · **Forge** 47.4.10+ · **Java** 17
 - **Requires** MCA Reborn `[7.6,8)` — one jar covers every build in that range, including the
   7.7.1 package rename
+- **Requires** GeckoLib (compatible version declared in `gradle.properties`) for the shaped mask models
 - **Optional companion** MCA: Reputation 0.2.0+
 - **Licence** GPL-3.0-only
 
@@ -117,7 +118,7 @@ In 0.6.0, bounty payments retain unpaid inventory overflow and uncertain currenc
 `/crime collectbounty` to collect queued rewards. Operators can inspect/export/reconcile retained
 receipts with `/crime recovery`; see [recovery operations](docs/RECOVERY_OPERATIONS.md).
 
-Drop the jar in `mods/` alongside MCA Reborn. That is the whole installation; the mod works
+Drop the jar in `mods/` alongside MCA Reborn and GeckoLib. The mod works
 standalone.
 
 **Architectury is not required by this mod.** MCA 7.6 pulls it in itself and MCA 7.7 dropped it;

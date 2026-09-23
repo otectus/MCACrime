@@ -1,0 +1,199 @@
+{
+  "format_version": "1.12.0",
+  "minecraft:geometry": [
+    {
+      "description": {
+        "identifier": "geometry.tragedy_mask",
+        "texture_width": 32,
+        "texture_height": 32,
+        "visible_bounds_width": 3,
+        "visible_bounds_height": 3,
+        "visible_bounds_offset": [
+          0,
+          1,
+          0
+        ]
+      },
+      "bones": [
+        {
+          "name": "bipedHead",
+          "pivot": [
+            0,
+            24,
+            0
+          ]
+        },
+        {
+          "name": "Head",
+          "pivot": [
+            0,
+            24,
+            0
+          ],
+          "parent": "bipedHead"
+        },
+        {
+          "name": "armorHead",
+          "pivot": [
+            0,
+            24,
+            0
+          ],
+          "parent": "bipedHead",
+          "cubes": [
+            {
+              "origin": [
+                -4,
+                23.5,
+                -4
+              ],
+              "size": [
+                8,
+                9.0,
+                2
+              ],
+              "uv": {
+                "north": {
+                  "uv": [
+                    2,
+                    14
+                  ],
+                  "uv_size": [
+                    8,
+                    9
+                  ]
+                },
+                "east": {
+                  "uv": [
+                    0,
+                    14
+                  ],
+                  "uv_size": [
+                    2,
+                    9
+                  ]
+                },
+                "south": {
+                  "uv": [
+                    12,
+                    14
+                  ],
+                  "uv_size": [
+                    8,
+                    9
+                  ]
+                },
+                "west": {
+                  "uv": [
+                    10,
+                    14
+                  ],
+                  "uv_size": [
+                    2,
+                    9
+                  ]
+                },
+                "up": {
+                  "uv": [
+                    2,
+                    12
+                  ],
+                  "uv_size": [
+                    8,
+                    2
+                  ]
+                },
+                "down": {
+                  "uv": [
+                    10,
+                    14
+                  ],
+                  "uv_size": [
+                    8,
+                    -2
+                  ]
+                }
+              },
+              "inflate": 0.7
+            },
+            {
+              "origin": [
+                -4,
+                29,
+                -3
+              ],
+              "size": [
+                8,
+                2,
+                7
+              ],
+              "uv": {
+                "north": {
+                  "uv": [
+                    7,
+                    30
+                  ],
+                  "uv_size": [
+                    8,
+                    2
+                  ]
+                },
+                "east": {
+                  "uv": [
+                    0,
+                    30
+                  ],
+                  "uv_size": [
+                    7,
+                    2
+                  ]
+                },
+                "south": {
+                  "uv": [
+                    22,
+                    30
+                  ],
+                  "uv_size": [
+                    8,
+                    2
+                  ]
+                },
+                "west": {
+                  "uv": [
+                    15,
+                    30
+                  ],
+                  "uv_size": [
+                    7,
+                    2
+                  ]
+                },
+                "up": {
+                  "uv": [
+                    7,
+                    23
+                  ],
+                  "uv_size": [
+                    8,
+                    7
+                  ]
+                },
+                "down": {
+                  "uv": [
+                    15,
+                    30
+                  ],
+                  "uv_size": [
+                    8,
+                    -7
+                  ]
+                }
+              },
+              "inflate": 0.6
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

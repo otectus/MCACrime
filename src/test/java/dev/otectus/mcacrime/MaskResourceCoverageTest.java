@@ -62,16 +62,58 @@ class MaskResourceCoverageTest {
             Path model = ASSETS.resolve("models/item").resolve(id + ".json");
             if (!Files.isRegularFile(icon)) missing.add("icon " + icon);
             if (!Files.isRegularFile(layer)) missing.add("worn layer " + layer);
+            Path geometry = ASSETS.resolve("geo/masks").resolve(id + ".geo.json");
+            if (!Files.isRegularFile(geometry)) missing.add("worn geometry " + geometry);
             if (!Files.isRegularFile(model)) {
                 missing.add("item model " + model);
                 continue;
             }
             JsonObject definition = json(model);
-            assertEquals("item/generated", definition.get("parent").getAsString(), model.toString());
-            assertEquals("mcacrime:item/" + id,
-                    definition.getAsJsonObject("textures").get("layer0").getAsString(), model.toString());
+            if (definition.has("parent")) {
+                assertEquals("item/generated", definition.get("parent").getAsString(), model.toString());
+                assertEquals("mcacrime:item/" + id,
+                        definition.getAsJsonObject("textures").get("layer0").getAsString(), model.toString());
+            } else {
+                assertEquals("mcacrime:item/" + id,
+                        definition.getAsJsonObject("textures").get("mask").getAsString());
+                assertTrue(definition.getAsJsonArray("elements").size() > 0);
+                for (JsonElement element : definition.getAsJsonArray("elements")) {
+                    for (var face : element.getAsJsonObject().getAsJsonObject("faces").entrySet()) {
+                        assertEquals(0, face.getValue().getAsJsonObject().get("tintindex").getAsInt());
+                    }
+                }
+            }
         }
         assertTrue(missing.isEmpty(), "unfinished masks:\n  " + String.join("\n  ", missing));
+    }
+
+    @Test
+    void wornModelsHaveHeadAttachmentAndMatchingTextureDimensions() throws IOException {
+        for (MaskVariant variant : MaskVariant.values()) {
+            String id = variant.textureName();
+            JsonObject geometry = json(ASSETS.resolve("geo/masks/" + id + ".geo.json"))
+                    .getAsJsonArray("minecraft:geometry").get(0).getAsJsonObject();
+            JsonObject description = geometry.getAsJsonObject("description");
+            var image = javax.imageio.ImageIO.read(ASSETS.resolve("textures/models/armor/" + id + "_layer_1.png").toFile());
+            assertEquals(image.getWidth(), description.get("texture_width").getAsInt(), id);
+            assertEquals(image.getHeight(), description.get("texture_height").getAsInt(), id);
+            Set<String> bones = new TreeSet<>();
+            int cubes = 0;
+            for (JsonElement entry : geometry.getAsJsonArray("bones")) {
+                JsonObject bone = entry.getAsJsonObject();
+                assertTrue(bones.add(bone.get("name").getAsString()), "duplicate bone in " + id);
+                if (bone.has("parent")) assertTrue(bones.contains(bone.get("parent").getAsString()), id);
+                if (bone.has("cubes")) cubes += bone.getAsJsonArray("cubes").size();
+            }
+            assertTrue(bones.contains("armorHead"), id + " must follow the wearer's head");
+            assertTrue(cubes >= 2, id + " must include its face and bindings");
+            if (variant == MaskVariant.RAVEN) {
+                assertTrue(bones.contains("plague") && !bones.contains("jackal"));
+            } else if (variant == MaskVariant.JACKAL) {
+                assertTrue(bones.contains("jackal") && !bones.contains("plague"));
+            }
+        }
+        assertTrue(json(ASSETS.resolve("animations/masks.animation.json")).has("animations"));
     }
 
     @Test

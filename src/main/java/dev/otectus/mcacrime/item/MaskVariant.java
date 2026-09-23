@@ -48,7 +48,7 @@ public enum MaskVariant {
      * forbids.
      */
     LEATHER("leather_mask", MaskFamily.LEATHER, 0),
-    /** A compact beaked silhouette. Plague-doctor-inspired; it filters nothing. */
+    /** A plague-doctor mask with a long beak and goggles; it filters nothing. */
     RAVEN("raven_mask", MaskFamily.LEATHER, 1),
     /** Angular cheeks and short stylized ears. */
     JACKAL("jackal_mask", MaskFamily.LEATHER, 2),
@@ -67,7 +67,7 @@ public enum MaskVariant {
     /** A contrasting sorrowful theatrical face. */
     TRAGEDY("tragedy_mask", MaskFamily.CLAY, 3),
 
-    /** Stylized cheekbones and jaw openings. Intimidating, and worth exactly no armour. */
+    /** Balaclava reinterpretation; the legacy ID and crafting family remain save-compatible. */
     IRON_SKULL("iron_skull_mask", MaskFamily.METAL, 0),
     /** A simple riveted faceplate with a horizontal opening. */
     BRIGAND_VISOR("brigand_visor", MaskFamily.METAL, 1),

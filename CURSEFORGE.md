@@ -210,7 +210,7 @@ Full documentation is maintained in the repository:
 ## Installation
 
 1. Install Minecraft 1.20.1 and Forge 47.x.
-2. Install a compatible MCA Reborn version (7.6.x or 7.7.x).
+2. Install a compatible MCA Reborn version (7.6.x or 7.7.x) and GeckoLib for Forge 1.20.1.
 3. Put the MCA: Crime jar in the mods folder on both the client and server.
 4. Optionally install MCA: Reputation 0.3.0 or newer on both sides.
 5. Start the game once to generate `config/mcacrime-common.toml` and `config/mcacrime-client.toml`.
@@ -225,7 +225,7 @@ For an existing world, make a backup before upgrading. When the world loads, sav
 |---|---|
 | Minecraft | 1.20.1 |
 | Mod loader | Forge 47.4.10+; compatible with Forge 47.x range [47,) |
-| Required | MCA Reborn 7.6.x or 7.7.x (version range [7.6,8)) |
+| Required | MCA Reborn 7.6.x or 7.7.x (version range [7.6,8)), plus GeckoLib for Forge 1.20.1 |
 | Optional | MCA: Reputation 0.3.0+ (the integration itself requires 0.3.0; older versions degrade to the built-in store) |
 | Java | Java 17 |
 

@@ -1,0 +1,20 @@
+// Opt-in packaged client fixture; never included in the release jar.
+allprojects {
+    afterEvaluate {
+        sourceSets {
+            maskRuntime {
+                java.srcDir 'tools/masks/java'
+                compileClasspath = sourceSets.main.compileClasspath + sourceSets.main.output
+            }
+        }
+        tasks.register('maskRuntimeJar', Jar) {
+            dependsOn tasks.named('maskRuntimeClasses')
+            archiveBaseName = 'crime-mask-runtime-checks'
+            from sourceSets.maskRuntime.output
+            from('tools/masks/resources')
+            doFirst { manifest.attributes.remove('MixinConfigs') }
+        }
+        reobf { maskRuntimeJar {} }
+        tasks.named('maskRuntimeJar').configure { finalizedBy 'reobfMaskRuntimeJar' }
+    }
+}

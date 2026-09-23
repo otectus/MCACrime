@@ -1,0 +1,274 @@
+{
+  "format_version": "1.12.0",
+  "minecraft:geometry": [
+    {
+      "description": {
+        "identifier": "geometry.stitched_mask",
+        "texture_width": 32,
+        "texture_height": 42,
+        "visible_bounds_width": 3,
+        "visible_bounds_height": 3,
+        "visible_bounds_offset": [
+          0,
+          1,
+          0
+        ]
+      },
+      "bones": [
+        {
+          "name": "bipedHead",
+          "pivot": [
+            0,
+            24,
+            0
+          ]
+        },
+        {
+          "name": "Head",
+          "pivot": [
+            0,
+            24,
+            0
+          ],
+          "parent": "bipedHead"
+        },
+        {
+          "name": "armorHead",
+          "pivot": [
+            0,
+            24,
+            0
+          ],
+          "parent": "bipedHead",
+          "cubes": [
+            {
+              "origin": [
+                -4,
+                24,
+                -4
+              ],
+              "size": [
+                8,
+                8,
+                8
+              ],
+              "uv": {
+                "north": {
+                  "uv": [
+                    8,
+                    8
+                  ],
+                  "uv_size": [
+                    8,
+                    8
+                  ]
+                },
+                "east": {
+                  "uv": [
+                    0,
+                    8
+                  ],
+                  "uv_size": [
+                    8,
+                    8
+                  ]
+                },
+                "south": {
+                  "uv": [
+                    24,
+                    8
+                  ],
+                  "uv_size": [
+                    8,
+                    8
+                  ]
+                },
+                "west": {
+                  "uv": [
+                    16,
+                    8
+                  ],
+                  "uv_size": [
+                    8,
+                    8
+                  ]
+                },
+                "up": {
+                  "uv": [
+                    8,
+                    0
+                  ],
+                  "uv_size": [
+                    8,
+                    8
+                  ]
+                },
+                "down": {
+                  "uv": [
+                    16,
+                    8
+                  ],
+                  "uv_size": [
+                    8,
+                    -8
+                  ]
+                }
+              },
+              "inflate": 0.7
+            },
+            {
+              "origin": [
+                -4,
+                22.31,
+                -4
+              ],
+              "size": [
+                8,
+                2.0,
+                8
+              ],
+              "uv": {
+                "north": {
+                  "uv": [
+                    8,
+                    24
+                  ],
+                  "uv_size": [
+                    8,
+                    2
+                  ]
+                },
+                "east": {
+                  "uv": [
+                    0,
+                    24
+                  ],
+                  "uv_size": [
+                    8,
+                    2
+                  ]
+                },
+                "south": {
+                  "uv": [
+                    24,
+                    24
+                  ],
+                  "uv_size": [
+                    8,
+                    2
+                  ]
+                },
+                "west": {
+                  "uv": [
+                    16,
+                    24
+                  ],
+                  "uv_size": [
+                    8,
+                    2
+                  ]
+                },
+                "up": {
+                  "uv": [
+                    8,
+                    16
+                  ],
+                  "uv_size": [
+                    8,
+                    8
+                  ]
+                },
+                "down": {
+                  "uv": [
+                    16,
+                    24
+                  ],
+                  "uv_size": [
+                    8,
+                    -8
+                  ]
+                }
+              },
+              "inflate": 0.7
+            },
+            {
+              "origin": [
+                -4,
+                24.01,
+                -4
+              ],
+              "size": [
+                8,
+                8.0,
+                8
+              ],
+              "uv": {
+                "north": {
+                  "uv": [
+                    8,
+                    34
+                  ],
+                  "uv_size": [
+                    8,
+                    8
+                  ]
+                },
+                "east": {
+                  "uv": [
+                    0,
+                    34
+                  ],
+                  "uv_size": [
+                    8,
+                    8
+                  ]
+                },
+                "south": {
+                  "uv": [
+                    24,
+                    34
+                  ],
+                  "uv_size": [
+                    8,
+                    8
+                  ]
+                },
+                "west": {
+                  "uv": [
+                    16,
+                    34
+                  ],
+                  "uv_size": [
+                    8,
+                    8
+                  ]
+                },
+                "up": {
+                  "uv": [
+                    8,
+                    26
+                  ],
+                  "uv_size": [
+                    8,
+                    8
+                  ]
+                },
+                "down": {
+                  "uv": [
+                    16,
+                    34
+                  ],
+                  "uv_size": [
+                    8,
+                    -8
+                  ]
+                }
+              },
+              "inflate": 1
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

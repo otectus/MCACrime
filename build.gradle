@@ -59,6 +59,10 @@ minecraft {
 sourceSets.main.resources { srcDir 'src/generated/resources' }
 
 repositories {
+    maven {
+        url = 'https://dl.cloudsmith.io/public/geckolib3/geckolib/maven/'
+        content { includeGroup 'software.bernie.geckolib' }
+    }
     // Architectury API (hard runtime dependency of MCA Reborn's Forge build).
     maven { url = 'https://maven.architectury.dev/' }
 
@@ -104,6 +108,7 @@ mcaProbeVersions.eachWithIndex { version, i ->
 
 dependencies {
     minecraft "net.minecraftforge:forge:${minecraft_version}-${forge_version}"
+    implementation fg.deobf("software.bernie.geckolib:geckolib-forge-${minecraft_version}:${geckolib_version}")
 
     // MCA Reborn — obfuscated production (Universal) jar, remapped to our dev mappings by fg.deobf.
     //
@@ -286,6 +291,7 @@ tasks.named('processResources', ProcessResources).configure {
             minecraft_version: minecraft_version, minecraft_version_range: minecraft_version_range,
             forge_version: forge_version, forge_version_range: forge_version_range,
             loader_version_range: loader_version_range,
+            geckolib_version_range: geckolib_version_range,
             mod_id: mod_id, mod_name: mod_name, mod_license: mod_license, mod_version: mod_version,
             mod_authors: mod_authors, mod_description: mod_description,
     ]

@@ -34,6 +34,14 @@ description='''${mod_description}'''
 # Architectury dependency. A redundant mandatory=true edge here would refuse to load MCA: Crime on
 # any future MCA that stops needing Architectury.
 
+# Shaped mask armor models.
+[[dependencies.${mod_id}]]
+    modId="geckolib"
+    mandatory=true
+    versionRange="${geckolib_version_range}"
+    ordering="AFTER"
+    side="BOTH"
+
 # MCA: Reputation — OPTIONAL. When present it owns public/community standing and MCA: Crime becomes
 # the single producer for villager assault/death; when absent Crime uses its own fallback store.
 # AFTER so the Reputation API is registered before our bridge handshakes with it.

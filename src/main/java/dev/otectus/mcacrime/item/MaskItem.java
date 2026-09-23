@@ -18,23 +18,42 @@ import net.minecraft.world.level.Level;
 import javax.annotation.Nullable;
 import java.util.List;
 import java.util.function.Consumer;
+import software.bernie.geckolib.animatable.GeoItem;
+import software.bernie.geckolib.core.animatable.instance.AnimatableInstanceCache;
+import software.bernie.geckolib.core.animation.AnimatableManager;
+import software.bernie.geckolib.util.GeckoLibUtil;
 
 /**
  * A wearable mask (0.7.0, sixteen styles in 0.7.2): one class, sixteen registrations, {@link
  * MaskVariant} for the constants and {@link MaskFamily} for everything that is not the picture.
  *
  * <p>Extending {@link ArmorItem} rather than inventing an equippable is what buys right-click equip,
- * dispenser equip and worn rendering with no client code at all. What it does not buy is the worn
- * texture path — vanilla builds that from the armour material's name, so {@link #getArmorTexture} is
- * overridden to point at this mod's own layer rather than at a {@code minecraft:} path that does not
- * exist.
+ * dispenser equip. The client extension supplies the shaped GeckoLib armor model; the texture
+ * override also keeps vanilla armor texture lookups inside this mod's namespace.
  *
  * <p>Non-enchantable on purpose: Unbreaking on a disguise is a durability setting by another route,
  * and the durability setting is already {@code mask.maskDurabilityEnabled}.
  */
-public class MaskItem extends ArmorItem implements DyeableLeatherItem {
+public class MaskItem extends ArmorItem implements DyeableLeatherItem, GeoItem {
 
     private final MaskVariant variant;
+    private final AnimatableInstanceCache animationCache = GeckoLibUtil.createInstanceCache(this);
+
+    /** Forge invokes this extension hook only on the physical client. */
+    @Override
+    public void initializeClient(Consumer<net.minecraftforge.client.extensions.common.IClientItemExtensions> consumer) {
+        consumer.accept(new dev.otectus.mcacrime.client.render.mask.MaskClientExtensions());
+    }
+
+    @Override
+    public void registerControllers(AnimatableManager.ControllerRegistrar controllers) {
+        // The supplied models are static; head movement comes from the wearer's armor pose.
+    }
+
+    @Override
+    public AnimatableInstanceCache getAnimatableInstanceCache() {
+        return animationCache;
+    }
 
     public MaskItem(MaskVariant variant) {
         super(MaskArmorMaterial.of(variant.family()), ArmorItem.Type.HELMET,
