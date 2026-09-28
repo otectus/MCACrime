@@ -81,6 +81,7 @@ public final class McaHandles {
     private static final MethodHandle H_VILLAGE_ID = R.handle(McaBinding.VILLAGE_GET_ID);
     private static final MethodHandle H_VILLAGE_NAME = R.handle(McaBinding.VILLAGE_GET_NAME);
     private static final MethodHandle H_VILLAGE_MANAGER = R.handle(McaBinding.VILLAGE_MANAGER_GET);
+    private static final MethodHandle H_VILLAGE_AT = R.handle(McaBinding.VILLAGE_MANAGER_AT_POSITION);
     private static final MethodHandle H_VILLAGE_BY_ID = R.handle(McaBinding.VILLAGE_MANAGER_GET_OR_EMPTY);
     private static final MethodHandle H_VILLAGE_RESIDENTS = R.handle(McaBinding.VILLAGE_GET_RESIDENTS);
     private static final MethodHandle H_VILLAGE_POPULATION = R.handle(McaBinding.VILLAGE_GET_POPULATION);
@@ -208,6 +209,27 @@ public final class McaHandles {
         }
         Object name = ref(H_VILLAGE_NAME, village);
         return name instanceof String text && !text.isBlank() ? Optional.of(text) : Optional.empty();
+    }
+
+    /**
+     * The nearest MCA village whose border, expanded by {@code radius} blocks, contains the position.
+     *
+     * <p>The community a crime is charged to when its victim has no home village of their own — a
+     * bridged guard's hidden stand-in, a villager between homes. MCA: Reputation resolves the same
+     * case the same way, so the two mods name one community for one deed.
+     */
+    public static OptionalInt nearestVillageId(net.minecraft.server.level.ServerLevel level,
+                                               net.minecraft.core.BlockPos pos, int radius) {
+        if (level == null || pos == null || radius < 0
+                || !R.has(McaBinding.VILLAGE_MANAGER_AT_POSITION) || !R.has(McaBinding.VILLAGE_MANAGER_GET)) {
+            return OptionalInt.empty();
+        }
+        try {
+            Object village = unwrap(H_VILLAGE_AT.invoke(H_VILLAGE_MANAGER.invoke(level), pos, radius));
+            return village == null ? OptionalInt.empty() : OptionalInt.of((int) H_VILLAGE_ID.invoke(village));
+        } catch (Throwable unavailable) {
+            return OptionalInt.empty();
+        }
     }
 
     // --- village population (guard top-up) ------------------------------------------------------

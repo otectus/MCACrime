@@ -1,0 +1,10 @@
+{
+  "replace": false,
+  "values": [
+    "mcacrime:imbue",
+    "mcacrime:famine",
+    "mcacrime:shroud",
+    "mcacrime:exhaust",
+    "mcacrime:silence"
+  ]
+}

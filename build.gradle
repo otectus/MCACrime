@@ -167,43 +167,47 @@ dependencies {
     //
     // A 1.20.1 sibling output cannot be used here, which is why the path names the 1.21.1 port.
     //
-    // When the sibling is absent the adapter package is excluded from compilation rather than failing
-    // the build. A standalone clone of this repo must be buildable -- ReputationBridge reaches the
-    // adapter by name, so a missing class is the ClassNotFoundException its catch block already
-    // handles, and the mod behaves exactly as it does with Reputation uninstalled. CI that must
-    // include the adapter passes -PrequireReputation=true.
+    // The sibling's class output must be present: see the hard-error note below.
     // The path is overridable with -PmcaReputationClasses=<dir> so a build can be pointed at a
     // snapshot of the companion's class output instead of a sibling checkout that may be mid-rebuild.
     def mcaReputationClasses = file(project.findProperty('mcaReputationClasses')
             ?: "${projectDir}/../MCAReputation_1.21.1/build/classes/java/main")
+    // A missing sibling is a hard error, not a warning (family integration pass, 0.7.5): a jar built
+    // without this compile surface silently ships without the adapter while its datapack content still
+    // names it. -PskipReputationCompat=true exists for a local compile-only loop and deliberately makes `jar` fail.
+    def skipReputationCompat = project.findProperty('skipReputationCompat')?.toString() == 'true'
     if (mcaReputationClasses.exists()) {
         compileOnly files(mcaReputationClasses)
-    } else if (project.hasProperty('requireReputation')) {
-        throw new GradleException("-PrequireReputation was set but ${mcaReputationClasses} does not exist. " +
-                "Build it first: (cd ../MCAReputation_1.21.1 && ./gradlew classes)")
+    } else if (!skipReputationCompat) {
+        throw new GradleException("MCA: Reputation compile surface missing at ${mcaReputationClasses}. " +
+                "Build the sibling port's classes (../MCAReputation_1.21.1) or pass -PskipReputationCompat=true for a non-shippable build.")
     } else {
+        logger.warn("MCA: Reputation compile surface skipped; excluding dev/otectus/mcacrime/compat/reputation/** from compilation and refusing to package a jar.")
         sourceSets.main.java { exclude 'dev/otectus/mcacrime/compat/reputation/**' }
-        logger.warn("MCA: Reputation classes not found at ${mcaReputationClasses}; building WITHOUT the " +
-                "optional Reputation adapter. Build ../MCAReputation_1.21.1 (./gradlew classes) to include it.")
+        tasks.named('jar') { doFirst { throw new GradleException("Refusing to package: MCA: Reputation compat was skipped") } }
     }
 
     // MCA: Quests - OPTIONAL integration, compile-only, on exactly the same terms as Reputation above:
     // the sibling is not published to a Maven, the classes are never bundled, and McaQuestsBridge
-    // reaches the adapter by name after a ModList check. Absent sibling means the adapter package is
-    // dropped from compilation and bounties are simply never offered as quests; -PrequireQuests makes
-    // that a build failure instead, for CI that must ship the adapter.
+    // reaches the adapter by name after a ModList check. The class output must be present (see the
+    // Reputation note above): bounty_board.json ships regardless, so a jar without the adapter would
+    // advertise a quest type it cannot provide.
     // Overridable with -PmcaQuestsClasses=<dir>, symmetrically with Reputation above.
     def mcaQuestsClasses = file(project.findProperty('mcaQuestsClasses')
             ?: "${projectDir}/../MCAQuests_1.21.1/build/classes/java/main")
+    // A missing sibling is a hard error, not a warning (family integration pass, 0.7.5): a jar built
+    // without this compile surface silently ships without the adapter while its datapack content still
+    // names it. -PskipQuestsCompat=true exists for a local compile-only loop and deliberately makes `jar` fail.
+    def skipQuestsCompat = project.findProperty('skipQuestsCompat')?.toString() == 'true'
     if (mcaQuestsClasses.exists()) {
         compileOnly files(mcaQuestsClasses)
-    } else if (project.hasProperty('requireQuests')) {
-        throw new GradleException("-PrequireQuests was set but ${mcaQuestsClasses} does not exist. " +
-                "Build it first: (cd ../MCAQuests_1.21.1 && ./gradlew classes)")
+    } else if (!skipQuestsCompat) {
+        throw new GradleException("MCA: Quests compile surface missing at ${mcaQuestsClasses}. " +
+                "Build the sibling port's classes (../MCAQuests_1.21.1) or pass -PskipQuestsCompat=true for a non-shippable build.")
     } else {
+        logger.warn("MCA: Quests compile surface skipped; excluding dev/otectus/mcacrime/compat/mcaquests/** from compilation and refusing to package a jar.")
         sourceSets.main.java { exclude 'dev/otectus/mcacrime/compat/mcaquests/**' }
-        logger.warn("MCA: Quests classes not found at ${mcaQuestsClasses}; building WITHOUT the " +
-                "optional bounty-contract adapter. Build ../MCAQuests_1.21.1 (./gradlew classes) to include it.")
+        tasks.named('jar') { doFirst { throw new GradleException("Refusing to package: MCA: Quests compat was skipped") } }
     }
 
     // Unit tests for the non-MCA karma/heat engine (spec section 18).
@@ -389,6 +393,173 @@ tasks.withType(JavaCompile).configureEach {
     // have been checked at build time is checked instead by TownsteadMixinPlugin at load time, which
     // refuses to apply a mixin whose target class is absent, and by TownsteadMixinTargetTest, which
     // reads the real class out of a Townstead jar.
+}
+
+/**
+ * Compile-only API contract for sibling add-ons (MCA: Quests, MCA: Conversations, Ultima Kingdoms) (0.7.6).
+ *
+ * Classes only, never resources, so a consumer can compile against the public surface without pulling
+ * in mods.toml, data or anything that would make it a second mod. Everything under api/ is exported.
+ * The classes outside api/ in apiReadModel are a READ MODEL: the types api/'s own public signatures
+ * name, directly or transitively (Band, Resolution, the ledger and restraint records, ...). They are
+ * there so those signatures resolve and a consumer compiles against the jar alone -- ApiJarClosureTest
+ * fails the build when an exported signature names a type missing from this list -- not as a stability
+ * promise. Consumers must never ship (shade, jar-in-jar, or otherwise bundle) any of these classes;
+ * this mod provides them at runtime.
+ *
+ * Deliberately NOT reobfuscated: the jar keeps official (Mojang) names and matches the dev-time
+ * classpath of the mods that compile on it.
+ */
+def apiReadModel = [
+        'dev/otectus/mcacrime/ai/VictimReactionState',
+        'dev/otectus/mcacrime/bounty/BountyClaimKey',
+        'dev/otectus/mcacrime/bounty/BountyResolution',
+        'dev/otectus/mcacrime/bounty/BountyResolutionType',
+        'dev/otectus/mcacrime/captivity/CustodyOwner',
+        'dev/otectus/mcacrime/captivity/CustodyOwnerType',
+        'dev/otectus/mcacrime/captivity/CustodyRecord',
+        'dev/otectus/mcacrime/captivity/CustodyReleaseReason',
+        'dev/otectus/mcacrime/captivity/RestraintType',
+        'dev/otectus/mcacrime/civic/CivicTask',
+        'dev/otectus/mcacrime/civic/ServiceContract',
+        'dev/otectus/mcacrime/compat/TownsteadBuildingView',
+        'dev/otectus/mcacrime/crime/Band',
+        'dev/otectus/mcacrime/crime/KarmaSource',
+        'dev/otectus/mcacrime/detention/DetentionKind',
+        'dev/otectus/mcacrime/detention/DetentionRecord',
+        'dev/otectus/mcacrime/dialogue/DialogueContext',
+        'dev/otectus/mcacrime/economy/Currency',
+        'dev/otectus/mcacrime/economy/TransactionReason',
+        'dev/otectus/mcacrime/economy/account/ReconciliationDecision',
+        'dev/otectus/mcacrime/economy/account/TransactionReceipt',
+        'dev/otectus/mcacrime/economy/account/VillagerPurse',
+        'dev/otectus/mcacrime/economy/fence/FenceStockRecord',
+        'dev/otectus/mcacrime/facility/CellReservation',
+        'dev/otectus/mcacrime/facility/FacilityAssignment',
+        'dev/otectus/mcacrime/facility/FacilityRole',
+        'dev/otectus/mcacrime/facility/TownsteadBuildingRef',
+        'dev/otectus/mcacrime/frisk/FriskSlotKind',
+        'dev/otectus/mcacrime/frisk/FriskSlotRef',
+        'dev/otectus/mcacrime/frisk/InventoryProvider',
+        'dev/otectus/mcacrime/integration/CrimeIntegrationOperation',
+        'dev/otectus/mcacrime/integration/DedupeEntry',
+        'dev/otectus/mcacrime/jail/HoldingCell',
+        'dev/otectus/mcacrime/jail/JailAnchor',
+        'dev/otectus/mcacrime/jail/JailContainmentMode',
+        'dev/otectus/mcacrime/jail/ReleaseReason',
+        'dev/otectus/mcacrime/job/CriminalJob',
+        'dev/otectus/mcacrime/job/HistoricalProfessionKind',
+        'dev/otectus/mcacrime/job/OccupationSource',
+        'dev/otectus/mcacrime/job/OccupationStatus',
+        'dev/otectus/mcacrime/ledger/CapitalSentenceService',
+        'dev/otectus/mcacrime/ledger/CrimeRecord',
+        'dev/otectus/mcacrime/ledger/CrimeResolutionEntry',
+        'dev/otectus/mcacrime/ledger/Resolution',
+        'dev/otectus/mcacrime/ledger/SentenceKind',
+        'dev/otectus/mcacrime/ledger/Warrant',
+        'dev/otectus/mcacrime/locks/LockRecord',
+        'dev/otectus/mcacrime/locks/LockTarget',
+        'dev/otectus/mcacrime/memory/CrimeMemoryCategory',
+        'dev/otectus/mcacrime/memory/CrimeObservation',
+        'dev/otectus/mcacrime/memory/CrimeReport',
+        'dev/otectus/mcacrime/memory/ObserverRole',
+        'dev/otectus/mcacrime/memory/OffenderMemory',
+        'dev/otectus/mcacrime/memory/ReportState',
+        'dev/otectus/mcacrime/memory/VictimCrimeMemory',
+        'dev/otectus/mcacrime/memory/VillagerCrimeProfile',
+        'dev/otectus/mcacrime/property/PropertyAccess',
+        'dev/otectus/mcacrime/property/PropertyAccessRule',
+        'dev/otectus/mcacrime/property/PropertyActor',
+        'dev/otectus/mcacrime/property/PropertyOwnerKind',
+        'dev/otectus/mcacrime/property/PropertyPolicy',
+        'dev/otectus/mcacrime/property/PropertyReceipt',
+        'dev/otectus/mcacrime/property/PropertyScope',
+        'dev/otectus/mcacrime/property/PropertySource',
+        'dev/otectus/mcacrime/property/TransferAttribution',
+        'dev/otectus/mcacrime/property/WorkTransferContext',
+        'dev/otectus/mcacrime/ransom/PayerTier',
+        'dev/otectus/mcacrime/ransom/RansomState',
+        'dev/otectus/mcacrime/ransom/RansomStatus',
+        'dev/otectus/mcacrime/restraint/AppliedRestraint',
+        'dev/otectus/mcacrime/restraint/PhysicalRestraintState',
+        'dev/otectus/mcacrime/restraint/RestraintAction',
+        'dev/otectus/mcacrime/restraint/RestraintApplier',
+        'dev/otectus/mcacrime/restraint/RestraintDefinition',
+        'dev/otectus/mcacrime/restraint/RestraintFamily',
+        'dev/otectus/mcacrime/restraint/RestraintSlot',
+        'dev/otectus/mcacrime/restraint/RestrictionPolicy',
+        'dev/otectus/mcacrime/restraint/RigProfile',
+        'dev/otectus/mcacrime/state/world/AccompliceRecord',
+        'dev/otectus/mcacrime/state/world/BountyClaimRecord',
+        'dev/otectus/mcacrime/state/world/BountyContractRecord',
+        'dev/otectus/mcacrime/state/world/CapacityResult',
+        'dev/otectus/mcacrime/state/world/CrimeWorldData',
+        'dev/otectus/mcacrime/state/world/CriminalVillagerRecord',
+        'dev/otectus/mcacrime/state/world/PropertyLot',
+        'dev/otectus/mcacrime/state/world/StolenGoodsRecord',
+        'dev/otectus/mcacrime/state/world/WorksiteRef',
+        'dev/otectus/mcacrime/tether/TetherKind',
+        'dev/otectus/mcacrime/tether/TetherRecord',
+]
+
+def apiExports = ['dev/otectus/mcacrime/api/**'] + apiReadModel.collectMany { [it + '.class', it + '$*.class'] }
+
+tasks.register('apiJar', Jar) {
+    // Reproducible: no entry timestamps and a fixed entry order, so a rebuild from the same sources yields
+    // the same bytes and the SHA-256 pins in consumers' gradle/sibling-apis.properties survive it.
+    preserveFileTimestamps = false
+    reproducibleFileOrder = true
+    group = 'build'
+    description = 'Compile-only API artifact for sibling add-ons; classes only, official mappings.'
+    dependsOn 'compileJava'
+    archiveClassifier = 'api'
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    from(sourceSets.main.output.classesDirs) {
+        include apiExports
+    }
+    manifest {
+        attributes([
+                'Specification-Title'   : "${mod_id}-api".toString(),
+                'Specification-Version' : mod_version.toString(),
+                'Implementation-Title'  : "${mod_id}-api".toString()
+        ])
+    }
+}
+
+tasks.named('assemble').configure {
+    dependsOn 'apiJar'
+}
+
+tasks.register('verifyApiJar') {
+    group = 'verification'
+    description = 'Fails if the api jar is missing an exported class or has leaked resources into it.'
+    dependsOn 'apiJar'
+    def apiArchive = tasks.named('apiJar', Jar).flatMap { it.archiveFile }
+    def required = apiReadModel.collect { it + '.class' }
+    inputs.file(apiArchive)
+    doLast {
+        def jarFile = apiArchive.get().asFile
+        def names = new java.util.zip.ZipFile(jarFile).withCloseable { zip -> zip.entries().collect { it.name } }
+        if (!names.any { it.startsWith('dev/otectus/mcacrime/api/') }) {
+            throw new GradleException("${jarFile.name} carries no dev/otectus/mcacrime/api/ classes at all; " +
+                    'the export filter matched nothing.')
+        }
+        def missing = required.findAll { !names.contains(it) }
+        if (missing) {
+            throw new GradleException("${jarFile.name} is missing read-model class(es): ${missing}; " +
+                    'a class in apiReadModel was renamed or removed.')
+        }
+        def resources = names.findAll { !it.endsWith('.class') && !it.endsWith('/') && !it.startsWith('META-INF/') }
+        if (resources) {
+            throw new GradleException("${jarFile.name} leaked resources into the api jar: ${resources.take(10)}")
+        }
+        logger.lifecycle("verifyApiJar: ${jarFile.name} is a clean compile-only API artifact " +
+                "(${names.count { it.endsWith('.class') }} classes).")
+    }
+}
+
+tasks.named('check').configure {
+    dependsOn 'verifyApiJar'
 }
 
 /**

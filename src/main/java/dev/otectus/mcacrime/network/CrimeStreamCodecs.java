@@ -17,7 +17,7 @@ import net.minecraft.network.codec.StreamCodec;
  * registrar reports it, and an ordinal no build ever wrote means the peer is not the peer it claims
  * to be. Same policy as the bounded collection codecs, which throw on an over-limit count.
  */
-final class CrimeStreamCodecs {
+public final class CrimeStreamCodecs {
 
     /** Fixed-width 64-bit, matching what the karma/heat/captivity packets have always written. */
     static final StreamCodec<RegistryFriendlyByteBuf, Long> LONG =
@@ -38,7 +38,7 @@ final class CrimeStreamCodecs {
      *
      * @param what a short noun for the error message, so a rejected payload says which field was wrong
      */
-    static <E extends Enum<E>> StreamCodec<RegistryFriendlyByteBuf, E> enumCodec(Class<E> type, String what) {
+    public static <E extends Enum<E>> StreamCodec<RegistryFriendlyByteBuf, E> enumCodec(Class<E> type, String what) {
         E[] values = type.getEnumConstants();
         return StreamCodec.of(
                 (buf, value) -> buf.writeVarInt(value.ordinal()),

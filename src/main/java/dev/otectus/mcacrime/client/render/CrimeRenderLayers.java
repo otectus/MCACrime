@@ -1,8 +1,9 @@
 package dev.otectus.mcacrime.client.render;
 
 import dev.otectus.mcacrime.McaCrime;
+import dev.otectus.mcacrime.client.render.restraint.RestraintModels;
+import dev.otectus.mcacrime.client.render.restraint.RestraintSlotLayer;
 import net.minecraft.client.model.HumanoidModel;
-import net.minecraft.client.model.geom.ModelPart;
 import net.minecraft.client.renderer.entity.EntityRenderer;
 import net.minecraft.client.renderer.entity.LivingEntityRenderer;
 import net.minecraft.client.renderer.entity.RenderLayerParent;
@@ -43,7 +44,10 @@ public final class CrimeRenderLayers {
 
     @SubscribeEvent
     public static void onRegisterLayerDefinitions(EntityRenderersEvent.RegisterLayerDefinitions event) {
-        event.registerLayerDefinition(RestraintWristLayer.LAYER, RestraintWristLayer::createLayer);
+        // Eight worn models, registered from the same table the layer draws from, so a definition
+        // cannot be drawable without being registered or registered without being drawable.
+        RestraintModels.all().forEach((definitionId, worn) ->
+                event.registerLayerDefinition(worn.layer(), () -> RestraintModels.create(definitionId)));
     }
 
     @SubscribeEvent
@@ -51,8 +55,7 @@ public final class CrimeRenderLayers {
         for (PlayerSkin.Model skin : event.getSkins()) {
             EntityRenderer<? extends Player> renderer = event.getSkin(skin);
             if (renderer instanceof PlayerRenderer player) {
-                player.addLayer(new RestraintWristLayer<>(player,
-                        event.getEntityModels().bakeLayer(RestraintWristLayer.LAYER)));
+                player.addLayer(new RestraintSlotLayer<>(player, event.getEntityModels()));
             }
         }
         for (EntityType<?> type : event.getEntityTypes()) {
@@ -64,7 +67,7 @@ public final class CrimeRenderLayers {
     }
 
     /**
-     * Attaches the wrist layer to one entity type's renderer, if that renderer can wear it.
+     * Attaches the restraint layer to one entity type's renderer, if that renderer can wear it.
      *
      * <p>The casts are unavoidable: the event hands out {@code EntityType<?>} and its lookup is
      * generic in the entity, so the generic identity is lost at the boundary either way. Every one of
@@ -78,9 +81,10 @@ public final class CrimeRenderLayers {
                 || !(renderer.getModel() instanceof HumanoidModel<?>)) {
             return;
         }
-        // A fresh bake per renderer: the layer copies the arm transforms into its own parts every
-        // frame, so two renderers sharing one ModelPart would fight over it.
-        ModelPart cuffs = event.getEntityModels().bakeLayer(RestraintWristLayer.LAYER);
-        ((LivingEntityRenderer) renderer).addLayer(new RestraintWristLayer((RenderLayerParent) renderer, cuffs));
+        // A fresh bake per renderer, done inside the layer's own constructor: the layer copies the
+        // body transforms into its own parts every frame, so two renderers sharing one ModelPart
+        // would fight over it.
+        ((LivingEntityRenderer) renderer).addLayer(
+                new RestraintSlotLayer((RenderLayerParent) renderer, event.getEntityModels()));
     }
 }

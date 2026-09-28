@@ -131,12 +131,27 @@ public final class SleepAwarenessGameTests {
         });
     }
 
+    /**
+     * Sleep and the physical hold, as 0.7.5 leaves them (M7.1, §5.1).
+     *
+     * <p>{@code McaCompat.leashTo} is gone with the capture engine that called it: a hold is a
+     * {@code tether/TetherRecord} now, and sleep is an <em>opening</em> the application transaction
+     * reads rather than something a restraint ends. Both halves of that are asserted here on a real
+     * server: a sleeping subject reports the {@code sleeping} vulnerability, and the surviving
+     * {@code clearLeash} still releases a captive an older version (or another mod) left leashed,
+     * without deleting them.
+     */
     @GameTest(template = "cell_parity")
-    public static void physicalRestraintWakesSleepingCaptive(GameTestHelper helper) {
+    public static void sleepIsAnOpeningAndALegacyLeashIsStillReleased(GameTestHelper helper) {
         var captive = sleeper(helper, false, false);
-        var captor = helper.spawnWithNoFreeWill(EntityType.COW, new BlockPos(6, 1, 4));
-        helper.assertTrue(McaCompat.leashTo(captive, captor), "Physical restraint failed");
-        helper.assertTrue(!captive.isSleeping(), "Restrained captive remained in the sleeping pose");
-        captive.discard(); captor.discard(); helper.succeed();
+        var holder = helper.spawnWithNoFreeWill(EntityType.COW, new BlockPos(6, 1, 4));
+        helper.assertTrue(dev.otectus.mcacrime.restraint.RestraintService.vulnerability(captive, null).sleeping(),
+                "A sleeping subject is not reported as vulnerable, so the sleeping gate refuses nothing");
+        captive.setLeashedTo(holder, true);
+        helper.assertTrue(captive.isLeashed(), "Fixture never took the legacy leash");
+        McaCompat.clearLeash(captive);
+        helper.assertTrue(!captive.isLeashed(), "A legacy leash survived release");
+        helper.assertTrue(captive.isAlive(), "Releasing a leash deleted the captive");
+        captive.discard(); holder.discard(); helper.succeed();
     }
 }

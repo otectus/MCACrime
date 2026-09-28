@@ -7,7 +7,7 @@ package dev.otectus.mcacrime.captivity;
  * record and nothing else: the caller could not tell "somebody else got there first" from "you are
  * already holding as many people as you are allowed to", so it could neither say which happened nor
  * decide whether the restraint in the captor's hand should be spent. Naming the reasons is what makes
- * {@link CaptureTicker}'s commit sequence able to consume an item only on {@link #CAPTURED}, and what
+ * {@link CustodyService}'s commit sequence able to consume an item only on {@link #CAPTURED}, and what
  * lets {@code ArrestService} abort an arrest whose custody could not be installed.
  *
  * <p>Names, never ordinals, if one of these is ever persisted.

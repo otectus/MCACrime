@@ -6,7 +6,6 @@ import dev.otectus.mcacrime.audio.CrimeSounds;
 import dev.otectus.mcacrime.captivity.CustodyRecord;
 import dev.otectus.mcacrime.captivity.CustodyReleaseReason;
 import dev.otectus.mcacrime.captivity.CustodyService;
-import dev.otectus.mcacrime.captivity.RestraintType;
 import dev.otectus.mcacrime.compat.McaCompat;
 import dev.otectus.mcacrime.dialogue.CrimeDialogueService;
 import dev.otectus.mcacrime.dialogue.DialogueEvents;
@@ -89,7 +88,9 @@ public final class RescueActionHandler implements CrimeActionHandler {
         if (!actor.canReach(target, REACH_SQR)) {
             return ActionAvailability.blocked("mcacrime.rescue.range");
         }
-        if (record.getRestraint() == RestraintType.LOCKED_CUFFS && !CrimeItems.hasKey(player)) {
+        // What is actually on them decides what it takes to get it off: a definition that names a key
+        // needs one, and a rescuer without it is told so rather than made to channel for nothing.
+        if (needsKey(server, target.getUUID()) && !CrimeItems.hasKey(player)) {
             return ActionAvailability.blocked("mcacrime.rescue.needs_key");
         }
         return ActionAvailability.available();
@@ -194,19 +195,42 @@ public final class RescueActionHandler implements CrimeActionHandler {
     }
 
     /**
-     * How long this rescue takes, from the restraint and what the rescuer brought.
+     * Whether anything worn on this captive needs a key to come off.
      *
-     * <p>Locked cuffs never reach here without a key — {@link #evaluate} blocks that — so the key
-     * discount is the only branch they have.
+     * <p>Asked of the physical state rather than the custody row, which stopped naming a restraint in
+     * 0.7.5. A captive wearing tape and cuffs needs the key for the cuffs, so any keyed slot counts.
+     */
+    private static boolean needsKey(MinecraftServer server, UUID captive) {
+        var state = CrimeWorldData.get(server).physicalRestraint(captive);
+        if (state == null) {
+            return false;
+        }
+        for (var slot : dev.otectus.mcacrime.restraint.RestraintSlot.values()) {
+            boolean keyed = state.slot(slot)
+                    .flatMap(dev.otectus.mcacrime.restraint.AppliedRestraint::definition)
+                    .map(definition -> definition.keyItem().isPresent())
+                    .orElse(false);
+            if (keyed) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * How long this rescue takes, from what is on the captive and what the rescuer brought.
+     *
+     * <p>A keyed restraint never reaches here without a key — {@link #evaluate} blocks that — so the
+     * key discount is the only branch it has. Keyless gear is cut or peeled off, and a rescuer with a
+     * blade is quicker at it.
      */
     private static int channelTicks(ServerPlayer rescuer, CustodyRecord record) {
         int base = McaCrimeConfig.COMMON.rescueChannelTicks.get();
-        double multiplier = switch (record.getRestraint()) {
-            case ROPE -> CrimeItems.hasCuttingTool(rescuer) ? 0.5D : 1.0D;
-            case CUFFS -> CrimeItems.hasKey(rescuer) ? WITH_KEY : CUFFS_WITHOUT_KEY;
-            case LOCKED_CUFFS -> WITH_KEY;
-            case NONE -> 0.5D;
-        };
+        MinecraftServer server = rescuer.getServer();
+        boolean keyed = server != null && needsKey(server, record.getCaptive());
+        double multiplier = keyed
+                ? (CrimeItems.hasKey(rescuer) ? WITH_KEY : CUFFS_WITHOUT_KEY)
+                : (CrimeItems.hasCuttingTool(rescuer) ? 0.5D : 1.0D);
         return Math.max(1, (int) Math.round(base * multiplier));
     }
 }

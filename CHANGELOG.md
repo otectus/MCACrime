@@ -5,6 +5,419 @@ All notable changes to MCA: Crime.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); this project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.5] — unreleased
+
+MCA: Crime absorbs the working core of the Cuffed feature set as native code on the NeoForge 1.21.1
+line, mirroring the Forge 0.7.5 release. One physical-restraint engine replaces the single-slot
+restraint enum, the capture channel, the cuff-escape path, the kidnapping teleport tether, the NPC
+leash and the wrist-only rendering. Everything legal — cases, sentences, witnesses, bounties,
+ransom, property, facilities, occupations, masks and the companion integrations — is kept and
+extended. One feature here is **not** from Cuffed: a capital sentence for killing a guard, scoped in
+by the user and behind its own config group.
+
+Compatibility: Minecraft 1.21.1 · NeoForge `[21.1.248,21.2)` (see `gradle.properties`; the version
+ranges live there and nowhere else) · MCA Reborn mandatory at runtime · world schema **15** ·
+network protocol **16**. Neither Cuffed nor Locks Reforged is required for anything in this release:
+restraints, locks and lockpicking are all native. Cuffed installed alongside is detected by mod id
+and handled by `compatibility.cuffedCoexistence` (`WARN` by default). Locks Reforged remains an
+optional companion for its own locks and for fence stock; on a block it already owns, MCA: Crime
+refuses to be the second lock (`locks.foreignLockPolicy = REFUSE`). The protocol bump means an old
+client fails its handshake cleanly instead of decoding a multi-slot payload as the old one. The
+protocol number is shared with the Forge line by design and still does not imply cross-loader
+compatibility: a Forge 1.20.1 client cannot join this port.
+
+### Family integration pass (2026-09-27, mirrored from Forge)
+
+- **A missing sibling compile surface is a build failure** (`-PskipReputationCompat` / `-PskipQuestsCompat` keep a
+  local compile loop possible and refuse to package). The build used to silently exclude `compat/reputation` and
+  `compat/mcaquests` when the sibling port's class output was absent, so a clean clone shipped a jar with no
+  Reputation or bounty-contract integration while still carrying the `bounty_board` quest JSON that needs it.
+- **`apiJar`**: a compile-only API artifact (`api/**` plus the read model its signatures name,
+  `ApiJarClosureTest`-checked) so MCA: Quests, MCA: Conversations and Ultima Kingdoms can compile against
+  this mod's published surface instead of its class output. The `apiJar` task is reproducible (no entry timestamps, fixed entry order), so a rebuild from unchanged sources yields the same hash and consumers' pins survive it.
+- **`CrimeDialogueHooks` / `CrimeDialogueResolver`** (`api/`): an add-on may speak this mod's dialogue
+  events in its own voice — MCA: Conversations voices a guard's challenge in the guard's personality —
+  with the datapack line as the fallback and a throwing resolver handing over to the next.
+- **A victim with no home village is charged to the nearest one** (`detection.communitySearchRadius`,
+  default 64, 0 restores the old rule). An assault on a Guard Villagers guard bridged by MCA: Mob
+  Compatibility named no community, and MCA: Reputation refused the case as invalid.
+- `ReputationCapabilitySnapshot` reports `incident_exemptions_v1`, the capability MCA: Reputation 0.6.1
+  adds for the thief-combat exemption `ReputationExemptionBridge` has probed for since 0.7.5; the log
+  line now names that version instead of a generic "requires the capability".
+- The refused-authority log no longer tells operators to look for a Reputation switch that did not
+  exist; it names `coreAuthorityUndeclaredKinds`, and Reputation's new `enableCrimeIntegration`.
+- `neoforge.mods.toml` declares `mcaquests`, `townstead` and `ultima_kingdoms` as optional `AFTER` companions with
+  range `[0,)` (ordering only, never a launch blocker), the convention MCA: Mob Compatibility documents.
+
+- Added peaceful player reporting from server-authored victim/eyewitness evidence, persistent attempted
+  robbery receipts, local responder dispatch and report status screens.
+- Added configurable Thief combat exemptions with protected-prisoner exceptions and precisely scoped
+  native MCA heart/gossip hooks. Optional Reputation handback coverage uses the separate capability patch.
+- Added bounded factual village news through MCA's native mailbox, same-object mail receipts,
+  collection dirty marking, personal subscriptions and retained delivery reconciliation.
+- Added 17 mapped gameplay rules plus the opt-in selector, Create World controls and operator import/default commands.
+- Redesigned the generated temporary holding cell around the prison set: a reinforced-stone floor,
+  roof and corner pillars, reinforced bars, and a cell door in the wall facing the arrest, held shut
+  by a padlock the mod hangs itself. The padlock can be picked from outside, or through the door from
+  inside by a prisoner who kept a lockpick; picking it swings the door open. A player who then walks
+  out has **escaped**: the cell comes down as it would on release, the sentence is kept and marked
+  escaped, a jailbreak is filed, and nothing that a release means happens; re-arresting them raises
+  a fresh cell for the same term. A villager who walks out leaves custody as escaped, its cases stay
+  open and marked escaped, and the next guard that recognises it arrests it again.
+- A padlock picked off any cell door now swings that door open, and a padlock hanging on a cell door
+  holds it shut and answers key and pick interactions on the door until a key is cut for the door
+  itself. Previously a padlock on an unbound cell door did not lock it.
+- Leaving a jail region is now an escape in every containment mode once a generated cell's door has
+  been breached (padlock picked, detached or unlocked); PHYSICAL mode is unchanged, and other exits in
+  CONTAINMENT/REINFORCED still teleport the prisoner back. A generated cell that has come down is not
+  a jail: walking back onto its ground does not resume the sentence, only recapture or surrender does.
+- Fixed the holding-cell journal recording each block before its neighbours had updated it, which
+  left bars without arms toward earlier-placed neighbours and made demolition skip them as "changed";
+  blocks are now settled against the finished structure before the journal is written, and demolition
+  compares by block rather than by exact state so an opened door is still the mod's door.
+- Removed `prison.generatedCellPalette` (unreleased): the reinforced cell is the only generated cell.
+  Cells already standing restore from their own journal.
+- Advanced world schema to 16 (additive news; no invented historical evidence) and protocol to 18.
+- Added `InstitutionalServiceApi`, an authenticated workshop-legality read for paid institutional
+  services, and `JurisdictionPolicyApi` with the `api.jurisdiction` provider extension, so a
+  political mod can supply sovereignty and safe-conduct evidence that Crime interprets. Guard
+  challenges consult that evidence, and `McaCrimeApi` gains the matching jurisdiction methods. Both are
+  additive, so the API version stays 2. They are the provider half of Ultima Kingdoms' R2 workshop
+  commissions and R3 jurisdiction; see API.md.
+
+MCA: Crime absorbs the working core of the Cuffed feature set as native code. One physical-restraint
+engine replaces the single-slot restraint enum, the capture channel, the cuff-escape path, the
+kidnapping teleport tether, the NPC leash and the wrist-only rendering. Everything legal — cases,
+sentences, witnesses, bounties, ransom, property, facilities, occupations, masks and the companion
+integrations — is kept and extended. One feature here is **not** from Cuffed: a capital sentence for
+killing a guard, scoped in by the user and behind its own config group.
+
+Compatibility: Minecraft 1.20.1 · Forge 47.4.10 · MCA Reborn mandatory at runtime · world schema
+**16** · network protocol **18**. Neither Cuffed nor Locks Reforged is required for anything in this
+release: restraints, locks and lockpicking are all native. Cuffed installed alongside is detected by
+mod id and handled by `compatibility.cuffedCoexistence` (`WARN` by default). Locks Reforged remains
+an optional companion for its own locks and for fence stock; on a block it already owns, MCA: Crime
+refuses to be the second lock (`locks.foreignLockPolicy = REFUSE`). The protocol bump means an old
+client fails its handshake cleanly instead of decoding a multi-slot snapshot as the old packet.
+
+### Added
+
+- **The generated holding cell, rebuilt around the prison set.** An arrest with no assigned jail now
+  raises a reinforced-stone floor, roof and corner pillars, reinforced bars, and a cell door in the
+  wall facing the arrest, held shut by a padlock the mod hangs itself. The padlock can be picked from
+  outside, or through the door from inside by a prisoner who kept a lockpick; picking it swings the
+  door open. A player who then walks out has **escaped**: the cell comes down as it would on release,
+  the sentence is kept and marked escaped, a jailbreak is filed, and nothing that a release means
+  happens; re-arresting them raises a fresh cell for the same term. A villager who walks out leaves
+  custody as escaped, its cases stay open and marked escaped, and the next guard that recognises it
+  arrests it again. Mirrors the Forge baseline; `prison.generatedCellPalette` (unreleased) is gone
+  with it, and cells already standing restore from their own journal.
+- **Restraints and slots.** A subject has three independent slots — head, arms and legs — each
+  holding an `AppliedRestraint` with its own item snapshot, durability, applier and provenance.
+  Durability is struggle work the *worn instance* withstands, so two prisoners never share one
+  counter, and it is persisted. Restriction is composed per action from the slots that are filled,
+  rather than "any restraint blocks everything".
+- **Keys and struggling.** `restraint/EscapeService` owns struggle work server-side: no client
+  payload carries a durability delta, inputs are rate-limited per player, and a restraint somebody
+  supplied is returned on removal while system-issued gear returns nothing. Handcuff and shackle
+  keys, a generic key, key rings, key molds and baked molds, and a bind breaker that performs a real
+  rekey and invalidates old keys.
+- **Native lockpicking.** `lockpick/LockpickService` is a server-owned mini-game: the server
+  computes the outcome and takes the actor's identity from the connection. It needs neither Cuffed
+  nor Locks Reforged. The alignment window is asymmetric and both halves are configurable as an
+  accessibility setting, and the per-tick meter drain runs on the tick rate rather than on the
+  picker's frame rate.
+- **Locks, keys and safes.** `locks/LockService` owns lock identity, binding revision and
+  reinforcement; a `LockableBlockEntity` stores only a lock id and a `PadlockEntity` only a lock id.
+  Padlocks protect vanilla containers, and a lockable cell door and a safe ship with them. The
+  safe's inventory is exposed through NeoForge block capabilities and invalidated explicitly, rather
+  than through a Forge `LazyOptional`. Automation is policed on every operation
+  (`locks.lockAutomationPolicy`), and locked blocks can be protected from breaking, explosions and
+  pistons.
+- **Escort, chains and anchors.** `tether/TetherService` replaces the teleport tether and the NPC
+  leash with one tether engine: chains, fence and tripwire-hook knots, and a collision-aware escort
+  with validity checked before any correction. The chain knot is a
+  `BlockAttachedEntity`, which is what 1.21.1 calls the behaviour the baseline gets from
+  `HangingEntity`. Overextension hurts through `mcacrime:hang` and is attributed to whoever holds
+  the other end, never to the victim; a lawful escort can be made harmless outright.
+- **Pillory, guillotine and bunks.** Three detention devices with persisted occupancy and pose.
+  The guillotine's activation delay is persisted, so an unload inside the window neither cancels nor
+  repeats a blow. Bunks optionally set a respawn point and restore the previous one on release.
+- **Frisking.** A search opens from the crime menu on a restrained subject. A frisk session is a
+  read-only projection plus explicit transfers, not a vanilla container: range and timing are
+  re-checked every tick, only the authorised searcher ever receives searchable contents, a lawful
+  seizure is recorded in the property escrow so it comes back when custody ends, and anything else
+  goes into the searcher's own inventory and is filed as a theft.
+- **Four registered data component types** in `state/CrimeDataComponents` —
+  `lock_binding`, `key_ring_contents`, `key_mold_binding` and `key_mold_quality` — carrying
+  what the Forge line keeps in item NBT. 1.21.1 has no item NBT, so the inline NBT reads the
+  baseline keeps in `item/lock/KeyRingItem.java`, `item/lock/KeyMoldItem.java` and
+  `item/PosterBlockItem.java` have no counterpart here.
+- **A reinforced building set.** Eight reinforced blocks, with breaking, explosion and piston
+  policies of their own, plus a `REINFORCED` palette option for newly generated holding cells.
+  Nothing in the set is unbreakable: the default is an ordinary block that wants an iron pickaxe.
+- **Five restraint enchantments** — Imbue, Famine, Shroud, Exhaust and Silence — each
+  level-clamped before any arithmetic reads it, each individually disableable, and all of them still
+  loadable and removable once disabled. On 1.21 an enchantment is a registry **data** entry, so they
+  ship as `data/mcacrime/enchantment/*.json` with `ResourceKey` constants rather than as classes,
+  and their availability is expressed by the vanilla tags `#minecraft:in_enchanting_table` and
+  `#minecraft:on_random_loot`. None of the six joins `#minecraft:treasure`,
+  `#minecraft:double_trade_price` or `#minecraft:tradeable`.
+
+- **Capital sentence for killing a guard** (`sentencing.capitalPunishment`). The **only** capital
+  offence is killing a guard: a new `mcacrime:kill_guard` crime id makes that distinguishable for the
+  first time. **Nothing escalates automatically** — no other offence qualifies, and no timer,
+  circuit, payload or scheduled task ever carries a sentence out. Execution is always a deliberate
+  act at a guillotine by a player or an on-duty guard. With no usable guillotine the condemned stays
+  in custody: no substitute death, no despawn, no automatic commutation, no expiry into freedom.
+  Pardon and commutation are the only legal exits and both are explicit privileged transactions. One
+  key, `sentencing.capitalPunishment.enabled`, switches the whole group off. This is a user-scoped
+  feature, not Cuffed parity, and it is present on both lines with identical defaults.
+- **Data-driven restraint profiles.** A datapack may retune an existing restraint definition —
+  durability, the restriction components, the pick numbers, the key family and the supported rigs —
+  through `data/<namespace>/mcacrime/restraint_profiles/<definition path>.json`. The file name is
+  the definition id; a pack can never add, remove or re-slot a definition. A file is accepted or
+  refused whole, no profile files ship, and profiles reload with `/reload` and sync to clients on
+  login and on every reload through the new `mcacrime:restraint_profiles` payload. Format in
+  [DATAPACK.md](DATAPACK.md).
+- **Public API v2.** `McaCrimeApi.getApiVersion()` returns `2`. New read-only projections
+  `RestraintView`, `RestraintSlotView`, `TransportView`, `DetentionView`, `CapitalSentenceView`,
+  `FriskSessionView` and `LockView` (which never exposes a binding, so a view cannot mint a key); new
+  events `RestraintAppliedEvent`, `RestraintRemovedEvent`, `PhysicalEscapeEvent`,
+  `SubjectSeizedEvent`, `DetentionOutcomeEvent`, `CapitalSentenceAssignedEvent`,
+  `ExecutionCarriedOutEvent` and `SentenceCommutedEvent`; `RestraintRegistrationApi` for third-party
+  restraint definitions and inventory providers; and two clemency mutators,
+  `commuteCapitalSentence` and `pardonCapitalSentence`. Nothing on the facade can assign a capital
+  sentence, arm a device or carry an execution out.
+- **Commands.** `/crime restraint apply|remove|inspect`, `/crime anchor set|remove`, `/crime lock inspect|reset`, `/crime debug restraints` and `/crime recovery restraints
+  <target>`, with the mutating subcommands at permission 3.
+- **Sounds.** The seven `mcacrime` sound events — `restraint.apply_handcuffs`,
+  `restraint.apply_shackles`, `block.pillory.use`, `block.guillotine.use`, `block.guillotine.arm`,
+  `block.safe.open` and `block.safe.close` — resolve to vanilla sounds through `"type": "event"`
+  redirects in `assets/mcacrime/sounds.json`, each with a subtitle. **No audio files are shipped**,
+  and the ids stay stable, so authored audio or a resource pack can replace any of them later
+  without an id change. `SoundResourceCoverageTest` guards the set.
+
+### Changed
+
+- A padlock picked off any cell door now swings that door open, and a padlock hanging on a cell door
+  holds it shut and answers key and pick interactions on the door until a key is cut for the door
+  itself; previously a padlock on an unbound cell door did not lock it. Leaving a jail region is an
+  escape in every containment mode once a generated cell's door has been breached (padlock picked,
+  detached or unlocked); PHYSICAL mode is unchanged, and other exits in CONTAINMENT/REINFORCED still
+  teleport the prisoner back. A generated cell that has come down is not a jail: walking back onto
+  its ground does not resume the sentence, only recapture or surrender does.
+- **World data is schema 15** (`CrimeDataMigrations.SCHEMA_CUFFED_PHYSICAL`): four new physical
+  tables — `physicalRestraints`, `tethers`, `detentions` and `locks` — plus `custodyId`
+  and `generation` on every custody row. The 14→15 step is pure and invents no gear; converting the
+  old restraint enum into real gear is a separate impure pass in `RestraintMigrationReconciler`,
+  stamped with a `reconciledSchema` marker so a repeated load is a no-op. See
+  [docs/MIGRATION.md](docs/MIGRATION.md).
+- **Network protocol is 16.** `RestraintSyncS2CPacket` and `RestraintBulkSyncS2CPacket` are replaced
+  by `PhysicalStateS2CPacket`, `PhysicalStateDeltaS2CPacket` and `PhysicalStateRemoveS2CPacket`;
+  `CaptiveStatusS2CPacket` keeps its legal payload and loses its restraint field. Every C2S payload
+  now carries intent only — session, target handle, slot, input kind and sequence — and the server
+  validates freshness, dimension, distance, sight, held item, target revision and menu ownership
+  itself. All of it is NeoForge's common-side `CustomPacketPayload` API with stream codecs, routed
+  to the client through `CrimeClientPayloadRouter`; every C2S enum is decoded by
+  `CrimeStreamCodecs.enumCodec`, which refuses an ordinal no build ever wrote rather than falling
+  back to a default.
+- **Item identity.** `mcacrime:restraint_cuffs` is now **Shackles** and `mcacrime:restraint_locked_cuffs`
+  is now **Handcuffs**; both textures are preserved byte for byte and neither id is repurposed or
+  removed, so no stack is orphaned and the fence price table still resolves.
+  `mcacrime.rescue.needs_key` was the only other string naming an old item name and now reads
+  "Handcuffs. You need a key." `mcacrime:restraint_rope` stays registered as a hidden carrier id, is
+  out of the creative tab, converts to **Duct Tape** at controlled boundaries, and has a lossless
+  `rope_to_duck_tape` recipe.
+- **Physical is not legal.** `restraint/CustodyTransitionService` is the only bridge between the two
+  state machines. Removing a restraint is not a release, opening a cell door is not a pardon,
+  escaping a kidnapper files no jailbreak and costs the victim no Heat, and a self-applied restraint
+  is never a kidnapping.
+- **The legacy engine is gone.** `CaptureChannel(s)`, `CaptureService`, `CaptureTicker`,
+  `CaptureVulnerability`, `CuffEscapeService`, `CuffLockProgress`, `CustodyConfine`,
+  `EscortRestraint`, `RestraintPolicy`, `RestraintSync`, the `RestraintVisual*` triple,
+  `RestraintWristLayer`, `ClientRestraintData` and `compat/locksreforged/CuffLockPickingMenu` are
+  deleted. `captivity/RestraintType` survives only as a deprecated projection behind
+  `EntityKidnappedEvent#getRestraint` and `CustodyView#restraint`, and is never written to world data
+  again. `compat/McaCompat.leashTo` is deleted; `clearLeash` survives as the legacy release path only.
+- **Twenty-one config keys are retired** — nineteen physical `[kidnapping]` keys plus client
+  `renderCuffs` and `renderEscortRope`. Values are **not** auto-migrated: `ModConfigSpec` drops them
+  on rewrite, they are mapped one-for-one in [CONFIG.md](CONFIG.md) and
+  [docs/MIGRATION.md](docs/MIGRATION.md), and `ConfigValidator` reads both `mcacrime-common.toml` and
+  `mcacrime-client.toml` at startup and names every survivor it still finds without failing the load.
+  Thirteen further 0.7.5 keys were renamed before release so that no key repeats its own section
+  name; they are new in this version, so no existing file is affected.
+- **Two presets, `restraints.preset`.** `CUFFED_PARITY` (default) is the shipped behaviour:
+  immediate application (`restraints.application.channelTicks` now defaults to `0`), independent
+  slots, source durability, keys, native picking, chains, fixed anchors, furniture and all items
+  functioning, with low-health gating off. `BALANCED_VILLAGE` adds an application duration,
+  vulnerability requirements, stricter player-capture permissions and non-destructive picking. A
+  preset is never applied silently and never overwrites an operator's own later edits.
+  `lockpicking.destructiveOutcome` is the one deliberate divergence: it ships `false` while
+  `CUFFED_PARITY` holds `true`, and that is true of both lines. A config file with a **blank**
+  `appliedPreset` marker no longer auto-applies the shipped default preset — that case is a fresh or
+  hand-blanked file and the shipped defaults already are that preset apart from the one key; an
+  explicitly chosen non-default preset still applies over a blank marker and names every moved key in
+  the log.
+- **A config reload cancels every live session** (`restraint/SessionReloadPolicy`, cause
+  `SessionCancelCause.CONFIG_RELOADED`). Tethers are deliberately not detached.
+- `JailSentenceView` gains a trailing `sentenceKind` component and a `capital()` helper; the 0.7.4
+  seven-argument constructor is kept and reads as custodial, so existing callers still compile.
+
+### Removed before release
+
+Twelve items and the systems that existed only for them were cut from this release before it
+shipped, on this line as on the Forge baseline, so none of this has a migration, a retired-key table
+or an API deprecation — it simply is not there: the bandage, knife, fork and spoon (with them the
+wound model and the fork-and-spoon excavation of reinforced blocks); the prisoner tag and the whole
+identity layer (nicknames, the `identities` world table, `/crime nickname`, and the opt-in
+`/crime privacy` consent gate, which had shipped off); the possessions box (frisking now opens from
+the crime menu and seizes into the searcher's inventory); fuzzy handcuffs; the meal tray; the poster;
+the warden's guide; the weighted anchor and the Buoyant enchantment (its datapack entry, its
+`enchantable/anchor` tag and its exclusive-set tag); and the toilet. The config groups `[wounds]` and
+`[identity]` and the keys `durabilityFuzzyHandcuffs`, `excavationChance`, `excavationStages`,
+`utensilNutritionBonus`, `allowWeightedAnchors`, `maxLevelBuoyant`, `boxSlots`,
+`boxMaxStackNbtBytes` and `boxMaxPayloadBytes` do not exist. The protocol moves from 15 to 16
+because the warden-guide payload is gone; the Forge line is at 18 because it also carries the
+player-report payloads this line does not have yet.
+
+### Fixed
+
+- The holding-cell journal recorded each block before its neighbours had updated it, which left bars
+  without arms toward earlier-placed neighbours and made demolition skip them as "changed". Blocks
+  are now settled against the finished structure before the journal is written, and demolition
+  compares by block rather than by exact state, so an opened door is still the mod's door.
+These are defects confirmed in the upstream Cuffed source and corrected while the behaviour was
+transferred; none of them ever shipped in MCA: Crime.
+
+- **Client-decided lockpick outcomes** and a client-named actor: the outcome is computed on the
+  server and identity comes from the connection.
+- **Unvalidated durability deltas** accepted from the client; the server owns durability.
+- **A frisking container** whose validity, clear and remove paths were unguarded; replaced by a
+  read-only projection plus explicit transactions.
+- **Imbue** transferring to duplicate recipients, accumulating inside its own loop and recursing.
+- **A dangling `else` in the guillotine** that could kill twice.
+- **Chain duplication on unanchor**; detach is now idempotent and ownership is recorded once.
+- **An invalid `ResourceLocation`** built when a reinforced padlock dropped.
+- **Escort teleporting before its validity checks**; validity is checked first and the correction is
+  bounded, with no teleport.
+- **A restraint break cooldown that was never decremented.**
+- **A self-application pitch test mixing degrees and radians**; an explicit slot selector replaces it.
+- **A forged dispenser captor** taken from a payload.
+- **UUIDs compared with `==`** in a key ring, and a `ResourceLocation` compared with `==`.
+- **An inverted fence check** on the chain knot entity.
+- **One damage source ignoring its type argument**; `mcacrime:hang` and `mcacrime:imbue` are two
+  distinct damage types.
+- **Every command cancelled for a restrained non-op**: commands are never blanket-cancelled here.
+- **Restraint durability never serialised**, and a guillotine chop delay never persisted.
+- **An unguarded UUID read** when a lockable block entity loaded.
+- **Declared statistics that were never registered or awarded.** Every shipped statistic is
+  registered — with its display formatter bound in common setup rather than inside the registry
+  supplier — and awarded once per committed server event. The set is four tracked families times
+  three kinds, plus `successful_lockpicks`, `lockpicks_broken` and `open_safe`. The two tape arm/leg
+  definitions, the head tape, the hood and the pillory deliberately count towards no statistic,
+  because Appendix A declares none for them.
+- **A full-world entity scan on every block right-click**; reverse indices replace it.
+- **Recipes yielding more than their result can stack.** `RecipeResultStackSizeTest` guards every
+  recipe whose result is non-stackable, so a count next to a one-per-stack item fails the build.
+- **A dead safe-slot constant** with the size hard-coded to 27; one authoritative profile value of
+  36 is used.
+
+Pre-existing defects on this port, found and fixed while 0.7.5 was landing:
+
+- **Statistic formatters bound at registry time.** The formatters are now applied once from common
+  setup, after the registry has resolved each id, and a failed id is named in a warning rather than
+  skipped silently (`stat/CrimeStats.registerFormatters`); the GameTest server log carries no
+  formatter warning.
+- **A timing-dependent `SandBottleGameTests` assertion** that could fail on a slow tick.
+- **`mixin/HopperLockMixin` re-targeted** at `HopperBlockEntity.suckInItems` and `ejectItems` (HEAD,
+  cancellable), which is where 1.21.1 performs the transfer; the baseline's target does not exist on
+  this line.
+
+### Notes
+
+Baseline classes this port deliberately does not have, each because the platform supplies the same
+behaviour structurally:
+
+- `state/CrimeCapabilities`, `state/PlayerCrimeDataProvider` and `state/CrimeCapabilityEvents` —
+  `state/CrimeAttachments` (`AttachmentType.serializable(...).copyOnDeath()`) covers creation,
+  serialisation, lifetime and the death copy in one declaration.
+- The `LazyOptional` capability wrappers around the safe's item handler — NeoForge block
+  capabilities plus `invalidateCapabilities`.
+- `IForgeMenuType`-based menu registration — `IMenuTypeExtension`.
+- `NetworkHooks.openScreen` and `NetworkHooks.getEntitySpawningPacket` —
+  `player.openMenu(MenuProvider, …)` and NeoForge's own entity spawn packet.
+- A jar-manifest `MixinConfigs` attribute — NeoForge does not honour it; both mixin configs are
+  declared by `[[mixins]]` blocks in `META-INF/neoforge.mods.toml`, and `checkJarContents` asserts
+  exactly those two and no refmap in either.
+- The baseline's inline item-NBT reads for lock bindings, key rings and key molds
+  (`item/lock/KeyRingItem.java`, `item/lock/KeyMoldItem.java`) — the four `DataComponentType`s above.
+- The baseline's nested `CrimeEnchantment` class inside `enchantment/CrimeEnchantments.java` and its
+  two custom `EnchantmentCategory` values — the five `data/mcacrime/enchantment/*.json` definitions
+  and their tag files, because `Enchantment` is a registry data entry in 1.21. Both lines carry the
+  same nine `enchantment/*.java` files.
+- `HangingEntity` as the chain knot's parent — `BlockAttachedEntity`, which is what 1.21.1's own
+  `LeashFenceKnotEntity` extends.
+
+One behavioural divergence follows from the datapack enchantments and is deliberate: a tag cannot
+read `enchantments.allowed`, so an enchanting table or a loot roll may still *offer* one of the five
+that the config has switched off. The **effect** stays gated exactly as on the baseline — every
+service asks `enchantment/EnchantmentApplicability` first, so a disallowed enchantment does nothing.
+`EnchantmentAvailabilityTagsTest` asserts the tag membership. Full parity accounting:
+[docs/0.7.5/PARITY.md](docs/0.7.5/PARITY.md).
+
+### Provenance
+
+Adapted from [Cuffed](https://github.com/LazrProductions/cuffed) by Lazr Productions under
+**GPL-3.0**, the same licence this mod ships under. Every unattributed asset — the worn textures
+that could not be attributed (the fuzzy one among them, since removed with its item) and the six
+upstream sounds — was replaced by original MCA: Crime work or by vanilla sound events under the same
+registry ids, as on the Forge line.
+
+### Verification
+
+Independently verified for this release on this line, including P6 and P7.
+
+- Milestones P1–P5 were independently verified: 2143/33, 2192/35, 2291/40, 2440/49 and 2523/56 unit
+  tests and GameTests respectively, with no failures.
+- Final state, from a clean run: **2693 unit tests, 0 failures, 9 skipped**, and **63 GameTests**
+  ("All 63 required tests passed"). `ConfigGroupCoverageTest` — the documentation gate that failed
+  during P7 — now passes with its exemption list removed and all 75 keys documented.
+- Packaging: `build/libs/mcacrime-0.7.5.jar` at **3,138,591 bytes**, `checkJarContents` clean over
+  1960 entries, no refmap in either mixin config, and both protected textures byte-identical inside
+  the jar. The run immediately before the sound fix produced 3,138,156 bytes and 2692 tests; the
+  `sounds.json` addition accounts for both differences.
+- **Dedicated server run:** `Done (5.134s)!` with mcacrime 0.7.5 on MC 1.21.1 / NeoForge 21.1.248 and
+  mca 7.7.36-beta.3, both mixin configs selected, nine mixins applied with no apply failure, no
+  client class on the server, and `mcacrime.dat` written with a schema root. The save was clean, but
+  it was taken on the timeout's SIGTERM because Gradle did not forward the piped `stop`.
+- **Client run:** 0.7.5 loaded, `client.RestraintPoseMixin` applied, the `blood_drip` particle
+  provider registered, no model, texture, sprite, renderer or keybind error, a completed resource
+  reload, and an idle title screen. There was no visual confirmation of anything in world.
+- **Sound fix:** the client initially logged seven `Missing sound for event: mcacrime:…` warnings;
+  `assets/mcacrime/sounds.json` (byte-identical to the baseline's) plus seven subtitle keys (none existed before 0.7.5) and
+  `SoundResourceCoverageTest` removed them, confirmed by a bounded client relaunch with zero such
+  lines.
+- **Warnings assessed.** `ConfigValidator` reports a shipped-default mismatch on every fresh install
+  — `guardThiefResponseRadius` 24.0 against `guardAggroRadius` 16.0. It is **pre-existing and
+  identical on both lines**, not a 0.7.5 regression. The rest were the
+  `criminalJobs.presentThiefAsMcaProfession` deprecation notice and one scenario-driven GameTest
+  line.
+- Static audits: no duplicate event registration across 67 subscriber classes, legacy names only in
+  javadoc, and 16 `DeferredRegister`s each bound once.
+
+### Known limits
+
+- **Importing a world from an existing Cuffed install is out of scope for 0.7.5.** There is no donor
+  import tool. A world that has both mods keeps two independent sets of state, and
+  `compatibility.cuffedCoexistence` decides only whether MCA: Crime still applies restraints; no
+  foreign data is read, cleared or disabled.
+- Configuration values from the retired keys are dropped rather than converted; re-tune the
+  replacements named in `CONFIG.md`.
+- The enchanting-table and loot offer divergence described under *Notes*.
+- The dedicated-server and client launches above were automated and bounded; no interactive session
+  has exercised rendering, device interaction or a whole-world save/reload on this line.
+
 ## [0.7.4] — 2026-09-17
 
 Two optional layers on top of the Townstead seam: explicit property law, and civic work with

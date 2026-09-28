@@ -1,0 +1,13 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "pattern": [
+    "  N",
+    " SN",
+    "S  "
+  ],
+  "key": {
+    "S": { "item": "minecraft:stick" },
+    "N": { "item": "minecraft:iron_nugget" }
+  },
+  "result": { "id": "mcacrime:lockpick", "count": 1 }
+}

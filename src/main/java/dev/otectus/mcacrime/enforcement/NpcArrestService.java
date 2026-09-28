@@ -9,7 +9,6 @@ import dev.otectus.mcacrime.captivity.CustodyRecord;
 import dev.otectus.mcacrime.captivity.CustodyRegistry;
 import dev.otectus.mcacrime.captivity.CustodyReleaseReason;
 import dev.otectus.mcacrime.captivity.CustodyService;
-import dev.otectus.mcacrime.captivity.RestraintType;
 import dev.otectus.mcacrime.compat.McaCompat;
 import dev.otectus.mcacrime.crime.type.CrimeIds;
 import dev.otectus.mcacrime.detect.EntitySelectors;
@@ -63,13 +62,26 @@ public final class NpcArrestService {
         CrimeWorldData data = CrimeWorldData.get(server);
         CrimeRecord charge = admissibleCase(level, guard, basis).orElse(null);
         if (charge == null || !charge.offender().equals(thiefId)) return false;
-        if (!CustodyService.captureNpcLawful(server, thief, CustodyOwner.guard(guardId), RestraintType.CUFFS,
+        if (!CustodyService.captureNpcLawful(server, thief, CustodyOwner.guard(guardId),
                 thief.blockPosition(), level.dimension().location()).ok()) return false;
-        if (!SentenceAssignmentService.assign(data, thiefId, UUID.randomUUID(),
+        // The cuffs a guard puts on are the law's, not an item anybody paid for: system-issued, so
+        // releasing the prisoner returns nothing and nobody can farm a pair out of an arrest.
+        CustodyRecord arrested = CrimeWorldData.get(server).getCustody(thiefId);
+        dev.otectus.mcacrime.restraint.RestraintService.applySystemIssued(thief,
+                dev.otectus.mcacrime.restraint.RestraintDefinitions.HANDCUFFS_ARMS,
+                dev.otectus.mcacrime.restraint.RestraintSlot.ARMS,
+                dev.otectus.mcacrime.restraint.AppliedRestraint.ApplicationContext.LAWFUL,
+                arrested == null ? null : arrested.getCustodyId());
+        UUID npcSentenceId = UUID.randomUUID();
+        if (!SentenceAssignmentService.assign(data, thiefId, npcSentenceId,
                 List.of(charge.id()), level.getGameTime())) {
             CustodyService.release(server, thiefId, CustodyReleaseReason.ADMIN);
             return false;
         }
+        // A villager offender takes the same path, and only with npcOffendersEligible on (§3.19): an
+        // NPC arrest has no player in the loop at all, so a village that executes its own by itself is
+        // opt-in rather than default.
+        dev.otectus.mcacrime.ledger.CapitalSentenceService.mark(data, thiefId, npcSentenceId, true);
         CustodyRecord record = data.getCustody(thiefId);
         // A wanted accomplice serves the accomplice term, a thief serves the thief term. Read from the
         // accomplice table rather than from the charge, so the thief path is untouched by construction:
@@ -92,7 +104,10 @@ public final class NpcArrestService {
         ThiefBehaviorService.markArrested(thiefId);
         CrimeReactionService.clear(level, thiefId);
         CrimeReactionService.markCaptive(level, thief, guardId);
-        McaCompat.leashTo(thief, guard);
+        // The hold is a tether, not a vanilla lead (0.7.5 M4.3). One engine holds every subject, and
+        // an ESCORT tether can express what a lead cannot: a holder who is not a Mob, a handover that
+        // keeps the hold, and an arbitration order against the chain the thief was already on.
+        dev.otectus.mcacrime.tether.TetherService.escort(guard, thief);
         CrimeSounds.restrainApplied(thief);
         StolenGoodsReturn.onArrest(server, level, thiefId, thief.position());
         ActiveIncidentRegistry.close(thiefId);

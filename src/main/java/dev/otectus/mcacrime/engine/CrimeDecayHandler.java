@@ -2,13 +2,11 @@ package dev.otectus.mcacrime.engine;
 
 import dev.otectus.mcacrime.McaCrime;
 import dev.otectus.mcacrime.McaCrimeConfig;
-import dev.otectus.mcacrime.captivity.CustodyConfine;
 import dev.otectus.mcacrime.captivity.CustodyService;
 import dev.otectus.mcacrime.crime.CrimeMath;
 import dev.otectus.mcacrime.crime.KarmaSource;
 import dev.otectus.mcacrime.enforcement.ArrestPhases;
 import dev.otectus.mcacrime.enforcement.ArrestStates;
-import dev.otectus.mcacrime.enforcement.EscortRestraint;
 import dev.otectus.mcacrime.jail.JailConfine;
 import dev.otectus.mcacrime.jail.JailService;
 import dev.otectus.mcacrime.state.CrimeAttachments;
@@ -63,10 +61,14 @@ public final class CrimeDecayHandler {
         if (data.getHeldByRef() != null) {
             CustodyService.tick(player); // kidnapping captive: real-time captivity-cap accounting (§7.2)
         }
-        // The lead is per-tick because it competes with the player's own movement input, which is also
-        // per-tick. Pulling once a second would read as stutter rather than as being held.
-        if (ArrestPhases.isRestrained(data.arrestPhase())) {
-            EscortRestraint.tick(player, data);
+        // The lead itself is gone from here (0.7.5 M4.3). One engine holds every subject now, and it
+        // is ticked from tether/TetherServerEvents over the tether index rather than from a
+        // per-player pump that only ever knew about players -- which is why a villager on an escort
+        // used to need a vanilla lead instead. What is left for the player pump is the one thing that
+        // is genuinely about this player's own state.
+        if (ArrestPhases.isRestrained(data.arrestPhase())
+                && McaCrimeConfig.COMMON.restrainedPlayerRestrictions.get()) {
+            player.setSprinting(false);
         }
         if (player.tickCount % 20 != 0) {
             return; // throttle decay work to ~once per second
@@ -83,9 +85,6 @@ public final class CrimeDecayHandler {
         // Throttled (~1/s) soft-confine / breakout / tether checks.
         if (data.isJailed()) {
             JailConfine.tick(player, data);
-        }
-        if (data.getHeldByRef() != null) {
-            CustodyConfine.tick(player); // kidnapping captive: soft-tether (escape, never jailbreak)
         }
     }
 

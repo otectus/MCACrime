@@ -58,6 +58,16 @@ public final class JailState {
      * assumption into a standing amnesty. It runs once and says so.
      */
     private boolean legacyBound;
+    /**
+     * Whether the anchor is a holding cell the mod built for this sentence.
+     *
+     * <p>A built cell is demolished when its prisoner escapes, so the anchor then names nothing:
+     * walking back into that patch of ground must not resume the sentence, and a recapture must raise
+     * a fresh cell rather than teleport the prisoner to open terrain where the old one stood. An
+     * operator-assigned jail is a place; a built cell is an event, and this is how the two are told
+     * apart once the cell is gone.
+     */
+    private boolean temporaryCell;
 
     public JailState() {
     }
@@ -142,6 +152,29 @@ public final class JailState {
         this.legacyBound = legacyBound;
     }
 
+    /** True when this sentence's anchor is a cell the mod built, which comes down on escape. */
+    public boolean isTemporaryCell() {
+        return temporaryCell;
+    }
+
+    public void setTemporaryCell(boolean temporaryCell) {
+        this.temporaryCell = temporaryCell;
+    }
+
+    /**
+     * Moves the sentence to a different jail: a recapture into a freshly built cell.
+     *
+     * <p>Only the place changes. The clock, the id, the surrender credit and the case binding are all
+     * properties of the term being served, and the term is the same one.
+     */
+    public void reanchor(@Nullable BlockPos anchor, @Nullable ResourceLocation dim, int radius,
+                         boolean temporaryCell) {
+        this.jailAnchor = anchor;
+        this.jailDim = dim;
+        this.jailRadius = radius;
+        this.temporaryCell = temporaryCell;
+    }
+
     public boolean isEscaped() {
         return escaped;
     }
@@ -176,6 +209,7 @@ public final class JailState {
         c.sentenceId = sentenceId;
         c.surrenderCredited = surrenderCredited;
         c.legacyBound = legacyBound;
+        c.temporaryCell = temporaryCell;
         return c;
     }
 
@@ -202,6 +236,9 @@ public final class JailState {
         if (legacyBound) {
             tag.putBoolean("legacyBound", true);
         }
+        if (temporaryCell) {
+            tag.putBoolean("temporaryCell", true);
+        }
         return tag;
     }
 
@@ -227,6 +264,9 @@ public final class JailState {
         s.surrenderCredited = tag.getBoolean("surrenderCredited");
         // Absent means the inference has not run, which is exactly right for a 0.5.1 sentence.
         s.legacyBound = tag.getBoolean("legacyBound");
+        // Absent on every sentence saved before built cells came down on escape. False keeps the old
+        // rule for them: their cell, if any, is still standing, and walking back in still resumes.
+        s.temporaryCell = tag.getBoolean("temporaryCell");
         return s;
     }
 }

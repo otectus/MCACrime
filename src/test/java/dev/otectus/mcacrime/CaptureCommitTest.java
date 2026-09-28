@@ -1,142 +1,111 @@
 package dev.otectus.mcacrime;
 
 import dev.otectus.mcacrime.captivity.CaptureCommitResult;
-import dev.otectus.mcacrime.captivity.CaptureTicker;
 import dev.otectus.mcacrime.captivity.CustodyOwner;
+import dev.otectus.mcacrime.captivity.CustodyRecord;
 import dev.otectus.mcacrime.captivity.CustodyService;
-import dev.otectus.mcacrime.captivity.RestraintReservation;
-import dev.otectus.mcacrime.captivity.RestraintType;
 import dev.otectus.mcacrime.state.world.CrimeWorldData;
 import net.minecraft.core.BlockPos;
 import net.minecraft.resources.ResourceLocation;
-import net.minecraft.world.item.ItemStack;
 import org.junit.jupiter.api.Test;
 
-import java.util.Optional;
 import java.util.UUID;
-import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * The capture commit sequence (T08, T09): nothing is spent unless the record stands.
+ * The commit half of a capture (T08, T09): what the custody table refuses, by name, and what the
+ * commit sequence spends when it is refused.
  *
- * <p>The bug this pins is an ordering one. Consuming the restraint before asking the custody table
- * whether the capture was allowed meant that "somebody already holds them" and "you are over your
- * allowance" — the two refusals only the write can discover — cost the captor a rope and gave them
- * nothing at all. {@link CaptureTicker#commit} is pure precisely so the guarantee can be asserted
- * here rather than trusted: the consume seam counts its calls, and a non-ok result must leave it
- * at zero.
+ * <p>The refusals used to be one boolean, so a captor whose victim somebody else had already taken
+ * was told the same nothing as one over their own allowance. They are named here, one assertion each,
+ * against a bare {@link CrimeWorldData}.
+ *
+ * <p>0.7.5 M2.11 took the other half of this file away with {@code captivity/CaptureTicker}: the
+ * "nothing is spent on a refusal" ordering is now {@code restraint/ApplicationTransaction}'s, and
+ * {@code restraint/ApplicationTransactionTest} asserts it there. What stayed is what still runs — the
+ * custody table's own invariants, which are legal, not physical, and which every route into captivity
+ * still goes through.
  */
 class CaptureCommitTest {
 
     private static final ResourceLocation OVERWORLD = ResourceLocation.fromNamespaceAndPath("minecraft", "overworld");
+    private static final BlockPos HOLD = new BlockPos(4, 64, 8);
 
-    private static CaptureCommitResult write(CrimeWorldData data, UUID captor, UUID captive) {
-        return CustodyService.capture(data, captor, captive, true, RestraintType.ROPE, 0L,
-                new BlockPos(0, 64, 0), OVERWORLD, 4);
+    private static CaptureCommitResult capture(CrimeWorldData data, UUID captor, UUID captive, int allowance) {
+        return CustodyService.capture(data, captor, captive, true, 0L, HOLD, OVERWORLD, allowance);
     }
 
+    // ------------------------------------------------------------------ T08: named refusals
+
     @Test
-    void secondCommitAgainstTheSameTargetIsAlreadyHeldAndSpendsNothing() {
+    void alreadyHeldCaptiveIsRefusedByNameAndNothingChanges() {
         CrimeWorldData data = new CrimeWorldData();
-        UUID target = UUID.randomUUID();
-        UUID first = UUID.randomUUID();
-        UUID second = UUID.randomUUID();
-        AtomicInteger consumed = new AtomicInteger();
-        RestraintReservation reservation = new RestraintReservation(3, ItemStack.EMPTY);
+        UUID captive = UUID.randomUUID();
+        UUID firstCaptor = UUID.randomUUID();
+        assertEquals(CaptureCommitResult.CAPTURED, capture(data, firstCaptor, captive, 4));
 
-        CaptureCommitResult one = CaptureTicker.commit(() -> CaptureCommitResult.CAPTURED,
-                () -> Optional.of(reservation),
-                () -> write(data, first, target),
-                r -> consumed.incrementAndGet());
-        assertTrue(one.ok());
-        assertEquals(1, consumed.get());
-
-        CaptureCommitResult two = CaptureTicker.commit(() -> CaptureCommitResult.CAPTURED,
-                () -> Optional.of(reservation),
-                () -> write(data, second, target),
-                r -> consumed.incrementAndGet());
-        assertEquals(CaptureCommitResult.ALREADY_HELD, two);
-        assertEquals(1, consumed.get()); // the loser's rope is still in their inventory
+        CustodyRecord before = data.getCustody(captive);
+        assertEquals(CaptureCommitResult.ALREADY_HELD, capture(data, UUID.randomUUID(), captive, 4));
         assertEquals(1, data.custodyRecords().size());
-        assertTrue(data.getCustody(target).getOwner().isKidnapper(first));
+        // Not merely "a record still exists": the same record, still owned by whoever got there first.
+        assertSame(before, data.getCustody(captive));
+        assertTrue(data.getCustody(captive).getOwner().isKidnapper(firstCaptor));
     }
 
     @Test
-    void allowanceRefusalAtCommitTimeSpendsNothing() {
+    void captorAtTheirAllowanceIsRefusedAsQuotaFull() {
         CrimeWorldData data = new CrimeWorldData();
         UUID captor = UUID.randomUUID();
-        assertTrue(CustodyService.capture(data, captor, UUID.randomUUID(), true, RestraintType.ROPE, 0L,
-                null, OVERWORLD, 1).ok());
+        assertEquals(CaptureCommitResult.CAPTURED, capture(data, captor, UUID.randomUUID(), 2));
+        assertEquals(CaptureCommitResult.CAPTURED, capture(data, captor, UUID.randomUUID(), 2));
 
-        AtomicInteger consumed = new AtomicInteger();
-        CaptureCommitResult result = CaptureTicker.commit(() -> CaptureCommitResult.CAPTURED,
-                () -> Optional.of(new RestraintReservation(0, ItemStack.EMPTY)),
-                () -> CustodyService.capture(data, captor, UUID.randomUUID(), true, RestraintType.ROPE, 0L,
-                        null, OVERWORLD, 1),
-                r -> consumed.incrementAndGet());
-        assertEquals(CaptureCommitResult.QUOTA_FULL, result);
-        assertEquals(0, consumed.get());
+        UUID third = UUID.randomUUID();
+        assertEquals(CaptureCommitResult.QUOTA_FULL, capture(data, captor, third, 2));
+        assertFalse(data.isCaptive(third));
+        assertEquals(2, data.custodyRecords().size());
+    }
+
+    @Test
+    void selfCaptureIsTargetInvalid() {
+        CrimeWorldData data = new CrimeWorldData();
+        UUID captor = UUID.randomUUID();
+        assertEquals(CaptureCommitResult.TARGET_INVALID, capture(data, captor, captor, 4));
+        assertTrue(data.custodyRecords().isEmpty());
+    }
+
+    @Test
+    void aLawfulHoldAlsoBlocksTheNextCapture() {
+        CrimeWorldData data = new CrimeWorldData();
+        UUID captive = UUID.randomUUID();
+        assertEquals(CaptureCommitResult.CAPTURED, CustodyService.captureLawful(data, captive, true,
+                CustodyOwner.guard(UUID.randomUUID()), 0L, HOLD, OVERWORLD));
+
+        assertEquals(CaptureCommitResult.ALREADY_HELD, capture(data, UUID.randomUUID(), captive, 4));
+        assertEquals(CaptureCommitResult.ALREADY_HELD, CustodyService.captureLawful(data, captive, true,
+                CustodyOwner.jail(1, HOLD, OVERWORLD), 0L, HOLD, OVERWORLD));
         assertEquals(1, data.custodyRecords().size());
     }
 
-    /**
-     * A channel whose target walked through a portal, died, or lost its session lease during the cast.
-     * The re-check is the first step of the sequence, so neither the reservation nor the write happens.
-     */
-    @Test
-    void aFailedRecheckNeitherReservesNorCapturesNorConsumes() {
-        AtomicInteger reserved = new AtomicInteger();
-        AtomicInteger captured = new AtomicInteger();
-        AtomicInteger consumed = new AtomicInteger();
-
-        for (CaptureCommitResult gate : new CaptureCommitResult[]{CaptureCommitResult.TARGET_INVALID,
-                CaptureCommitResult.SESSION_LOST, CaptureCommitResult.ALREADY_HELD}) {
-            CaptureCommitResult result = CaptureTicker.commit(() -> gate,
-                    () -> {
-                        reserved.incrementAndGet();
-                        return Optional.of(new RestraintReservation(0, ItemStack.EMPTY));
-                    },
-                    () -> {
-                        captured.incrementAndGet();
-                        return CaptureCommitResult.CAPTURED;
-                    },
-                    r -> consumed.incrementAndGet());
-            assertEquals(gate, result);
-        }
-        assertEquals(0, reserved.get());
-        assertEquals(0, captured.get());
-        assertEquals(0, consumed.get());
-    }
+    // ------------------------------------------------------------------ T09: two captors, one victim
 
     @Test
-    void anEmptyReservationIsRestraintMissingAndNeverCaptures() {
-        AtomicInteger captured = new AtomicInteger();
-        AtomicInteger consumed = new AtomicInteger();
-        CaptureCommitResult result = CaptureTicker.commit(() -> CaptureCommitResult.CAPTURED,
-                Optional::empty,
-                () -> {
-                    captured.incrementAndGet();
-                    return CaptureCommitResult.CAPTURED;
-                },
-                r -> consumed.incrementAndGet());
-        assertEquals(CaptureCommitResult.RESTRAINT_MISSING, result);
-        assertFalse(result.ok());
-        assertEquals(0, captured.get());
-        assertEquals(0, consumed.get());
-    }
-
-    @Test
-    void selfCaptureIsRefusedByName() {
+    void twoCommitsForOneTargetLeaveTheSecondCaptorEmptyHanded() {
         CrimeWorldData data = new CrimeWorldData();
-        UUID captor = UUID.randomUUID();
-        assertEquals(CaptureCommitResult.TARGET_INVALID,
-                CustodyService.capture(data, captor, captor, true, RestraintType.ROPE, 0L, null, OVERWORLD, 4));
-        assertEquals(CaptureCommitResult.TARGET_INVALID,
-                CustodyService.captureLawful(data, null, false, CustodyOwner.none(), RestraintType.NONE,
-                        0L, null, OVERWORLD));
+        UUID captive = UUID.randomUUID();
+        UUID winner = UUID.randomUUID();
+        UUID loser = UUID.randomUUID();
+
+        // Sequential, because the mutation runs on the server thread: two channels completing in the
+        // same tick reach this table one after the other, and the second must find the first's record.
+        assertEquals(CaptureCommitResult.CAPTURED, capture(data, winner, captive, 4));
+        assertEquals(CaptureCommitResult.ALREADY_HELD, capture(data, loser, captive, 4));
+
+        assertEquals(1, data.custodyRecords().size());
+        assertTrue(data.getCustody(captive).getOwner().isKidnapper(winner));
     }
+
 }

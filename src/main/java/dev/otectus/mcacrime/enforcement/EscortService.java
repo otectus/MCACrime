@@ -151,6 +151,10 @@ public final class EscortService {
         }
         ArrestStates.transition(player, ArrestPhase.ESCORTING);
         ACTIVE.put(player.getUUID(), player.level().getGameTime());
+        // The physical hold (0.7.5 M4.3). The destination, the reassignment and the deadline stay
+        // here, where the law is; the walking itself belongs to one transport engine that holds
+        // players and villagers the same way.
+        dev.otectus.mcacrime.tether.TetherService.escort(guard, player);
         player.sendSystemMessage(Component.translatable("mcacrime.arrest.escorting",
                 ArrestService.nameOf(guard)));
         player.sendSystemMessage(Component.translatable("mcacrime.arrest.restrained",
@@ -278,6 +282,9 @@ public final class EscortService {
             CustodyService.transferLawfulCustody(server, prisoner.getUUID(),
                     CustodyOwner.guard(best.getUUID()));
         }
+        // The hold moves with the custody. An escort that already names this pair is renewed, so a
+        // reassignment on every scan cannot stack tethers.
+        dev.otectus.mcacrime.tether.TetherService.escort(best, prisoner);
         prisoner.sendSystemMessage(Component.translatable("mcacrime.arrest.escort_reassigned",
                 ArrestService.nameOf(best)));
         return best;
@@ -394,10 +401,19 @@ public final class EscortService {
         ACTIVE.put(prisoner.getUUID(), prisoner.level().getGameTime());
     }
 
-    /** Drops a player's escort on logout, so the map cannot grow for the life of the server. */
+    /**
+     * Drops a player's escort on logout, so the map cannot grow for the life of the server.
+     *
+     * <p>The physical hold goes with it. Everything that ends an escort routes through here — arrival,
+     * abandonment, a missing anchor, a logout — so this is the one place the tether has to be ended,
+     * and ending it twice is a no-op by construction.
+     */
     public static void forget(UUID prisoner) {
         ACTIVE.remove(prisoner);
         JailEscortNavigation.forget(prisoner);
+        dev.otectus.mcacrime.tether.TetherService.endEscort(
+                net.neoforged.neoforge.server.ServerLifecycleHooks.getCurrentServer(), prisoner,
+                dev.otectus.mcacrime.tether.TetherService.DetachReason.ADMINISTRATIVE);
     }
 
     /** Drops every escort. Called on server stop. */

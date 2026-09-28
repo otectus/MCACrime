@@ -9,7 +9,8 @@ never hears about it.
 
 - **Minecraft** 1.21.1 · **NeoForge** · **Java** 21
 - **Requires** MCA Reborn, the version pinned in `gradle.properties`
-- **Optional integrations** MCA: Reputation, MCA: Quests, and Locks Reforged, using their NeoForge 1.21.1 builds
+- **Optional integrations** MCA: Reputation, MCA: Quests, Townstead, and Locks Reforged, using their NeoForge 1.21.1 builds
+- **Not required** the Cuffed mod, whose feature set 0.7.5 absorbs natively, and Locks Reforged
 - **Licence** GPL-3.0-only
 
 ---
@@ -63,14 +64,25 @@ what the **law** does about you, on two separate axes that never read each other
   remains a voluntary settlement of the whole record and Heat, including unreported crimes.
   Mandatory-custody cases and cases already assigned to a sentence cannot be paid away. The configured
   Heat threshold and Outlaw payment policy still apply to each settlement's scope.
-- **Kidnapping** is the structural twin of jail, deliberately kept legally distinct. Restrain a
-  villager or a player with rope, cuffs, or locked cuffs after a channel that a hit, a step, or a
-  lost line of sight will break — and only against a target who is genuinely vulnerable. Guards
-  are never capturable this way.
-- **Cuff lockpicking with Locks Reforged.** When installed, escaping ordinary or locked cuffs
-  requires winning its native minigame. Attempts need no item by default; enable
-  `[kidnapping].cuffEscapeRequiresLockpick` to require a lockpick in the inventory. Lawful cuff
-  escape counts as jailbreak and preserves the sentence. Rope keeps its existing escape rules.
+- **Kidnapping** is the structural twin of jail, deliberately kept legally distinct — and since
+  0.7.5 it is entirely separate from what is physically on the captive. Removing a restraint is not
+  a release, and escaping a kidnapper is never a crime.
+- **Restraints (0.7.5).** Head, arms and legs are three independent slots, each holding real gear
+  with its own durability, applier and provenance. Shackles, handcuffs, duct tape and a bundle
+  hood, with keys, struggling, chains, fence and tripwire-hook anchors, escort, pillory, guillotine
+  and bunks. Five restraint enchantments — shipped as datapack entries, because an enchantment is a
+  registry data entry on 1.21 — a search opened from the crime menu on a restrained subject, and a
+  reinforced prison building set. Item state rides in registered data components, 1.21.1 having no
+  item NBT.
+- **Native lockpicking and locks (0.7.5).** Padlocks, a safe, a cell door, key rings and key molds,
+  and a server-owned lockpicking mini-game. **Neither Cuffed nor Locks Reforged is required for any
+  of it.** Locks Reforged stays an optional companion for its own locks and fence stock; on a block
+  it already owns, MCA: Crime refuses to be the second lock.
+- **A capital sentence for killing a guard (0.7.5, on by default, one key to switch off).** The only
+  capital offence is killing a guard. Nothing escalates automatically, and execution is always a
+  deliberate act at a guillotine by a player or an on-duty guard — with no usable guillotine the
+  condemned simply stays in custody. Pardon and commutation are the only legal exits. Present on
+  both the Forge 1.20.1 and NeoForge 1.21.1 lines with identical defaults.
 - **Ransom.** Somebody has to pay for your captive, and who it is follows a strict priority:
   spouse, parent, adult child, sibling, close relative, and failing all of those, the village
   itself at a lower price. Family payers must be reachable online players.
@@ -335,14 +347,18 @@ its file and field. Schemas and worked examples are in **[DATAPACK.md](DATAPACK.
 
 ## For mod authors
 
-A read-only, server-authoritative Java API plus events that include two cancellable Pre events.
-Mutation is never exposed — it stays behind the single state chokepoint on purpose. See
-**[API.md](API.md)**.
+A server-authoritative Java API — read-only but for two clemency methods over a capital sentence —
+plus events that include two cancellable Pre events. 0.7.5 is **API version 2**: physical restraint,
+transport, detention, lock and capital-sentence views, eight new events, and
+`RestraintRegistrationApi` for another mod's own restraint definitions and searchable inventories.
+See **[API.md](API.md)**.
 
 ## Upgrading an existing world
 
-Older saves are migrated on load through schema 12 without a server or a config
-being consulted. The migration is **not reversible** — take a copy of your world first. The
+Older saves are migrated on load, up to schema 15, without a server or a config
+being consulted. 0.7.5 also bumps the network protocol to 16, so client and server must be updated
+together, and retires twenty-one config keys whose replacements are named one for one in
+[CONFIG.md](CONFIG.md). The migration is **not reversible** — take a copy of your world first. The
 policy, what changes about village identity, and what an old jar does with a new save are in
 **[MIGRATION.md](docs/MIGRATION.md)**.
 
@@ -356,6 +372,7 @@ policy, what changes about village identity, and what an old jar does with a new
 | [MIGRATION.md](docs/MIGRATION.md) | schema migration, removal, and rollback |
 | [CHANGELOG.md](CHANGELOG.md) | release notes |
 | [NeoForge parity](docs/NEOFORGE_PARITY_2026-09-08.md) | 0.6.0 feature parity, platform adaptations, and validation |
+| [0.7.5 parity](docs/0.7.5/PARITY.md) | 0.7.5 platform adaptations, deliberate divergences and omitted baseline classes |
 | [0.7.2 stage notes](docs/0.7.2/) | the Thief occupation, Mask Station, mask catalogue and Sand Bottle as shipped on this port |
 | [CURSEFORGE.md](CURSEFORGE.md) | the store listing copy |
 | [mca-crime-spec-document.md](docs/mca-crime-spec-document.md) | the original design specification |

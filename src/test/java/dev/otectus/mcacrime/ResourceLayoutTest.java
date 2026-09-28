@@ -85,12 +85,38 @@ class ResourceLayoutTest {
         assertTrue(broken.isEmpty(), "unparseable JSON: " + broken);
     }
 
+    /**
+     * The five key-crafting recipes whose result is computed rather than declared (0.7.5 M3.2).
+     *
+     * <p>Each is a {@code SimpleCraftingRecipeSerializer} over a rule in {@code KeyCraftLogic}: what
+     * comes out of a ring-disassembly depends on which keys are on the ring, so there is no output
+     * stack to write in the file and nothing for the {@code result.id} check below to read. They are
+     * named one by one rather than skipped by namespace, so a future mcacrime recipe that <em>does</em>
+     * declare a result is still checked.
+     */
+    private static final java.util.Set<String> COMPUTED_RESULT_RECIPES = java.util.Set.of(
+            "mcacrime:key_ring_create",
+            "mcacrime:key_ring_add",
+            "mcacrime:key_ring_disassemble",
+            "mcacrime:key_mold_copy",
+            "mcacrime:baked_key_mold_copy",
+            // 0.7.5 M5.8: crafting a poster alone advances it to the next design, so its output is a
+            // function of its input and there is no stack to declare either.
+            "mcacrime:poster_change");
+
     @Test
     void everyRecipeResultUsesTheNewIdKey() throws IOException {
         List<Path> recipes = recipeFiles();
         assertFalse(recipes.isEmpty(), "no recipes found under data/*/recipe/");
         for (Path file : recipes) {
-            JsonObject result = object(file).getAsJsonObject("result");
+            JsonObject json = object(file);
+            String type = json.has("type") ? json.get("type").getAsString() : "";
+            if (COMPUTED_RESULT_RECIPES.contains(type)) {
+                assertFalse(json.has("result"),
+                        relative(file) + " declares a result its serializer computes and ignores");
+                continue;
+            }
+            JsonObject result = json.getAsJsonObject("result");
             assertTrue(result != null, relative(file) + " has no result object");
             assertFalse(result.has("item"),
                     relative(file) + " still uses the 1.20.1 result.item; 1.21 reads result.id");
@@ -230,20 +256,44 @@ class ResourceLayoutTest {
         }
         assertFalse(files.isEmpty(), "no blockstates found at " + blockstates);
         for (Path file : files) {
-            JsonObject variants = object(file).getAsJsonObject("variants");
-            assertTrue(variants != null, relative(file) + " has no variants object");
-            for (String variant : variants.keySet()) {
-                String model = variants.getAsJsonObject(variant).get("model").getAsString();
-                String[] split = model.split(":", 2);
-                assertTrue(split.length == 2 && split[0].equals("mcacrime"),
-                        relative(file) + " variant " + variant + " names " + model);
-                assertTrue(Files.isRegularFile(
-                                TestPaths.resources("assets", "mcacrime", "models")
-                                        .resolve(split[1] + ".json")),
-                        relative(file) + " variant " + variant + " references " + model
-                                + ", which does not exist");
+            JsonObject json = object(file);
+            JsonObject variants = json.getAsJsonObject("variants");
+            if (variants != null) {
+                for (String variant : variants.keySet()) {
+                    assertModelExists(file, variant, variants.getAsJsonObject(variant));
+                }
+                continue;
+            }
+            // A connecting block is a multipart blockstate instead: reinforced bars pick their model
+            // from which neighbours they joined, which "variants" cannot express. Same check, one
+            // level further in -- every case still has to name a model this mod ships.
+            JsonElement multipart = json.get("multipart");
+            assertTrue(multipart != null && multipart.isJsonArray(),
+                    relative(file) + " has neither a variants object nor a multipart array");
+            for (JsonElement caseElement : multipart.getAsJsonArray()) {
+                JsonElement apply = caseElement.getAsJsonObject().get("apply");
+                assertTrue(apply != null, relative(file) + " has a multipart case with no apply");
+                if (apply.isJsonArray()) {
+                    for (JsonElement one : apply.getAsJsonArray()) {
+                        assertModelExists(file, "multipart", one.getAsJsonObject());
+                    }
+                } else {
+                    assertModelExists(file, "multipart", apply.getAsJsonObject());
+                }
             }
         }
+    }
+
+    /** One model reference from a blockstate, wherever it came from. */
+    private static void assertModelExists(Path file, String where, JsonObject holder) {
+        String model = holder.get("model").getAsString();
+        String[] split = model.split(":", 2);
+        assertTrue(split.length == 2 && split[0].equals("mcacrime"),
+                relative(file) + " " + where + " names " + model);
+        assertTrue(Files.isRegularFile(
+                        TestPaths.resources("assets", "mcacrime", "models")
+                                .resolve(split[1] + ".json")),
+                relative(file) + " " + where + " references " + model + ", which does not exist");
     }
 
     private static List<Path> recipeFiles() throws IOException {

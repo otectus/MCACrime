@@ -3,6 +3,7 @@
   "values": [
     "mcacrime:restraint_rope",
     "mcacrime:restraint_cuffs",
-    "mcacrime:restraint_locked_cuffs"
+    "mcacrime:restraint_locked_cuffs",
+    "mcacrime:duck_tape"
   ]
 }

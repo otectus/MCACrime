@@ -6,6 +6,7 @@ import dev.otectus.mcacrime.enforcement.ResponderAssignments;
 import dev.otectus.mcacrime.ledger.*;
 import dev.otectus.mcacrime.state.world.CrimeDataMigrations;
 import dev.otectus.mcacrime.state.world.CrimeWorldData;
+import net.minecraft.core.RegistryAccess;
 import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.resources.ResourceLocation;
@@ -31,7 +32,7 @@ class ArrestSentenceAssignmentTest {
     private CrimeWorldData held(boolean player) {
         CrimeWorldData data = new CrimeWorldData();
         assertTrue(CustodyService.captureLawful(data, OFFENDER, player, CustodyOwner.guard(GUARD),
-                RestraintType.CUFFS, 100L, BlockPos.ZERO, DIM).ok());
+                100L, BlockPos.ZERO, DIM).ok());
         return data;
     }
 
@@ -61,7 +62,7 @@ class ArrestSentenceAssignmentTest {
         CrimeWorldData data = held(false);
         UUID sentence = UUID.randomUUID();
         assertTrue(SentenceAssignmentService.assign(data, OFFENDER, sentence, List.of(), 100L));
-        CrimeWorldData loaded = CrimeWorldData.load(data.save(new CompoundTag(), net.minecraft.core.RegistryAccess.EMPTY), net.minecraft.core.RegistryAccess.EMPTY);
+        CrimeWorldData loaded = CrimeWorldData.load(data.save(new CompoundTag(), RegistryAccess.EMPTY), RegistryAccess.EMPTY);
         CrimeRecord later = crime(OFFENDER);
         loaded.addRecord(later);
         assertEquals(sentence, loaded.getCustody(OFFENDER).getSentenceId());
@@ -75,7 +76,7 @@ class ArrestSentenceAssignmentTest {
         data.addRecord(charge);
         assertFalse(SentenceAssignmentService.assign(data, OFFENDER, UUID.randomUUID(), List.of(charge.id()), 1L));
         data.putCustody(new CustodyRecord(OFFENDER, false, false, CustodyOwner.kidnapper(GUARD),
-                RestraintType.ROPE, 0L, BlockPos.ZERO, DIM));
+                0L, BlockPos.ZERO, DIM));
         assertFalse(SentenceAssignmentService.assign(data, OFFENDER, UUID.randomUUID(), List.of(charge.id()), 1L));
         assertNull(data.recordById(charge.id()).orElseThrow().sentenceId());
     }
@@ -103,7 +104,7 @@ class ArrestSentenceAssignmentTest {
         data.addRecord(charge);
         UUID sentence = UUID.randomUUID();
         SentenceAssignmentService.assign(data, OFFENDER, sentence, List.of(charge.id()), 100L);
-        CrimeWorldData loaded = CrimeWorldData.load(data.save(new CompoundTag(), net.minecraft.core.RegistryAccess.EMPTY), net.minecraft.core.RegistryAccess.EMPTY);
+        CrimeWorldData loaded = CrimeWorldData.load(data.save(new CompoundTag(), RegistryAccess.EMPTY), RegistryAccess.EMPTY);
         var custody = loaded.getCustody(OFFENDER);
         custody.setOwner(CustodyOwner.jail(2, BlockPos.ZERO, DIM));
         assertEquals(sentence, custody.copy().getSentenceId());
@@ -144,7 +145,7 @@ class ArrestSentenceAssignmentTest {
     @Test void futureSchemaRefusesAssignment() {
         CompoundTag tag = new CompoundTag();
         tag.putInt("schema", CrimeDataMigrations.CURRENT_SCHEMA + 1);
-        CrimeWorldData data = CrimeWorldData.load(tag, net.minecraft.core.RegistryAccess.EMPTY);
+        CrimeWorldData data = CrimeWorldData.load(tag, RegistryAccess.EMPTY);
         assertFalse(SentenceAssignmentService.assign(data, OFFENDER, UUID.randomUUID(), List.of(), 100L));
     }
 

@@ -1,9 +1,9 @@
 {
-  "type": "minecraft:crafting_shapeless",
-  "ingredients": [
-    { "item": "mcacrime:restraint_cuffs" },
-    { "item": "minecraft:tripwire_hook" },
-    { "item": "minecraft:iron_nugget" }
-  ],
-  "result": { "id": "mcacrime:restraint_locked_cuffs" }
+  "type": "minecraft:crafting_shaped",
+  "pattern": ["NIN"],
+  "key": {
+    "N": { "item": "minecraft:iron_ingot" },
+    "I": { "item": "minecraft:chain" }
+  },
+  "result": { "id": "mcacrime:restraint_locked_cuffs", "count": 1 }
 }

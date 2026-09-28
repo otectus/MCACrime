@@ -1,5 +1,13 @@
 package dev.otectus.mcacrime.captivity;
 
+import dev.otectus.mcacrime.enforcement.OutlawResolver;
+import dev.otectus.mcacrime.enforcement.RestraintHandlers;
+import dev.otectus.mcacrime.restraint.EscapeService;
+import dev.otectus.mcacrime.restraint.LegacyRestraintProjection;
+import dev.otectus.mcacrime.restraint.SessionCancelCause;
+import dev.otectus.mcacrime.restraint.SessionRegistry;
+import dev.otectus.mcacrime.restraint.RestraintService;
+import dev.otectus.mcacrime.restraint.RestraintSyncService;
 import dev.otectus.mcacrime.McaCrimeConfig;
 import dev.otectus.mcacrime.action.ActionSessionManager;
 import dev.otectus.mcacrime.activity.CrimeActivityRegistry;
@@ -12,10 +20,6 @@ import dev.otectus.mcacrime.compat.McaCompat;
 import dev.otectus.mcacrime.crime.type.CrimeIds;
 import dev.otectus.mcacrime.detect.CrimeDetector;
 import dev.otectus.mcacrime.detect.WitnessChecker;
-import dev.otectus.mcacrime.enforcement.OutlawResolver;
-import dev.otectus.mcacrime.enforcement.RestraintHandlers;
-import dev.otectus.mcacrime.enforcement.RestraintPolicy;
-import dev.otectus.mcacrime.enforcement.RestraintSync;
 import dev.otectus.mcacrime.jail.JailService;
 import dev.otectus.mcacrime.ledger.SentenceAssignmentService;
 import dev.otectus.mcacrime.network.ActionProgressS2CPacket;
@@ -52,26 +56,6 @@ import java.util.UUID;
  */
 public final class CustodyService {
 
-    /** How often the escape channel refreshes its bar, matching the action engine's cadence. */
-    private static final int ESCAPE_PROGRESS_INTERVAL_TICKS = 5;
-
-    /**
-     * A stable bar id for one captive's escape work, derived from the custody record rather than
-     * minted per tick, so a second attempt never inherits the first attempt's bar.
-     */
-    private static UUID escapeBarId(CustodyRecord record) {
-        UUID captive = record.getCaptive();
-        return new UUID(captive.getMostSignificantBits() ^ 0x65_73_63_61_70_65_00_01L,
-                captive.getLeastSignificantBits());
-    }
-
-    private static void escapeBarEnded(ServerPlayer captive, CustodyRecord record, boolean succeeded, String key) {
-        CrimeNetwork.sendActionProgress(captive, ActionProgressS2CPacket.ended(escapeBarId(record),
-                "gui.mcacrime.action.escape",
-                succeeded ? ActionProgressS2CPacket.Phase.FINISHED : ActionProgressS2CPacket.Phase.CANCELLED,
-                key, Component.empty()));
-    }
-
     private CustodyService() {
     }
 
@@ -87,11 +71,15 @@ public final class CustodyService {
     /**
      * Takes {@code captiveEntity} into unlawful captivity by {@code captor}. Idempotent: a named refusal
      * if the target is already held or is the captor. Commits the {@code kidnap} crime against the captor
-     * (the victim is never penalised), sets the held refs, secures an NPC via leash, fires {@link
+     * (the victim is never penalised), sets the held refs, claims the villager's activity, fires {@link
      * EntityKidnappedEvent}, and syncs. <b>Server side only.</b>
+     *
+     * <p>Legal only, as of 0.7.5. The gear is already on the subject by the time this runs -- an
+     * application is a physical event with its own transaction, and this is the paperwork that follows
+     * it. Nothing here puts a restraint on anybody, and nothing here leashes a villager: an NPC captive
+     * is held by the {@code CUSTODY} activity claim below, not by a vanilla lead (§3.3).
      */
-    public static CaptureCommitResult capture(ServerPlayer captor, LivingEntity captiveEntity,
-                                              RestraintType restraint) {
+    public static CaptureCommitResult capture(ServerPlayer captor, LivingEntity captiveEntity) {
         MinecraftServer server = captor.getServer();
         if (server == null || !(captiveEntity.level() instanceof ServerLevel level)) {
             return CaptureCommitResult.TARGET_INVALID;
@@ -122,18 +110,10 @@ public final class CustodyService {
                     CustodyOwner.bountyHunter(captor.getUUID()), captiveEntity.blockPosition(),
                     level.dimension().location());
             if (taken.ok()) {
-                // captureLawful writes RestraintType.NONE, which is right for a guard's arrest and
-                // wrong here: the hunter did put cuffs or rope on them, and the client draws what the
-                // record says.
-                CustodyRecord lawful = CrimeWorldData.get(server).getCustody(captiveUuid);
-                if (lawful != null) {
-                    lawful.setRestraint(restraint);
-                    CrimeWorldData.get(server).putCustody(lawful);
-                }
-                // A hunter's rope restrains exactly as much as a guard's cuffs do.
+                // Whatever the hunter actually put on them is already worn and already published; this
+                // path adds the legal half only. A hunter's tape restrains exactly as much as a guard's
+                // cuffs do, so the physical consequences are re-derived here.
                 RestraintHandlers.onRestrained((ServerPlayer) captiveEntity);
-                RestraintSync.broadcast(captiveEntity);
-                CrimeSounds.restrainApplied(captiveEntity);
                 captor.sendSystemMessage(Component.translatable("mcacrime.bounty.citizens_arrest"));
             }
             return taken;
@@ -141,7 +121,7 @@ public final class CustodyService {
 
         long start = CrimeAttachments.get(captor).getOnlineTicksLived();
         CaptureCommitResult committed = capture(CrimeWorldData.get(server), captor.getUUID(), captiveUuid,
-                captiveIsPlayer, restraint, start, captiveEntity.blockPosition(),
+                captiveIsPlayer, start, captiveEntity.blockPosition(),
                 level.dimension().location(), McaCrimeConfig.COMMON.maxUnlawfulCaptivesPerCaptor.get());
         if (!committed.ok()) {
             return committed;
@@ -155,20 +135,21 @@ public final class CustodyService {
             // belong to the restraint, not to the paperwork that put it there.
             RestraintHandlers.onRestrained(captivePlayer);
         } else {
-            McaCompat.leashTo(captiveEntity, captor); // best-effort physical hold for an NPC
+            // The hold, and the only one: a claim of Kind.CUSTODY, which every ordinary villager
+            // behaviour yields to. No vanilla lead, and never setNoAi (§3.3).
             assertCustodyClaim(captiveEntity);
         }
-        // Cuffs and rope are drawn from a client cache, and the cache only learns about a villager
-        // when somebody says so. A capture is exactly such a moment.
-        RestraintSync.broadcast(captiveEntity);
+        // Gear is drawn from a client cache, and the cache only learns about a villager when somebody
+        // says so. A capture is exactly such a moment.
+        RestraintSyncService.broadcastDelta(captiveEntity, CrimeWorldData.get(server));
 
         // The captor is the criminal: commit the kidnap crime (Karma/Heat + ledger + witnessed events).
         CrimeDetector.commitDirect(captor, CrimeIds.KIDNAP, captiveEntity, level,
                 WitnessChecker.resolve(level, captor, captiveEntity), "custody");
 
-        CrimeSounds.restrainApplied(captiveEntity);
         NeoForge.EVENT_BUS.post(new EntityKidnappedEvent(captiveUuid, captiveIsPlayer, captor.getUUID(),
-                true, restraint, captivePlayer, captor));
+                true, LegacyRestraintProjection.of(CrimeWorldData.get(server).physicalRestraint(captiveUuid)),
+                captivePlayer, captor));
 
         CrimeNetwork.sendSelfStatus(captor); // captor is now an active kidnapper -> Legal Target
         captor.sendSystemMessage(Component.translatable("mcacrime.kidnap.holding",
@@ -184,19 +165,18 @@ public final class CustodyService {
     /**
      * Writes the unlawful custody record itself, against a ledger rather than a server.
      *
-     * <p>This is the part of {@link #capture(ServerPlayer, LivingEntity, RestraintType)} that decides
-     * whether a capture may stand: not the captor, not already held, not over the captor's allowance.
-     * Everything the server overload does around it — the kidnap charge, the leash, the events, the
-     * messages — is consequence, and none of it is safe to run when this returns false. Splitting
-     * them means the invariant can be asserted against two captors racing for one victim without a
-     * level to hold either of them.
+     * <p>This is the part of {@link #capture} that decides whether a capture may stand: not the
+     * captor, not already held, not over the captor's allowance. Everything the server overload does
+     * around it — the kidnap charge, the leash, the events, the messages — is consequence, and none
+     * of it is safe to run when this returns false. Splitting them means the invariant can be asserted
+     * against two captors racing for one victim without a level to hold either of them.
      *
      * @param maxUnlawfulPerCaptor the captor's allowance, read from config by the caller
      * @return why the capture may not stand, in which case nothing was written, or {@link
      *         CaptureCommitResult#CAPTURED}
      */
     public static CaptureCommitResult capture(CrimeWorldData data, UUID captorUuid, UUID captiveUuid,
-                                              boolean captiveIsPlayer, RestraintType restraint,
+                                              boolean captiveIsPlayer,
                                               long startTick, BlockPos holdPos, ResourceLocation holdDim,
                                               int maxUnlawfulPerCaptor) {
         if (data == null || captorUuid == null || captiveUuid == null || captorUuid.equals(captiveUuid)) {
@@ -216,22 +196,21 @@ public final class CustodyService {
             return CaptureCommitResult.QUOTA_FULL; // commit-time invariant: a race cannot bypass the start check
         }
         data.putCustody(new CustodyRecord(captiveUuid, captiveIsPlayer, false,
-                CustodyOwner.kidnapper(captorUuid), restraint == null ? RestraintType.NONE : restraint,
-                startTick, holdPos, holdDim));
+                CustodyOwner.kidnapper(captorUuid), startTick, holdPos, holdDim));
         return CaptureCommitResult.CAPTURED;
     }
 
     /**
-     * The lawful twin of {@link #capture(CrimeWorldData, UUID, UUID, boolean, RestraintType, long,
+     * The lawful twin of {@link #capture(CrimeWorldData, UUID, UUID, boolean, long,
      * BlockPos, ResourceLocation, int)}: the record write and the one check that guards it, with no
-     * attachment, packet or sound attached.
+     * capability, packet or sound attached.
      *
      * @return {@link CaptureCommitResult#ALREADY_HELD} when the captive is already held by anybody,
      *         lawfully or not
      */
     public static CaptureCommitResult captureLawful(CrimeWorldData data, UUID captiveUuid,
                                                     boolean captiveIsPlayer, CustodyOwner owner,
-                                                    RestraintType restraint, long startTick,
+                                                    long startTick,
                                                     @Nullable BlockPos holdPos,
                                                     @Nullable ResourceLocation holdDim) {
         if (data == null || captiveUuid == null || owner == null) {
@@ -243,8 +222,8 @@ public final class CustodyService {
         if (data.isCaptive(captiveUuid)) {
             return CaptureCommitResult.ALREADY_HELD;
         }
-        data.putCustody(new CustodyRecord(captiveUuid, captiveIsPlayer, true, owner,
-                restraint == null ? RestraintType.NONE : restraint, startTick, holdPos, holdDim));
+        data.putCustody(new CustodyRecord(captiveUuid, captiveIsPlayer, true, owner, startTick,
+                holdPos, holdDim));
         return CaptureCommitResult.CAPTURED;
     }
 
@@ -263,8 +242,8 @@ public final class CustodyService {
      * real.
      *
      * <p>The per-tick cost of a lawful record is a map lookup: {@code CrimeDecayHandler} enters
-     * {@code CustodyService.tick} and {@code CustodyConfine.tick} because {@code heldByRef} is set, and
-     * both return immediately on {@code record.isLawful()}. A lawful captive is not a kidnapping victim
+     * {@code CustodyService.tick} because {@code heldByRef} is set, and it returns immediately on
+     * {@code record.isLawful()}. A lawful captive is not a kidnapping victim
      * and must not be subject to the escape work, the tether, or the real-time captivity cap; their
      * clock is the sentence.
      *
@@ -280,14 +259,14 @@ public final class CustodyService {
         UUID captiveUuid = captive.getUUID();
         long start = CrimeAttachments.get(captive).getOnlineTicksLived();
         CaptureCommitResult committed = captureLawful(CrimeWorldData.get(server), captiveUuid, true, owner,
-                RestraintType.NONE, start, holdPos, holdDim);
+                start, holdPos, holdDim);
         if (!committed.ok()) {
             return committed;
         }
         CrimeAttachments.get(captive).setHeldByRef(owner.ownerUuid().orElse(captiveUuid));
-        // The record carries no restraint of its own, so what the client draws is still whatever the
-        // arrest phase says -- but it has to be told the record exists at all.
-        RestraintSync.broadcast(captive);
+        // The record carries no gear of its own: what the client draws is whatever is physically on
+        // the prisoner, which is published here in case this is the first anyone has heard of them.
+        RestraintSyncService.broadcastDelta(captive, CrimeWorldData.get(server));
         CrimeNetwork.sendSelfStatus(captive);
         CrimeNetwork.sendCaptiveStatus(captive);
         return CaptureCommitResult.CAPTURED;
@@ -298,19 +277,19 @@ public final class CustodyService {
      *
      * <p>The NPC twin of {@link #captureLawful}, and separate from it for the same reason that method
      * is separate from {@link #capture}: almost everything the player path does is about a player.
-     * There is no attachment to write a {@code heldByRef} into, no self-status packet to send, and no
-     * captive screen to open -- what a restrained villager needs is the record, the restraint, and a
+     * There is no capability to write a {@code heldByRef} into, no self-status packet to send, and no
+     * captive screen to open — what a restrained villager needs is the record, the restraint, and a
      * client that knows to draw it.
      *
      * <p>It deliberately does <em>not</em> post {@link EntityKidnappedEvent}. That event's contract is
-     * unlawful captivity, and an arrest firing it would tell every listener -- including any companion
-     * mod reading it as evidence of a crime -- that the guard had just kidnapped somebody.
+     * unlawful captivity, and an arrest firing it would tell every listener — including any companion
+     * mod reading it as evidence of a crime — that the guard had just kidnapped somebody.
      *
      * @return {@link CaptureCommitResult#ALREADY_HELD} when the villager is already held by anybody,
      *         lawfully or not
      */
     public static CaptureCommitResult captureNpcLawful(MinecraftServer server, LivingEntity captive,
-                                                       CustodyOwner owner, RestraintType restraint,
+                                                       CustodyOwner owner,
                                                        @Nullable BlockPos holdPos,
                                                        @Nullable ResourceLocation holdDim) {
         if (server == null || captive == null || owner == null || captive instanceof ServerPlayer) {
@@ -318,13 +297,13 @@ public final class CustodyService {
         }
         UUID captiveUuid = captive.getUUID();
         CaptureCommitResult committed = captureLawful(CrimeWorldData.get(server), captiveUuid, false, owner,
-                restraint, 0L, holdPos, holdDim);
+                0L, holdPos, holdDim);
         if (!committed.ok()) {
             return committed;
         }
-        // Same reason as the kidnapping path: cuffs are drawn from a client cache that only learns
+        // Same reason as the kidnapping path: gear is drawn from a client cache that only learns
         // about a villager when somebody tells it.
-        RestraintSync.broadcast(captive);
+        RestraintSyncService.broadcastDelta(captive, CrimeWorldData.get(server));
         assertCustodyClaim(captive);
         return CaptureCommitResult.CAPTURED;
     }
@@ -345,6 +324,9 @@ public final class CustodyService {
             return false;
         }
         record.setOwner(owner);
+        // The same captivity under new management: the id is kept, the generation advances, and every
+        // packet and session the previous holder was issued stops being accepted (0.7.5 §6.2).
+        record.bumpGeneration();
         data.putCustody(record);
         return true;
     }
@@ -393,6 +375,17 @@ public final class CustodyService {
         dev.otectus.mcacrime.enforcement.JailEscortNavigation.forget(captiveUuid);
         data.removeRansom(captiveUuid);
         ActionSessionManager.clearFor(captiveUuid, CancelReason.TARGET_GONE);
+        // The gear this captivity put on comes off with it, and only that gear: a subject's own
+        // restraints are theirs. System-issued and legacy-converted instances return no item, so a
+        // release can never mint a pair of cuffs (§5.4).
+        RestraintService.releaseFor(server, captiveUuid, record.getCustodyId());
+        // And the claims this custody owned rather than merely coexisted with: the escort that existed
+        // only because somebody was being walked somewhere, and any execution order naming them
+        // (§3.19 -- a pardon, a ransom or a served sentence all clear it). A chain somebody paid for
+        // and a device somebody locked are independent physical facts and are deliberately left alone,
+        // for the same reason removing one restraint is not a release.
+        dev.otectus.mcacrime.restraint.CustodyTransitionService.clearPhysicalClaims(server, captiveUuid,
+                record.getCustodyId());
         UUID formerCaptor = record.getOwner().ownerUuid().orElse(null);
 
         if (formerCaptor != null) {
@@ -417,13 +410,15 @@ public final class CustodyService {
             // and a player let go of by a kidnapper is owed the same grace (0.7.0).
             dev.otectus.mcacrime.mug.npc.MugProtection.grant(captivePlayer,
                     dev.otectus.mcacrime.McaCrimeConfig.COMMON.releaseMugProtectionTicks.get());
-            // Re-derived rather than simply lifted: a player released from a kidnapper's rope straight
+            // Re-derived rather than simply lifted: a player released from a kidnapper's tape straight
             // into an arrest is still restrained, and taking the penalty off here would hand them a
             // free sprint the moment a guard reached them.
-            if (RestraintPolicy.effective(captivePlayer).isEmpty()) {
+            if (RestraintHandlers.policy(captivePlayer).unrestrictedPolicy()) {
                 RestraintHandlers.onReleased(captivePlayer);
+            } else {
+                RestraintHandlers.refresh(captivePlayer);
             }
-            RestraintSync.broadcast(captivePlayer);
+            RestraintSyncService.broadcastDelta(captivePlayer, data);
             CrimeNetwork.sendSelfStatus(captivePlayer);
             CrimeNetwork.sendCaptiveStatus(captivePlayer); // record already removed -> clears the client
             captivePlayer.sendSystemMessage(Component.translatable(releaseKey(reason)));
@@ -439,6 +434,11 @@ public final class CustodyService {
             NpcReleaseEffects.apply(new NpcReleaseEffects.Effects() {
                 @Override
                 public void clearLeash() {
+                    // Both, and in this order. The tether is the live hold as of 0.7.5 M4.3; the
+                    // vanilla lead is only ever a leftover from a world upgraded from before it, and
+                    // leaving one on would be a second hold nothing owns.
+                    dev.otectus.mcacrime.tether.TetherService.detachAll(server, captiveUuid,
+                            dev.otectus.mcacrime.tether.TetherService.DetachReason.ADMINISTRATIVE);
                     McaCompat.clearLeash(freed);
                 }
 
@@ -463,7 +463,12 @@ public final class CustodyService {
         if (!record.isCaptivePlayer()) {
             // By id, not by entity: the record may outlive the loaded villager, and a client that saw
             // the cuffs must be told they are gone even when the chunk is asleep.
-            RestraintSync.broadcast(server, captiveUuid);
+            Entity loaded = resolveEntity(server, record.getHoldDim(), captiveUuid);
+            if (loaded != null) {
+                RestraintSyncService.broadcastDelta(loaded, data);
+            } else {
+                RestraintSyncService.broadcastRemoval(server, captiveUuid);
+            }
         }
 
         if (captivePlayer != null) {
@@ -490,58 +495,49 @@ public final class CustodyService {
     // ------------------------------------------------------------------ escape (kidnapping only; never a crime)
 
     /**
-     * A captive's server-validated escape attempt. Escaping kidnapping is never a crime (spec §8.1): on
-     * success the captive is released with no Heat/bounty/karma loss. Lawful jail is not escapable here
-     * (that path is {@code JailConfine}). Returns true if the captive broke free.
+     * A captive's request to work their way out of whatever is physically on them.
+     *
+     * <p>0.7.5 turned this from a timed roll into a physical act (§5.4). There is no captivity-wide
+     * escape chance any more and no hidden die: a subject strains against one worn restraint at a
+     * time, the server decides whether that input counted, and the restraint comes off when its own
+     * durability runs out. Escaping kidnapping is still never a crime, and that is now a consequence
+     * of {@code RestraintService} owning gear and this class owning paperwork rather than a rule
+     * written here.
+     *
+     * <p>Held lawfully or not makes no difference to the gear. What differs is what the escape
+     * <em>means</em>, and that is filed where it always was: {@code JailService} on a jail break, and
+     * nothing at all on a kidnapping.
+     *
+     * @return true when the request was accepted as work, whether or not anything came off
      */
     public static boolean attemptEscape(ServerPlayer captive) {
-        MinecraftServer server = captive.getServer();
-        if (server == null) {
+        if (captive == null || captive.getServer() == null) {
             return false;
         }
-        CustodyRecord record = CrimeWorldData.get(server).getCustody(captive.getUUID());
-        if (record == null) {
-            return false;
+        EscapeService.Attempt attempt = EscapeService.struggleOnce(captive);
+        switch (attempt.outcome()) {
+            case NOTHING_WORN -> {
+                captive.sendSystemMessage(Component.translatable("mcacrime.captive.escape.not_held"));
+                return false;
+            }
+            case NOT_BREAKABLE -> {
+                captive.sendSystemMessage(Component.translatable("mcacrime.captive.escape.locked"));
+                return false;
+            }
+            case REFUSED -> {
+                captive.sendSystemMessage(Component.translatable("mcacrime.captive.escape.cooldown", 0));
+                return false;
+            }
+            case BROKEN -> {
+                captive.sendSystemMessage(Component.translatable("mcacrime.captive.escape.broke_free"));
+                return true;
+            }
+            default -> {
+                captive.sendSystemMessage(Component.translatable("mcacrime.captive.escape.strained",
+                        attempt.remainingDurability()));
+                return true;
+            }
         }
-        if (CuffEscapeService.usesMinigame(captive)) return CuffEscapeService.start(captive, record);
-        if (record.isLawful()) return false;
-        long now = captive.level().getGameTime();
-        if (record.isEscapeActive()) {
-            captive.sendSystemMessage(Component.translatable("mcacrime.captive.escape.already",
-                    record.getEscapeProgress(), escapeWorkTicks(record.getRestraint())));
-            return true;
-        }
-        if (now < record.getEscapeCooldownUntil()) {
-            captive.sendSystemMessage(Component.translatable("mcacrime.captive.escape.cooldown",
-                    record.getEscapeCooldownUntil() - now));
-            return false;
-        }
-        if (escapeChance(record.getRestraint()) <= 0.0D) {
-            captive.sendSystemMessage(Component.translatable("mcacrime.captive.escape.locked"));
-            return false;
-        }
-        int attempt = record.getEscapeAttempts() + 1;
-        record.setEscapeAttempts(attempt);
-        record.setEscapeProgress(0);
-        record.setEscapeActive(true);
-        record.setEscapeCooldownUntil(now + McaCrimeConfig.COMMON.escapeAttemptCooldownTicks.get());
-        long seed = captive.getUUID().getMostSignificantBits() ^ captive.getUUID().getLeastSignificantBits()
-                ^ record.getStartTickOnline() ^ ((long) attempt * 0x9E3779B97F4A7C15L);
-        record.setEscapeRoll(RandomSource.create(seed).nextDouble());
-        CrimeWorldData.get(server).setDirty();
-        captive.sendSystemMessage(Component.translatable("mcacrime.captive.escape.started",
-                escapeWorkTicks(record.getRestraint())));
-        return true;
-    }
-
-    private static double escapeChance(RestraintType restraint) {
-        McaCrimeConfig.Common c = McaCrimeConfig.COMMON;
-        return switch (restraint) {
-            case NONE -> 1.0;
-            case ROPE -> c.restraintEscapeChanceRope.get();
-            case CUFFS -> c.restraintEscapeChanceCuffs.get();
-            case LOCKED_CUFFS -> c.restraintEscapeChanceLockedCuffs.get();
-        };
     }
 
     // ------------------------------------------------------------------ per-tick cap (from CrimeDecayHandler)
@@ -576,39 +572,6 @@ public final class CustodyService {
                     release(server, captive.getUUID(), CustodyReleaseReason.CAPTOR_GONE);
                     return;
                 }
-            }
-        }
-        if (record.isEscapeActive()) {
-            int progress = record.getEscapeProgress() + 1;
-            if (CuffEscapeService.usesMinigame(captive)) {
-                record.setEscapeActive(false);
-                record.setEscapeProgress(0);
-                world.setDirty();
-                return;
-            }
-            record.setEscapeProgress(progress);
-            // A relative causing a scene outside makes the restraint come off sooner. Applied to the
-            // target rather than to the increment because progress is whole ticks: see
-            // AccompliceService.escapeWorkDivisor for why adding the bonus per tick would not scale.
-            int required = (int) Math.max(1L, Math.round(escapeWorkTicks(record.getRestraint())
-                    / dev.otectus.mcacrime.enforcement.AccompliceService.escapeWorkDivisor(
-                            captive.getUUID(), captive.level().getGameTime())));
-            if (progress >= required) {
-                record.setEscapeActive(false);
-                record.setEscapeProgress(0);
-                if (record.getEscapeRoll() < escapeChance(record.getRestraint())) {
-                    CrimeSounds.restraintBroken(captive);
-                    escapeBarEnded(captive, record, true, "mcacrime.kidnap.released.escaped");
-                    release(server, captive.getUUID(), CustodyReleaseReason.ESCAPED);
-                    return;
-                }
-                escapeBarEnded(captive, record, false, "mcacrime.captive.escape.failed");
-                captive.sendSystemMessage(Component.translatable("mcacrime.captive.escape.failed"));
-            } else if (progress % ESCAPE_PROGRESS_INTERVAL_TICKS == 0) {
-                // The HUD channel bar, not an action-bar line that overwrites itself every second.
-                CrimeNetwork.sendActionProgress(captive, new ActionProgressS2CPacket(escapeBarId(record),
-                        "gui.mcacrime.action.escape", progress, required,
-                        ActionProgressS2CPacket.Phase.PROGRESS, "", Component.empty()));
             }
         }
         long capTicks = (long) McaCrimeConfig.COMMON.maxCaptivityRealMinutes.get() * 1200L;
@@ -688,36 +651,19 @@ public final class CustodyService {
         }
     }
 
-    public static void interruptEscape(UUID captive, MinecraftServer server) {
-        if (server == null) return;
-        CustodyRecord record = CrimeWorldData.get(server).getCustody(captive);
-        if (record != null && record.isEscapeActive()) {
-            record.setEscapeActive(false);
-            record.setEscapeProgress(0);
-            CrimeWorldData.get(server).setDirty();
-        }
-    }
-
     /**
-     * The continuous work an escape from this captive's current restraint needs, or 0 when they are
-     * not held. Exposed so the action HUD can name the number {@code attemptEscape} just told them
-     * in chat; the outcome line used to show the bare {@code %s} instead.
+     * Stops whatever escape work a subject had going, because something happened to them.
+     *
+     * <p>A session rather than a flag on the record now: struggle progress is durability on the worn
+     * instance and a live {@code WorkSession}, so interrupting one is cancelling the session. The
+     * durability already spent is kept -- being hit while working at a pair of cuffs should not undo
+     * the work, only the run of it.
      */
-    public static int escapeWorkTicks(ServerPlayer captive) {
-        MinecraftServer server = captive.getServer();
-        if (server == null) return 0;
-        CustodyRecord record = CrimeWorldData.get(server).getCustody(captive.getUUID());
-        return record == null ? 0 : escapeWorkTicks(record.getRestraint());
-    }
-
-    private static int escapeWorkTicks(RestraintType restraint) {
-        McaCrimeConfig.Common c = McaCrimeConfig.COMMON;
-        return switch (restraint) {
-            case NONE -> 1;
-            case ROPE -> c.escapeWorkTicksRope.get();
-            case CUFFS -> c.escapeWorkTicksCuffs.get();
-            case LOCKED_CUFFS -> c.escapeWorkTicksLockedCuffs.get();
-        };
+    public static void interruptEscape(UUID captive, MinecraftServer server) {
+        if (server == null || captive == null) {
+            return;
+        }
+        SessionRegistry.server().cancelForActor(captive, SessionCancelCause.DAMAGE);
     }
 
     @Nullable
@@ -763,18 +709,13 @@ public final class CustodyService {
                     dirty = true;
                 }
             } else if (record.isVirtual()) {
-                // Back in a loaded chunk. Re-secure it: a leash does not survive being reloaded from a
-                // record the entity itself knows nothing about.
+                // Back in a loaded chunk. The hold is the activity claim re-asserted below, not a lead:
+                // world data survived the unload and the gear on them survived with it.
                 record.setVirtual(false);
                 dirty = true;
-                UUID captor = record.getOwner().ownerUuid().orElse(null);
-                ServerPlayer holder = captor == null ? null : server.getPlayerList().getPlayer(captor);
-                if (holder != null) {
-                    McaCompat.leashTo(npc, holder);
-                }
-                // ...and re-announce it. Clients tracking a captive that was virtual while they were
-                // watching have nothing in their cache to draw from.
-                RestraintSync.broadcast(npc);
+                // Re-announce it. Clients tracking a captive that was virtual while they were watching
+                // have nothing in their cache to draw from.
+                RestraintSyncService.broadcastDelta(npc, world);
             }
 
             assertCustodyClaim(npc);

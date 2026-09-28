@@ -52,6 +52,41 @@ public final class CrimeHudOverlays {
                 (graphics, deltaTracker) -> renderChannel(graphics, graphics.guiWidth(), graphics.guiHeight()));
         event.registerAbove(VanillaGuiLayers.HOTBAR, McaCrime.id("crime_status"),
                 (graphics, deltaTracker) -> renderStatus(graphics, graphics.guiWidth(), graphics.guiHeight()));
+        event.registerAbove(VanillaGuiLayers.HOTBAR, McaCrime.id("crime_restraint"),
+                (graphics, deltaTracker) ->
+                        renderRestraints(graphics, graphics.guiWidth(), graphics.guiHeight()));
+    }
+
+    /**
+     * What is physically on the local player, and what they can do about it (0.7.5 M2.10).
+     *
+     * <p>Anchored like the status panel and stacked above it, so the two never overlap however the
+     * player has moved the HUD: the restraint panel's own height is what the status panel is pushed
+     * up by, rather than both being placed from the same edge and colliding on a small window.
+     */
+    private static void renderRestraints(GuiGraphics graphics, int width, int height) {
+        if (suppressed() || !McaCrimeConfig.CLIENT.hudRestraintPanel.get()) return;
+        Minecraft mc = Minecraft.getInstance();
+        java.util.List<RestraintHudSection.Row> rows =
+                RestraintHudSection.rows(mc.player.getUUID());
+        if (rows.isEmpty()) return;
+
+        dev.otectus.mcacrime.restraint.PhysicalRestraintView view =
+                dev.otectus.mcacrime.client.ClientPhysicalRestraintData.get(mc.player.getUUID())
+                        .orElse(null);
+        boolean held = view != null
+                && view.tetherHolderEntityId() != dev.otectus.mcacrime.restraint.PhysicalRestraintView.NO_HOLDER;
+        boolean detained = view != null && view.detained();
+
+        int boxW = RestraintHudSection.width(mc);
+        int boxH = RestraintHudSection.height(rows.size());
+        CrimeHudLayout.Placement place = CrimeHudLayout.place(anchor(), width, height, boxW, boxH,
+                offsetX(), offsetY() + boxH + PAD);
+        graphics.pose().pushPose();
+        graphics.pose().translate(place.x(), place.y(), 0);
+        graphics.pose().scale(place.scale(), place.scale(), 1F);
+        RestraintHudSection.render(graphics, mc, rows, held, detained);
+        graphics.pose().popPose();
     }
 
     /** True when the HUD should stay out of the way entirely. */

@@ -1,0 +1,15 @@
+{
+  "type": "minecraft:block",
+  "random_sequence": "mcacrime:blocks/chiseled_reinforced_stone",
+  "pools": [
+    {
+      "rolls": 1,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "mcacrime:chiseled_reinforced_stone"
+        }
+      ]
+    }
+  ]
+}

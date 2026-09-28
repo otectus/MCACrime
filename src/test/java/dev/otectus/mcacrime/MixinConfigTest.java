@@ -63,10 +63,14 @@ class MixinConfigTest {
     @Test
     void everyOccupationMixinIsCommonAndOnlyRenderingIsClient() {
         assertEquals(List.of(
+                "HopperLockMixin",
                 "MaskStationAcquisitionMixin",
                 "MerchantOffersAccessor",
                 "MobDeathEquipmentMixin",
                 "NativeJobAssignmentMixin",
+                "RestraintContainerClickMixin",
+                "RestraintJumpMixin",
+                "RestraintPlayerActionMixin",
                 "SandSensingMixin",
                 "ThiefBrainMixin",
                 "ThiefPoiValidationMixin"), mixins(CONFIG, "mixins"));

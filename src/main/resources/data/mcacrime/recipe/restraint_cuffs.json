@@ -1,6 +1,9 @@
 {
   "type": "minecraft:crafting_shaped",
-  "pattern": ["I I", " I ", "I I"],
-  "key": { "I": { "item": "minecraft:iron_nugget" } },
-  "result": { "id": "mcacrime:restraint_cuffs" }
+  "pattern": ["NIN"],
+  "key": {
+    "N": { "item": "minecraft:iron_ingot" },
+    "I": { "item": "minecraft:iron_nugget" }
+  },
+  "result": { "id": "mcacrime:restraint_cuffs", "count": 1 }
 }

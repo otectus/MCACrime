@@ -512,7 +512,7 @@ class CrimeDataMigrationTest {
         assertEquals(CrimeDataMigrations.CURRENT_SCHEMA, CrimeDataMigrations.schemaOf(migrated));
         // The newest constant, not a number: every release adds one, and pinning the literal here would
         // make this test the thing that has to be edited rather than the thing that catches a gap.
-        assertEquals(CrimeDataMigrations.SCHEMA_PROPERTY_LAW, CrimeDataMigrations.CURRENT_SCHEMA);
+        assertEquals(CrimeDataMigrations.SCHEMA_CUFFED_PHYSICAL, CrimeDataMigrations.CURRENT_SCHEMA);
         assertEquals(1, migrated.getList("ledger", Tag.TAG_COMPOUND).size());
         // The dimension-aware key the very first step wrote is still intact eight steps later.
         assertTrue(migrated.getList("ledger", Tag.TAG_COMPOUND).getCompound(0)

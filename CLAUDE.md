@@ -50,7 +50,8 @@ civic      read-only village security projection, plus civic work: tasks, servic
 property   explicit property law (opt-in, townstead.propertyLaw): policies, pure access table,
            per-tick matched-pair transfer attribution, loss receipts, bounded auto-protection
 client mixin/client  client-only; common code must never import these
-mixin      seven common vanilla-only mixins: equipment capture, Thief worksite and brain, sand sight
+mixin      eleven common vanilla-only mixins: equipment capture, Thief worksite and brain, sand sight,
+           hopper lock gate, restraint container-click / jump / player-action gates
 mixin/townstead  five plugin-gated Townstead mixins in a second, optional mixin config
 network item audio command config util  plumbing
 ```
@@ -82,7 +83,7 @@ network item audio command config util  plumbing
   strings and never name a Townstead or MCA type. Nothing here carries a refmap - NeoForge 1.21.1 runs on Mojang names, so every `@Mixin`,
   `@Inject` and `@Redirect` is `remap = false`, as is every `@At` that names a vanilla descriptor.
   `NoTownsteadStaticLinkTest`, `NoMcaStaticLinkTest`, `MixinConfigTest` and
-  `TownsteadMixinTargetTest` enforce that. Eight vanilla-targeting mixins, seven common:
+  `TownsteadMixinTargetTest` enforce that. Twelve vanilla-targeting mixins, eleven common:
   `MobDeathEquipmentMixin` (`Mob.setItemSlot`, HEAD) observes equipment before MCA clears a dying
   villager's; `MaskStationAcquisitionMixin` (`VillagerProfession.acquirableJobSite`, RETURN) hides the
   Mask Station from every profession except Thief; `NativeJobAssignmentMixin`
@@ -91,7 +92,12 @@ network item audio command config util  plumbing
   chunks; `ThiefBrainMixin` (`Brain.tick`, HEAD) wraps this brain's `Activity.WORK` entries for
   employed Thieves; `MerchantOffersAccessor` (`AbstractVillager.offers`) is a field accessor with no
   behaviour; `SandSensingMixin` (`Sensing.hasLineOfSight`, HEAD) enforces sand blindness before the
-  cached-positive return. One client-only: `mixin/client/RestraintPoseMixin`
+  cached-positive return; and four added in 0.7.5 - `HopperLockMixin`
+  (`HopperBlockEntity.suckInItems` and `ejectItems`, HEAD, cancellable) applies the locked-container
+  automation policy where 1.21.1 performs the transfer, `RestraintContainerClickMixin`
+  (`AbstractContainerMenu.clicked`, HEAD), `RestraintJumpMixin` (`LivingEntity.jumpFromGround`, HEAD)
+  and `RestraintPlayerActionMixin` (`ServerGamePacketListenerImpl.handlePlayerAction`, HEAD) enforce
+  the restriction policy of what a subject is wearing. One client-only: `mixin/client/RestraintPoseMixin`
   (`LivingEntityRenderer.render`) poses restrained arms. `MixinConfigTest` verifies side separation and
   registration. No MixinExtras.
 - All MCA access is `MethodHandle` lookups in `compat/mca/McaBinding` behind the `compat/McaCompat` facade, because MCA's package root has moved between releases; missing members degrade to stubs. `NoMcaStaticLinkTest` fails the build if static linkage returns, and `McaBindingProbeTest` replays the binding against every jar in `mca_probe_versions`.

@@ -25,7 +25,16 @@ public record JailSentenceView(
         Optional<ResourceLocation> jailDimension,
         boolean escaped,
         JailContainmentMode containmentMode,
-        Set<UUID> linkedCaseIds) {
+        Set<UUID> linkedCaseIds,
+        /**
+         * What kind of sentence this is (0.7.5 §3.19): {@code custodial} or {@code capital}.
+         *
+         * <p>Additive, and a lowercase string rather than an enum on purpose - an enum constant a
+         * consumer compiled against would be copied into their constant pool, and a future third kind
+         * would break them at the switch rather than at the handshake. Absent and unknown both read
+         * as custodial, which is what every sentence before this release was.
+         */
+        String sentenceKind) {
 
     public JailSentenceView {
         sentenceId = sentenceId == null ? Optional.empty() : sentenceId;
@@ -34,6 +43,21 @@ public record JailSentenceView(
         containmentMode = containmentMode == null ? JailContainmentMode.CONTAINMENT : containmentMode;
         remainingOnlineTicks = Math.max(0L, remainingOnlineTicks);
         realOnlineTicksServed = Math.max(0L, realOnlineTicksServed);
+        sentenceKind = sentenceKind == null || sentenceKind.isBlank() ? "custodial" : sentenceKind;
+    }
+
+    /** The v1 shape, kept so a call written before 0.7.5 still compiles and reads as custodial. */
+    public JailSentenceView(Optional<UUID> sentenceId, long remainingOnlineTicks,
+                            long realOnlineTicksServed, Optional<ResourceLocation> jailDimension,
+                            boolean escaped, JailContainmentMode containmentMode,
+                            Set<UUID> linkedCaseIds) {
+        this(sentenceId, remainingOnlineTicks, realOnlineTicksServed, jailDimension, escaped,
+                containmentMode, linkedCaseIds, "custodial");
+    }
+
+    /** Whether this sentence may end in an execution. */
+    public boolean capital() {
+        return "capital".equalsIgnoreCase(sentenceKind);
     }
 
     /** Whether the sentence still has time left to serve. */

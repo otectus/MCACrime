@@ -62,13 +62,7 @@ public final class CrimeClientPayloadRouter {
         handler.onCaseLedger(payload);
     }
 
-    public static void handleRestraintSync(RestraintSyncS2CPacket payload, IPayloadContext context) {
-        handler.onRestraintSync(payload);
-    }
 
-    public static void handleRestraintBulkSync(RestraintBulkSyncS2CPacket payload, IPayloadContext context) {
-        handler.onRestraintBulkSync(payload);
-    }
 
     public static void handleWeaponPolicy(WeaponPolicyS2CPacket payload, IPayloadContext context) {
         handler.onWeaponPolicy(payload);
@@ -92,6 +86,34 @@ public final class CrimeClientPayloadRouter {
 
     public static void handleVillageSecurity(VillageSecurityS2CPacket payload, IPayloadContext context) {
         handler.onVillageSecurity(payload);
+    }
+
+    public static void handlePhysicalState(PhysicalStateS2CPacket payload, IPayloadContext context) {
+        handler.onPhysicalState(payload);
+    }
+
+    public static void handlePhysicalStateDelta(PhysicalStateDeltaS2CPacket payload, IPayloadContext context) {
+        handler.onPhysicalStateDelta(payload);
+    }
+
+    public static void handlePhysicalStateRemove(PhysicalStateRemoveS2CPacket payload, IPayloadContext context) {
+        handler.onPhysicalStateRemove(payload);
+    }
+
+    public static void handleLockpickBegin(LockpickBeginS2CPacket payload, IPayloadContext context) {
+        handler.onLockpickBegin(payload);
+    }
+
+    public static void handleLockpickPhase(LockpickPhaseS2CPacket payload, IPayloadContext context) {
+        handler.onLockpickPhase(payload);
+    }
+
+    public static void handleLockpickResult(LockpickResultS2CPacket payload, IPayloadContext context) {
+        handler.onLockpickResult(payload);
+    }
+
+    public static void handleFriskSnapshot(FriskSnapshotS2CPacket payload, IPayloadContext context) {
+        handler.onFriskSnapshot(payload);
     }
 
     /** What the client side supplies. Every method defaults to doing nothing, which is what a server does. */
@@ -124,11 +146,7 @@ public final class CrimeClientPayloadRouter {
         default void onCaseLedger(CaseLedgerS2CPacket payload) {
         }
 
-        default void onRestraintSync(RestraintSyncS2CPacket payload) {
-        }
 
-        default void onRestraintBulkSync(RestraintBulkSyncS2CPacket payload) {
-        }
 
         default void onWeaponPolicy(WeaponPolicyS2CPacket payload) {
         }
@@ -146,6 +164,27 @@ public final class CrimeClientPayloadRouter {
         }
 
         default void onVillageSecurity(VillageSecurityS2CPacket payload) {
+        }
+
+        default void onPhysicalState(PhysicalStateS2CPacket payload) {
+        }
+
+        default void onPhysicalStateDelta(PhysicalStateDeltaS2CPacket payload) {
+        }
+
+        default void onPhysicalStateRemove(PhysicalStateRemoveS2CPacket payload) {
+        }
+
+        default void onLockpickBegin(LockpickBeginS2CPacket payload) {
+        }
+
+        default void onLockpickPhase(LockpickPhaseS2CPacket payload) {
+        }
+
+        default void onLockpickResult(LockpickResultS2CPacket payload) {
+        }
+
+        default void onFriskSnapshot(FriskSnapshotS2CPacket payload) {
         }
     }
 }

@@ -4,7 +4,6 @@ import dev.otectus.mcacrime.captivity.CustodyOwner;
 import dev.otectus.mcacrime.captivity.CustodyRecord;
 import dev.otectus.mcacrime.captivity.CustodyReleaseReason;
 import dev.otectus.mcacrime.captivity.CustodyService;
-import dev.otectus.mcacrime.captivity.RestraintType;
 import org.junit.jupiter.api.Test;
 
 import java.util.UUID;
@@ -17,7 +16,7 @@ class CaptivityTickTest {
 
     private static CustodyRecord kidnap() {
         return new CustodyRecord(UUID.randomUUID(), true, false, CustodyOwner.kidnapper(UUID.randomUUID()),
-                RestraintType.CUFFS, 0L, null, null);
+                0L, null, null);
     }
 
     @Test

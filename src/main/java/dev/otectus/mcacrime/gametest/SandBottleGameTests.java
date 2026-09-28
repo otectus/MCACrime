@@ -173,8 +173,14 @@ public final class SandBottleGameTests {
      * The anti-stun-lock rule, end to end (§13.6, SAND-09): sand never refreshes an effect that is
      * already running, and after it ends the target is protected from <em>every</em> thrower for the
      * configured recovery window.
+     *
+     * <p>Runs in a batch of its own, and has to. It lowers {@code sandDirectDurationTicks} to twenty
+     * for thirty ticks, and the config is one object shared by the whole server — so in the default
+     * batch, which runs its tests concurrently in one world, the throw test above reads whichever
+     * value happened to be installed when it looked. Batches run one after another, which is the only
+     * scheduling guarantee the framework offers, so this is where the mutation is isolated.
      */
-    @GameTest(template = "cell_parity", timeoutTicks = 300)
+    @GameTest(template = "cell_parity", timeoutTicks = 300, batch = "sand_config_mutation")
     public static void sandNeverRefreshesItselfOrLandsInsideTheRecoveryWindow(GameTestHelper helper) {
         ServerLevel level = helper.getLevel();
         floor(helper);

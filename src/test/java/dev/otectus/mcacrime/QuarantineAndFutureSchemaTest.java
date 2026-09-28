@@ -126,6 +126,28 @@ class QuarantineAndFutureSchemaTest {
         assertFalse(ServerMutationGate.allows((CrimeWorldData) null));
     }
 
+    /**
+     * The schema-15 tables are behind the same gate as everything else.
+     *
+     * <p>Asserted here as well as in {@code state/FrozenGuardCoverageTest} because this is the test
+     * that says what the gate is <em>for</em>: a downgraded server must not write its own shape over a
+     * file it never parsed, and physical restraints are the newest thing it would get wrong.
+     */
+    @Test
+    void aReadOnlyStoreRefusesThePhysicalTablesToo() {
+        CompoundTag store = Schema7Fixture.store();
+        store.putInt(CrimeDataMigrations.TAG_SCHEMA, CrimeDataMigrations.CURRENT_SCHEMA + 1);
+        CrimeWorldData data = CrimeWorldData.load(store, RegistryAccess.EMPTY);
+        UUID subject = UUID.randomUUID();
+
+        assertFalse(data.putPhysicalRestraint(
+                dev.otectus.mcacrime.restraint.PhysicalRestraintState.empty(subject, true, null)));
+        assertFalse(data.markReconciled(CrimeDataMigrations.SCHEMA_CUFFED_PHYSICAL));
+
+        assertTrue(data.physicalRestraints().isEmpty());
+        assertEquals(0, data.reconciledSchema());
+    }
+
     @Test
     void aReadOnlyStoreRefusesEveryWrite() {
         CompoundTag store = Schema7Fixture.store();

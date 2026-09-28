@@ -56,14 +56,20 @@ public final class OperationPolicy {
         row(CrimeActivityView.Kind.CHALLENGE);
 
         // Walking somebody to a cell, or being walked: movement and hand state are both load-bearing.
+        // Their own choice of destination yields too -- a prisoner under escort walks where the escort
+        // walks them (0.7.5 §3.3).
         row(CrimeActivityView.Kind.ESCORT,
-                CrimeActivityOperation.REACTION_LOCK, CrimeActivityOperation.DISPLAY_TOOL);
+                CrimeActivityOperation.REACTION_LOCK, CrimeActivityOperation.DISPLAY_TOOL,
+                CrimeActivityOperation.VOLUNTARY_MOVEMENT, CrimeActivityOperation.ITEM_ACTION);
         row(CrimeActivityView.Kind.ARREST,
-                CrimeActivityOperation.REACTION_LOCK, CrimeActivityOperation.DISPLAY_TOOL);
+                CrimeActivityOperation.REACTION_LOCK, CrimeActivityOperation.DISPLAY_TOOL,
+                CrimeActivityOperation.VOLUNTARY_MOVEMENT, CrimeActivityOperation.ITEM_ACTION);
 
-        // Held. They are not going anywhere, so a reaction may play; what must not happen is a
-        // borrowed tool appearing in a prisoner's hand.
-        row(CrimeActivityView.Kind.CUSTODY, CrimeActivityOperation.DISPLAY_TOOL);
+        // Held. They are not going anywhere -- which is now said outright rather than implied by a
+        // leash -- so a reaction may play; what must not happen is a borrowed tool appearing in a
+        // prisoner's hand, or the prisoner wandering off, or them using what they are holding.
+        row(CrimeActivityView.Kind.CUSTODY, CrimeActivityOperation.DISPLAY_TOOL,
+                CrimeActivityOperation.VOLUNTARY_MOVEMENT, CrimeActivityOperation.ITEM_ACTION);
 
         // Moving under MCA: Crime's own navigation.
         row(CrimeActivityView.Kind.PURSUIT, CrimeActivityOperation.REACTION_LOCK);

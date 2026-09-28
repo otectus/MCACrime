@@ -26,11 +26,16 @@ public final class ClientCaches {
             ClientActionData::clear,
             ClientChallengeData::clear,
             ClientCaseData::clear,
-            ClientRestraintData::clear,
+            ClientFriskData::clear,
+            ClientPhysicalRestraintData::clear,
             ClientRestraintRig::clear,
             ClientWeaponPolicy::clear,
             ClientCriminalJobData::clear,
             ClientVillageSecurityData::clear,
+            // The datapack layer belongs to the server that sent it (§3.13). Keeping it would predict
+            // the next world's input against the last world's pack. Common state, cleared from here
+            // so the list stays the single place that knows what a disconnect drops.
+            dev.otectus.mcacrime.restraint.RestraintProfileOverrides::clear,
             // Not a cache of server data but a marker about one screen on one connection: carrying it
             // across a disconnect would apply this session's interruption to the next session's first
             // conversation. Cleared here so the list stays the single place that knows.

@@ -18,6 +18,7 @@ import dev.otectus.mcacrime.facility.FacilityAssignment;
 import dev.otectus.mcacrime.facility.FacilityRole;
 import dev.otectus.mcacrime.jail.HoldingCellService;
 import dev.otectus.mcacrime.jail.JailAnchor;
+import dev.otectus.mcacrime.jail.JailRegion;
 import dev.otectus.mcacrime.jail.JailService;
 import dev.otectus.mcacrime.jail.SafeCustodyDestination;
 import dev.otectus.mcacrime.ledger.SentenceResolutionService;
@@ -257,7 +258,9 @@ public final class NpcCustodyService {
             commit(server, data, level, record, thief, guard, target);
             return;
         }
-        McaCompat.leashTo(thief, guard); // re-secured: a leash does not survive a chunk round-trip
+        // Re-issued every scan, and idempotent: the tether table is the authority and an escort that
+        // already names this pair is renewed rather than stacked (0.7.5 M4.3).
+        dev.otectus.mcacrime.tether.TetherService.escort(guard, thief);
     }
 
     /** Nobody is holding this prisoner any more. Find a replacement, or stop pretending. */
@@ -267,7 +270,7 @@ public final class NpcCustodyService {
         if (replacement != null) {
             CustodyService.transferLawfulCustody(server, record.getCaptive(),
                     CustodyOwner.guard(replacement.getUUID()));
-            McaCompat.leashTo(thief, replacement);
+            dev.otectus.mcacrime.tether.TetherService.escort(replacement, thief);
             escort.nextNavAt = 0L;
             escort.orphanSince = 0L;
             CrimeDebug.crime("escort of {} was handed to guard {}", record.getCaptive(),
@@ -340,12 +343,16 @@ public final class NpcCustodyService {
             LawHold.clear(guard.getUUID());
             McaCompat.stopModNavigation(guard);
         }
+        dev.otectus.mcacrime.tether.TetherService.endEscort(server, captiveId,
+                dev.otectus.mcacrime.tether.TetherService.DetachReason.ADMINISTRATIVE);
+        // Still cleared: a world upgraded from before 0.7.5 may have a real lead on this villager,
+        // and leaving it on would be a second hold nothing owns.
         McaCompat.clearLeash(thief);
         McaCompat.stopModNavigation(thief);
         thief.teleportTo(hold.getX() + 0.5D, hold.getY(), hold.getZ() + 0.5D);
         record.setHoldPos(hold);
         data.setDirty();
-        RestraintSync.broadcast(thief);
+        dev.otectus.mcacrime.restraint.RestraintSyncService.broadcastDelta(thief, data);
         ESCORTS.remove(captiveId);
         JailEscortNavigation.forget(captiveId);
         CrimeDebug.crime("thief {} is serving {} ticks at {}", captiveId, record.getRemainingJailTicks(), hold);
@@ -362,6 +369,9 @@ public final class NpcCustodyService {
         if (record.isInRecovery()) {
             considerCareHandover(server, data, level, record);
             return;
+        }
+        if (confine(server, data, level, record) == Confinement.ESCAPED) {
+            return; // the cell is gone and so is the custody; there is no clock left to run
         }
         long remaining = record.getRemainingJailTicks() - elapsedTicks;
         record.setRemainingJailTicks(Math.max(0L, remaining));
@@ -386,6 +396,78 @@ public final class NpcCustodyService {
         CARE_HANDOVER_NEXT.remove(captiveId);
         JailEscortNavigation.forget(captiveId);
         CrimeDebug.crime("thief {} served its sentence and was released", captiveId);
+    }
+
+    /** What the confinement check found a villager prisoner doing. */
+    private enum Confinement {
+        /** Inside the cell, or nothing to check against. */
+        HELD,
+        /** Outside the cell without the door having given way: put back. */
+        RETURNED,
+        /** Outside a cell whose door was breached, or in PHYSICAL mode: gone, and the cell with them. */
+        ESCAPED
+    }
+
+    /**
+     * The villager half of {@code JailConfine}: is the prisoner still in the cell the mod built?
+     *
+     * <p>Nothing here applies to an operator-assigned jail or a facility -- those hold a villager the
+     * way they always did. A built cell has a padlocked door, and the same rule as for a player
+     * decides what being found outside it means: a breached door, or PHYSICAL mode, is an escape;
+     * anything else (a wall somebody else dug through, a shove) puts them back on their hold spot.
+     */
+    private static Confinement confine(MinecraftServer server, CrimeWorldData data, ServerLevel level,
+                                       CustodyRecord record) {
+        UUID captiveId = record.getCaptive();
+        HoldingCell cell = HoldingCellService.existingFor(server, captiveId);
+        if (cell == null || !(level.getEntity(captiveId) instanceof LivingEntity held) || !held.isAlive()) {
+            return Confinement.HELD;
+        }
+        JailAnchor region = cell.toAnchor();
+        if (JailRegion.contains(region.pos(), region.radius(), region.dim(), held.blockPosition(),
+                level.dimension().location())) {
+            return Confinement.HELD;
+        }
+        if (dev.otectus.mcacrime.jail.JailConfine.exitIsEscape(
+                McaCrimeConfig.COMMON.jailContainmentMode.get(), cell.breached(data))) {
+            escape(server, data, level, record, held);
+            return Confinement.ESCAPED;
+        }
+        BlockPos back = record.getHoldPos() == null ? cell.anchor() : record.getHoldPos();
+        BlockPos stand = SafeCustodyDestination.validate(level, back, 4).orElse(null);
+        if (stand != null) {
+            McaCompat.stopModNavigation(held);
+            held.teleportTo(stand.getX() + 0.5D, stand.getY(), stand.getZ() + 0.5D);
+        }
+        return Confinement.RETURNED;
+    }
+
+    /**
+     * A villager walked out of an open cell.
+     *
+     * <p>Everything the served path does except the one thing that matters: the sentence is marked
+     * escaped, not served, so every case it was for stays open and the next guard that recognises the
+     * thief arrests it again. Custody ends, because custody owns the NPC sentence and there is no
+     * cell to serve it in; the cell comes down without moving anybody, because the prisoner is
+     * already outside it.
+     */
+    private static void escape(MinecraftServer server, CrimeWorldData data, ServerLevel level,
+                               CustodyRecord record, LivingEntity thief) {
+        UUID captiveId = record.getCaptive();
+        if (record.getSentenceId() != null) {
+            SentenceResolutionService.markEscaped(server, captiveId, record.getSentenceId());
+        }
+        CustodyService.release(server, captiveId, CustodyReleaseReason.ESCAPED);
+        dev.otectus.mcacrime.captivity.CustodyCareService.forget(captiveId);
+        CrimeFacilityService.releaseFor(server, captiveId);
+        HoldingCellService.dismantle(server, captiveId);
+        CrimeReactionService.endCaptive(level, captiveId);
+        ThiefBehaviorService.markReleased(captiveId);
+        ESCORTS.remove(captiveId);
+        CARE_HANDOVER_NEXT.remove(captiveId);
+        JailEscortNavigation.forget(captiveId);
+        CrimeDebug.crime("thief {} escaped its cell at {}; the cell came down and its cases stay open",
+                captiveId, thief.blockPosition());
     }
 
     // ------------------------------------------------------------------ helpers
@@ -496,7 +578,7 @@ public final class NpcCustodyService {
         // hour would otherwise be overdue before taking a step.
         escort.heldTicksAtStart = record.getRealTicksHeld();
         ESCORTS.put(captiveId, escort);
-        McaCompat.leashTo(prisoner, guard);
+        dev.otectus.mcacrime.tether.TetherService.escort(guard, prisoner);
         CrimeDebug.crime("recovering prisoner {} is being walked to the care room {}: {}", captiveId,
                 careRoom.shortId(), decision.reason());
     }

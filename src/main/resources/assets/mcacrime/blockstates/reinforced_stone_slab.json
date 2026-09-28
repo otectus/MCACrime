@@ -1,0 +1,13 @@
+{
+    "variants": {
+      "type=bottom": {
+        "model": "mcacrime:block/reinforced_stone_slab"
+      },
+      "type=double": {
+        "model": "mcacrime:block/reinforced_stone"
+      },
+      "type=top": {
+        "model": "mcacrime:block/reinforced_stone_slab_top"
+      }
+    }
+  }

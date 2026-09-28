@@ -39,7 +39,13 @@ class ClientCachesTest {
     /**
      * Entries in the sweep that are not {@code client/} caches, and why each one is there.
      *
-     * <p>{@code TownsteadDialogueState} is the only one. It is per-connection client state — the marker
+     * <p>{@code RestraintProfileOverrides} is common code on purpose: the {@code restraint_profiles}
+     * datapack layer is read by the server and by the client's own input prediction through the same
+     * accessor, so there is one copy rather than a client mirror of it. It still belongs in the sweep,
+     * because the layer belongs to the server that sent it and keeping it would predict the next
+     * world's input against the last world's pack (§3.13).
+     *
+     * <p>{@code TownsteadDialogueState} is per-connection client state — the marker
      * that says MCA: Crime took a settlement mod's dialogue screen away — and it must be dropped on
      * disconnect for exactly the reason every cache below it must, or this session's interruption is
      * applied to the next session's first conversation. It cannot live under {@code client/} because a
@@ -49,7 +55,8 @@ class ClientCachesTest {
      * <p>Named here rather than exempted by a looser assertion: the list still has to match exactly, so
      * an entry nobody justified still fails.
      */
-    private static final Set<String> NON_CACHE_ENTRIES = Set.of("TownsteadDialogueState");
+    private static final Set<String> NON_CACHE_ENTRIES =
+            Set.of("TownsteadDialogueState", "RestraintProfileOverrides");
 
     @Test
     void everyCacheWithAClearIsRegistered() {

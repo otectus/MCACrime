@@ -14,15 +14,19 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * {@code test} task in {@code build.gradle} sets {@code mcacrime.projectRoot}; everything that
  * touches the tree resolves from it.
  *
+ * <p>Public because 0.7.5's tests live in sub-packages ({@code frisk}, {@code block}, {@code stat}
+ * and the rest) and every one of them reads the same tree. The alternative is a copy of
+ * {@code projectRoot()} per package, which is thirteen places for the property to be got wrong.
+ *
  * @see NoMcaStaticLinkTest which does the same for the compiled-class output
  */
-final class TestPaths {
+public final class TestPaths {
 
     private TestPaths() {
     }
 
     /** The project directory, as supplied by the {@code test} task. */
-    static Path projectRoot() {
+    public static Path projectRoot() {
         String root = System.getProperty("mcacrime.projectRoot");
         assertTrue(root != null && !root.isBlank(),
                 "mcacrime.projectRoot is not set; the test task in build.gradle supplies it");
@@ -30,12 +34,12 @@ final class TestPaths {
     }
 
     /** {@code src/main/resources} plus the given segments. */
-    static Path resources(String... segments) {
+    public static Path resources(String... segments) {
         return under(projectRoot().resolve(Paths.get("src", "main", "resources")), segments);
     }
 
     /** {@code src/main/java} plus the given segments. */
-    static Path sources(String... segments) {
+    public static Path sources(String... segments) {
         return under(projectRoot().resolve(Paths.get("src", "main", "java")), segments);
     }
 

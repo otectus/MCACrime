@@ -9,9 +9,6 @@ import dev.otectus.mcacrime.network.BandSyncS2CPacket;
 import dev.otectus.mcacrime.network.CaptiveStatusS2CPacket;
 import dev.otectus.mcacrime.network.CaseLedgerS2CPacket;
 import dev.otectus.mcacrime.network.GuardChallengeS2CPacket;
-import dev.otectus.mcacrime.enforcement.RestraintVisualState;
-import dev.otectus.mcacrime.network.RestraintBulkSyncS2CPacket;
-import dev.otectus.mcacrime.network.RestraintSyncS2CPacket;
 import dev.otectus.mcacrime.network.CriminalJobSyncS2CPacket;
 import dev.otectus.mcacrime.network.SelfStatusS2CPacket;
 import dev.otectus.mcacrime.network.WeaponPolicyS2CPacket;
@@ -129,13 +126,25 @@ public final class CrimeClientHandlers {
         ClientVillageSecurityData.update(msg);
     }
 
-    public static void onRestraint(RestraintSyncS2CPacket msg) {
-        ClientRestraintData.put(msg.subject(),
-                new RestraintVisualState(msg.restrained(), msg.visual(), msg.guardEntityId()));
+    /**
+     * The whole physical-restraint picture (0.7.5): login, respawn, dimension change.
+     *
+     * <p>Replaces rather than merges. A client that has just connected may hold anything at all, and
+     * merging would keep whatever it was wrong about.
+     */
+    public static void onPhysicalState(dev.otectus.mcacrime.network.PhysicalStateS2CPacket msg) {
+        ClientPhysicalRestraintData.replaceAll(msg.subjects());
     }
 
-    public static void onRestraintBulk(RestraintBulkSyncS2CPacket msg) {
-        ClientRestraintData.putAll(msg.restrained());
+    /** One subject's physical state changed. Dropped when something newer is already stored. */
+    public static void onPhysicalStateDelta(dev.otectus.mcacrime.network.PhysicalStateDeltaS2CPacket msg) {
+        ClientPhysicalRestraintData.accept(msg.subject());
+    }
+
+    /** One subject's physical state is gone. Not the same message as "they wear nothing". */
+    public static void onPhysicalStateRemoved(
+            dev.otectus.mcacrime.network.PhysicalStateRemoveS2CPacket msg) {
+        ClientPhysicalRestraintData.remove(msg.subject(), msg.revision());
     }
 
     /** The server's weapon lists, so the Crime button greys itself out for the server's reasons. */
@@ -162,5 +171,28 @@ public final class CrimeClientHandlers {
             return;
         }
         menu.acceptServerSelection(msg.recipeId(), msg.generation());
+    }
+
+    // --- lockpicking (0.7.5 M3.3) -----------------------------------------------------------------
+
+    public static void onLockpickBegin(dev.otectus.mcacrime.network.LockpickBeginS2CPacket msg) {
+        net.minecraft.client.Minecraft.getInstance().setScreen(
+                new dev.otectus.mcacrime.client.screen.LockpickScreen(msg));
+    }
+
+    /** A new phase, or a corrected meter. Ignored unless that exact session's dial is open. */
+    public static void onLockpickPhase(dev.otectus.mcacrime.network.LockpickPhaseS2CPacket msg) {
+        if (net.minecraft.client.Minecraft.getInstance().screen
+                instanceof dev.otectus.mcacrime.client.screen.LockpickScreen screen) {
+            screen.acceptPhase(msg);
+        }
+    }
+
+    /** The session ended. The outcome already happened on the server; this only closes the screen. */
+    public static void onLockpickResult(dev.otectus.mcacrime.network.LockpickResultS2CPacket msg) {
+        if (net.minecraft.client.Minecraft.getInstance().screen
+                instanceof dev.otectus.mcacrime.client.screen.LockpickScreen screen) {
+            screen.acceptResult(msg);
+        }
     }
 }

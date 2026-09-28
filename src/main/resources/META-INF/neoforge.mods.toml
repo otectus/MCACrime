@@ -9,7 +9,7 @@ displayName="${mod_name}"
 authors="${mod_authors}"
 description='''${mod_description}'''
 
-# The required config ships eight narrowly scoped vanilla mixins -- seven common and client-only
+# The required config ships twelve narrowly scoped vanilla mixins -- eleven common and client-only
 # client.RestraintPoseMixin, which poses a restrained player's arms because
 # PlayerRenderer.setModelProperties and HumanoidModel.setupAnim both run after
 # RenderPlayerEvent.Pre and overwrite whatever it set. Everything else reaches Minecraft through
@@ -22,7 +22,7 @@ description='''${mod_description}'''
 
 # The optional Townstead layer, kept in a second config on purpose. mcacrime.mixins.json is
 # required:true and targets nothing but vanilla; this one is required:false, gated by
-# TownsteadMixinPlugin, and its four mixins name Townstead classes as dotted strings because Townstead
+# TownsteadMixinPlugin, and its five mixins name Townstead classes as dotted strings because Townstead
 # is never on this mod's compile classpath. Merged into the first config, either the vanilla hooks
 # would have to become optional (a real break becomes silence) or the Townstead hooks mandatory (a
 # settlement mod's point release stops the game from starting).
@@ -68,5 +68,27 @@ description='''${mod_description}'''
     modId="mcareputation"
     type="optional"
     versionRange="[0.2,)"
+    ordering="AFTER"
+    side="BOTH"
+
+# Sibling add-ons this mod binds by name at common setup (MCA: Quests for the bounty board, Townstead
+# and Ultima Kingdoms through their probes). OPTIONAL and ordered AFTER so their registries exist
+# first; no upper bound, because every binding probes and degrades instead of stopping the game.
+[[dependencies.${mod_id}]]
+    modId="mcaquests"
+    type="optional"
+    versionRange="[0,)"
+    ordering="AFTER"
+    side="BOTH"
+[[dependencies.${mod_id}]]
+    modId="townstead"
+    type="optional"
+    versionRange="[0,)"
+    ordering="AFTER"
+    side="BOTH"
+[[dependencies.${mod_id}]]
+    modId="ultima_kingdoms"
+    type="optional"
+    versionRange="[0,)"
     ordering="AFTER"
     side="BOTH"

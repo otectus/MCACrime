@@ -43,33 +43,44 @@ public final class CrimeClientSetup {
         public static void onRegisterRenderers(EntityRenderersEvent.RegisterRenderers event) {
             event.registerEntityRenderer(dev.otectus.mcacrime.entity.CrimeEntities.SAND_BOTTLE.get(),
                     net.minecraft.client.renderer.entity.ThrownItemRenderer::new);
+            // A padlock draws as its own item, flat on the face it hangs on (0.7.5 M3.4). Every entity
+            // type needs a renderer or the client refuses to start, so this is not decoration.
+            event.registerEntityRenderer(dev.otectus.mcacrime.entity.CrimeEntities.PADLOCK.get(),
+                    dev.otectus.mcacrime.client.render.PadlockRenderer::new);
+            // The chain knot draws as its own item (0.7.5 M4.2), for the same reason the padlock
+            // does: the art exists and a bespoke rig would need a texture this release does not ship.
+            event.registerEntityRenderer(dev.otectus.mcacrime.entity.CrimeEntities.CHAIN_KNOT.get(),
+                    dev.otectus.mcacrime.client.render.ChainKnotRenderer::new);
         }
 
         /**
-         * A dyed mask shows its dye in the inventory (0.7.2 §5.3, §7.2).
+         * A key ring shows how many keys are on it (0.7.5 M3.2).
          *
-         * <p>Layer 0 only: the item model's single layer carries the tint, and {@link
-         * MaskItem#colorOf} answers opaque white for an undyed one, so a mask nobody dyed looks
-         * exactly as it did before the station could dye anything.
-         *
-         * <p>Registered from the catalogue rather than from a hand-written list of items: this is the
-         * inventory half of the tint, the worn half is vanilla's own {@code HumanoidArmorLayer}
-         * multiplying the layer texture by the same colour, and a style that reached one and not the
-         * other would be dyed in the bag and grey on the face.
+         * <p>{@code ItemProperties.register} still exists in 1.21.1 and is still client-only, so this
+         * is where the ring's four count textures are selected: the predicate reads the same data
+         * component the server writes, and a ring with more than four keys keeps the four-key art.
          */
-        /**
-         * The Mask Station's screen (0.7.2 §6.3).
-         *
-         * <p>1.21.1 replaced the {@code MenuScreens.register} call that used to sit in client setup
-         * with this mod-bus event, which is the only window in which the map may be written; doing it
-         * from {@code FMLClientSetupEvent} now throws.
-         */
+        @SubscribeEvent
+        public static void onClientSetup(net.neoforged.fml.event.lifecycle.FMLClientSetupEvent event) {
+            event.enqueueWork(() -> net.minecraft.client.renderer.item.ItemProperties.register(
+                    CrimeItems.KEY_RING.get(), McaCrime.id("keys"),
+                    (stack, level, entity, seed) ->
+                            dev.otectus.mcacrime.locks.KeyRingBindings.count(stack)));
+        }
+
+        /** The station's and the frisking screen's menus, bound to the menu types the server opens. */
         @SubscribeEvent
         public static void onRegisterMenuScreens(RegisterMenuScreensEvent event) {
             event.register(dev.otectus.mcacrime.menu.CrimeMenus.MASK_STATION.get(),
                     dev.otectus.mcacrime.client.screen.MaskStationScreen::new);
+            event.register(dev.otectus.mcacrime.menu.CrimeMenus.FRISKING.get(),
+                    dev.otectus.mcacrime.client.screen.FriskingScreen::new);
         }
 
+        /**
+         * A dyed mask shows its dye in the inventory (0.7.2 §5.3, §7.2). Layer 0 only: the item
+         * model's single layer carries the tint, and an undyed mask reads as opaque white.
+         */
         @SubscribeEvent
         public static void onRegisterItemColors(RegisterColorHandlersEvent.Item event) {
             event.register((stack, layer) -> layer > 0 ? MaskItem.OPAQUE_WHITE : MaskItem.colorOf(stack),
@@ -77,13 +88,9 @@ public final class CrimeClientSetup {
         }
 
         /**
-         * The worn half of the same tint, and the reason an undyed mask is not leather-brown.
-         *
-         * <p>Each mask's {@link ArmorMaterial.Layer} is declared dyeable, which is what makes vanilla
-         * multiply the worn texture by a colour at all. The colour it would otherwise use is
-         * {@code DyedItemColor.LEATHER_COLOR} for any stack with no {@code minecraft:dyed_color}
-         * component — right for a leather cap, wrong for sixteen painted faces. This extension is the
-         * one place vanilla asks, so it is the one place to answer white.
+         * The worn half of the same tint. 1.21.1 colours an armour layer through the client item
+         * extension rather than through {@code DyeableLeatherItem}, so a mask dyed in the bag is
+         * dyed on the face as well.
          */
         @SubscribeEvent
         public static void onRegisterClientExtensions(RegisterClientExtensionsEvent event) {
@@ -95,9 +102,8 @@ public final class CrimeClientSetup {
 
                 @Override
                 public int getArmorLayerTintColor(ItemStack stack, LivingEntity entity,
-                                                  ArmorMaterial.Layer layer, int layerIdx,
-                                                  int fallbackColor) {
-                    return layer.dyeable() ? fallbackColor : MaskItem.OPAQUE_WHITE;
+                                                  ArmorMaterial.Layer layer, int layerIndex, int fallback) {
+                    return layer.dyeable() ? fallback : MaskItem.OPAQUE_WHITE;
                 }
             }, CrimeItems.masks().toArray(new Item[0]));
         }

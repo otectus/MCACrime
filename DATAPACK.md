@@ -338,6 +338,217 @@ installed Townstead does not provide the `dispatch_reaction` capability — in t
 
 ---
 
+## Prison construction tags
+
+`data/mcacrime/tags/block/reinforced_blocks.json` is the set the breaking policy reads
+(`prison.reinforcedBreakingPolicy`, plus the separate explosion and piston settings).
+A pack extends it to bring its own prison masonry under the same rules — there is one list, not two.
+
+Adding a block to this tag makes it subject to the breaking policy. It does **not** make it hard to
+mine: hardness, blast resistance and the tool requirement are the block's own properties, and a soft
+block in this tag is still a soft block.
+
+The eight blocks MCA: Crime registers are additionally in the vanilla tags
+`minecraft:mineable/pickaxe` and `minecraft:needs_iron_tool`, and the slab and stair are in
+`minecraft:slabs` and `minecraft:stairs`. That combination is what "pickaxe qualified" means in
+practice, and it is the honest description of the set: an iron pickaxe opens any of them, slowly.
+Nothing here is unbreakable, and no setting in `prison` makes it so.
+
+---
+
+## Restraints, locks and transport (0.7.5)
+
+### Restraint profiles
+
+Which restraint definitions exist — and which slot each occupies, its render pose, its statistics
+and its item — stays **code-only**, in `restraint/RestraintDefinitions`. Those are authorisation
+decisions: a pack that could declare what "arms restrained" means would be rewriting the rules the
+server enforces, not the content it serves. What a pack *may* move are the numbers around a
+definition that already exists, through a **restraint profile**:
+
+```
+data/<namespace>/mcacrime/restraint_profiles/<definition path>.json
+```
+
+The file name is the definition id. `data/mcacrime/mcacrime/restraint_profiles/handcuffs_arms.json`
+overrides `mcacrime:handcuffs_arms`; a third-party definition is overridden under its own namespace.
+A file naming an id that does not exist is logged and ignored — a profile can never create a
+definition. **No profile files ship with the mod**, so the shipped behaviour is the code table.
+
+A file is accepted or refused **whole**. Any invalid field refuses the entire file and the code
+values stand; half a profile — durability from the pack, restrictions from the code — is a state
+neither the author nor the player can reason about. An unknown field is an error, not a warning.
+
+Every field is optional and an absent field means "keep what the code says". A file that sets
+nothing is legal and changes nothing.
+
+| Field | Type | Rules |
+|---|---|---|
+| `durability` | integer | 1 … 4096. The struggle work the worn instance withstands. |
+| `restrictions` | object | Named components mapped to booleans; see below. |
+| `pick` | object | The whole pick profile, replaced rather than merged; see below. |
+| `key_family` | string | One of `handcuffs`, `shackles`, `tape`, `hood`, `legacy_rope`, or `none` for keyless. Setting it also sets the key item that family opens with. |
+| `supported_rigs` | array | Non-empty array of rig ids, or `["*"]` for any body. An empty array is an error: a definition nothing can wear is not expressible. |
+
+**`restrictions`** takes the sixteen `RestrictionPolicy` components, spelled in snake case. Fourteen
+are *permissions*, where `true` still means "may": `mine_blocks`, `use_item`, `attack`,
+`interact_entity`, `interact_block`, `drop_item`, `mutate_inventory`, `swap_offhand`,
+`change_hotbar`, `voluntary_movement`, `jump`, `sprint`, `steer_vehicle`, `dismount`. Two are
+*imposed effects*, where `true` means "on": `obscure_vision` and `voice_gag`. A pack that loosens
+`sprint` and imposes `obscure_vision` therefore writes `true` in both places and means two different
+things. A name that is not a component is an error.
+
+**`pick`** takes `pickable` (boolean, default `true`), `progress_increase` and `speed_increase`.
+Both numbers are **required** when `pickable` is true and **forbidden** when it is false.
+
+```json
+{
+  "durability": 240,
+  "restrictions": { "sprint": false, "obscure_vision": true },
+  "pick": { "pickable": true, "progress_increase": 6, "speed_increase": 30 },
+  "key_family": "shackles",
+  "supported_rigs": ["*"]
+}
+```
+
+Profiles are loaded by a `SimpleJsonResourceReloadListener` added on NeoForge's
+`AddReloadListenerEvent`, so they reload with `/reload`, and they are synced to every client on login
+and on each reload through the `mcacrime:restraint_profiles` payload — always, including when nothing
+is overridden, because a client that joins a second server has to be told the first server's numbers
+no longer apply. Removing the pack and reloading restores the code table exactly; the code table
+(`RestraintDefinitions.base`) is never mutated.
+
+Operator-side tuning of the same numbers stays under `[restraints.definitions]` in
+`mcacrime-common.toml`. Third-party **code** can add a whole definition through
+`api/RestraintRegistrationApi` during mod setup; see [API.md](API.md).
+
+### The tags a pack may write
+
+1.21 directory names: block tags live under `tags/block`, item tags under `tags/item`, entity type
+tags under `tags/entity_type` and enchantment tags under `tags/enchantment`, all singular.
+
+| Tag | Kind | What it decides |
+|---|---|---|
+| `mcacrime:restrainable_entities` | entity type | Who can be restrained *beyond* players and MCA villagers, which are always restrainable. Ships **empty**. The tag only ever widens the set — emptying it cannot make a player unrestrainable, because a restraint already worn would then have no route off. |
+| `mcacrime:chainable_entities` | entity type | What a chain may be tied to. Players and MCA villagers are chainable in code and are deliberately **not** listed, so removing them from the tag cannot strand a chained prisoner. |
+| `mcacrime:cuff_keys` | item | Which items count as a key for a worn restraint: `handcuffs_key` and `shackles_key`. Whether a given key opens a given restraint is still the definition's key family — this tag is the coarse "is this a cuff key at all" test. |
+| `mcacrime:keys` | item | Which items are keys for a **lock**. |
+| `mcacrime:lockpicks` | item | What may be used to pick a lock. Ships with `mcacrime:lockpick`. |
+| `mcacrime:lockable_blocks` | block | What a padlock may be placed on. Adding a block here makes it lockable; it does not make it unbreakable, which `[locks]` decides. |
+| `mcacrime:can_reinforce_padlock` | item | What reinforces a padlock. Reinforcement only makes a lock harder to pick; it is never impossible. |
+| `mcacrime:reinforced_blocks` | block | The prison masonry set — see *Prison construction tags* below. |
+| `mcacrime:enchantable/restraint` | item | Which items the five restraint enchantments may sit on: the restraint set. |
+
+The `mcacrime:restraints` and `mcacrime:illicit_goods` item tags keep all three original restraint
+ids, including the hidden `mcacrime:restraint_rope` carrier.
+
+### Enchantments are datapack entries on this line
+
+On 1.21 an `Enchantment` is a registry **data** entry, so the five restraint enchantments ship as
+`data/mcacrime/enchantment/{imbue,famine,shroud,exhaust,silence}.json` rather than as
+classes, with `ResourceKey` constants in code. A pack may retune their definitions the way it retunes
+any vanilla enchantment.
+
+Their availability is vanilla tag membership, and this release writes into two of them:
+
+- `data/minecraft/tags/enchantment/in_enchanting_table.json` — all five, `replace: false`.
+- `data/minecraft/tags/enchantment/on_random_loot.json` — all five, `replace: false`.
+
+None of the five joins `#minecraft:treasure` or `#minecraft:double_trade_price`, which is how
+non-treasure status is expressed here, and none joins `#minecraft:tradeable`: vanilla folds
+`#minecraft:non_treasure` into the trade, mob-spawn-equipment and traded-equipment tags, so joining
+it would put prison equipment on a librarian's trade table.
+
+**One divergence from the Forge 1.20.1 line.** A tag cannot read `enchantments.allowed`, so an
+enchanting table or a loot roll may still *offer* one of the five that the config has switched off.
+The effect stays gated: every service asks `enchantment/EnchantmentApplicability` first, so a
+disallowed enchantment does nothing.
+
+### The vanilla tags this release writes into
+
+- `minecraft:bypasses_armor` gains `mcacrime:hang`, and nothing else — the reasoning is under
+  *Damage types*.
+- `minecraft:needs_iron_tool` gains ten blocks: the eight reinforced blocks (`reinforced_stone`,
+  `reinforced_smooth_stone`, `chiseled_reinforced_stone`, `reinforced_lamp`, `reinforced_stone_slab`,
+  `reinforced_stone_stairs`, `reinforced_bars`, `reinforced_bars_gap`) plus `cell_door` and `safe`.
+- `minecraft:mineable/pickaxe` gains eleven: the same eight, plus `cell_door`, `safe` and `bunk`.
+  Together with the tag above, that combination is what "pickaxe qualified" means in practice.
+- `minecraft:mineable/axe` gains `mcacrime:mask_station`, `mcacrime:pillory` and
+  `mcacrime:guillotine`.
+- `minecraft:slabs` and `minecraft:stairs` gain the reinforced slab and stair.
+
+### The bundle recipe is a deliberate collision
+
+`data/mcacrime/recipe/bundle.json` adds the vanilla bundle recipe — string over leather, producing
+`minecraft:bundle`. The bundle hood restraint is made from a bundle, and the vanilla bundle recipe is
+not enabled in ordinary 1.21.1 survival, so without this file the restraint would be uncraftable.
+
+This is stated here because it is the one recipe in this mod that is **not** about an `mcacrime:`
+item, and because it will collide: any other mod or pack that adds a bundle recipe, and any future
+version where vanilla enables its own, produces a duplicate result rather than an error. A pack that
+does not want MCA: Crime's copy overrides `mcacrime:bundle` with a recipe file of its own; nothing in
+the mod depends on that recipe existing, only on bundles being obtainable somehow.
+
+Note the 1.21 directory name: recipes are under `data/<namespace>/recipe/`, singular, and loot tables
+under `loot_table/`.
+
+### The rope conversion recipe
+
+`rope_to_duck_tape.json` is a shapeless one-for-one conversion of the retired
+`mcacrime:restraint_rope` into `mcacrime:duck_tape`. It exists so rope sitting in a chest from an
+older world is not stranded when the id leaves the creative tab; see
+[docs/MIGRATION.md](docs/MIGRATION.md).
+
+### Recipe results are bounded by stack size
+
+1.21.1 refuses a recipe whose result count exceeds the result item's maximum stack size outright —
+the recipe never loads. `RecipeResultStackSizeTest` walks every file under `data/mcacrime/recipe` and
+fails the build if any result would exceed its item's ceiling.
+
+---
+
+## Damage types
+
+`data/mcacrime/damage_type/hang.json` declares `mcacrime:hang`, the damage a tether deals to a subject
+dragged past `transport.overextensionLength` and the damage a guillotine deals when it carries out an
+authorised execution. It is a datapack file rather than a hard-coded source so a pack can reweigh it:
+`scaling` and `exhaustion` are yours to change, and `message_id` is what selects the
+`death.attack.hang` / `death.attack.hang.player` lines in the language file.
+
+**Its tags are chosen, not copied.** `mcacrime:hang` is in `minecraft:bypasses_armor` and in nothing
+else. In particular it is deliberately **not** in `is_explosion` and **not** in `is_drowning`, where
+the upstream mod this content is adapted from puts its equivalent — a chain is neither an explosion
+nor water, and being in those tags would make Blast Protection reduce it, make a Respiration helmet
+irrelevant to it, and make every "is this an explosion?" listener in every other mod answer yes for a
+prisoner on a short lead. `bypasses_armor` is there because a chain round the neck is not something a
+breastplate helps with.
+
+`data/mcacrime/damage_type/imbue.json` declares `mcacrime:imbue`, the damage an Imbue-enchanted
+restraint moves from a captor onto the prisoners they hold. It is a **separate** type from
+`mcacrime:hang` — upstream used one source for both, which made a chain and a curse indistinguishable
+to every listener — and it is in **no tag at all**: it is not armour-bypassing, because the share is
+already bounded by `enchantments.imbueMaxTransferFraction`.
+
+If you add `mcacrime:hang` to another damage-type tag, note that it is the same type a guillotine uses:
+a tag that makes hanging survivable makes an execution survivable too, which the device will then
+record as a cancelled death and resolve nothing from.
+
+---
+
+## Prison construction tags
+
+`data/mcacrime/tags/block/reinforced_blocks.json` is the set the breaking policy reads
+(`prison.reinforcedBreakingPolicy`, plus the separate explosion and piston settings).
+A pack extends it to bring its own prison masonry under the same rules — there is one list, not two.
+
+Adding a block to this tag makes it subject to the breaking policy. It does **not** make it hard to
+mine: hardness, blast resistance and the tool requirement are the block's own properties, and a soft
+block in this tag is still a soft block.
+
+Nothing here is unbreakable, and no setting in `prison` makes it so.
+
+---
+
 ## Validation checklist
 
 Before shipping a pack:

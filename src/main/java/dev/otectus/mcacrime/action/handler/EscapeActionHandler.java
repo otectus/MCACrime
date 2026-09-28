@@ -12,11 +12,11 @@ import java.util.UUID;
 /**
  * Working against a restraint, routed through the action engine rather than straight off a command.
  *
- * <p>This is a <em>self</em> action: the actor and the target are the same entity. The engine still
- * gives it a session, a nonce and a replay result, which matters more here than anywhere else — the
- * 0.3.0 exploit was that repeated {@code /crime escape} calls rerolled the escape probability. The
- * single deterministic roll lives in {@link CustodyService#attemptEscape}; this handler only makes
- * sure every entry point reaches it the same way.
+ * <p>This is a <em>self</em> action: the actor and the target are the same entity. There is no roll
+ * left to exploit as of 0.7.5 — the probability this used to reroll is gone, and one request is one
+ * bounded struggle input against one worn restraint, rate-limited on the server exactly like the
+ * key-press path ({@code restraint/EscapeService}). {@link CustodyService#attemptEscape} is still the
+ * single entry point, so every door reaches the same rules.
  */
 public final class EscapeActionHandler implements CrimeActionHandler {
 
@@ -33,7 +33,14 @@ public final class EscapeActionHandler implements CrimeActionHandler {
         if (actor.asPlayer() == null) return ActionAvailability.hidden("mcacrime.action.invalid_target");
         // Escape is only ever performed on yourself; a menu opened against somebody else must not show it.
         if (!actor.id().equals(target.getUUID())) return ActionAvailability.hidden("mcacrime.action.invalid_target");
-        return CustodyRegistry.isCaptive(level.getServer(), actor.id())
+        // Physically worn gear, not a custody row: a self-applied hood is not a captivity and is
+        // still something to work out of, and a captive with nothing on them has nothing to struggle
+        // against.
+        ServerPlayer player = actor.asPlayer();
+        dev.otectus.mcacrime.restraint.PhysicalRestraintState state =
+                dev.otectus.mcacrime.restraint.RestraintService.state(player);
+        boolean worn = state != null && state.restrained();
+        return worn || CustodyRegistry.isCaptive(level.getServer(), actor.id())
                 ? ActionAvailability.available()
                 : ActionAvailability.hidden("mcacrime.captive.escape.not_held");
     }
@@ -43,12 +50,10 @@ public final class EscapeActionHandler implements CrimeActionHandler {
         if (!evaluate(actor, target, level, level.getGameTime()).isAvailable()) {
             return ActionResult.rejected("mcacrime.captive.escape.not_held");
         }
-        ServerPlayer player = actor.asPlayer();
-        // CustodyService reports its own outcome — started, already working, cooldown, or locked — so
-        // the caller must not send a second competing message on top of it.
-        return CustodyService.attemptEscape(player)
-                ? ActionResult.accepted(dev.otectus.mcacrime.captivity.CuffEscapeService.usesMinigame(player)
-                        ? "mcacrime.captive.escape.lock_started" : "mcacrime.captive.escape.started")
+        // CustodyService reports its own outcome — progress, nothing worn, locked or too soon — so the
+        // caller must not send a second competing message on top of it.
+        return CustodyService.attemptEscape(actor.asPlayer())
+                ? ActionResult.accepted("mcacrime.captive.escape.started")
                 : ActionResult.rejected("mcacrime.action.feedback_sent");
     }
 

@@ -1,0 +1,7 @@
+{
+  "type": "minecraft:crafting_shapeless",
+  "ingredients": [
+    { "item": "mcacrime:key" }
+  ],
+  "result": { "id": "mcacrime:key", "count": 1 }
+}

@@ -3,9 +3,6 @@ package dev.otectus.mcacrime.compat;
 import dev.otectus.mcacrime.McaCrime;
 import dev.otectus.mcacrime.McaCrimeConfig;
 import net.neoforged.fml.ModList;
-import dev.otectus.mcacrime.captivity.CustodyRecord;
-import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.network.chat.Component;
 
 /**
  * The optional-classloading seam for Locks Reforged, built to the same discipline as
@@ -28,21 +25,9 @@ public final class LocksReforgedBridge {
     private LocksReforgedBridge() {
     }
 
-    /** Cuff escapes are independent of the optional fence-stock setting. */
+    /** Whether Locks Reforged is present at all, for the fence-stock decision below. */
     public static boolean installed() {
         return ModList.get() != null && ModList.get().isLoaded(MOD_ID);
-    }
-
-    public static boolean openCuffs(ServerPlayer player, CustodyRecord record) {
-        if (!installed()) return false;
-        try {
-            return (boolean) Class.forName("dev.otectus.mcacrime.compat.locksreforged.CuffLockPickingMenu")
-                    .getMethod("open", ServerPlayer.class, CustodyRecord.class).invoke(null, player, record);
-        } catch (ReflectiveOperationException | LinkageError e) {
-            McaCrime.LOGGER.error("MCA: Crime could not open the Locks Reforged cuff minigame", e);
-            player.sendSystemMessage(Component.translatable("mcacrime.captive.escape.lock_unavailable"));
-            return false; // Never substitute a timed escape when the installed adapter is unavailable.
-        }
     }
 
     /** Chooses whether the integration runs. Called once from common setup, after every mod has loaded. */
@@ -76,6 +61,41 @@ public final class LocksReforgedBridge {
             McaCrime.LOGGER.error("MCA: Crime - Locks Reforged is installed but the fence integration could "
                     + "not start; fences will stock vanilla contraband only.", t);
         }
+    }
+
+    /**
+     * Whether Locks Reforged already owns a lock on {@code target} (§3.16).
+     *
+     * <p>Answered through the isolated adapter, by name, and only when the mod is actually installed —
+     * so a server without it never resolves a Locks class and never pays for the question. An absent
+     * mod owns nothing, which is what makes {@code locks.foreignLockPolicy = REFUSE} a no-op on the
+     * ordinary single-mod install.
+     */
+    public static boolean ownsLock(@org.jetbrains.annotations.Nullable net.minecraft.world.level.Level level,
+                                   @org.jetbrains.annotations.Nullable dev.otectus.mcacrime.locks.LockTarget target) {
+        if (level == null || target == null || target.kind() != dev.otectus.mcacrime.locks.LockTarget.Kind.BLOCK
+                || target.pos() == null || !installed()) {
+            return false;
+        }
+        try {
+            java.lang.reflect.Method probe = ownsLockMethod();
+            return probe != null && Boolean.TRUE.equals(probe.invoke(null, level, target.pos()));
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    private static volatile java.lang.reflect.Method ownsLockMethod;
+
+    @org.jetbrains.annotations.Nullable
+    private static java.lang.reflect.Method ownsLockMethod() throws Exception {
+        java.lang.reflect.Method cached = ownsLockMethod;
+        if (cached == null) {
+            cached = Class.forName("dev.otectus.mcacrime.compat.locksreforged.LocksReforgedCompat")
+                    .getMethod("ownsLock", Object.class, Object.class);
+            ownsLockMethod = cached;
+        }
+        return cached;
     }
 
     /** A short human-readable state for the debug commands. */

@@ -113,7 +113,7 @@ If the upgrade fails or data is corrupt, restore the backup and downgrade to For
 ## What happens on load
 
 `mcacrime.dat` carries a `schema` integer. On load, every step needed to bring it to the current
-schema runs in order, and the result is stamped. This build writes **schema 10**.
+schema runs in order, and the result is stamped. This build writes **schema 15**.
 
 Schema 8 development saves remain supported. Schema 9 adds optional `crimeMemories` under each
 villager profile and a `relayed` flag on observations. An absent suspect UUID represents an
@@ -127,6 +127,100 @@ produce different results depending on who logged in first. A tag already at or 
 schema is returned untouched.
 
 A missing `schema` key means the original, unversioned format, which is treated as schema 0.
+
+### 0.7.5 — Schema 14 → 15
+
+0.7.5 replaces the single-slot restraint enum, the capture channel, the cuff-escape path, the
+kidnapping teleport tether and the NPC leash with one native physical-restraint engine. It uses
+**world schema 15** (`SCHEMA_CUFFED_PHYSICAL`) and **network protocol 16**. Back up your world
+before upgrading.
+
+**Network protocol 16.** `network/CrimeNetwork.PROTOCOL_VERSION` is `"16"`. Update client and server
+together. The bump is deliberate: the old restraint payloads are gone, and an old client that was
+allowed to connect would decode a multi-slot physical snapshot as the old single-enum payload. With
+the bump it fails the handshake cleanly. As always, the number is shared with the Forge 1.20.1 line
+and still does not make the two loaders compatible.
+
+**Four root tables** are added to `<world>/data/mcacrime.dat`: `physicalRestraints` (what is worn per
+subject in the head, arms and legs slots, each entry with its own item snapshot, durability, applier
+and provenance), `tethers`, `detentions` and `locks`. Every existing custody row also
+gains a `custodyId` and a `generation`, so two successive captures of the same subject can never
+accept each other's payloads.
+
+The migration is in two parts, and only the first is part of the tag-to-tag ladder.
+
+1. **`v14to15` is pure**, like every step before it: it creates the five empty lists, stamps
+   `custodyId` and `generation` on every custody row that lacks one, cancels any `escapeActive` flag
+   and stamps the schema. **It invents no gear** — the old record stored a single enum, and a
+   migration that guessed beyond it would put handcuffs on people nobody cuffed.
+2. **`restraint/RestraintMigrationReconciler` is impure and runs once**, at the first load after the
+   migration, inside `ServerMutationGate` and behind `frozen()`. It converts the legacy enum into
+   real worn instances: `ROPE` → a `duck_tape_arms` instance flagged `LEGACY_CONVERSION`; `CUFFS` →
+   `shackles_arms` using the `restraint_cuffs` item; `LOCKED_CUFFS` → `handcuffs_arms` using the
+   `restraint_locked_cuffs` item; and an arrest phase of `RESTRAINED` with no explicit gear → one
+   `handcuffs_arms` instance marked `SYSTEM_ISSUED`. Every migrated instance gets a conservative item
+   snapshot — the right item, full durability, no enchantments claimed, because the old record never
+   stored any — and `returnPolicy = NONE`, so release cannot mint free cuffs. The legacy
+   `cuffCombination` byte array is archived under `reserved` and retired; it does not unlock the new
+   state. A legacy kidnapping `holdPos` becomes a `TetherRecord` of kind `LEGACY_HOLD`: no fence knot
+   is fabricated and no chain item is dropped. Capture and escape sessions in flight are cancelled,
+   with a message to the participant and no item charged.
+
+The reconciler is **idempotent** and stamps a `reconciledSchema` marker, so a second load is a no-op.
+That marker prevents exactly one failure: a migration that creates a free extra pair of cuffs on
+every login.
+
+**Items.** `mcacrime:restraint_cuffs` now displays as **Shackles** and
+`mcacrime:restraint_locked_cuffs` as **Handcuffs**; both keep their ids and their textures byte for
+byte, so no stack is orphaned. `mcacrime:restraint_rope` stays registered, is hidden from the
+creative tab, and is normalised to `mcacrime:duck_tape` at controlled boundaries (application, fence
+stock, recipes); the lossless `rope_to_duck_tape` recipe means rope in a chest is not stranded. No
+broad save-wide data rewrite is performed. Item state new in this release rides in four registered
+data components rather than item NBT, which 1.21.1 does not have.
+
+**Configuration.** Twenty-one keys are retired: nineteen physical keys under `[kidnapping]` plus the
+client `renderCuffs` and `renderEscortRope`. **Values are not auto-migrated.** `ModConfigSpec` drops
+an unknown key when it rewrites a `.toml`, and `config/ConfigValidator` reads the raw
+`mcacrime-common.toml` and `mcacrime-client.toml` at startup, names every retired key it still finds
+together with its replacement, and **does not fail the load**. The one-for-one mapping is in
+[CONFIG.md](../CONFIG.md), under *Retired in 0.7.5*. Thirteen further keys were renamed during
+development, before release, so no key repeats its own section name; they are new in this version and
+no existing file contains them. The legal `[kidnapping]` keys and `locksReforgedFenceTrades` are
+unchanged.
+
+**Datapacks.** Restraint profile overrides may now ship under
+`data/<namespace>/mcacrime/restraint_profiles/`; none ship with the mod and an absent override leaves
+the code values in place. Format in [DATAPACK.md](../DATAPACK.md). The five restraint enchantments are
+datapack entries on this line (`data/mcacrime/enchantment/*.json`) rather than classes.
+
+**API.** `captivity/RestraintType` is deprecated and demoted to a read projection behind
+`EntityKidnappedEvent#getRestraint` and `CustodyView#restraint`, and is never written to world data
+again; read `McaCrimeApi.restraints(...)` instead. The facade's API version is now `2`.
+`JailSentenceView` gained a trailing `sentenceKind` component additively and kept its 0.7.4
+constructor.
+
+**Capital sentencing.** 0.7.5 adds a capital sentence, which changes what can happen to a prisoner in
+an existing world. **The only capital offence is killing a guard**, through the new
+`mcacrime:kill_guard` crime id. **Nothing escalates automatically**: no other offence qualifies, and
+no timer, circuit, payload or scheduled task ever carries a sentence out. Execution is always a
+deliberate act at a guillotine by a player or an on-duty guard; with no usable guillotine the
+condemned simply stays in custody — no substitute death, no despawn, no automatic commutation, no
+expiry into freedom. Pardon and commutation are the only legal exits. One key,
+`sentencing.capitalPunishment.enabled`, switches the whole group off, and existing cases in a
+migrated world are never re-classified: the kind is decided when a sentence is bound, and a bound
+sentence is never upgraded. This feature is present on both the Forge 1.20.1 and NeoForge 1.21.1
+lines with identical defaults.
+
+Importing a world from an existing **Cuffed** install is **out of scope for 0.7.5**. There is no
+donor import tool, no foreign data is read, and a world that has had both mods keeps two independent
+sets of state.
+
+**Rollback.** Schema 15 migration runs in one direction and cannot run backwards. An older jar with
+the future-schema gate detects schema 15, opens the world read-only and refuses every mutation; an
+older jar without it cannot address the five physical tables or the reconciled restraint instances.
+Unrecognised tags are preserved verbatim through the reserved passthrough, so the data is still in
+the file, but the old restraint enum it can read no longer describes what a prisoner is wearing.
+Restoring the pre-upgrade backup is the only supported rollback.
 
 ### 0.5.1 — Schema 6 → 7
 

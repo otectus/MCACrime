@@ -1,0 +1,16 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "pattern": [
+    "BB",
+    "BB"
+  ],
+  "key": {
+    "B": {
+      "item": "mcacrime:reinforced_stone_slab"
+    }
+  },
+  "result": {
+    "id": "mcacrime:chiseled_reinforced_stone",
+    "count": 2
+  }
+}

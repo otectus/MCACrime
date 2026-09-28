@@ -1,7 +1,6 @@
 package dev.otectus.mcacrime.client;
 
 import dev.otectus.mcacrime.McaCrime;
-import dev.otectus.mcacrime.captivity.RestraintType;
 import dev.otectus.mcacrime.compat.EpicFightCompat;
 import dev.otectus.mcacrime.compat.McaCompat;
 import dev.otectus.mcacrime.item.CrimeItems;
@@ -85,8 +84,10 @@ public final class EpicFightInteractShim {
         Entity target = ehr.getEntity();
         InteractionHand hand = event.getHand();
 
-        boolean holdingRestraint =
-                CrimeItems.restraintFor(mc.player.getMainHandItem()) != RestraintType.NONE;
+        // The 0.7.5 restraint set, not the legacy three: duct tape must forward the
+        // same way the cuffs do, or Epic Fight's battle mode swallows the interaction for exactly the
+        // items restraint/RestraintInteractHandler was written to receive.
+        boolean holdingRestraint = CrimeItems.familyFor(mc.player.getMainHandItem()).isPresent();
         // The server's own trigger settings, as they arrived with the weapon policy -- never the
         // client's COMMON file, which on a multiplayer server is not what the gate is evaluated
         // against. The server re-checks everything anyway, so a stale policy costs a refusal.

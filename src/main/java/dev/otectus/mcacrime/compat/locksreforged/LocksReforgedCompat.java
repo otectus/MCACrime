@@ -53,6 +53,83 @@ public final class LocksReforgedCompat implements IllicitGoodsProvider {
         LOCK_TIERS.put("netherite", 32L);
     }
 
+    /** Resolved once: Locks Reforged's own "is anything lockable here" lookup, or null. */
+    private static volatile java.lang.reflect.Method intersecting;
+    private static volatile boolean intersectingResolved;
+    private static volatile boolean ownershipProbeReported;
+
+    /**
+     * Whether Locks Reforged already owns a lock covering {@code pos} (§3.16, spec §10.4).
+     *
+     * <p>Reflective, like everything else about this mod: the method looked up is
+     * {@code LocksUtil.intersecting(Level, BlockPos)}, which is that mod's own answer to "which of my
+     * lockables cover this block". Asking it is what lets {@code locks.foreignLockPolicy = REFUSE}
+     * decline to be a second, contradictory access check on one chest.
+     *
+     * <p>A probe that cannot resolve reports <b>once</b> and then answers false. False is the honest
+     * answer to "I could not determine this": refusing every padlock in the world because a lookup
+     * changed shape would be a worse failure than allowing one, and the report is what keeps the
+     * degradation visible instead of silent.
+     *
+     * @param level a {@code Level}; anything else answers false
+     * @param pos   a {@code BlockPos}
+     */
+    public static boolean ownsLock(Object level, Object pos) {
+        if (!(level instanceof net.minecraft.world.level.Level world)
+                || !(pos instanceof net.minecraft.core.BlockPos blockPos)) {
+            return false;
+        }
+        java.lang.reflect.Method method = resolveIntersecting();
+        if (method == null) {
+            return false;
+        }
+        try {
+            Object result = method.invoke(null, world, blockPos);
+            return result instanceof java.util.stream.Stream<?> stream && stream.findAny().isPresent();
+        } catch (Throwable t) {
+            reportProbeFailure(t.toString());
+            return false;
+        }
+    }
+
+    private static java.lang.reflect.Method resolveIntersecting() {
+        if (intersectingResolved) {
+            return intersecting;
+        }
+        synchronized (LocksReforgedCompat.class) {
+            if (intersectingResolved) {
+                return intersecting;
+            }
+            intersectingResolved = true;
+            try {
+                intersecting = Class.forName("melonslise.locks.common.util.LocksUtil")
+                        .getMethod("intersecting", net.minecraft.world.level.Level.class,
+                                net.minecraft.core.BlockPos.class);
+            } catch (Throwable t) {
+                intersecting = null;
+                reportProbeFailure(t.toString());
+            }
+            return intersecting;
+        }
+    }
+
+    private static void reportProbeFailure(String detail) {
+        if (ownershipProbeReported) {
+            return;
+        }
+        ownershipProbeReported = true;
+        dev.otectus.mcacrime.McaCrime.LOGGER.warn("MCA: Crime - Locks Reforged is installed but its lock "
+                + "lookup could not be reached, so locks.foreignLockPolicy cannot tell which blocks it "
+                + "already owns. MCA: Crime locks will be allowed on every supported block. ({})", detail);
+    }
+
+    /** Test hook: forgets the resolved probe. */
+    public static synchronized void resetOwnershipProbe() {
+        intersecting = null;
+        intersectingResolved = false;
+        ownershipProbeReported = false;
+    }
+
     /**
      * Installs the provider. Called only by {@code LocksReforgedBridge}, and only once the mod is
      * confirmed present and the integration is switched on.

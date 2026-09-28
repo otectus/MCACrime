@@ -1,7 +1,9 @@
 package dev.otectus.mcacrime;
 
-import dev.otectus.mcacrime.enforcement.EscortRestraint;
 import dev.otectus.mcacrime.enforcement.EscortService;
+import dev.otectus.mcacrime.tether.EscortTransport;
+import dev.otectus.mcacrime.tether.TetherPhysics;
+import net.minecraft.world.phys.Vec3;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -13,45 +15,84 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *
  * <p>Both are pure so the behaviour that decides whether an arrest feels like being held or like a
  * rubber band can be pinned without a world.
+ *
+ * <p>The lead itself moved in 0.7.5 M4.3. {@code enforcement/EscortRestraint} is gone and one engine
+ * holds every subject, so the pull assertions below are made against {@code tether/TetherPhysics} and
+ * {@code tether/EscortTransport} instead. The behaviour they assert is the same behaviour, with one
+ * deliberate addition: validity is now decided <em>before</em> any correction, which is the defect
+ * the source could not fix because it teleported first.
  */
 class EscortProgressTest {
 
     // ---------------------------------------------------------------- the lead
 
+    private static Vec3 at(double x) {
+        return new Vec3(x, 64.0, 0.0);
+    }
+
     @Test
-    void insideTheSoftRadiusThePlayerIsLeftAlone() {
-        assertEquals(0.0, EscortRestraint.pullStrength(0.0, 25.0, 256.0));
-        assertEquals(0.0, EscortRestraint.pullStrength(24.9, 25.0, 256.0));
-        assertEquals(0.0, EscortRestraint.pullStrength(25.0, 25.0, 256.0),
+    void insideThePullLengthTheSubjectIsLeftAlone() {
+        assertEquals(Vec3.ZERO, TetherPhysics.correction(at(0.0), at(0.0), 5.0, 12.0));
+        assertEquals(Vec3.ZERO, TetherPhysics.correction(at(0.0), at(4.9), 5.0, 12.0));
+        assertEquals(Vec3.ZERO, TetherPhysics.correction(at(0.0), at(5.0), 5.0, 12.0),
                 "the boundary itself is still free movement");
     }
 
     @Test
     void theLeadTightensRatherThanSnapping() {
-        double near = EscortRestraint.pullStrength(50.0, 25.0, 256.0);
-        double mid = EscortRestraint.pullStrength(150.0, 25.0, 256.0);
-        double far = EscortRestraint.pullStrength(255.0, 25.0, 256.0);
-        assertTrue(near > 0.0, "past the soft radius something must pull");
+        double near = TetherPhysics.correction(at(0.0), at(6.0), 5.0, 12.0).length();
+        double mid = TetherPhysics.correction(at(0.0), at(9.0), 5.0, 12.0).length();
+        double far = TetherPhysics.correction(at(0.0), at(11.9), 5.0, 12.0).length();
+        assertTrue(near > 0.0, "past the pull length something must pull");
         assertTrue(mid > near, "and it must rise with distance");
         assertTrue(far > mid);
     }
 
     @Test
-    void thePullIsCappedAndNeverNegative() {
-        double atHard = EscortRestraint.pullStrength(256.0, 25.0, 256.0);
-        double wayPast = EscortRestraint.pullStrength(10_000.0, 25.0, 256.0);
-        assertEquals(atHard, wayPast, 1.0E-9, "beyond the tether the pull does not keep growing");
-        for (double d : new double[] {0.0, 1.0, 25.0, 100.0, 256.0, 1.0E6}) {
-            assertTrue(EscortRestraint.pullStrength(d, 25.0, 256.0) >= 0.0);
+    void thePullIsCappedAndAlwaysFinite() {
+        double atLimit = TetherPhysics.correction(at(0.0), at(12.0), 5.0, 12.0).length();
+        double wayPast = TetherPhysics.correction(at(0.0), at(10_000.0), 5.0, 12.0).length();
+        assertEquals(atLimit, wayPast, 1.0E-9, "beyond the overextension the pull does not keep growing");
+        assertEquals(TetherPhysics.MAX_CORRECTION, atLimit, 1.0E-9);
+        for (double d : new double[] {0.0, 1.0, 5.0, 12.0, 256.0, 1.0E6}) {
+            assertTrue(TetherPhysics.finite(TetherPhysics.correction(at(0.0), at(d), 5.0, 12.0)));
         }
     }
 
-    /** A misconfigured pair of radii must still produce something sane rather than dividing by zero. */
+    /** A misconfigured pair of lengths must still produce something sane rather than dividing by zero. */
     @Test
-    void aLeashWiderThanTheTetherDegradesToAFullPull() {
-        double strength = EscortRestraint.pullStrength(100.0, 256.0, 25.0);
-        assertTrue(strength > 0.0 || strength == 0.0, "no NaN, no infinity");
-        assertFalse(Double.isNaN(EscortRestraint.pullStrength(300.0, 256.0, 256.0)));
+    void aPullLongerThanTheOverextensionDegradesToAFullPull() {
+        Vec3 correction = TetherPhysics.correction(at(0.0), at(20.0), 12.0, 5.0);
+        assertTrue(TetherPhysics.finite(correction), "no NaN, no infinity");
+        assertTrue(correction.length() <= TetherPhysics.MAX_CORRECTION + 1.0E-9);
+        assertFalse(TetherPhysics.overextended(11.0, 12.0, 5.0),
+                "nothing below the pull length is ever damaging, however the lengths are ordered");
+    }
+
+    /** Non-finite coordinates answer "no correction" rather than writing a NaN into a position. */
+    @Test
+    void impossibleCoordinatesCorrectNothing() {
+        assertEquals(Vec3.ZERO,
+                TetherPhysics.correction(new Vec3(Double.NaN, 0.0, 0.0), at(50.0), 5.0, 12.0));
+        assertEquals(Vec3.ZERO,
+                TetherPhysics.correction(at(0.0), new Vec3(0.0, Double.POSITIVE_INFINITY, 0.0), 5.0, 12.0));
+    }
+
+    /**
+     * The ordering fix. A subject past the break distance is broken free <em>before</em> anything
+     * pulls them back, so the break condition is reachable at all -- the source evaluates it after
+     * the teleport, which is why its own 3.5-block break can never fire.
+     */
+    @Test
+    void validityIsDecidedBeforeAnyCorrection() {
+        double breakAt = EscortTransport.breakDistance(12.0);
+        assertTrue(EscortTransport.valid(true, true, true, breakAt - 0.1, breakAt));
+        assertFalse(EscortTransport.valid(true, true, true, breakAt + 0.1, breakAt),
+                "past the break distance the hold is over, whatever the pull would have done");
+        assertFalse(EscortTransport.valid(true, false, true, 1.0, breakAt), "nobody is holding them");
+        assertFalse(EscortTransport.valid(true, true, false, 1.0, breakAt), "another dimension");
+        assertFalse(EscortTransport.valid(false, true, true, 1.0, breakAt), "a dead subject");
+        assertFalse(EscortTransport.valid(true, true, true, Double.NaN, breakAt));
     }
 
     // ---------------------------------------------------------------- stuck detection

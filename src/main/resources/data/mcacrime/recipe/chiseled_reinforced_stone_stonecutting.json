@@ -1,0 +1,10 @@
+{
+  "type": "minecraft:stonecutting",
+  "ingredient": {
+    "item": "mcacrime:reinforced_stone"
+  },
+  "result": {
+    "id": "mcacrime:chiseled_reinforced_stone",
+    "count": 1
+  }
+}

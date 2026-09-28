@@ -8,7 +8,7 @@
   { "item": "minecraft:ender_pearl", "base": 12 },
   { "item": "minecraft:golden_apple", "base": 20 },
   { "item": "minecraft:name_tag", "base": 16 },
-  { "item": "mcacrime:restraint_rope", "base": 6 },
+  { "item": "mcacrime:duck_tape", "base": 6 },
   { "item": "mcacrime:restraint_cuffs", "base": 12 },
   { "item": "mcacrime:restraint_locked_cuffs", "base": 12 }
 ]

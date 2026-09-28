@@ -1,0 +1,22 @@
+{
+  "replace": false,
+  "values": [
+    "mcacrime:safe",
+    "mcacrime:cell_door",
+    { "id": "#c:chests", "required": false },
+    { "id": "#c:barrels", "required": false },
+    { "id": "#c:fence_gates", "required": false },
+    "#minecraft:doors",
+    "#minecraft:trapdoors",
+    "#minecraft:anvil",
+    { "id": "#c:storage_blocks", "required": false },
+    "minecraft:furnace",
+    "minecraft:blast_furnace",
+    "minecraft:smoker",
+    "minecraft:crafting_table",
+    "minecraft:enchanting_table",
+    "minecraft:hopper",
+    "minecraft:dispenser",
+    "minecraft:dropper"
+  ]
+}

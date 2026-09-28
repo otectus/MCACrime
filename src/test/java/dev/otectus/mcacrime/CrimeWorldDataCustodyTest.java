@@ -4,8 +4,8 @@ import dev.otectus.mcacrime.captivity.CustodyOwner;
 import dev.otectus.mcacrime.captivity.CustodyRecord;
 import dev.otectus.mcacrime.captivity.RestraintType;
 import dev.otectus.mcacrime.state.world.CrimeWorldData;
-import net.minecraft.core.BlockPos;
 import net.minecraft.core.RegistryAccess;
+import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.StringTag;
@@ -29,7 +29,10 @@ class CrimeWorldDataCustodyTest {
         CrimeWorldData data = new CrimeWorldData();
         UUID captive = UUID.randomUUID();
         CustodyRecord r = new CustodyRecord(captive, true, false, CustodyOwner.kidnapper(UUID.randomUUID()),
-                RestraintType.ROPE, 0L, new BlockPos(1, 2, 3), OVERWORLD);
+                0L, new BlockPos(1, 2, 3), OVERWORLD);
+        // Migration input, and the only restraint a record carries as of 0.7.5: the reconciler reads
+        // it once and converts it into real worn gear.
+        r.setLegacyRestraint(RestraintType.ROPE);
         data.putCustody(r);
         data.putCustody(r.copy()); // same captive -> replaces, not duplicates
         assertEquals(1, data.custodyRecords().size());
@@ -38,7 +41,7 @@ class CrimeWorldDataCustodyTest {
         CrimeWorldData loaded = CrimeWorldData.load(data.save(new CompoundTag(), RegistryAccess.EMPTY), RegistryAccess.EMPTY);
         assertEquals(1, loaded.custodyRecords().size());
         assertNotNull(loaded.getCustody(captive));
-        assertEquals(RestraintType.ROPE, loaded.getCustody(captive).getRestraint());
+        assertEquals(RestraintType.ROPE, loaded.getCustody(captive).getLegacyRestraint());
 
         loaded.removeCustody(captive);
         assertFalse(loaded.isCaptive(captive));
@@ -48,7 +51,7 @@ class CrimeWorldDataCustodyTest {
     void malformedCustodyEntrySkipped() {
         CrimeWorldData data = new CrimeWorldData();
         UUID good = UUID.randomUUID();
-        data.putCustody(new CustodyRecord(good, false, false, CustodyOwner.none(), RestraintType.NONE, 0L, null, null));
+        data.putCustody(new CustodyRecord(good, false, false, CustodyOwner.none(), 0L, null, null));
 
         CompoundTag saved = data.save(new CompoundTag(), RegistryAccess.EMPTY);
         saved.getCompound("custody").putString("not-a-uuid", "x"); // inject a bad key

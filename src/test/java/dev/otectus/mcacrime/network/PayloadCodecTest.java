@@ -6,8 +6,6 @@ import dev.otectus.mcacrime.action.ActionLegality;
 import dev.otectus.mcacrime.action.ActionMenuKind;
 import dev.otectus.mcacrime.crime.Band;
 import dev.otectus.mcacrime.enforcement.ChallengeResponse;
-import dev.otectus.mcacrime.enforcement.RestraintVisualState;
-import dev.otectus.mcacrime.enforcement.RestraintVisualType;
 import dev.otectus.mcacrime.item.weapon.WeaponPolicySnapshot;
 import dev.otectus.mcacrime.job.CriminalJob;
 import dev.otectus.mcacrime.ledger.Resolution;
@@ -228,29 +226,6 @@ class PayloadCodecTest {
     }
 
     @Test
-    void restraintSyncRoundTrips() {
-        for (RestraintVisualType visual : RestraintVisualType.values()) {
-            RestraintSyncS2CPacket packet =
-                    new RestraintSyncS2CPacket(UUID.randomUUID(), true, visual, 4711);
-            assertEquals(packet, roundTrip(RestraintSyncS2CPacket.STREAM_CODEC, packet));
-        }
-    }
-
-    @Test
-    void restraintBulkSyncRoundTripsEmptyAndFull() {
-        assertEquals(Map.of(), roundTrip(RestraintBulkSyncS2CPacket.STREAM_CODEC,
-                new RestraintBulkSyncS2CPacket(Map.of())).restrained());
-
-        Map<UUID, RestraintVisualState> full = new HashMap<>();
-        for (int i = 0; i < RestraintBulkSyncS2CPacket.MAX_SUBJECTS; i++) {
-            full.put(UUID.randomUUID(), new RestraintVisualState(true,
-                    RestraintVisualType.values()[i % RestraintVisualType.values().length], i));
-        }
-        assertEquals(full, roundTrip(RestraintBulkSyncS2CPacket.STREAM_CODEC,
-                new RestraintBulkSyncS2CPacket(full)).restrained());
-    }
-
-    @Test
     void weaponPolicyRoundTrips() {
         WeaponPolicySnapshot policy = new WeaponPolicySnapshot(true, List.of("minecraft:stick"),
                 List.of("minecraft:feather"), false, 4.5D, List.of("rifle"), List.of("tacz"), false,
@@ -285,11 +260,16 @@ class PayloadCodecTest {
         assertThrows(RuntimeException.class, () -> BandBulkSyncS2CPacket.STREAM_CODEC.decode(buf));
     }
 
+    /**
+     * The 0.7.5 successor to the retired restraint bulk snapshot: too many subjects is refused, not
+     * read at the wrong offset.
+     */
     @Test
-    void anOversizedRestraintMapIsRefused() {
+    void anOversizedPhysicalSnapshotIsRefused() {
         RegistryFriendlyByteBuf buf = buffer();
-        buf.writeVarInt(RestraintBulkSyncS2CPacket.MAX_SUBJECTS + 1);
-        assertThrows(RuntimeException.class, () -> RestraintBulkSyncS2CPacket.STREAM_CODEC.decode(buf));
+        buf.writeVarInt(dev.otectus.mcacrime.network.PacketBounds.MAX_PHYSICAL_SUBJECTS + 1);
+        assertThrows(RuntimeException.class,
+                () -> dev.otectus.mcacrime.network.PhysicalStateS2CPacket.STREAM_CODEC.decode(buf));
     }
 
     @Test

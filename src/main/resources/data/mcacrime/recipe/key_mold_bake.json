@@ -1,0 +1,7 @@
+{
+  "type": "mcacrime:key_mold_bake",
+  "ingredient": { "item": "mcacrime:key_mold" },
+  "result": { "id": "mcacrime:baked_key_mold" },
+  "experience": 0.35,
+  "cookingtime": 200
+}

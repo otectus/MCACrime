@@ -101,7 +101,10 @@ public final class CrimeDialogueService {
         rememberCooldown(pair, now + McaCrimeConfig.COMMON.dialogueCooldownTicks.get());
 
         Component name = speaker == null ? Component.empty() : McaCompat.getVillagerDisplayName(speaker);
-        Component text = Component.translatable(line(event, context), args);
+        Component fallback = Component.translatable(line(event, context), args);
+        // A registered add-on (MCA: Conversations, voicing the guard in its own personality) may speak
+        // the line instead; the datapack line stays the fallback and is what ships without one (0.7.5).
+        Component text = dev.otectus.mcacrime.api.CrimeDialogueHooks.resolve(speaker, listener, event, context, fallback);
         McaCrimeConfig.Common c = McaCrimeConfig.COMMON;
         listener.sendSystemMessage(DialogueLineFormat.render(c.dialogueMessageFormat.get(),
                 DialogueLineFormat.styleName(name, c.dialogueNameColor.get(), c.dialogueNameBold.get()), text));

@@ -55,9 +55,20 @@ public final class McaCrime {
         CrimeAttachments.register(modBus);
         // Blocks before items: the Mask Station's BlockItem resolves the block it wraps, so the block
         // registry has to be attached first even though DeferredRegister defers both.
-        dev.otectus.mcacrime.block.CrimeBlocks.register(modBus); // mask station (0.7.2 §6.1)
+        dev.otectus.mcacrime.block.CrimeBlocks.register(modBus); // mask station, cell door, safe
+        // Block entities after the blocks they are valid for: a BlockEntityType names its blocks.
+        dev.otectus.mcacrime.block.entity.CrimeBlockEntities.register(modBus); // cell door, safe (0.7.5 M3)
         CrimeItems.register(modBus); // restraints + masks + station item + creative tab (spec §8.3)
-        dev.otectus.mcacrime.effect.CrimeEffects.register(modBus); // mcacrime:sand_blinded (0.7.2 §13.4)
+        // Item data components: the lock binding, a ring's contents and a mold's impression, which
+        // 1.21.1 keeps as registered types rather than as item NBT.
+        dev.otectus.mcacrime.state.CrimeDataComponents.register(modBus); // 0.7.5 M3.2, M5.1/M5.7/M5.8
+        dev.otectus.mcacrime.effect.CrimeEffects.register(modBus); // sand_blinded (0.7.2), restrained (0.7.5)
+        // No enchantment registration on this line (P6.1): the five of §3.10 are datapack entries under
+        // data/mcacrime/enchantment/, and enchantment/CrimeEnchantments holds only their ResourceKeys.
+        // Sound ids before anything that plays one. Every id here is registered and stable even while
+        // its audio file is still a vanilla fallback (§3.11).
+        dev.otectus.mcacrime.audio.CrimeSoundEvents.register(modBus); // restraint and device moments
+        dev.otectus.mcacrime.stat.CrimeStats.register(modBus); // the nineteen custom statistics (M3.3, M5.11)
         dev.otectus.mcacrime.entity.CrimeEntities.register(modBus); // thrown sand bottle (0.7.2 §13.2)
         // POI before professions: the thief profession's predicates name the mask-station POI key.
         dev.otectus.mcacrime.job.CrimePoiTypes.register(modBus); // mcacrime:mask_station (0.7.2 §10.1)
@@ -76,9 +87,16 @@ public final class McaCrime {
         migrateClientHud(event.getConfig());
         if (!MOD_ID.equals(event.getConfig().getModId())
                 || event.getConfig().getSpec() != McaCrimeConfig.COMMON_SPEC) return;
+        applyRestraintPreset();
         net.minecraft.server.MinecraftServer running =
                 net.neoforged.neoforge.server.ServerLifecycleHooks.getCurrentServer();
         Runnable refresh = () -> {
+            // Before anything else reads the new numbers: no session may straddle a reload. A struggle
+            // priced against the old durability, a lockpick metered by the old divisor or a frisk
+            // bounded by the old payload cap would finish under rules that no longer exist and that
+            // nobody could look up. Cancelling is the honest answer -- every session is transient, its
+            // owner is told, and starting again costs one interaction (0.7.5 M7.1).
+            dev.otectus.mcacrime.restraint.SessionReloadPolicy.cancelAll(running);
             if (running != null) {
                 dev.otectus.mcacrime.compat.TownsteadBridge.reload();
             }
@@ -115,6 +133,36 @@ public final class McaCrime {
 
     private void onConfigLoading(net.neoforged.fml.event.config.ModConfigEvent.Loading event) {
         migrateClientHud(event.getConfig());
+        if (MOD_ID.equals(event.getConfig().getModId())
+                && event.getConfig().getSpec() == McaCrimeConfig.COMMON_SPEC) {
+            applyRestraintPreset();
+        }
+    }
+
+    /**
+     * Writes {@code restraints.preset} into the file, once, when it names a tuning the file was not
+     * written from (0.7.5 M7.2).
+     *
+     * <p>Never silent and never repeated: the keys it rewrote are named in the log with their old and
+     * new values, and {@code appliedPreset} then makes a second pass a no-op, so an operator who tunes
+     * one of those keys by hand afterwards keeps their edit. The save goes through the spec rather
+     * than the {@code ModConfig}, which is how NeoForge writes a value back.
+     */
+    private void applyRestraintPreset() {
+        try {
+            var common = McaCrimeConfig.COMMON;
+            var requested = common.preset.get();
+            if (!dev.otectus.mcacrime.config.RestraintPresets.shouldApply(requested,
+                    common.appliedPreset.get())) {
+                return;
+            }
+            dev.otectus.mcacrime.config.RestraintPresets.apply(common, requested).forEach(LOGGER::info);
+            McaCrimeConfig.COMMON_SPEC.save();
+        } catch (Throwable t) {
+            // A preset is a convenience. If the spec is not readable yet, or the file is read-only,
+            // the server starts on the values it already has rather than not starting at all.
+            LOGGER.warn("MCA: Crime could not apply restraints.preset; the config is unchanged", t);
+        }
     }
 
     private void migrateClientHud(ModConfig config) {
@@ -152,8 +200,23 @@ public final class McaCrime {
             } catch (Throwable t) {
                 LOGGER.debug("Config validation skipped at setup (config not ready)", t);
             }
+            // Settings 0.7.5 retired, named one by one rather than silently ignored. Never a failure:
+            // a key that no longer does anything must not stop a server that still sets it (§10.5).
+            ConfigValidator.retiredKeyReport().forEach(LOGGER::warn);
+            // Says once, plainly, what lock protection covers and what no adapter in this release
+            // covers, rather than letting a padlock imply a promise it cannot keep (§10.3).
+            dev.otectus.mcacrime.locks.LockProtectionHandlers.reportCoverage();
             // One line, once, if a config still asks for a hidden thief (0.7.2 §9.2).
             WorldCriminalJobService.warnAboutDeprecatedThiefPresentation();
+            // Dispenser behaviours, here because DispenserBlock's behaviour map is a plain static map
+            // with no synchronisation: writing to it off this thread races every other mod doing the
+            // same thing.
+            dev.otectus.mcacrime.restraint.DispenserRestraintBehavior.register();
+            // The custom statistics' display formatters (M5.11). Here rather than inside the
+            // DeferredRegister supplier because a Stat builds its key from the registry the id is
+            // about to be added to: on this platform the supplier runs before the registration, so a
+            // formatter asked for there would name a null id.
+            dev.otectus.mcacrime.stat.CrimeStats.registerFormatters();
             // Last, and inside enqueueWork: every mod has finished loading by now, so ModList is
             // authoritative, and the bridge must not race our own registration.
             ReputationBridge.init();
@@ -163,6 +226,30 @@ public final class McaCrime {
             // And one more: open bounties become guard-offered contracts when MCA: Quests is present.
             // MCA: Quests asks add-ons to register objective types from setup, which is where this is.
             McaQuestsBridge.init();
+            // The third-party registration window closes here, after every other mod's own setup has
+            // run (M6.4): a definition that arrived later would be absent from every row already
+            // written and present in every row written next.
+            dev.otectus.mcacrime.restraint.RestraintDefinitions.closeRegistration();
+            // And the optional adapters M6.2 owns, each of which reports what it found rather than
+            // claiming support it cannot prove.
+            if (McaCrimeConfig.COMMON.optionalAdaptersEnabled.get()) {
+                dev.otectus.mcacrime.compat.ManaCompat.init();       // Silence drains a real pool
+                dev.otectus.mcacrime.compat.InventoryCompat.init();  // Curios, Cosmetic Armor
+                dev.otectus.mcacrime.compat.ReviveCompat.init();     // downed is not dead
+            } else {
+                LOGGER.info("MCA: Crime - optional-mod adapters are switched off; nothing is bound.");
+            }
+            // One line per installed optional mod, naming what this mod actually does about it --
+            // including the ones it deliberately claims nothing for (§15.1).
+            if (McaCrimeConfig.COMMON.reportAdapterVersions.get()) {
+                dev.otectus.mcacrime.compat.OptionalMods.report().forEach(LOGGER::info);
+            }
+            // And, if the mod this release absorbed is installed beside it, exactly one warning.
+            dev.otectus.mcacrime.compat.CuffedCoexistence.logStartupNotice();
+            // The legal system's answer to "is this subject condemned?" (§3.19, M6.6). Until this
+            // runs, ExecutionAuthorization's default source says nobody is, and a guillotine can
+            // detain and release and nothing else.
+            dev.otectus.mcacrime.ledger.CapitalSentenceService.install();
         });
     }
 }

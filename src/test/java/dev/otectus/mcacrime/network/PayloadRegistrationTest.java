@@ -39,17 +39,22 @@ class PayloadRegistrationTest {
         EXPECTED.put(ActionProgressS2CPacket.TYPE, "action_progress");
         EXPECTED.put(GuardChallengeS2CPacket.TYPE, "guard_challenge");
         EXPECTED.put(CaseLedgerS2CPacket.TYPE, "case_ledger");
-        EXPECTED.put(RestraintSyncS2CPacket.TYPE, "restraint_sync");
-        EXPECTED.put(RestraintBulkSyncS2CPacket.TYPE, "restraint_bulk_sync");
         EXPECTED.put(WeaponPolicyS2CPacket.TYPE, "weapon_policy");
         EXPECTED.put(CriminalJobSyncS2CPacket.TYPE, "criminal_job_sync");
         EXPECTED.put(BailQuoteS2CPacket.TYPE, "bail_quote");
         EXPECTED.put(MaskSelectionS2CPacket.TYPE, "mask_selection");
+        // 0.7.5: the physical-restraint messages that replaced restraint_sync and
+        // restraint_bulk_sync, plus the two intent-only requests the client may send.
+        EXPECTED.put(PhysicalStateS2CPacket.TYPE, "physical_state");
+        EXPECTED.put(PhysicalStateDeltaS2CPacket.TYPE, "physical_state_delta");
+        EXPECTED.put(PhysicalStateRemoveS2CPacket.TYPE, "physical_state_remove");
+        EXPECTED.put(RestraintStruggleC2SPacket.TYPE, "restraint_struggle");
+        EXPECTED.put(SelfRestraintC2SPacket.TYPE, "self_restraint");
     }
 
     @Test
-    void thereAreTwentyOnePayloads() {
-        assertEquals(21, EXPECTED.size());
+    void thereAreTwentyFourPayloads() {
+        assertEquals(24, EXPECTED.size());
     }
 
     @Test

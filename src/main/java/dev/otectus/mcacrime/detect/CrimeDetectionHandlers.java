@@ -4,7 +4,8 @@ import dev.otectus.mcacrime.McaCrime;
 import dev.otectus.mcacrime.McaCrimeConfig;
 import dev.otectus.mcacrime.action.ActionSessionManager;
 import dev.otectus.mcacrime.action.CancelReason;
-import dev.otectus.mcacrime.captivity.CaptureChannels;
+import dev.otectus.mcacrime.restraint.SessionCancelCause;
+import dev.otectus.mcacrime.restraint.SessionRegistry;
 import dev.otectus.mcacrime.captivity.CustodyRecord;
 import dev.otectus.mcacrime.captivity.CustodyRegistry;
 import dev.otectus.mcacrime.captivity.CustodyReleaseReason;
@@ -58,8 +59,8 @@ public final class CrimeDetectionHandlers {
 
     @SubscribeEvent
     public static void onLivingHurt(LivingDamageEvent.Post event) {
-        // A channeling kidnapper who is hit breaks their capture (§8.2) — independent of the detection toggle.
-        CaptureChannels.onKidnapperHurt(event.getEntity().getUUID());
+        // A channeling kidnapper who is hit breaks their capture — replaced in 0.7.5: damage interrupts whatever restraint, lockpicking or frisking work this actor had running.
+        SessionRegistry.server().cancelForActor(event.getEntity().getUUID(), SessionCancelCause.DAMAGE);
         if (event.getEntity().level() instanceof ServerLevel hurtLevel) {
             ActionSessionManager.clearFor(event.getEntity().getUUID(), CancelReason.DAMAGED);
             CustodyService.interruptEscape(event.getEntity().getUUID(), hurtLevel.getServer());
@@ -111,7 +112,8 @@ public final class CrimeDetectionHandlers {
     static void confirmedDeath(LivingEntity victim, ServerLevel level) {
         var server = level.getServer();
         var dead = victim.getUUID();
-        CaptureChannels.clearFor(dead);
+        SessionRegistry.server().cancelForActor(dead, SessionCancelCause.DEATH);
+        SessionRegistry.server().cancelForTarget(dead, SessionCancelCause.DEATH);
         ActionSessionManager.clearFor(dead, CancelReason.DEATH);
         if (CustodyRegistry.isCaptive(server, dead)) {
             CustodyService.release(server, dead, CustodyReleaseReason.CAPTIVE_DIED);
@@ -153,7 +155,7 @@ public final class CrimeDetectionHandlers {
     /**
      * A player who changes dimension takes every in-flight interaction with them.
      *
-     * <p>An action session and a capture channel are both bound to one dimension at their start and
+     * <p>An action session and a restraint session are both bound to one dimension at their start and
      * neither re-checks it every tick; a portal is the one way a target can leave the world an actor
      * is standing in without dying, disconnecting or moving. Both parties are covered, because the
      * session is just as broken when it is the victim who steps through.
@@ -162,7 +164,8 @@ public final class CrimeDetectionHandlers {
     public static void onChangedDimension(PlayerEvent.PlayerChangedDimensionEvent event) {
         java.util.UUID mover = event.getEntity().getUUID();
         ActionSessionManager.clearFor(mover, CancelReason.DIMENSION_CHANGED);
-        CaptureChannels.clearFor(mover);
+        SessionRegistry.server().cancelForActor(mover, SessionCancelCause.DIMENSION_CHANGE);
+        SessionRegistry.server().cancelForTarget(mover, SessionCancelCause.DIMENSION_CHANGE);
         // Combat provenance expires after disengagement; a quick portal trip must not reset who attacked first.
     }
 
@@ -171,7 +174,9 @@ public final class CrimeDetectionHandlers {
         if (event.getEntity() instanceof net.minecraft.server.level.ServerPlayer player)
             reconcileBeforePlayerSave(player.getServer());
         // Keep bounded recent aggression until its normal expiry; relogging cannot legalize retaliation.
-        CaptureChannels.clearFor(event.getEntity().getUUID()); // drop any in-progress channel by/of this player
+        // Drop any session this player was working, or having worked on them.
+        SessionRegistry.server().cancelForActor(event.getEntity().getUUID(), SessionCancelCause.LOGOUT);
+        SessionRegistry.server().cancelForTarget(event.getEntity().getUUID(), SessionCancelCause.LOGOUT);
         MuggingService.onLogout(event.getEntity().getUUID()); // drop any pending mug markers
         ActionSessionManager.clearFor(event.getEntity().getUUID(), CancelReason.ACTOR_GONE);
         // clearFor only ends sessions this player is party to; forgetActor also releases their nonce

@@ -47,6 +47,8 @@ public record ReputationCapabilitySnapshot(int apiVersion, boolean enabled, Set<
     public static final String FEATURE_REPEAT_CREDIT = "repeat_credit_v1";
     public static final String FEATURE_PROFILED_DELIVERY = "profiled_delivery_v1";
     public static final String FEATURE_PROFILE_CHANGE = "profile_change_v1";
+    // --- 0.6.1: the per-incident exemption registry ReputationExemptionBridge registers against ---
+    public static final String FEATURE_INCIDENT_EXEMPTIONS = "incident_exemptions_v1";
 
     /**
      * Every 0.6.0 profile string this build knows about, in a stable order.
@@ -128,6 +130,15 @@ public record ReputationCapabilitySnapshot(int apiVersion, boolean enabled, Set<
         return has(FEATURE_PROFILE_SNAPSHOT);
     }
 
+    /**
+     * Whether {@code CoreIncidentExemptions} exists, so the thief-combat exemption can be honoured while
+     * ordinary incident ownership is handed back. Diagnostic only: the registration itself is made by
+     * {@code ReputationExemptionBridge}, by name, at common setup.
+     */
+    public boolean supportsIncidentExemptions() {
+        return has(FEATURE_INCIDENT_EXEMPTIONS);
+    }
+
     /** A compact line for {@code /crime debug integrations}. */
     public String describe() {
         StringBuilder out = new StringBuilder("api v").append(apiVersion)
@@ -136,6 +147,7 @@ public record ReputationCapabilitySnapshot(int apiVersion, boolean enabled, Set<
                 .append(" receipts=").append(supportsReceiptLookup())
                 .append(" supersede=").append(supportsSupersede())
                 .append(" bound_resolution=").append(supportsBoundResolution())
+                .append(" exemptions=").append(supportsIncidentExemptions())
                 .append(" profiles=").append(advertisedProfileFeatures());
         if (!readinessReason.isEmpty()) {
             out.append(" (").append(readinessReason).append(')');

@@ -13,5 +13,13 @@ public enum ReleaseReason {
     /** The remainder of the sentence was bought out under {@code enableBail}. */
     BAILED,
     /** The jail anchor/dimension became unusable and no fallback existed — released to avoid a softlock. */
-    INVALID_JAIL
+    INVALID_JAIL,
+    /**
+     * A capital sentence was carried out at a device (0.7.5 §3.19).
+     *
+     * <p>The only release reason that is not a release: the prisoner is dead, the custody ends under
+     * {@code CustodyReleaseReason.CAPTIVE_DIED} beside it, and the sentence closes once through
+     * {@code ledger/CapitalDeathOutcome}. Nothing reaches this reason without a confirmed death.
+     */
+    EXECUTED
 }

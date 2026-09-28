@@ -11,10 +11,14 @@ import dev.otectus.mcacrime.network.CaseLedgerS2CPacket;
 import dev.otectus.mcacrime.network.CrimeClientPayloadRouter;
 import dev.otectus.mcacrime.network.CriminalJobSyncS2CPacket;
 import dev.otectus.mcacrime.network.GuardChallengeS2CPacket;
+import dev.otectus.mcacrime.network.LockpickBeginS2CPacket;
+import dev.otectus.mcacrime.network.LockpickPhaseS2CPacket;
+import dev.otectus.mcacrime.network.LockpickResultS2CPacket;
 import dev.otectus.mcacrime.network.MaskSelectionS2CPacket;
-import dev.otectus.mcacrime.network.RestraintBulkSyncS2CPacket;
+import dev.otectus.mcacrime.network.PhysicalStateDeltaS2CPacket;
+import dev.otectus.mcacrime.network.PhysicalStateRemoveS2CPacket;
+import dev.otectus.mcacrime.network.PhysicalStateS2CPacket;
 import dev.otectus.mcacrime.network.RestraintRigSyncS2CPacket;
-import dev.otectus.mcacrime.network.RestraintSyncS2CPacket;
 import dev.otectus.mcacrime.network.SelfStatusS2CPacket;
 import dev.otectus.mcacrime.network.VillageSecurityS2CPacket;
 import dev.otectus.mcacrime.network.WeaponPolicyS2CPacket;
@@ -69,15 +73,7 @@ public final class CrimeClientPayloadHandler implements CrimeClientPayloadRouter
         CrimeClientHandlers.onCaseLedger(payload);
     }
 
-    @Override
-    public void onRestraintSync(RestraintSyncS2CPacket payload) {
-        CrimeClientHandlers.onRestraint(payload);
-    }
 
-    @Override
-    public void onRestraintBulkSync(RestraintBulkSyncS2CPacket payload) {
-        CrimeClientHandlers.onRestraintBulk(payload);
-    }
 
     @Override
     public void onWeaponPolicy(WeaponPolicyS2CPacket payload) {
@@ -107,5 +103,40 @@ public final class CrimeClientPayloadHandler implements CrimeClientPayloadRouter
     @Override
     public void onVillageSecurity(VillageSecurityS2CPacket payload) {
         CrimeClientHandlers.onVillageSecurity(payload);
+    }
+
+    @Override
+    public void onPhysicalState(PhysicalStateS2CPacket payload) {
+        CrimeClientHandlers.onPhysicalState(payload);
+    }
+
+    @Override
+    public void onPhysicalStateDelta(PhysicalStateDeltaS2CPacket payload) {
+        CrimeClientHandlers.onPhysicalStateDelta(payload);
+    }
+
+    @Override
+    public void onPhysicalStateRemove(PhysicalStateRemoveS2CPacket payload) {
+        CrimeClientHandlers.onPhysicalStateRemoved(payload);
+    }
+
+    @Override
+    public void onLockpickBegin(LockpickBeginS2CPacket payload) {
+        CrimeClientHandlers.onLockpickBegin(payload);
+    }
+
+    @Override
+    public void onLockpickPhase(LockpickPhaseS2CPacket payload) {
+        CrimeClientHandlers.onLockpickPhase(payload);
+    }
+
+    @Override
+    public void onLockpickResult(LockpickResultS2CPacket payload) {
+        CrimeClientHandlers.onLockpickResult(payload);
+    }
+
+    @Override
+    public void onFriskSnapshot(dev.otectus.mcacrime.network.FriskSnapshotS2CPacket payload) {
+        dev.otectus.mcacrime.client.ClientFriskData.accept(payload);
     }
 }

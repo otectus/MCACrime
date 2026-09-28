@@ -162,7 +162,13 @@ class LangCoverageTest {
         for (dev.otectus.mcacrime.civic.CivicTask task : dev.otectus.mcacrime.civic.CivicTask.values()) {
             require(lang, missing, task.labelKey());
         }
-
+        // RestraintItem.appendHoverText builds "mcacrime.restraint.family." + family.id() + ".scope".
+        // The two dormant dispositions this corrects (D07, D08) are wrong *text*, so a family added
+        // without a line would reintroduce exactly the defect M6.3 exists to fix.
+        for (dev.otectus.mcacrime.restraint.RestraintFamily family
+                : dev.otectus.mcacrime.restraint.RestraintFamily.values()) {
+            require(lang, missing, "mcacrime.restraint.family." + family.id() + ".scope");
+        }
         assertTrue(missing.isEmpty(),
                 "These translation keys are built by concatenation and have no entry in en_us.json:\n  "
                         + String.join("\n  ", missing));

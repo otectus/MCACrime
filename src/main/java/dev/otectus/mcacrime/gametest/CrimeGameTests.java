@@ -7,6 +7,7 @@ import dev.otectus.mcacrime.crime.Band;
 import dev.otectus.mcacrime.detect.WitnessResult;
 import dev.otectus.mcacrime.memory.CrimeObservation;
 import dev.otectus.mcacrime.memory.ObservationService;
+import dev.otectus.mcacrime.restraint.RestraintMigrationReconciler;
 import dev.otectus.mcacrime.state.CrimeAttachments;
 import dev.otectus.mcacrime.state.PlayerCrimeData;
 import dev.otectus.mcacrime.state.world.CrimeDataMigrations;
@@ -123,14 +124,39 @@ public final class CrimeGameTests {
         data.addActionCounter(counter, 7L);
 
         CompoundTag tag = data.save(new CompoundTag(), server.registryAccess());
-        helper.assertTrue(CrimeDataMigrations.CURRENT_SCHEMA == 14,
-                "this build writes schema " + CrimeDataMigrations.CURRENT_SCHEMA + ", expected 14");
+        helper.assertTrue(CrimeDataMigrations.CURRENT_SCHEMA == 15,
+                "this build writes schema " + CrimeDataMigrations.CURRENT_SCHEMA + ", expected 15");
         helper.assertTrue(CrimeDataMigrations.schemaOf(tag) == CrimeDataMigrations.CURRENT_SCHEMA,
                 "saved tag is schema " + CrimeDataMigrations.schemaOf(tag));
 
         CrimeWorldData reloaded = CrimeWorldData.load(tag, server.registryAccess());
         helper.assertTrue(reloaded.actionCounter(counter) == before + 7L,
                 "action counter did not survive the round trip: " + reloaded.actionCounter(counter));
+        helper.succeed();
+    }
+
+    /**
+     * The schema 15 reconciliation has already run on the live world, and running it again does
+     * nothing (0.7.5 §3.18).
+     *
+     * <p>The wiring, not the conversion: {@code CrimeWorldData.get} is where the once-per-store pass
+     * is invoked, and the failure this guards against is the one the specification names — "a
+     * migration that creates a free extra cuff on every login". A unit test can prove the marker
+     * works; only a real server can prove anything ever calls it.
+     */
+    @GameTest(template = "platform")
+    public static void physicalReconciliationRunsExactlyOnce(GameTestHelper helper) {
+        MinecraftServer server = helper.getLevel().getServer();
+        CrimeWorldData data = CrimeWorldData.get(server);
+
+        helper.assertTrue(data.reconciledSchema() == CrimeDataMigrations.SCHEMA_CUFFED_PHYSICAL,
+                "the store was not reconciled on load; marker is " + data.reconciledSchema());
+
+        int subjectsBefore = data.physicalRestraints().size();
+        helper.assertTrue(!RestraintMigrationReconciler.reconcile(data, server.overworld().getGameTime()).ran(),
+                "a second reconciliation pass ran, which is how a login mints a free pair of cuffs");
+        helper.assertTrue(CrimeWorldData.get(server).physicalRestraints().size() == subjectsBefore,
+                "a repeated store lookup changed how many subjects are wearing something");
         helper.succeed();
     }
 

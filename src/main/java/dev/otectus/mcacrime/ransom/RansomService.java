@@ -85,6 +85,13 @@ public final class RansomService {
         if (world.getRansomForVictim(victimId) != null) {
             return Outcome.refused(refuse(captor, "mcacrime.ransom.open"));
         }
+        // A condemned captive has no price (0.7.5 §3.19). Refused with its own reason rather than
+        // quoted a number nobody may accept: the village cannot buy back somebody the law has already
+        // sentenced to die, and pretending otherwise would take the payer's money for nothing.
+        if (dev.otectus.mcacrime.ledger.CapitalSentenceService.refusesRansom()
+                && dev.otectus.mcacrime.ledger.CapitalSentenceService.condemned(server, victimId)) {
+            return Outcome.refused(refuse(captor, "mcacrime.ransom.capital"));
+        }
         LivingEntity victim = resolveVictim(server, record);
         if (victim == null || !victim.isAlive()) {
             return Outcome.refused(refuse(captor, "mcacrime.ransom.victimgone"));

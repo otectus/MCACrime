@@ -34,7 +34,7 @@ class CustodyRecordNpcLawfulTest {
         UUID thief = UUID.randomUUID();
         UUID guard = UUID.randomUUID();
         CustodyRecord record = new CustodyRecord(thief, false, true, CustodyOwner.guard(guard),
-                RestraintType.CUFFS, 0L, new BlockPos(10, 64, -20), OVERWORLD);
+                0L, new BlockPos(10, 64, -20), OVERWORLD);
         record.setRemainingJailTicks(12_000L);
 
         CompoundTag tag = record.save();
@@ -45,7 +45,8 @@ class CustodyRecordNpcLawfulTest {
         assertTrue(loaded.isLawful());
         assertEquals(CustodyOwnerType.GUARD, loaded.getOwner().type());
         assertEquals(guard, loaded.getOwner().ownerUuid().orElseThrow());
-        assertEquals(RestraintType.CUFFS, loaded.getRestraint());
+        assertEquals(RestraintType.NONE, loaded.getLegacyRestraint(),
+                "a 0.7.5 record carries no restraint of its own; the gear is the physical table's");
         assertEquals(12_000L, loaded.getRemainingJailTicks());
         assertEquals(new BlockPos(10, 64, -20), loaded.getHoldPos());
         assertEquals(OVERWORLD, loaded.getHoldDim());
@@ -54,7 +55,7 @@ class CustodyRecordNpcLawfulTest {
     @Test
     void guardToJailTransferPreservesRestraintAndSentence() {
         CustodyRecord record = new CustodyRecord(UUID.randomUUID(), false, true,
-                CustodyOwner.guard(UUID.randomUUID()), RestraintType.CUFFS, 0L, BlockPos.ZERO, OVERWORLD);
+                CustodyOwner.guard(UUID.randomUUID()), 0L, BlockPos.ZERO, OVERWORLD);
         record.setRemainingJailTicks(9_000L);
 
         // What CustodyService.transferLawfulCustody does: the owner, and only the owner.
@@ -62,7 +63,7 @@ class CustodyRecordNpcLawfulTest {
 
         assertEquals(CustodyOwnerType.JAIL, record.getOwner().type());
         assertEquals(7, record.getOwner().villageId().orElseThrow());
-        assertEquals(RestraintType.CUFFS, record.getRestraint());
+        assertEquals(CustodyOwnerType.JAIL, record.getOwner().type());
         assertEquals(9_000L, record.getRemainingJailTicks());
         assertTrue(record.isLawful());
         assertFalse(record.isCaptivePlayer());
@@ -72,7 +73,7 @@ class CustodyRecordNpcLawfulTest {
     void aLawfulNpcRecordIsNotAKidnapping() {
         UUID guard = UUID.randomUUID();
         CustodyRecord record = new CustodyRecord(UUID.randomUUID(), false, true, CustodyOwner.guard(guard),
-                RestraintType.CUFFS, 0L, BlockPos.ZERO, OVERWORLD);
+                0L, BlockPos.ZERO, OVERWORLD);
         // The one predicate that drives Legal Target and theft-of-captive must not fire for an arrest.
         assertFalse(record.getOwner().isKidnapper(guard));
     }

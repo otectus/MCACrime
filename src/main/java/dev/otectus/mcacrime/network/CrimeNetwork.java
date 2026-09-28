@@ -7,7 +7,6 @@ import dev.otectus.mcacrime.crime.Band;
 import dev.otectus.mcacrime.engine.CrimeState;
 import dev.otectus.mcacrime.enforcement.GuardChallengeService;
 import dev.otectus.mcacrime.enforcement.OutlawResolver;
-import dev.otectus.mcacrime.enforcement.RestraintVisualState;
 import dev.otectus.mcacrime.item.weapon.WeaponPolicySnapshot;
 import dev.otectus.mcacrime.jail.JailService;
 import dev.otectus.mcacrime.job.CriminalJob;
@@ -40,9 +39,9 @@ import java.util.UUID;
  */
 public final class CrimeNetwork {
 
-    // 14 adds the Townstead-era trio: the restraint rig a subject is drawn on, and the public village
-    // security summary with its request. Update clients and server together.
-    private static final String PROTOCOL_VERSION = "14";
+    // 15 added the 0.7.5 physical-restraint messages: a full snapshot, a per-subject delta and an
+    // explicit removal; 16 drops the warden-guide payload. Update clients and server together.
+    private static final String PROTOCOL_VERSION = "16";
 
     private CrimeNetwork() {
     }
@@ -84,10 +83,6 @@ public final class CrimeNetwork {
                 CrimeClientPayloadRouter::handleGuardChallenge);
         registrar.playToClient(CaseLedgerS2CPacket.TYPE, CaseLedgerS2CPacket.STREAM_CODEC,
                 CrimeClientPayloadRouter::handleCaseLedger);
-        registrar.playToClient(RestraintSyncS2CPacket.TYPE, RestraintSyncS2CPacket.STREAM_CODEC,
-                CrimeClientPayloadRouter::handleRestraintSync);
-        registrar.playToClient(RestraintBulkSyncS2CPacket.TYPE, RestraintBulkSyncS2CPacket.STREAM_CODEC,
-                CrimeClientPayloadRouter::handleRestraintBulkSync);
         registrar.playToClient(WeaponPolicyS2CPacket.TYPE, WeaponPolicyS2CPacket.STREAM_CODEC,
                 CrimeClientPayloadRouter::handleWeaponPolicy);
         registrar.playToClient(CriminalJobSyncS2CPacket.TYPE, CriminalJobSyncS2CPacket.STREAM_CODEC,
@@ -105,6 +100,135 @@ public final class CrimeNetwork {
                 RequestVillageSecurityC2SPacket.STREAM_CODEC, RequestVillageSecurityC2SPacket::handle);
         registrar.playToClient(VillageSecurityS2CPacket.TYPE, VillageSecurityS2CPacket.STREAM_CODEC,
                 CrimeClientPayloadRouter::handleVillageSecurity);
+
+        registrar.playToClient(PhysicalStateS2CPacket.TYPE, PhysicalStateS2CPacket.STREAM_CODEC,
+                CrimeClientPayloadRouter::handlePhysicalState);
+        registrar.playToClient(PhysicalStateDeltaS2CPacket.TYPE, PhysicalStateDeltaS2CPacket.STREAM_CODEC,
+                CrimeClientPayloadRouter::handlePhysicalStateDelta);
+        registrar.playToClient(PhysicalStateRemoveS2CPacket.TYPE, PhysicalStateRemoveS2CPacket.STREAM_CODEC,
+                CrimeClientPayloadRouter::handlePhysicalStateRemove);
+        registrar.playToServer(RestraintStruggleC2SPacket.TYPE, RestraintStruggleC2SPacket.STREAM_CODEC,
+                RestraintStruggleC2SPacket::handle);
+        registrar.playToServer(SelfRestraintC2SPacket.TYPE, SelfRestraintC2SPacket.STREAM_CODEC,
+                SelfRestraintC2SPacket::handle);
+
+        // Lockpicking (0.7.5 M3.3). Two client messages, both intent only, and three server ones that
+        // are display: there is deliberately no success packet, because nothing a client says can
+        // open a lock.
+        registrar.playToClient(LockpickBeginS2CPacket.TYPE, LockpickBeginS2CPacket.STREAM_CODEC,
+                CrimeClientPayloadRouter::handleLockpickBegin);
+        registrar.playToClient(LockpickPhaseS2CPacket.TYPE, LockpickPhaseS2CPacket.STREAM_CODEC,
+                CrimeClientPayloadRouter::handleLockpickPhase);
+        registrar.playToClient(LockpickResultS2CPacket.TYPE, LockpickResultS2CPacket.STREAM_CODEC,
+                CrimeClientPayloadRouter::handleLockpickResult);
+        registrar.playToServer(LockpickAttemptC2SPacket.TYPE, LockpickAttemptC2SPacket.STREAM_CODEC,
+                LockpickAttemptC2SPacket::handle);
+        registrar.playToServer(LockpickCancelC2SPacket.TYPE, LockpickCancelC2SPacket.STREAM_CODEC,
+                LockpickCancelC2SPacket::handle);
+
+        // 0.7.5 M5.2: the frisking projection's two payloads.
+        registrar.playToClient(FriskSnapshotS2CPacket.TYPE, FriskSnapshotS2CPacket.STREAM_CODEC,
+                CrimeClientPayloadRouter::handleFriskSnapshot);
+        registrar.playToServer(FriskTransferC2SPacket.TYPE, FriskTransferC2SPacket.STREAM_CODEC,
+                FriskTransferC2SPacket::handle);
+
+        // 0.7.5 §3.13: the restraint_profiles datapack layer, sent on login and after every reload.
+        registrar.playToClient(RestraintProfileSyncS2CPacket.TYPE,
+                RestraintProfileSyncS2CPacket.STREAM_CODEC, RestraintProfileSyncS2CPacket::handle);
+    }
+
+    /**
+     * Sends the {@code restraint_profiles} datapack layer to one player (plan §3.13).
+     *
+     * <p>Sent even when the list is empty, which is how a client learns that the last server's
+     * numbers no longer apply.
+     */
+    public static void sendRestraintProfiles(ServerPlayer player,
+            java.util.List<dev.otectus.mcacrime.restraint.RestraintProfile> profiles) {
+        if (player != null) {
+            PacketDistributor.sendToPlayer(player, new RestraintProfileSyncS2CPacket(profiles));
+        }
+    }
+
+    /**
+     * Sends the searcher the session id and the per-slot revisions their screen has to echo back.
+     *
+     * <p>To that player alone. Only the authorised searcher ever receives a searchable projection,
+     * which is the §1.6 rule about never sending another player's inventory to anybody else.
+     */
+    public static void sendFriskSnapshot(ServerPlayer player, FriskSnapshotS2CPacket packet) {
+        PacketDistributor.sendToPlayer(player, packet);
+    }
+
+    /** Opens one picker's dial. One player only: nobody else has any business seeing it. */
+    public static void sendLockpickBegin(ServerPlayer to, LockpickBeginS2CPacket packet) {
+        PacketDistributor.sendToPlayer(to, packet);
+    }
+
+    /** The next phase and the server's own meter, after every scored attempt. */
+    public static void sendLockpickPhase(ServerPlayer to, LockpickPhaseS2CPacket packet) {
+        PacketDistributor.sendToPlayer(to, packet);
+    }
+
+    /** How it ended. Sent after the outcome has already been applied on the server. */
+    public static void sendLockpickResult(ServerPlayer to, LockpickResultS2CPacket packet) {
+        PacketDistributor.sendToPlayer(to, packet);
+    }
+
+    /** Sends one alignment attempt. Intent only: the server scores it. */
+    public static void sendLockpickAttempt(LockpickAttemptC2SPacket packet) {
+        PacketDistributor.sendToServer(packet);
+    }
+
+    /** Asks the server to end this picker's own session. */
+    public static void sendLockpickCancel(LockpickCancelC2SPacket packet) {
+        PacketDistributor.sendToServer(packet);
+    }
+
+    /** Asks the server to put the held restraint on the sender's own chosen slot. */
+    public static void sendSelfRestraint(SelfRestraintC2SPacket packet) {
+        PacketDistributor.sendToServer(packet);
+    }
+
+    /** Sends one struggle input. Intent only: the server owns durability and the outcome. */
+    public static void sendStruggle(RestraintStruggleC2SPacket packet) {
+        PacketDistributor.sendToServer(packet);
+    }
+
+    /** Sends one client the whole physical-restraint picture: login, respawn, dimension change. */
+    public static void sendPhysicalState(ServerPlayer to, PhysicalStateS2CPacket packet) {
+        PacketDistributor.sendToPlayer(to, packet);
+    }
+
+    /** Sends one client one subject's physical state, for the moment it starts tracking them. */
+    public static void sendPhysicalStateDelta(ServerPlayer to, PhysicalStateDeltaS2CPacket packet) {
+        PacketDistributor.sendToPlayer(to, packet);
+    }
+
+    /**
+     * Tells everybody tracking this subject what changed about them.
+     *
+     * <p>Tracking rather than everybody: gear is drawn by the people who can see the person wearing
+     * it, and a server-wide broadcast would hand every client the whole prison roster.
+     */
+    public static void broadcastPhysicalStateDelta(Entity subject, PhysicalStateDeltaS2CPacket packet) {
+        if (subject == null) {
+            return;
+        }
+        PacketDistributor.sendToPlayersTrackingEntity(subject, packet);
+    }
+
+    /** Sends one client a removal for a subject nobody can track any more. */
+    public static void sendPhysicalStateRemoval(ServerPlayer to, PhysicalStateRemoveS2CPacket packet) {
+        PacketDistributor.sendToPlayer(to, packet);
+    }
+
+    /** Tells everybody tracking this subject to forget their physical state. */
+    public static void broadcastPhysicalStateRemoval(Entity subject, PhysicalStateRemoveS2CPacket packet) {
+        if (subject == null) {
+            return;
+        }
+        PacketDistributor.sendToPlayersTrackingEntity(subject, packet);
     }
 
     /**
@@ -257,29 +381,6 @@ public final class CrimeNetwork {
     /** Sends a full snapshot of every online player's band to one joining client. */
     public static void sendBandBulk(ServerPlayer to, Map<UUID, Band> bands) {
         PacketDistributor.sendToPlayer(to, new BandBulkSyncS2CPacket(bands));
-    }
-
-    /**
-     * Broadcasts one subject's restraint state, so everybody who can see the arrest draws it.
-     *
-     * <p>Broadcast rather than sent to the subject, because cuffs and a lead are things other people
-     * look at. Display-only, like every other sync on this channel.
-     */
-    public static void broadcastRestraint(UUID subject, RestraintVisualState state) {
-        PacketDistributor.sendToAllPlayers(RestraintSyncS2CPacket.of(subject, state));
-    }
-
-    /**
-     * Tells one client about one subject: the answer to "you just started tracking somebody, are they
-     * in cuffs?", which is a question only that client asked.
-     */
-    public static void sendRestraintTo(ServerPlayer to, UUID subject, RestraintVisualState state) {
-        PacketDistributor.sendToPlayer(to, RestraintSyncS2CPacket.of(subject, state));
-    }
-
-    /** Sends every currently restrained subject to one joining client. */
-    public static void sendRestraintBulk(ServerPlayer to, Map<UUID, RestraintVisualState> restrained) {
-        PacketDistributor.sendToPlayer(to, new RestraintBulkSyncS2CPacket(restrained));
     }
 
     /**

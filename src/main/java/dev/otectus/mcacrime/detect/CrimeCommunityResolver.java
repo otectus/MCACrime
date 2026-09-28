@@ -44,14 +44,33 @@ public final class CrimeCommunityResolver {
      * The live overload. {@code victim} may be null for a victimless crime such as a jailbreak, which
      * has no community this round — resolving one from the offender's position would be a guess, and
      * a guessed community is worse than none.
+     *
+     * <p>A victim with no home village is charged to the nearest village whose border, expanded by
+     * {@code detection.communitySearchRadius}, contains them (0.7.5). Until then such a case named no
+     * community and MCA: Reputation refused it as invalid — which is what happened to every assault
+     * on a Guard Villagers guard bridged by MCA: Mob Compatibility, whose hidden stand-in has no
+     * residency. The victim's own position is used, never the offender's: it is the victim's village
+     * that has a grievance. MCA: Reputation resolves the same case the same way, so both ledgers name
+     * one community for one deed.
      */
     public static Optional<CrimeCommunityKey> resolve(@Nullable Entity victim, ServerLevel fallbackLevel) {
         if (victim == null) {
             return Optional.empty();
         }
-        ResourceLocation dimension = victim.level() instanceof ServerLevel victimLevel
-                ? victimLevel.dimension().location()
-                : fallbackLevel == null ? null : fallbackLevel.dimension().location();
-        return resolve(dimension, McaCompat.getHomeVillageId(victim));
+        ServerLevel victimLevel = victim.level() instanceof ServerLevel level ? level : fallbackLevel;
+        ResourceLocation dimension = victimLevel == null ? null : victimLevel.dimension().location();
+        OptionalInt home = McaCompat.getHomeVillageId(victim);
+        if (home.isEmpty() && victimLevel != null && victim.level() == victimLevel) {
+            home = McaCompat.findNearestVillageId(victimLevel, victim.blockPosition(), communitySearchRadius());
+        }
+        return resolve(dimension, home);
+    }
+
+    private static int communitySearchRadius() {
+        try {
+            return dev.otectus.mcacrime.McaCrimeConfig.COMMON.communitySearchRadius.get();
+        } catch (Throwable unloaded) {
+            return 0; // no config loaded means no game running; the pre-0.7.5 answer is "home only"
+        }
     }
 }

@@ -219,7 +219,9 @@ public final class ReputationBridge {
                 McaCrime.LOGGER.warn("MCA: Crime — MCA: Reputation refused the detection authority claim. "
                         + "Its own detector stays active, so MCA: Crime will not record assault or killing "
                         + "incidents; everything else still works. Check for another mod claiming the same "
-                        + "deeds, or for enableCrimeIntegration=false on the Reputation side.");
+                        + "deeds, or for coreAuthorityUndeclaredKinds=IGNORE on the Reputation side "
+                        + "(its [integration] enableCrimeIntegration switch refuses our writes, it does not "
+                        + "refuse the claim).");
             }
         } catch (Throwable t) {
             status = "authority claim failed";

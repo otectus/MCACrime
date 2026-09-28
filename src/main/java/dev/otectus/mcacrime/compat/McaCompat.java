@@ -210,6 +210,15 @@ public final class McaCompat {
     }
 
     /**
+     * The nearest MCA village whose border, expanded by {@code radius} blocks, contains the position;
+     * empty when none does or MCA's village manager is unavailable. The community a crime is charged
+     * to when its victim has no home village (0.7.5; see {@code CrimeCommunityResolver}).
+     */
+    public static OptionalInt findNearestVillageId(ServerLevel level, net.minecraft.core.BlockPos pos, int radius) {
+        return McaHandles.nearestVillageId(level, pos, radius);
+    }
+
+    /**
      * The name MCA gives a village, by its own village id, or empty.
      *
      * <p>This exists because a {@code CrimeCommunityKey} is {@code minecraft:overworld/0} — the right
@@ -530,29 +539,14 @@ public final class McaCompat {
     }
 
     /**
-     * Best-effort physical hold of a captured NPC by leashing it to its captor (spec §8.4). Uses the
-     * vanilla {@code Mob} leash, persisted on the entity, so it survives chunk unload/reload without
-     * depending on MCA-internal AI. The captive is never deleted — only leashed/moved. Fail-safe no-op on
-     * any error. <b>Server side only.</b> ⚠ Leash interaction with MCA villager AI is an in-world
-     * verification target (the dev runtime cannot load MCA).
+     * Drops any vanilla leash still on an NPC, best-effort and never deleting the entity.
+     *
+     * <p>Cleanup only, as of 0.7.5: nothing in this mod leashes anybody any more. The physical hold is
+     * a {@code tether/TetherRecord} owned by MCA: Crime's own transport engine, which can hold a player
+     * (a vanilla leash cannot) and which no other mod's AI will quietly drop. What is left here is the
+     * release path for a captive who was leashed by 0.7.4 or earlier, or by something else entirely --
+     * an escort that ends must not leave a villager tied to a fence post nobody can see.
      */
-    public static boolean leashTo(Entity captive, Entity holder) {
-        if (captive instanceof Mob mob) {
-            try {
-                dev.otectus.mcacrime.activity.CrimeActivityRegistry.touch(captive.getUUID(),
-                        captive.level().getGameTime());
-                mob.setLeashedTo(holder, true);
-                // Physical restraint wakes the captive; mere proximity never does.
-                if (mob.isSleeping()) mob.stopSleeping();
-                return true;
-            } catch (Throwable t) {
-                McaCrime.LOGGER.debug("MCA leashTo failed; ignoring", t);
-            }
-        }
-        return false;
-    }
-
-    /** Releases a leashed NPC captive on release (spec §8.4). Best-effort, never deletes the entity. */
     public static void clearLeash(Entity captive) {
         if (captive instanceof Mob mob) {
             try {
@@ -588,6 +582,36 @@ public final class McaCompat {
             }
         }
         return false;
+    }
+
+    /**
+     * What an MCA villager is carrying, for a search to look through (0.7.5 M5.2, spec §11.1).
+     *
+     * <p>Read through vanilla's {@code InventoryCarrier}, which an MCA villager has because it
+     * extends {@code net.minecraft.world.entity.npc.Villager}. That is the same technique the rest of
+     * this facade uses for everything MCA <em>inherits</em> rather than declares, and it is the only
+     * one available here: the inventory accessor is a Minecraft method, and binding a vanilla method
+     * by name through {@code McaBinding} would say nothing about MCA at all. No MCA type is named on
+     * either side of the call.
+     *
+     * <p>Degrades exactly as a missing binding member would. MCA absent, a villager that is not an
+     * MCA villager, or a future MCA that stops carrying an inventory at all all answer
+     * {@link Optional#empty()}, and the search then finds nothing there rather than failing to open.
+     */
+    public static Optional<net.minecraft.world.Container> villagerInventory(Entity entity) {
+        if (!isMcaVillager(entity)) {
+            return Optional.empty();
+        }
+        try {
+            if (entity instanceof net.minecraft.world.entity.npc.InventoryCarrier carrier) {
+                net.minecraft.world.SimpleContainer inventory = carrier.getInventory();
+                return inventory == null ? Optional.empty() : Optional.of(inventory);
+            }
+        } catch (Throwable absent) {
+            McaCrime.LOGGER.debug("MCA villagerInventory failed; treating the villager as unsearchable",
+                    absent);
+        }
+        return Optional.empty();
     }
 
     // ------------------------------------------------------------------ relationship / family graph (§8.5)

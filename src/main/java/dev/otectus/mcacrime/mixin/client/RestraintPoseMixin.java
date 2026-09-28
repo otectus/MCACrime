@@ -1,8 +1,7 @@
 package dev.otectus.mcacrime.mixin.client;
 
 import dev.otectus.mcacrime.McaCrimeConfig;
-import dev.otectus.mcacrime.client.ClientRestraintData;
-import dev.otectus.mcacrime.client.render.RestrainedPose;
+import dev.otectus.mcacrime.client.render.restraint.RestraintAnimations;
 import net.minecraft.client.model.HumanoidModel;
 import net.minecraft.client.renderer.entity.LivingEntityRenderer;
 import net.minecraft.world.entity.LivingEntity;
@@ -12,9 +11,13 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 /**
- * Poses a restrained entity with their hands behind their back.
+ * Poses a restrained entity from everything they are wearing (0.7.5 M2.10).
  *
- * <p>This is the mod's only mixin, and it exists because no NeoForge event can express the pose.
+ * <p>Multi-slot since 0.7.5: the pose is composed by {@code RestraintAnimations} from every occupied
+ * slot, so arms bound behind the back and legs shackled together are both drawn rather than whichever
+ * one a single enum happened to hold.
+ *
+ * <p>This is the mod's only client mixin, and it exists because no NeoForge event can express the pose.
  * {@code RenderLivingEvent.Pre} fires before {@code setupAnim}, so anything it writes to the arms is
  * overwritten a moment later; and no {@code HumanoidModel.ArmPose} constant represents bound hands, so
  * there is nothing to select either.
@@ -52,13 +55,16 @@ public abstract class RestraintPoseMixin {
                                          com.mojang.blaze3d.vertex.PoseStack poseStack,
                                          net.minecraft.client.renderer.MultiBufferSource buffers,
                                          int packedLight, CallbackInfo ci) {
-        if (!McaCrimeConfig.CLIENT.renderRestraintPose.get()
-                || !ClientRestraintData.restrained(entity.getUUID())) {
+        if (!McaCrimeConfig.CLIENT.renderRestraintPose.get()) {
+            return;
+        }
+        RestraintAnimations.Pose pose = RestraintAnimations.poseFor(entity.getUUID());
+        if (!pose.any()) {
             return;
         }
         LivingEntityRenderer<?, ?> renderer = (LivingEntityRenderer<?, ?>) (Object) this;
         if (renderer.getModel() instanceof HumanoidModel<?> model) {
-            RestrainedPose.apply(model);
+            RestraintAnimations.apply(model, pose);
         }
     }
 }

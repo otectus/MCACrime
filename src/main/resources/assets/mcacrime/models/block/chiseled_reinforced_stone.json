@@ -1,0 +1,8 @@
+{
+  "parent": "minecraft:block/cube_bottom_top",
+  "textures": {
+    "bottom": "mcacrime:block/chiseled_reinforced_stone_bottom",
+    "top": "mcacrime:block/chiseled_reinforced_stone_top",
+    "side": "mcacrime:block/chiseled_reinforced_stone"
+  }
+}

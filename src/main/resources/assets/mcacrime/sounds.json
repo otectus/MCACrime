@@ -1,0 +1,65 @@
+{
+  "restraint.apply_handcuffs": {
+    "subtitle": "subtitles.mcacrime.restraint.apply_handcuffs",
+    "sounds": [
+      {
+        "name": "minecraft:block.chain.place",
+        "type": "event"
+      }
+    ]
+  },
+  "restraint.apply_shackles": {
+    "subtitle": "subtitles.mcacrime.restraint.apply_shackles",
+    "sounds": [
+      {
+        "name": "minecraft:block.iron_trapdoor.close",
+        "type": "event"
+      }
+    ]
+  },
+  "block.pillory.use": {
+    "subtitle": "subtitles.mcacrime.block.pillory.use",
+    "sounds": [
+      {
+        "name": "minecraft:block.wooden_trapdoor.close",
+        "type": "event"
+      }
+    ]
+  },
+  "block.guillotine.use": {
+    "subtitle": "subtitles.mcacrime.block.guillotine.use",
+    "sounds": [
+      {
+        "name": "minecraft:block.iron_trapdoor.close",
+        "type": "event"
+      }
+    ]
+  },
+  "block.guillotine.arm": {
+    "subtitle": "subtitles.mcacrime.block.guillotine.arm",
+    "sounds": [
+      {
+        "name": "minecraft:block.bell.resonate",
+        "type": "event"
+      }
+    ]
+  },
+  "block.safe.open": {
+    "subtitle": "subtitles.mcacrime.block.safe.open",
+    "sounds": [
+      {
+        "name": "minecraft:block.iron_door.open",
+        "type": "event"
+      }
+    ]
+  },
+  "block.safe.close": {
+    "subtitle": "subtitles.mcacrime.block.safe.close",
+    "sounds": [
+      {
+        "name": "minecraft:block.iron_door.close",
+        "type": "event"
+      }
+    ]
+  }
+}

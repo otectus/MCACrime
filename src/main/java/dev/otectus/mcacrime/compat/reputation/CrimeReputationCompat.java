@@ -135,6 +135,8 @@ public final class CrimeReputationCompat implements ReputationOps {
                 ReputationCapabilities.FEATURE_PROFILED_DELIVERY);
         compare(drift, "profile_change", ReputationCapabilitySnapshot.FEATURE_PROFILE_CHANGE,
                 ReputationCapabilities.FEATURE_PROFILE_CHANGE);
+        compare(drift, "incident_exemptions", ReputationCapabilitySnapshot.FEATURE_INCIDENT_EXEMPTIONS,
+                ReputationCapabilities.FEATURE_INCIDENT_EXEMPTIONS);
 
         Set<String> declared = new LinkedHashSet<>();
         DECLARED_KINDS.forEach(kind -> declared.add(kind.name()));

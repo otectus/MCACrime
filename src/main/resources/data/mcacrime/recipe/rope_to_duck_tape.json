@@ -1,0 +1,7 @@
+{
+  "type": "minecraft:crafting_shapeless",
+  "ingredients": [
+    { "item": "mcacrime:restraint_rope" }
+  ],
+  "result": { "id": "mcacrime:duck_tape", "count": 1 }
+}

@@ -2,11 +2,15 @@ package dev.otectus.mcacrime.state.world;
 
 import dev.otectus.mcacrime.McaCrime;
 import dev.otectus.mcacrime.api.model.CrimeCommunityKey;
+import dev.otectus.mcacrime.captivity.CustodyRecord;
 import dev.otectus.mcacrime.ledger.CrimeContext;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.Tag;
 import net.minecraft.resources.ResourceLocation;
+
+import org.jetbrains.annotations.Nullable;
+import java.util.UUID;
 
 /**
  * Steps a saved {@code mcacrime.dat} up to the current schema, as pure tag-to-tag work.
@@ -91,7 +95,23 @@ public final class CrimeDataMigrations {
      * constant buys nothing and breaks every reference to it.
      */
     public static final int SCHEMA_PROPERTY_LAW = 14;
-    public static final int CURRENT_SCHEMA = SCHEMA_PROPERTY_LAW;
+    /**
+     * The 0.7.5 schema: the physical-restraint model that stands beside legal custody.
+     *
+     * <p>Four collections arrive with it -- {@code physicalRestraints}, {@code tethers},
+     * {@code detentions} and {@code locks} -- plus a {@code custodyId} and a
+     * {@code generation} on every custody row. {@link #v14to15} writes the four empty lists and the
+     * two custody fields and <b>nothing else</b>: it invents no gear, because a migration cannot know
+     * what a prisoner was wearing beyond the single enum the old record stored, and guessing would
+     * put handcuffs on people nobody cuffed.
+     *
+     * <p>Converting that enum into real gear is a separate, impure, once-per-store pass in
+     * {@code restraint/RestraintMigrationReconciler}, run from {@code CrimeWorldData.get} and stamped
+     * with its own marker so that a repeated load is a no-op -- the failure the specification names is
+     * "a migration that creates a free extra cuff on every login".
+     */
+    public static final int SCHEMA_CUFFED_PHYSICAL = 15;
+    public static final int CURRENT_SCHEMA = SCHEMA_CUFFED_PHYSICAL;
 
     /** Root NBT key holding the schema integer. Absent means 0. */
     public static final String TAG_SCHEMA = "schema";
@@ -156,6 +176,9 @@ public final class CrimeDataMigrations {
         }
         if (schema < 14) {
             working = v13to14(working);
+        }
+        if (schema < 15) {
+            working = v14to15(working);
         }
         working.putInt(TAG_SCHEMA, CURRENT_SCHEMA);
         return working;
@@ -518,6 +541,79 @@ public final class CrimeDataMigrations {
         CompoundTag out = tag.copy();
         out.putInt(TAG_SCHEMA, SCHEMA_PROPERTY_LAW);
         return out;
+    }
+
+    // ------------------------------------------------------------------ 14 -> 15
+
+    /**
+     * Stamps the 0.7.5 schema, opens the five physical tables, and gives every captivity an identity.
+     *
+     * <p>Unlike its two predecessors this step does write, and each of the three things it writes is
+     * something absent cannot express:
+     *
+     * <ul>
+     *   <li><b>The five empty lists.</b> They mark that a store has been through this step, which is
+     *       what tells the reconciliation pass apart from a schema-15 world that genuinely has no
+     *       restraints in it.</li>
+     *   <li><b>{@code custodyId}.</b> A pre-0.7.5 record has no identity of its own, and neither the
+     *       captive nor the sentence can supply one: unlawful captures have no sentence, and two
+     *       successive captures of one person share a captive UUID. The id is <em>derived</em> from
+     *       the captive ({@link CustodyRecord#legacyCustodyId}) rather than randomised, so running the
+     *       step twice, or loading an un-migrated row directly, produces the same identity.</li>
+     *   <li><b>{@code generation} 1.</b> Nobody has taken over an existing custody yet.</li>
+     * </ul>
+     *
+     * <p>It also clears {@code escapeActive}. A timed escape is work in progress by a player who is
+     * not connected at the moment a migration runs, the engine that scored it is being replaced, and
+     * leaving the flag set would leave a captive marked mid-escape under a system that has no record
+     * of the attempt. No cooldown is stamped and no item is charged for the cancellation.
+     *
+     * <p>What it deliberately does not do is convert {@code restraint} into a worn instance. That
+     * needs a definition registry, an item snapshot and a provenance decision, all of which are the
+     * reconciler's, and none of which belong in a pure tag-to-tag function.
+     */
+    public static CompoundTag v14to15(CompoundTag tag) {
+        CompoundTag out = tag.copy();
+
+        for (String key : new String[]{"physicalRestraints", "tethers", "detentions", "locks"}) {
+            if (!out.contains(key)) {
+                out.put(key, new ListTag());
+            }
+        }
+
+        if (out.contains("custody", Tag.TAG_COMPOUND)) {
+            CompoundTag custody = out.getCompound("custody");
+            for (String key : custody.getAllKeys()) {
+                CompoundTag record = custody.getCompound(key);
+                if (!record.hasUUID("custodyId")) {
+                    UUID captive = record.hasUUID("captive") ? record.getUUID("captive") : parseUuid(key);
+                    if (captive != null) {
+                        record.putUUID("custodyId", CustodyRecord.legacyCustodyId(captive));
+                    }
+                }
+                if (record.getLong("generation") < 1L) {
+                    record.putLong("generation", 1L);
+                }
+                if (record.getBoolean("escapeActive")) {
+                    record.putBoolean("escapeActive", false);
+                }
+                custody.put(key, record);
+            }
+            out.put("custody", custody);
+        }
+
+        out.putInt(TAG_SCHEMA, SCHEMA_CUFFED_PHYSICAL);
+        return out;
+    }
+
+    /** A custody table key as a UUID, or null when the key is not one. */
+    @Nullable
+    private static UUID parseUuid(String key) {
+        try {
+            return UUID.fromString(key);
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
     }
 
     // ------------------------------------------------------------------ helpers

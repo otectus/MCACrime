@@ -1,0 +1,6 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "pattern": ["  N", " NN", "N  "],
+  "key": { "N": { "tag": "c:cobblestones" } },
+  "result": { "id": "mcacrime:shackles_key", "count": 1 }
+}

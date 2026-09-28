@@ -1,5 +1,6 @@
 package dev.otectus.mcacrime.config;
 
+import dev.otectus.mcacrime.McaCrime;
 import dev.otectus.mcacrime.McaCrimeConfig;
 import dev.otectus.mcacrime.compat.CrimeIncidentMapping;
 import dev.otectus.mcacrime.compat.TownsteadBridge;
@@ -11,8 +12,13 @@ import net.minecraft.resources.ResourceLocation;
 import net.minecraft.core.Registry;
 import net.minecraft.core.registries.BuiltInRegistries;
 
+import org.jetbrains.annotations.Nullable;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.function.Predicate;
 
@@ -532,6 +538,713 @@ public final class ConfigValidator {
      * whether an id is actually registered depends on which mods loaded, and {@code Currencies} already
      * warns once and falls back rather than failing.
      */
+    /**
+     * The physical-restraint session limits (0.7.5).
+     *
+     * <p>Both keys are range-bounded by the spec itself, so what is left to check is the pair of
+     * values that are individually legal and jointly useless: a cap so small that a second player
+     * cannot start anything, and a timeout so short that no human finishes a session before it is
+     * dropped. Neither is an error, so both are reported rather than thrown.
+     */
+    /**
+     * The lock settings (0.7.5 §3.7, §3.16, M3).
+     *
+     * <p>Two of these can be spelled wrong rather than merely set badly, and both fail <em>open</em>
+     * when they are: an unrecognised policy name falls back to the safe value, which is the right
+     * runtime behaviour and exactly the wrong thing to leave unsaid. The rest are switches whose off
+     * position quietly removes a protection somebody thinks they have.
+     */
+    public static List<String> validateLocks(int maxKeysPerRing, String foreignLockPolicy,
+                                             String automationPolicy, boolean protectFromBreaking,
+                                             boolean protectFromExplosions, boolean protectFromPistons,
+                                             boolean allowReinforcement) {
+        List<String> problems = new ArrayList<>();
+        if (maxKeysPerRing < 1) {
+            problems.add("locks.maxKeysPerRing (" + maxKeysPerRing + ") is under 1, so no key ring can "
+                    + "hold anything. Existing rings keep their keys; they simply accept no more.");
+        }
+        if (!knownValue(foreignLockPolicy, "REFUSE", "IGNORE")) {
+            problems.add("locks.foreignLockPolicy '" + foreignLockPolicy + "' is not REFUSE or IGNORE; "
+                    + "REFUSE will be used.");
+        }
+        if (!knownValue(automationPolicy, "BLOCK_ALL", "ALLOW_INSERT", "ALLOW_ALL")) {
+            problems.add("locks.automationPolicy '" + automationPolicy + "' is not BLOCK_ALL, "
+                    + "ALLOW_INSERT or ALLOW_ALL; BLOCK_ALL will be used.");
+        }
+        if ("ALLOW_ALL".equalsIgnoreCase(trimmedValue(automationPolicy))) {
+            problems.add("locks.automationPolicy is ALLOW_ALL, so a hopper empties a locked safe. The "
+                    + "lock then governs players only.");
+        }
+        if (!protectFromBreaking) {
+            problems.add("locks.protectLockedBlocksFromBreaking is false, so a locked container opens "
+                    + "with a pickaxe instead of a key.");
+        }
+        if (!protectFromExplosions) {
+            problems.add("locks.protectLockedBlocksFromExplosions is false, so TNT is a lockpick.");
+        }
+        if (!protectFromPistons) {
+            problems.add("locks.protectLockedBlocksFromPistons is false, so a locked container can be "
+                    + "pushed away from the lock that protects it.");
+        }
+        if (!allowReinforcement) {
+            problems.add("locks.allowPadlockReinforcement is false; every padlock keeps the ordinary "
+                    + "pick profile however it was built.");
+        }
+        return problems;
+    }
+
+    /**
+     * The lockpicking settings (0.7.5 §3.5).
+     *
+     * <p>The window pair is the one that can be made nonsensical while staying in range: a window of
+     * nearly a full turn makes every angle a hit, and a window of almost nothing makes a lock that no
+     * human opens. Both are reported, neither is an error, because an operator running an accessibility
+     * preset deliberately widens it.
+     */
+    public static List<String> validateLockpicking(boolean enabled, int drainDivisor,
+                                                   int minAttemptIntervalTicks, double windowBelow,
+                                                   double windowAbove, double maxRangeBlocks,
+                                                   boolean destructiveOutcome) {
+        List<String> problems = new ArrayList<>();
+        if (!enabled) {
+            problems.add("lockpicking.enabled is false; a key is the only way through a lock "
+                    + "and a lockpick does nothing at all.");
+            return problems;
+        }
+        if (drainDivisor < 20) {
+            problems.add("lockpicking.drainPerTickDivisor (" + drainDivisor + ") drains the meter so "
+                    + "fast that no lock can be opened before it empties.");
+        }
+        if (windowBelow + windowAbove >= 180.0D) {
+            problems.add("lockpicking window (" + windowBelow + " below, " + windowAbove + " above) "
+                    + "covers half the dial or more, so almost any angle counts as an alignment.");
+        }
+        if (windowBelow + windowAbove <= 1.0D) {
+            problems.add("lockpicking window (" + windowBelow + " below, " + windowAbove + " above) is "
+                    + "under a degree wide, which no player hits reliably.");
+        }
+        if (minAttemptIntervalTicks > 20) {
+            problems.add("lockpicking.minAttemptIntervalTicks (" + minAttemptIntervalTicks + ") allows "
+                    + "under one attempt a second, so the meter drains faster than it can be raised.");
+        }
+        if (maxRangeBlocks > 8.0D) {
+            problems.add("lockpicking.maxRangeBlocks (" + maxRangeBlocks + ") is beyond ordinary reach, "
+                    + "so a lock can be picked from further away than the owner can see the picker.");
+        }
+        if (destructiveOutcome) {
+            problems.add("lockpicking.destructiveOutcome is true: picking a door or a safe destroys it. "
+                    + "A safe's contents are moved out first, exactly once, but the block is gone.");
+        }
+        return problems;
+    }
+
+    /** The prison fittings (0.7.5 M3.5). One setting so far. */
+    public static List<String> validatePrison(int safeSlots) {
+        List<String> problems = new ArrayList<>();
+        if (safeSlots % 9 != 0) {
+            problems.add("prison.safeSlots (" + safeSlots + ") is not a multiple of nine and will be "
+                    + "rounded down to " + ((safeSlots / 9) * 9) + ". Nothing already stored is lost.");
+        }
+        if (safeSlots < 27) {
+            problems.add("prison.safeSlots (" + safeSlots + ") is smaller than a chest. A safe already "
+                    + "holding more than this keeps the surplus and stops showing it.");
+        }
+        return problems;
+    }
+
+    /**
+     * The prison construction and furniture settings (0.7.5 M5.4-M5.7).
+     *
+     * <p>Every message here says what the code does rather than what a prison sounds like it should
+     * do. "Unbreakable" is the word the specification forbids and it does not appear, because no
+     * setting in this block produces it: {@code HARD_CONTAINMENT} stops a <em>prisoner</em>, and an
+     * ordinary player with an iron pickaxe opens the wall either way.
+     */
+    public static List<String> validatePrisonConstruction(String breakingPolicy, boolean resistsExplosions,
+                                                          boolean resistsPistons, boolean authorisedOnly) {
+        List<String> problems = new ArrayList<>();
+        if (dev.otectus.mcacrime.block.prison.ReinforcedBreakingPolicy.parse(breakingPolicy).isEmpty()) {
+            problems.add("prison.reinforcedBreakingPolicy (" + breakingPolicy + ") is not a policy. "
+                    + "Use PICKAXE_QUALIFIED or HARD_CONTAINMENT; PICKAXE_QUALIFIED is assumed.");
+        }
+        if (!authorisedOnly && !resistsExplosions && !resistsPistons
+                && dev.otectus.mcacrime.block.prison.ReinforcedBreakingPolicy.parse(breakingPolicy)
+                        .orElse(dev.otectus.mcacrime.block.prison.ReinforcedBreakingPolicy.PICKAXE_QUALIFIED)
+                == dev.otectus.mcacrime.block.prison.ReinforcedBreakingPolicy.PICKAXE_QUALIFIED) {
+            problems.add("prison: reinforced blocks currently resist nothing beyond an iron-pickaxe "
+                    + "requirement -- explosions and pistons both move them. That is a valid build set; "
+                    + "it is not containment.");
+        }
+        return problems;
+    }
+
+    /** The frisking rules (0.7.5 §3.8, M5.2-M5.3). Every problem here is a warning. */
+    public static List<String> validateFrisking(double maxRangeBlocks, int sessionTimeoutTicks,
+                                                int transferIntervalTicks, boolean requiresArmRestraint,
+                                                boolean lawfulSeizureToEscrow) {
+        List<String> problems = new ArrayList<>();
+        if (!requiresArmRestraint) {
+            problems.add("frisking.requiresArmRestraint is off: anybody within reach may be searched, "
+                    + "restrained or not. Authority is still checked; physical helplessness is not.");
+        }
+        if (!lawfulSeizureToEscrow) {
+            problems.add("frisking.lawfulSeizureToEscrow is off: a guard's seizures go into the guard's "
+                    + "own inventory and no escrow receipt is written, so nothing returns them when "
+                    + "custody ends.");
+        }
+        if (transferIntervalTicks == 0) {
+            problems.add("frisking.transferIntervalTicks is 0: a search empties an inventory as fast as "
+                    + "packets arrive. Bounded by the request budget, but no longer by a search delay.");
+        }
+        if (maxRangeBlocks > 6.0D) {
+            problems.add("frisking.maxRangeBlocks (" + maxRangeBlocks + ") is beyond a player's own "
+                    + "reach, so the subject can be searched from outside the range they could hit back "
+                    + "from.");
+        }
+        if (sessionTimeoutTicks < 100) {
+            problems.add("frisking.sessionTimeoutTicks (" + sessionTimeoutTicks + ") closes a search "
+                    + "within five seconds of the last transfer.");
+        }
+        return problems;
+    }
+
+    /**
+     * The transport engine's numbers (0.7.5 M4.1-M4.4).
+     *
+     * <p>The ordering rule is the one that matters: a tether that starts hurting a subject before it
+     * starts pulling them has no "held but unharmed" band at all, which turns every escort into an
+     * execution. The source ships the two values the right way round and never checks them.
+     */
+    public static List<String> validateTransport(double maxChainLength, double overextensionLength,
+                                                 double suspensionDamagePerTick, boolean guardHarmless,
+                                                 int maxTethersPerHolder) {
+        List<String> problems = new ArrayList<>();
+        if (!(overextensionLength > maxChainLength)) {
+            problems.add("transport.overextensionLength (" + overextensionLength + ") is not greater than "
+                    + "transport.maxChainLength (" + maxChainLength + "): the first tick of tension would "
+                    + "also be the first tick of suspension damage, so every tether would injure whoever "
+                    + "it holds the moment it engages.");
+        }
+        if (suspensionDamagePerTick <= 0.0D) {
+            problems.add("transport.suspensionDamagePerTick is 0: an overextended tether pulls but never "
+                    + "hurts. That is a supported setting; nothing else changes.");
+        } else if (suspensionDamagePerTick >= 10.0D) {
+            problems.add("transport.suspensionDamagePerTick (" + suspensionDamagePerTick + ") kills an "
+                    + "unarmoured player in under a second past the overextension length.");
+        }
+        if (!guardHarmless) {
+            problems.add("transport.guardTransportHarmless is false: a lawful escort's tether may kill the "
+                    + "prisoner it is walking to a cell.");
+        }
+        if (maxTethersPerHolder > 16) {
+            problems.add("transport.maxTethersPerHolder (" + maxTethersPerHolder + ") lets one holder lead "
+                    + "a crowd; every one of them is corrected every tick.");
+        }
+        return problems;
+    }
+
+    /** The detention devices (0.7.5 M4.5-M4.7). */
+    public static List<String> validateDetention(int pilloryBreakoutTransitions, boolean guillotineEnabled,
+                                                 int guillotineDelayTicks) {
+        List<String> problems = new ArrayList<>();
+        if (pilloryBreakoutTransitions == 0) {
+            problems.add("detention.pilloryBreakoutTransitions is 0: nobody breaks out of a pillory from "
+                    + "the inside. Stale-occupancy cleanup still runs, so a broken or unloaded device "
+                    + "still releases its occupant.");
+        }
+        if (!guillotineEnabled) {
+            problems.add("detention.guillotineEnabled is false: the guillotine detains but never takes a "
+                    + "life, whatever the capital sentencing settings say.");
+        }
+        if (guillotineDelayTicks > 100) {
+            problems.add("detention.guillotineActivationDelayTicks (" + guillotineDelayTicks + ") is over "
+                    + "five seconds between releasing the blade and the blow landing.");
+        }
+        return problems;
+    }
+
+    /**
+     * The capital sentencing keys M4.10 owns (0.7.5 §3.19).
+     *
+     * <p>{@code requiresExecutionDevice = false} with the feature on is the one combination that is
+     * refused outright: a capital sentence that needs no device is a death with no deliberate act
+     * behind it, which is exactly what the user ruled out.
+     */
+    public static List<String> validateCapitalPunishment(boolean enabled, boolean requiresDevice,
+                                                         int executionDelayTicks, boolean guardMayExecute) {
+        return validateCapitalPunishment(enabled, requiresDevice, executionDelayTicks, guardMayExecute,
+                true, false, 2400, 48);
+    }
+
+    /**
+     * The whole {@code sentencing.capitalPunishment} group (0.7.5 §3.19, M6.6).
+     *
+     * <p>The four-argument form above is the device half M4.10 shipped; this is the same rules plus
+     * the offence, eligibility and escort keys M6.6 adds. Every problem is a warning rather than a
+     * refusal except the device one, for the reason stated there.
+     */
+    public static List<String> validateCapitalPunishment(boolean enabled, boolean requiresDevice,
+                                                         int executionDelayTicks, boolean guardMayExecute,
+                                                         boolean guardKillingIsCapital,
+                                                         boolean npcOffendersEligible,
+                                                         int condemnedEscortTimeoutTicks,
+                                                         int executionSiteSearchRadius) {
+        List<String> problems = new ArrayList<>();
+        if (enabled && !requiresDevice) {
+            problems.add("sentencing.capitalPunishment.requiresExecutionDevice is false while the feature "
+                    + "is enabled. A capital sentence with no device requirement would be carried out by "
+                    + "nothing deliberate at all; set enabled = false instead.");
+        }
+        if (enabled && executionDelayTicks == 0) {
+            problems.add("sentencing.capitalPunishment.executionDelayTicks is 0: arming the device and the "
+                    + "blade are the same moment, so there is no rescue or pardon window.");
+        }
+        if (enabled && !guardMayExecute) {
+            problems.add("sentencing.capitalPunishment.guardMayExecute is false: only a player can carry "
+                    + "out a sentence, and a condemned captive with no player willing to do it stays in "
+                    + "custody indefinitely.");
+        }
+        if (enabled && !guardKillingIsCapital) {
+            problems.add("sentencing.capitalPunishment.guardKillingIsCapital is false while the feature is "
+                    + "enabled: killing a guard is the only offence that may ever produce a capital "
+                    + "sentence, so nothing can qualify and every sentence is custodial.");
+        }
+        if (enabled && npcOffendersEligible) {
+            problems.add("sentencing.capitalPunishment.npcOffendersEligible is true: a villager offender "
+                    + "may be capitally sentenced by an NPC arrest with no player in the loop. That is a "
+                    + "supported setting; nothing else changes.");
+        }
+        if (enabled && condemnedEscortTimeoutTicks < executionDelayTicks) {
+            problems.add("sentencing.capitalPunishment.condemnedEscortTimeoutTicks ("
+                    + condemnedEscortTimeoutTicks + ") is shorter than executionDelayTicks ("
+                    + executionDelayTicks + "): the walk to the device gives up before the ceremony it "
+                    + "exists to reach could finish. The captive is returned to a cell either way.");
+        }
+        if (enabled && executionSiteSearchRadius > 96) {
+            problems.add("sentencing.capitalPunishment.executionSiteSearchRadius ("
+                    + executionSiteSearchRadius + ") sends a guard across most of a loaded world looking "
+                    + "for an assigned site.");
+        }
+        return problems;
+    }
+
+    /**
+     * What this mod does about other mods (0.7.5 §3.17, M6.2).
+     *
+     * <p>Every one of these is a switch whose off position removes something an operator may believe
+     * is still in force, so each off position is stated rather than assumed. The coexistence policy is
+     * the only value here that can be spelled wrong, and it fails to {@code WARN} when it is -- which
+     * is the safe runtime behaviour and exactly the wrong thing to leave unsaid.
+     */
+    public static List<String> validateCompatibility(String cuffedCoexistence, boolean optionalAdapters,
+                                                     boolean reportAdapterVersions, boolean cuffedInstalled) {
+        List<String> problems = new ArrayList<>();
+        if (!knownValue(cuffedCoexistence, "WARN", "REFUSE")) {
+            problems.add("compatibility.cuffedCoexistence must be WARN or REFUSE, not '"
+                    + cuffedCoexistence + "'; WARN is used instead.");
+        }
+        if (cuffedInstalled && knownValue(cuffedCoexistence, "REFUSE")) {
+            problems.add("compatibility.cuffedCoexistence is REFUSE with Cuffed installed, so MCA: Crime "
+                    + "applies no new restraints. Removing, recovering and loading existing ones stays "
+                    + "enabled, so nobody is stranded in equipment this mod will not take off.");
+        }
+        if (!optionalAdapters) {
+            problems.add("compatibility.optionalAdaptersEnabled is false: every optional-mod adapter is "
+                    + "off, whatever is installed. Silence drains no pool, foreign inventory slots are "
+                    + "not searchable, and a downed player reads as an ordinary one.");
+        }
+        if (!reportAdapterVersions) {
+            problems.add("compatibility.reportAdapterVersions is false, so the startup log will not say "
+                    + "which optional mods bound and which did not. An unsupported build then looks "
+                    + "identical to a working one until a feature quietly does nothing.");
+        }
+        return problems;
+    }
+
+    /**
+     * The preset pair (0.7.5 M7.2).
+     *
+     * <p>Only the spelling is checkable here: what a preset <em>did</em> is reported by
+     * {@code RestraintPresets} at the moment it is applied, key by key, which is the only place that
+     * knows what the values were before. A mismatch between the two keys is not a problem -- it is the
+     * ordinary state of a config whose preset is about to be applied.
+     */
+    public static List<String> validatePreset(String preset, String appliedPreset) {
+        List<String> problems = new ArrayList<>();
+        if (!knownValue(preset, "CUFFED_PARITY", "BALANCED_VILLAGE")) {
+            problems.add("restraints.preset must be CUFFED_PARITY or BALANCED_VILLAGE, not '" + preset
+                    + "'; the shipped parity tuning is used instead.");
+        }
+        if (!knownValue(appliedPreset, "CUFFED_PARITY", "BALANCED_VILLAGE")) {
+            problems.add("restraints.appliedPreset is '" + appliedPreset + "', which names no preset. It "
+                    + "is managed automatically; restraints.preset will be applied once and rewrite it.");
+        }
+        return problems;
+    }
+
+    /**
+     * The six restraint enchantments (0.7.5 §3.10, M6.1).
+     *
+     * <p>On this line the enchantments themselves are datapack entries; every number here is read by
+     * the services that apply the effects, so the rules below hold whether or not the JSON is present.
+     */
+    public static List<String> validateEnchantments(List<? extends String> allowed, double perLevel,
+                                                    double maxFraction, int maxRecipients,
+                                                    double manaDrainPerTick, int effectDurationTicks,
+                                                    int effectAmplifier) {
+        List<String> problems = new ArrayList<>();
+        java.util.Set<dev.otectus.mcacrime.enchantment.CrimeEnchantKind> parsed =
+                dev.otectus.mcacrime.enchantment.EnchantmentApplicability.parseAllowed(allowed);
+        if (allowed != null) {
+            for (String name : allowed) {
+                if (dev.otectus.mcacrime.enchantment.CrimeEnchantKind.parse(name).isEmpty()) {
+                    problems.add("enchantments.allowed names '" + name + "', which is not one of this "
+                            + "mod's six enchantments; it is ignored.");
+                }
+            }
+        }
+        if (parsed.isEmpty()) {
+            problems.add("enchantments.allowed is empty: none of the six may be applied, and any already "
+                    + "on an item has no effect. Existing items still load and can still be removed.");
+        }
+        if (parsed.contains(dev.otectus.mcacrime.enchantment.CrimeEnchantKind.IMBUE)) {
+            if (maxFraction >= 1.0D) {
+                problems.add("enchantments.imbueMaxTransferFraction is 1.0: a captor holding anybody in "
+                        + "an Imbue restraint takes no damage at all.");
+            }
+            if (perLevel > maxFraction) {
+                problems.add("enchantments.imbueTransferPerLevel (" + perLevel + ") is above "
+                        + "imbueMaxTransferFraction (" + maxFraction + "); the cap wins at every level.");
+            }
+            if (maxRecipients > 32) {
+                problems.add("enchantments.imbueMaxRecipients (" + maxRecipients + ") splits one hit "
+                        + "between a crowd; every share is resolved on the damage path.");
+            }
+        }
+        if (parsed.contains(dev.otectus.mcacrime.enchantment.CrimeEnchantKind.SILENCE)
+                && manaDrainPerTick <= 0.0D) {
+            problems.add("enchantments.manaDrainPerTick is 0: Silence is applicable and drains nothing.");
+        }
+        if (effectDurationTicks < 40) {
+            problems.add("enchantments.effectDurationTicks (" + effectDurationTicks + ") is shorter than "
+                    + "the two-second pass that refreshes it, so Famine, Shroud and Exhaust will flicker.");
+        }
+        if (effectAmplifier > 2) {
+            problems.add("enchantments.effectAmplifier (" + effectAmplifier + ") is above the source's "
+                    + "own figure of 1; a prisoner will starve or be blinded far harder than intended.");
+        }
+        return problems;
+    }
+
+    /** Whether {@code value}, trimmed, is one of {@code allowed}, ignoring case. */
+    private static boolean knownValue(String value, String... allowed) {
+        String trimmed = trimmedValue(value);
+        for (String candidate : allowed) {
+            if (candidate.equalsIgnoreCase(trimmed)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static String trimmedValue(String value) {
+        return value == null ? "" : value.trim();
+    }
+
+    public static List<String> validateRestraints(int maxConcurrentSessions, int sessionTimeoutTicks) {
+        List<String> problems = new ArrayList<>();
+        if (maxConcurrentSessions < 1) {
+            problems.add("restraints.maxConcurrentSessions (" + maxConcurrentSessions + ") must be at "
+                    + "least 1, or no player can ever struggle, pick a lock or search anybody.");
+        }
+        if (maxConcurrentSessions < 2) {
+            problems.add("restraints.maxConcurrentSessions is 1, so only one player at a time on the "
+                    + "whole server can have a restraint, lockpicking or frisking session open.");
+        }
+        if (sessionTimeoutTicks < 20) {
+            problems.add("restraints.sessionTimeoutTicks (" + sessionTimeoutTicks + ") is under one "
+                    + "second, so a session is dropped before its owner can act on it.");
+        }
+        return problems;
+    }
+
+    /**
+     * The per-definition durability settings (0.7.5 M2.2).
+     *
+     * <p>Every value is range-bounded by the spec, so what is worth reporting is the settings that
+     * are legal and still defeat the mechanic: gear so flimsy that one struggle input ends it, and a
+     * hierarchy inverted so far that the strong restraint is the weak one. Neither is an error.
+     *
+     * <p>Arm and leg tape are reported separately on purpose. They are separate keys precisely
+     * because the source read one for both, and a validator that folded them back into one message
+     * would hide the setting that used to do nothing.
+     */
+    public static List<String> validateRestraintDurability(int handcuffs, int shackles,
+                                                           int tapeArms, int tapeLegs, int tapeHead,
+                                                           int hood, boolean headTapeMufflesTextChat) {
+        List<String> problems = new ArrayList<>();
+        if (headTapeMufflesTextChat) {
+            problems.add("restraints.definitions.headTapeMufflesTextChat is true, so a head restraint "
+                    + "is configured to take away a restrained player's typed chat. That is a "
+                    + "moderation decision rather than a mechanic -- a gagged player cannot ask to be "
+                    + "let out -- and it is off by default for that reason (§10.6).");
+        }
+        problems.addAll(reportFlimsy("durabilityHandcuffs", handcuffs));
+        problems.addAll(reportFlimsy("durabilityShackles", shackles));
+        problems.addAll(reportFlimsy("durabilityDuckTapeArms", tapeArms));
+        problems.addAll(reportFlimsy("durabilityDuckTapeLegs", tapeLegs));
+        problems.addAll(reportFlimsy("durabilityDuckTapeHead", tapeHead));
+        problems.addAll(reportFlimsy("durabilityBundleHood", hood));
+        if (shackles > handcuffs) {
+            problems.add("restraints.definitions.durabilityShackles (" + shackles + ") exceeds "
+                    + "durabilityHandcuffs (" + handcuffs + "), so the lighter restraint is the harder "
+                    + "one to break out of.");
+        }
+        if (tapeArms > shackles || tapeLegs > shackles) {
+            problems.add("restraints.definitions duck tape is tougher than shackles, which makes the "
+                    + "craftable disposable restraint the strongest one in the game.");
+        }
+        return problems;
+    }
+
+    private static List<String> reportFlimsy(String key, int durability) {
+        if (durability <= 1) {
+            return List.of("restraints.definitions." + key + " is " + durability + ", so a single "
+                    + "accepted struggle input ends that restraint.");
+        }
+        return List.of();
+    }
+
+    /**
+     * The application settings (0.7.5 M2.3, M2.6).
+     *
+     * <p>{@code vulnerabilityGates} is the only one that can be spelled wrong rather than merely set
+     * badly: an unrecognised gate name is silently permissive, which is exactly the wrong direction
+     * for a list whose job is to refuse an application.
+     */
+    public static List<String> validateRestraintApplication(int channelTicks, double maxRangeBlocks,
+                                                            boolean requireLineOfSight,
+                                                            boolean allowSelfApplication,
+                                                            double lowHealthFraction,
+                                                            List<? extends String> vulnerabilityGates) {
+        List<String> problems = new ArrayList<>();
+        boolean lowHealthGate = vulnerabilityGates != null && vulnerabilityGates.stream()
+                .anyMatch(gate -> gate != null && "low_health".equalsIgnoreCase(gate.trim()));
+        if (lowHealthGate && lowHealthFraction <= 0.0D) {
+            problems.add("restraints.application.vulnerabilityGates lists low_health while "
+                    + "lowHealthFraction is " + lowHealthFraction + ", so no living subject ever "
+                    + "qualifies and no restraint can be applied to anybody.");
+        }
+        if (lowHealthGate && lowHealthFraction >= 1.0D) {
+            problems.add("restraints.application.lowHealthFraction is " + lowHealthFraction
+                    + ", so every subject counts as wounded and the low_health gate refuses nothing.");
+        }
+        if (!lowHealthGate && lowHealthFraction != 0.35D) {
+            problems.add("restraints.application.lowHealthFraction is set to " + lowHealthFraction
+                    + " but vulnerabilityGates does not list low_health, so nothing reads it.");
+        }
+        // channelTicks = 0 is deliberately not reported. Immediate application is the shipped parity
+        // default (§3.12), and a warning on every default install is noise that hides a real problem.
+        if (channelTicks > 200) {
+            problems.add("restraints.application.channelTicks (" + channelTicks + ") is over ten "
+                    + "seconds of standing still beside a subject who is free to walk away, so almost "
+                    + "no application will ever complete.");
+        }
+        if (maxRangeBlocks > 8.0D) {
+            problems.add("restraints.application.maxRangeBlocks (" + maxRangeBlocks
+                    + ") is beyond ordinary reach, so a restraint can be applied from further away "
+                    + "than the target can see it coming.");
+        }
+        if (!requireLineOfSight) {
+            problems.add("restraints.application.requireLineOfSight is false, so a restraint "
+                    + "can be applied through a wall.");
+        }
+        if (!allowSelfApplication) {
+            problems.add("restraints.application.allowSelfApplication is false; the self panel's "
+                    + "restraint entries will refuse, which is a supported but unusual setting.");
+        }
+        if (vulnerabilityGates != null) {
+            for (String gate : vulnerabilityGates) {
+                if (gate == null || gate.isBlank()) {
+                    problems.add("restraints.application.vulnerabilityGates contains a blank entry.");
+                } else if (!KNOWN_VULNERABILITY_GATES.contains(gate.trim().toLowerCase(Locale.ROOT))) {
+                    problems.add("restraints.application.vulnerabilityGates names an unknown gate '"
+                            + gate + "'; it will never refuse anything. Known gates: "
+                            + String.join(", ", KNOWN_VULNERABILITY_GATES) + ".");
+                }
+            }
+        }
+        return problems;
+    }
+
+    // ------------------------------------------------------------------ retired keys (0.7.5 §5.2)
+
+    /**
+     * Every key 0.7.5 retired, in the spelling a server's own {@code .toml} still uses.
+     *
+     * <p>Values are deliberately <b>not</b> migrated (§10.5): each of these governed a mechanic that no
+     * longer exists, and carrying a number across to a setting that means something else is worse than
+     * dropping it. What is owed to an operator is being told, by name, which of their settings stopped
+     * doing anything -- which is what {@link #retiredKeysIn} finds and {@link #retiredKeyReport} says
+     * out loud, once, at startup and without failing it.
+     */
+    public static final List<String> RETIRED_KEYS = List.of(
+            "captureChannelTicks",
+            "captureMaxMoveBlocks",
+            "captureMaxRangeBlocks",
+            "captureRequireLineOfSight",
+            "captureLowHealthFraction",
+            "villagerCaptureRelaxedVulnerability",
+            "captureChannelMultiplierRope",
+            "captureChannelMultiplierCuffs",
+            "captureChannelMultiplierLockedCuffs",
+            "restraintEscapeChanceRope",
+            "restraintEscapeChanceCuffs",
+            "restraintEscapeChanceLockedCuffs",
+            "captiveTetherBlocks",
+            "captiveCanEscapeByDistance",
+            "escapeWorkTicksRope",
+            "escapeWorkTicksCuffs",
+            "escapeWorkTicksLockedCuffs",
+            "cuffEscapeRequiresLockpick",
+            "escapeAttemptCooldownTicks",
+            "renderCuffs",
+            "renderEscortRope");
+
+    /** What each retired key was replaced by, for the report. */
+    private static final Map<String, String> RETIRED_REPLACEMENTS = Map.ofEntries(
+            Map.entry("captureChannelTicks", "restraints.application.channelTicks"),
+            Map.entry("captureMaxMoveBlocks", "no replacement: an application is decided once, not channelled at a distance"),
+            Map.entry("captureMaxRangeBlocks", "restraints.application.maxRangeBlocks"),
+            Map.entry("captureRequireLineOfSight", "restraints.application.requireLineOfSight"),
+            Map.entry("captureLowHealthFraction", "restraints.application.lowHealthFraction"),
+            Map.entry("villagerCaptureRelaxedVulnerability", "restraints.application.vulnerabilityGates (empty gates the same way)"),
+            Map.entry("captureChannelMultiplierRope", "restraints.application.channelTicks (one duration for every restraint)"),
+            Map.entry("captureChannelMultiplierCuffs", "restraints.application.channelTicks"),
+            Map.entry("captureChannelMultiplierLockedCuffs", "restraints.application.channelTicks"),
+            Map.entry("restraintEscapeChanceRope", "restraints.definitions.durabilityDuckTapeArms"),
+            Map.entry("restraintEscapeChanceCuffs", "restraints.definitions.durabilityShackles"),
+            Map.entry("restraintEscapeChanceLockedCuffs", "restraints.definitions.durabilityHandcuffs"),
+            Map.entry("captiveTetherBlocks", "no replacement in 0.7.5: the hold is a tether record, not a radius"),
+            Map.entry("captiveCanEscapeByDistance", "restraints.escape (struggling out, not walking out)"),
+            Map.entry("escapeWorkTicksRope", "restraints.definitions.durabilityDuckTapeArms"),
+            Map.entry("escapeWorkTicksCuffs", "restraints.definitions.durabilityShackles"),
+            Map.entry("escapeWorkTicksLockedCuffs", "restraints.definitions.durabilityHandcuffs"),
+            Map.entry("cuffEscapeRequiresLockpick", "lockpicking.enabled (M3); a key or a cutting tool otherwise"),
+            Map.entry("escapeAttemptCooldownTicks", "restraints.escape.minWorkIntervalTicks"),
+            Map.entry("renderCuffs", "client.renderWornRestraints (the worn models) and client.hudRestraintPanel (the panel)"),
+            Map.entry("renderEscortRope", "client.renderTether"));
+
+    /**
+     * Which retired keys a config file still sets, in file order.
+     *
+     * <p>Pure, and text-based on purpose: the retired keys are no longer in the spec, so
+     * {@code ModConfigSpec} cannot be asked about them -- it only knows what is declared today.
+     * A line counts when it assigns the key at the start of a line, so a key named inside a comment
+     * or inside a longer key ({@code captureChannelTicksLegacy}) is not reported.
+     */
+    public static List<String> retiredKeysIn(@Nullable List<String> lines) {
+        List<String> found = new ArrayList<>();
+        if (lines == null) {
+            return found;
+        }
+        for (String raw : lines) {
+            if (raw == null) {
+                continue;
+            }
+            String line = raw.trim();
+            if (line.startsWith("#")) {
+                continue;
+            }
+            for (String key : RETIRED_KEYS) {
+                if (found.contains(key)) {
+                    continue;
+                }
+                if (line.startsWith(key)) {
+                    String rest = line.substring(key.length()).trim();
+                    if (rest.startsWith("=")) {
+                        found.add(key);
+                    }
+                }
+            }
+        }
+        return found;
+    }
+
+    /** The report lines for a set of surviving retired keys. Empty when there are none. */
+    public static List<String> retiredKeyReport(List<String> keysFound) {
+        List<String> report = new ArrayList<>();
+        if (keysFound == null || keysFound.isEmpty()) {
+            return report;
+        }
+        report.add("MCA: Crime 0.7.5 retired " + keysFound.size()
+                + " setting(s) still present in the config; they are ignored and may be deleted:");
+        for (String key : keysFound) {
+            report.add("  - " + key + " -> " + RETIRED_REPLACEMENTS.getOrDefault(key, "no replacement"));
+        }
+        return report;
+    }
+
+    /**
+     * The same report, read from the running server's own common config file.
+     *
+     * <p>Best effort by design: an unreadable or absent file is silence, never a startup failure. A
+     * config problem an operator cannot act on is noise, and a mod that refuses to start over a key
+     * it no longer uses would be worse than the key.
+     */
+    public static List<String> retiredKeyReport() {
+        try {
+            Path dir = net.neoforged.fml.loading.FMLPaths.CONFIGDIR.get();
+            List<String> lines = new ArrayList<>();
+            // Both files, because 0.7.5 retired two presentation keys as well as the physical ones,
+            // and an operator whose client still sets renderCuffs is owed the same sentence.
+            for (String name : List.of(McaCrime.MOD_ID + "-common.toml", McaCrime.MOD_ID + "-client.toml")) {
+                Path file = dir.resolve(name);
+                if (Files.isReadable(file)) {
+                    lines.addAll(Files.readAllLines(file, StandardCharsets.UTF_8));
+                }
+            }
+            return retiredKeyReport(retiredKeysIn(lines));
+        } catch (Throwable t) {
+            return List.of();
+        }
+    }
+
+    /** The gate names {@code restraints.application.vulnerabilityGates} understands. */
+    public static final List<String> KNOWN_VULNERABILITY_GATES = List.of(
+            "low_health", "sleeping", "unconscious", "already_restrained", "surrendered", "detained");
+
+    /**
+     * The struggle-work settings (0.7.5 M2.7).
+     *
+     * <p>The pair that matters is the interval against the per-second ceiling: a ceiling higher than
+     * the interval allows is a number that reads as a tuning knob and cannot take effect, which is
+     * the shape of setting that gets blamed for behaviour it never controlled.
+     */
+    public static List<String> validateRestraintEscape(int minWorkIntervalTicks, int maxInputsPerSecond,
+                                                       boolean returnsWornItem, boolean dropItemWhenBroken) {
+        List<String> problems = new ArrayList<>();
+        if (minWorkIntervalTicks <= 1) {
+            problems.add("restraints.escape.minWorkIntervalTicks is " + minWorkIntervalTicks
+                    + ", so a macro can struggle every tick and the durability numbers mean nothing.");
+        }
+        int reachable = 20 / Math.max(1, minWorkIntervalTicks);
+        if (maxInputsPerSecond > reachable) {
+            problems.add("restraints.escape.maxInputsPerSecond (" + maxInputsPerSecond
+                    + ") is above the " + reachable + " that escapeMinWorkIntervalTicks allows, so it "
+                    + "never takes effect.");
+        }
+        if (!returnsWornItem) {
+            problems.add("restraints.escape.returnsWornItem is false, so every restraint removed "
+                    + "destroys the item somebody supplied.");
+        }
+        if (dropItemWhenBroken && !returnsWornItem) {
+            problems.add("restraints.escape.dropItemWhenBroken is true while returnsWornItem is "
+                    + "false, so breaking out of a restraint returns its item and unlocking one does not.");
+        }
+        return problems;
+    }
+
     public static List<String> validateCurrency(String currencyId, String currencyItem) {
         List<String> problems = new ArrayList<>();
         if (currencyId == null || currencyId.isBlank()) {
@@ -936,6 +1649,75 @@ public final class ConfigValidator {
                 c.arrestEscortTimeoutTicks.get(),
                 c.npcEscortOrphanTicks.get()));
         problems.addAll(validateCurrency(c.currencyId.get(), c.currencyItem.get()));
+        problems.addAll(validateRestraints(
+                c.maxConcurrentSessions.get(),
+                c.sessionTimeoutTicks.get()));
+        problems.addAll(validatePreset(c.preset.get().name(), c.appliedPreset.get()));
+        problems.addAll(validateCompatibility(
+                c.cuffedCoexistence.get(),
+                c.optionalAdaptersEnabled.get(),
+                c.reportAdapterVersions.get(),
+                dev.otectus.mcacrime.compat.CuffedCoexistence.installed()));
+        problems.addAll(validateRestraintDurability(
+                c.durabilityHandcuffs.get(),
+                c.durabilityShackles.get(),
+                c.durabilityDuckTapeArms.get(),
+                c.durabilityDuckTapeLegs.get(),
+                c.durabilityDuckTapeHead.get(),
+                c.durabilityBundleHood.get(),
+                c.headTapeMufflesTextChat.get()));
+        problems.addAll(validateRestraintApplication(
+                c.applicationChannelTicks.get(),
+                c.applicationMaxRangeBlocks.get(),
+                c.applicationRequireLineOfSight.get(),
+                c.allowSelfApplication.get(),
+                c.lowHealthFraction.get(),
+                c.vulnerabilityGates.get()));
+        problems.addAll(validateRestraintEscape(
+                c.escapeMinWorkIntervalTicks.get(),
+                c.escapeMaxInputsPerSecond.get(),
+                c.escapeReturnsWornItem.get(),
+                c.dropItemWhenBroken.get()));
+        problems.addAll(validateLocks(
+                c.maxKeysPerRing.get(),
+                c.foreignLockPolicy.get(),
+                c.lockAutomationPolicy.get(),
+                c.protectLockedBlocksFromBreaking.get(),
+                c.protectLockedBlocksFromExplosions.get(),
+                c.protectLockedBlocksFromPistons.get(),
+                c.allowPadlockReinforcement.get()));
+        problems.addAll(validateLockpicking(
+                c.enableLockpicking.get(),
+                c.lockpickDrainPerTickDivisor.get(),
+                c.lockpickMinAttemptIntervalTicks.get(),
+                c.lockpickWindowBelowDegrees.get(),
+                c.lockpickWindowAboveDegrees.get(),
+                c.lockpickMaxRangeBlocks.get(),
+                c.lockpickDestructiveOutcome.get()));
+        problems.addAll(validatePrison(c.safeSlots.get()));
+        problems.addAll(validatePrisonConstruction(
+                c.reinforcedBreakingPolicy.get(), c.reinforcedResistsExplosions.get(),
+                c.reinforcedResistsPistons.get(), c.reinforcedAuthorisedRemovalOnly.get()));
+        problems.addAll(validateFrisking(
+                c.friskMaxRangeBlocks.get(), c.friskSessionTimeoutTicks.get(),
+                c.friskTransferIntervalTicks.get(), c.friskRequiresArmRestraint.get(),
+                c.friskLawfulSeizureToEscrow.get()));
+        problems.addAll(validateTransport(
+                c.maxChainLength.get(), c.overextensionLength.get(), c.suspensionDamagePerTick.get(),
+                c.guardTransportHarmless.get(), c.maxTethersPerHolder.get()));
+        problems.addAll(validateDetention(
+                c.pilloryBreakoutTransitions.get(), c.guillotineEnabled.get(),
+                c.guillotineActivationDelayTicks.get()));
+        problems.addAll(validateCapitalPunishment(
+                c.capitalPunishmentEnabled.get(), c.requiresExecutionDevice.get(),
+                c.executionDelayTicks.get(), c.guardMayExecute.get(),
+                c.guardKillingIsCapital.get(), c.npcOffendersEligible.get(),
+                c.condemnedEscortTimeoutTicks.get(), c.executionSiteSearchRadius.get()));
+        problems.addAll(validateEnchantments(
+                c.allowedEnchantments.get(), c.imbueTransferPerLevel.get(),
+                c.imbueMaxTransferFraction.get(), c.imbueMaxRecipients.get(),
+                c.manaDrainPerTick.get(), c.enchantEffectDurationTicks.get(),
+                c.enchantEffectAmplifier.get()));
         problems.addAll(validateCriminalJobs(
                 c.enableThieves.get(),
                 c.enableFences.get(),
@@ -1109,9 +1891,6 @@ public final class ConfigValidator {
         }
         if (c.maxUnlawfulCaptivesPerCaptor.get() < 1) {
             problems.add("maxUnlawfulCaptivesPerCaptor must be at least 1.");
-        }
-        if (c.restraintEscapeChanceLockedCuffs.get() > 0.0D) {
-            problems.add("Locked cuffs have a non-zero escape chance but no work duration; use keys/rescue or set the chance to 0.");
         }
 
         problems.addAll(validateTownstead(

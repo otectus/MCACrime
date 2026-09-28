@@ -91,7 +91,8 @@ public final class ArrestStates {
             } else {
                 RestraintHandlers.onReleased(player);
             }
-            RestraintSync.broadcast(player);
+            dev.otectus.mcacrime.restraint.RestraintSyncService.broadcastDelta(player,
+                    dev.otectus.mcacrime.restraint.RestraintService.data(player));
         }
         return moved;
     }
@@ -186,7 +187,8 @@ public final class ArrestStates {
             state.setGuard(guard);
             // The lead is drawn to whoever holds it, so a handover is a visual change even though the
             // restraint itself never lapsed.
-            RestraintSync.broadcast(player);
+            dev.otectus.mcacrime.restraint.RestraintSyncService.broadcastDelta(player,
+                    dev.otectus.mcacrime.restraint.RestraintService.data(player));
             // A new escort gets a fresh run at the destination; keeping the old strikes would have the
             // replacement inherit its predecessor's failure and give up almost immediately.
             state.setBestAnchorDistanceSqr(Double.MAX_VALUE);

@@ -28,6 +28,8 @@ import dev.otectus.mcacrime.state.world.CrimeWorldData;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 
+import org.jetbrains.annotations.Nullable;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -36,9 +38,12 @@ import java.util.UUID;
 
 /**
  * Stable public surface for MCA: Crime (spec §16). Other mods can read a player's standing and case
- * history without touching internals; all <em>mutation</em> stays server-internal through
- * {@link CrimeState} and the case service. To react to changes, subscribe to the events in
- * {@code dev.otectus.mcacrime.api.event} on the Forge event bus.
+ * history without touching internals; mutation stays server-internal through {@link CrimeState} and
+ * the case service, with the two named exceptions of {@link #commuteCapitalSentence} and
+ * {@link #pardonCapitalSentence} - clemency over a capital sentence, which 0.7.5 §3.19 requires to be
+ * reachable as an explicit privileged transaction rather than only from an operator's keyboard. To
+ * react to changes, subscribe to the events in {@code dev.otectus.mcacrime.api.event} on the game
+ * event bus.
  *
  * <h2>Contracts every method here honours</h2>
  *
@@ -61,8 +66,15 @@ import java.util.UUID;
  */
 public final class McaCrimeApi {
 
-    /** Incremented only on a breaking change to this class's signatures. */
-    private static final int API_VERSION = 1;
+    /**
+     * Incremented only on a breaking change to this class's signatures.
+     *
+     * <p>Two in 0.7.5: the physical-restraint surface, the capital-sentence surface and their events
+     * are added, and {@code CustodyView.custodyId} finally carries a real value. Every addition is
+     * additive - no existing method changed shape - so a v1 consumer keeps working, which is why this
+     * is a version bump rather than a deprecation.
+     */
+    private static final int API_VERSION = 2;
 
     private McaCrimeApi() {
     }
@@ -247,11 +259,17 @@ public final class McaCrimeApi {
                     record.isCaptivePlayer(),
                     record.isLawful(),
                     record.getOwner() == null ? Optional.empty() : record.getOwner().ownerUuid(),
-                    record.getRestraint(),
+                    // Projected from the gear actually on them: the record stopped holding a restraint
+                    // in 0.7.5, and this deprecated field is answered from the physical state instead.
+                    dev.otectus.mcacrime.restraint.LegacyRestraintProjection.of(
+                            CrimeWorldData.get(server).physicalRestraint(entityId)),
                     record.getRealTicksHeld(),
                     record.getRemainingJailTicks(),
                     Optional.ofNullable(record.getHoldDim()),
-                    Optional.empty(),
+                    // Real since 0.7.5: the custody identity a companion needs to tell two successive
+                    // captures of one subject apart. The linked case stays empty -- a custody record
+                    // names a sentence, and a sentence is not a case.
+                    Optional.ofNullable(record.getCustodyId()),
                     Optional.empty()));
         } catch (Throwable t) {
             McaCrime.LOGGER.debug("MCA: Crime — custody lookup failed; returning empty", t);
@@ -284,7 +302,9 @@ public final class McaCrimeApi {
                 jail.getModeSnapshot(),
                 world.casesForSentence(offender, jail.getSentenceId()).stream()
                         .map(dev.otectus.mcacrime.ledger.CrimeRecord::id)
-                        .collect(java.util.stream.Collectors.toUnmodifiableSet()));
+                        .collect(java.util.stream.Collectors.toUnmodifiableSet()),
+                // Additive since API version 2 (§3.19): what kind of sentence this is.
+                world.sentenceKind(jail.getSentenceId()).id());
     }
 
     // ------------------------------------------------------------------ communities
@@ -463,6 +483,209 @@ public final class McaCrimeApi {
         } catch (Throwable t) {
             McaCrime.LOGGER.debug("MCA: Crime — civic contract query failed; returning empty", t);
             return List.of();
+        }
+    }
+
+    // ------------------------------------------------------------------ the physical engine (0.7.5)
+
+    /**
+     * What is physically on one subject: worn restraints, the hold on them, the device holding them.
+     *
+     * <p>The physical half of the §1.4 split. {@link #custody} answers the legal half, and the two
+     * are deliberately separate calls because they are separate facts: a villager can be in
+     * handcuffs and under no sentence, or serving a sentence in an open cell wearing nothing.
+     */
+    public static Optional<dev.otectus.mcacrime.api.model.RestraintView> restraints(
+            MinecraftServer server, UUID subjectId) {
+        if (server == null || subjectId == null) {
+            return Optional.empty();
+        }
+        try {
+            dev.otectus.mcacrime.restraint.PhysicalRestraintState state =
+                    CrimeWorldData.get(server).physicalRestraint(subjectId);
+            if (state == null) {
+                return Optional.empty();
+            }
+            List<dev.otectus.mcacrime.api.model.RestraintSlotView> slots = new ArrayList<>(3);
+            for (dev.otectus.mcacrime.restraint.RestraintSlot slot
+                    : dev.otectus.mcacrime.restraint.RestraintSlot.values()) {
+                state.slot(slot).ifPresent(worn -> slots.add(
+                        dev.otectus.mcacrime.restraint.PhysicalApiEvents.view(slot, worn)));
+            }
+            return Optional.of(new dev.otectus.mcacrime.api.model.RestraintView(subjectId,
+                    state.generation(), state.revision(), slots,
+                    Optional.ofNullable(state.tetherId()), Optional.ofNullable(state.detentionId()),
+                    Optional.ofNullable(state.dimension())));
+        } catch (Throwable t) {
+            McaCrime.LOGGER.debug("MCA: Crime — restraint lookup failed; returning empty", t);
+            return Optional.empty();
+        }
+    }
+
+    /** The one hold on this subject — chain, anchor or escort — if there is one. */
+    public static Optional<dev.otectus.mcacrime.api.model.TransportView> transport(
+            MinecraftServer server, UUID subjectId) {
+        if (server == null || subjectId == null) {
+            return Optional.empty();
+        }
+        try {
+            CrimeWorldData data = CrimeWorldData.get(server);
+            return dev.otectus.mcacrime.tether.TetherService.forSubject(data, subjectId).stream()
+                    .findFirst()
+                    .map(tether -> new dev.otectus.mcacrime.api.model.TransportView(tether.id(),
+                            tether.subject(), tether.kind().name().toLowerCase(java.util.Locale.ROOT),
+                            tether.holderId(),
+                            tether.anchorPos() == null ? Optional.empty()
+                                    : Optional.of(new long[] {tether.anchorPos().getX(),
+                                            tether.anchorPos().getY(), tether.anchorPos().getZ()}),
+                            Optional.ofNullable(tether.dimension()), tether.lengthBlocks(),
+                            tether.kind() == dev.otectus.mcacrime.tether.TetherKind.ESCORT));
+        } catch (Throwable t) {
+            McaCrime.LOGGER.debug("MCA: Crime — transport lookup failed; returning empty", t);
+            return Optional.empty();
+        }
+    }
+
+    /** The device holding this subject, if one is. */
+    public static Optional<dev.otectus.mcacrime.api.model.DetentionView> detention(
+            MinecraftServer server, UUID subjectId) {
+        if (server == null || subjectId == null) {
+            return Optional.empty();
+        }
+        try {
+            CrimeWorldData data = CrimeWorldData.get(server);
+            return dev.otectus.mcacrime.detention.DetentionService.forSubject(data, subjectId)
+                    .map(record -> new dev.otectus.mcacrime.api.model.DetentionView(record.id(),
+                            record.subject(), record.kind().id(),
+                            Optional.ofNullable(record.dimension()),
+                            record.devicePos() == null ? new long[] {0L, 0L, 0L}
+                                    : new long[] {record.devicePos().getX(), record.devicePos().getY(),
+                                            record.devicePos().getZ()},
+                            record.occupantGeneration(),
+                            dev.otectus.mcacrime.detention.ExecutionAuthorization.condemned(server,
+                                    subjectId)));
+        } catch (Throwable t) {
+            McaCrime.LOGGER.debug("MCA: Crime — detention lookup failed; returning empty", t);
+            return Optional.empty();
+        }
+    }
+
+    /**
+     * The capital sentence against this subject, if there is one (0.7.5 §3.19).
+     *
+     * <p>Read-only in the strongest sense: there is no API method to assign, carry out or clear one.
+     * Clemency is an operator's explicit privileged transaction and an execution is a deliberate act
+     * at a device, and neither is something a companion mod should be able to do by calling a method.
+     */
+    public static Optional<dev.otectus.mcacrime.api.model.CapitalSentenceView> capitalSentence(
+            MinecraftServer server, UUID subjectId) {
+        if (server == null || subjectId == null) {
+            return Optional.empty();
+        }
+        try {
+            CrimeWorldData data = CrimeWorldData.get(server);
+            CustodyRecord held = data == null ? null : data.getCustody(subjectId);
+            if (held == null || held.getSentenceId() == null
+                    || !data.sentenceKind(held.getSentenceId()).capital()) {
+                return Optional.empty();
+            }
+            long now = server.overworld().getGameTime();
+            var pending = dev.otectus.mcacrime.detention.ExecutionAuthorization.pending(subjectId, now);
+            return Optional.of(new dev.otectus.mcacrime.api.model.CapitalSentenceView(subjectId,
+                    held.isCaptivePlayer(), held.getSentenceId(), held.getRemainingJailTicks(),
+                    pending.isPresent(),
+                    pending.map(order -> new long[] {order.device().getX(), order.device().getY(),
+                            order.device().getZ()}),
+                    pending.map(order -> order.expiresAt()).orElse(0L)));
+        } catch (Throwable t) {
+            McaCrime.LOGGER.debug("MCA: Crime — capital sentence lookup failed; returning empty", t);
+            return Optional.empty();
+        }
+    }
+
+    /**
+     * Commutes a capital sentence to a custodial one (0.7.5 §3.19, M6.8).
+     *
+     * <p>One of the two clemency paths, and the only mutators this facade offers over the capital
+     * model. Nothing here can assign a capital sentence or carry one out: assignment is the legal
+     * system's own answer to killing a guard, and an execution is a deliberate act at a device. What
+     * a companion mod may do is show mercy, and the plan requires that to be reachable by a running
+     * mod as well as by an operator's command -- a courthouse mod, a quest reward for a rescued
+     * family, a governor plugin.
+     *
+     * <p>The same service path the {@code /crime capital commute} command uses, so the holding term is
+     * kept, any pending execution is cleared, the condemned escort is called off, and
+     * {@code SentenceCommutedEvent} fires exactly once whichever route asked for it.
+     *
+     * @param authority who is granting it, for the audit line; {@code null} for the server itself.
+     *                  Commutation records no actor on the cases, because it closes none -- it
+     *                  rewrites the sentence kind and leaves every case exactly where it was.
+     * @return what happened, never {@code null}: {@code NOT_CONDEMNED} when there is no capital
+     *         sentence, {@code REFUSED} when the store is read-only
+     */
+    public static dev.otectus.mcacrime.ledger.CapitalSentenceService.Clemency commuteCapitalSentence(
+            MinecraftServer server, UUID subjectId, @Nullable UUID authority) {
+        if (server == null || subjectId == null) {
+            return dev.otectus.mcacrime.ledger.CapitalSentenceService.Clemency.REFUSED;
+        }
+        try {
+            if (authority != null) {
+                McaCrime.LOGGER.info("MCA: Crime - API commutation of the capital sentence against {} "
+                        + "granted by {}", subjectId, authority);
+            }
+            return dev.otectus.mcacrime.ledger.CapitalSentenceService.commute(server, subjectId);
+        } catch (Throwable t) {
+            McaCrime.LOGGER.debug("MCA: Crime - capital commutation failed; refusing", t);
+            return dev.otectus.mcacrime.ledger.CapitalSentenceService.Clemency.REFUSED;
+        }
+    }
+
+    /**
+     * Pardons the cases a capital sentence was for, and clears the sentence with them (M6.8).
+     *
+     * <p>A privileged transaction, and it stays one through this facade: {@code CaseTransitions}
+     * requires privilege of any pardon, and this method is a named, audited entry point rather than a
+     * back door round it. It never resurrects anybody and never shortens an ordinary sentence; the
+     * prisoner is left custodial with the term they had.
+     *
+     * @param authority who is granting it. Recorded as the resolving actor on every case closed, so a
+     *                  pardon can always be traced to whoever asked for it; {@code null} attributes it
+     *                  to the subject's own record, as the command does for a console source.
+     */
+    public static dev.otectus.mcacrime.ledger.CapitalSentenceService.Clemency pardonCapitalSentence(
+            MinecraftServer server, UUID subjectId, @Nullable UUID authority) {
+        if (server == null || subjectId == null) {
+            return dev.otectus.mcacrime.ledger.CapitalSentenceService.Clemency.REFUSED;
+        }
+        try {
+            return dev.otectus.mcacrime.ledger.CapitalSentenceService.pardon(server, subjectId, authority);
+        } catch (Throwable t) {
+            McaCrime.LOGGER.debug("MCA: Crime - capital pardon failed; refusing", t);
+            return dev.otectus.mcacrime.ledger.CapitalSentenceService.Clemency.REFUSED;
+        }
+    }
+
+    /** One lock, by its id. Carries state and never a binding: a view cannot mint a key. */
+    public static Optional<dev.otectus.mcacrime.api.model.LockView> lock(MinecraftServer server,
+                                                                        UUID lockId) {
+        if (server == null || lockId == null) {
+            return Optional.empty();
+        }
+        try {
+            dev.otectus.mcacrime.locks.LockRecord record = CrimeWorldData.get(server).lock(lockId);
+            if (record == null) {
+                return Optional.empty();
+            }
+            dev.otectus.mcacrime.locks.LockTarget target = record.target();
+            return Optional.of(new dev.otectus.mcacrime.api.model.LockView(record.lockId(),
+                    record.locked(), record.reinforced(),
+                    Optional.ofNullable(target.dimension()),
+                    target.pos() == null ? Optional.empty()
+                            : Optional.of(new long[] {target.pos().getX(), target.pos().getY(),
+                                    target.pos().getZ()})));
+        } catch (Throwable t) {
+            McaCrime.LOGGER.debug("MCA: Crime — lock lookup failed; returning empty", t);
+            return Optional.empty();
         }
     }
 }

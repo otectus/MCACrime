@@ -214,9 +214,23 @@ public final class SettlementPolicy {
 
     /** Whether this case carries the flag that closes the money branch entirely. */
     public static boolean mandatoryCustody(CrimeRecord record) {
-        return record != null
-                && CrimeFlag.decode(record.context().get(CrimeContext.FLAGS))
-                        .contains(CrimeFlag.MANDATORY_CUSTODY);
+        if (record == null) {
+            return false;
+        }
+        if (CrimeFlag.decode(record.context().get(CrimeContext.FLAGS))
+                .contains(CrimeFlag.MANDATORY_CUSTODY)) {
+            return true;
+        }
+        // A fine never clears a capital case (0.7.5 §3.19). Killing a guard is the one offence that
+        // may end in a death sentence, and buying it off before anybody was even arrested would make
+        // the whole feature a price list. It stays chargeable, servable and pardonable.
+        //
+        // It closes the whole quote rather than being quietly dropped from it, which is the rule this
+        // branch has always had: a settlement that paid for everything except the charge that mattered
+        // would leave the player believing they had settled up.
+        return dev.otectus.mcacrime.ledger.CapitalSentenceService.featureEnabled()
+                && dev.otectus.mcacrime.ledger.CapitalSentenceService.guardKillingIsCapital()
+                && dev.otectus.mcacrime.ledger.CapitalSentenceService.qualifyingOffence(record.type());
     }
 
     /**

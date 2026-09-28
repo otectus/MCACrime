@@ -14,10 +14,19 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-/** Custody persistence (spec §2.3): record/owner NBT round-trip, deep copy, absent-key safety, enum fail-safes. */
+/**
+ * Custody persistence (spec §2.3): record/owner NBT round-trip, deep copy, absent-key safety, enum
+ * fail-safes, and — since 0.7.5 — the captivity's own identity and generation.
+ *
+ * <p>The identity is asserted here rather than only in {@code api/CustodyIdentityTest} because this is
+ * the class that decides what a pre-0.7.5 row loads as, and the answer has to be stable: a derived id
+ * rather than a fresh random one, or every reconnect would look like a different captivity.
+ */
 class CustodyRecordNbtTest {
 
     private static final ResourceLocation OVERWORLD = ResourceLocation.fromNamespaceAndPath("minecraft", "overworld");
@@ -27,7 +36,10 @@ class CustodyRecordNbtTest {
         UUID captive = UUID.randomUUID();
         UUID captor = UUID.randomUUID();
         CustodyRecord r = new CustodyRecord(captive, true, false, CustodyOwner.kidnapper(captor),
-                RestraintType.CUFFS, 1234L, new BlockPos(1, 2, 3), OVERWORLD);
+                1234L, new BlockPos(1, 2, 3), OVERWORLD);
+        // Set directly, because 0.7.5 records are not constructed with one: the field exists so an
+        // un-migrated row can be read, and this asserts that reading still works.
+        r.setLegacyRestraint(RestraintType.CUFFS);
         r.setRealTicksHeld(99L);
         r.setVirtual(true);
         r.setEscapeActive(true);
@@ -43,7 +55,7 @@ class CustodyRecordNbtTest {
         assertFalse(loaded.isLawful());
         assertEquals(CustodyOwnerType.KIDNAPPER, loaded.getOwner().type());
         assertEquals(captor, loaded.getOwner().ownerUuid().orElseThrow());
-        assertEquals(RestraintType.CUFFS, loaded.getRestraint());
+        assertEquals(RestraintType.CUFFS, loaded.getLegacyRestraint());
         assertEquals(1234L, loaded.getStartTickOnline());
         assertEquals(99L, loaded.getRealTicksHeld());
         assertEquals(new BlockPos(1, 2, 3), loaded.getHoldPos());
@@ -56,6 +68,48 @@ class CustodyRecordNbtTest {
         assertEquals(0.125D, loaded.getEscapeRoll());
         assertEquals(2, loaded.getEscapeAttempts());
         assertEquals(4000L, loaded.getCaptorDisconnectedAt());
+        assertEquals(r.getCustodyId(), loaded.getCustodyId());
+        assertEquals(1L, loaded.getGeneration());
+    }
+
+    @Test
+    void everyCaptureIsItsOwnCaptivity() {
+        UUID captive = UUID.randomUUID();
+        CustodyRecord first = new CustodyRecord(captive, true, false,
+                CustodyOwner.kidnapper(UUID.randomUUID()), 0L, null, OVERWORLD);
+        CustodyRecord second = new CustodyRecord(captive, true, true,
+                CustodyOwner.guard(UUID.randomUUID()), 0L, null, OVERWORLD);
+
+        assertNotNull(first.getCustodyId());
+        assertNotEquals(first.getCustodyId(), second.getCustodyId(),
+                "two captures of one person share a captive UUID and must share nothing else");
+    }
+
+    @Test
+    void aHandoverAdvancesTheGenerationAndKeepsTheIdentity() {
+        CustodyRecord r = new CustodyRecord(UUID.randomUUID(), true, true,
+                CustodyOwner.guard(UUID.randomUUID()), 0L, null, OVERWORLD);
+        UUID id = r.getCustodyId();
+
+        assertEquals(2L, r.bumpGeneration());
+        assertEquals(id, r.getCustodyId());
+        assertEquals(2L, CustodyRecord.load(r.save()).getGeneration());
+    }
+
+    /** A row written before 0.7.5 has no identity; the derived one has to be the same every load. */
+    @Test
+    void aLegacyRowGetsADerivedIdentityRatherThanARandomOne() {
+        UUID captive = UUID.randomUUID();
+        CompoundTag legacy = new CompoundTag();
+        legacy.putUUID("captive", captive);
+        legacy.putString("restraint", "ROPE");
+
+        CustodyRecord once = CustodyRecord.load(legacy);
+        CustodyRecord twice = CustodyRecord.load(legacy);
+
+        assertEquals(CustodyRecord.legacyCustodyId(captive), once.getCustodyId());
+        assertEquals(once.getCustodyId(), twice.getCustodyId());
+        assertEquals(1L, once.getGeneration());
     }
 
     @Test
@@ -63,7 +117,7 @@ class CustodyRecordNbtTest {
         UUID captive = UUID.randomUUID();
         CustodyRecord r = new CustodyRecord(captive, true, true,
                 CustodyOwner.jail(42, new BlockPos(0, 64, 0), OVERWORLD),
-                RestraintType.NONE, 0L, new BlockPos(0, 64, 0), OVERWORLD);
+                0L, new BlockPos(0, 64, 0), OVERWORLD);
         r.setRemainingJailTicks(500L);
 
         CustodyRecord loaded = CustodyRecord.load(r.save());
@@ -76,13 +130,15 @@ class CustodyRecordNbtTest {
     @Test
     void copyIsDeep() {
         CustodyRecord r = new CustodyRecord(UUID.randomUUID(), false, false,
-                CustodyOwner.kidnapper(UUID.randomUUID()), RestraintType.ROPE, 0L, null, null);
+                CustodyOwner.kidnapper(UUID.randomUUID()), 0L, null, null);
         r.setRealTicksHeld(10L);
         CustodyRecord c = r.copy();
         r.setRealTicksHeld(20L);
         r.setVirtual(true);
         assertEquals(10L, c.getRealTicksHeld()); // unaffected by mutating the original
         assertFalse(c.isVirtual());
+        assertEquals(r.getCustodyId(), c.getCustodyId(), "a copy is the same captivity");
+        assertEquals(r.getGeneration(), c.getGeneration());
     }
 
     @Test
@@ -91,10 +147,12 @@ class CustodyRecordNbtTest {
         assertNull(r.getCaptive());
         assertFalse(r.isLawful());
         assertEquals(CustodyOwnerType.NONE, r.getOwner().type());
-        assertEquals(RestraintType.NONE, r.getRestraint());
+        assertEquals(RestraintType.NONE, r.getLegacyRestraint());
         assertEquals(0L, r.getRealTicksHeld());
         assertNull(r.getHoldPos());
         assertFalse(r.hasValidHold());
+        assertNull(r.getCustodyId(), "a row naming no captive has no identity to derive");
+        assertEquals(1L, r.getGeneration());
     }
 
     @Test
