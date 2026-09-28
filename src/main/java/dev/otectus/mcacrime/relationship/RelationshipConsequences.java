@@ -63,7 +63,7 @@ public final class RelationshipConsequences {
         // Personal hearts are always ours: MCA: Reputation tracks community standing, not how a
         // particular villager feels about you, so there is nothing to double up on above this line.
         // Community standing is the part that can be counted twice, and is handled below.
-        if (!c.enableObservations.get()) {
+        if (!dev.otectus.mcacrime.config.CrimeWorldSettings.resolve(level).observations()) {
             applyVillagePenalty(level, offender, event.getCrimeType(), event.getRecordView()
                     .flatMap(dev.otectus.mcacrime.api.model.CrimeRecordView::community).orElse(null));
         }
@@ -87,7 +87,7 @@ public final class RelationshipConsequences {
         if (repDrop <= 0 || level.getServer() == null || community == null) {
             return;
         }
-        if (CrimeIntegrationHooks.willRecordCanonically(crimeType)) {
+        if (CrimeIntegrationHooks.willRecordCanonically(level.getServer(), crimeType)) {
             return;
         }
         CrimeWorldData.get(level.getServer()).addReputation(community, offender.getUUID(), -repDrop);

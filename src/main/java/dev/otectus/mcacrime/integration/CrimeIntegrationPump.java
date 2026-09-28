@@ -85,7 +85,7 @@ public final class CrimeIntegrationPump {
         }
         // Authority is claimed here rather than at common setup: the incident definitions we are about
         // to produce come from a datapack, and there is no datapack yet when mods are still loading.
-        ReputationBridge.claimAuthority();
+        ReputationBridge.claimAuthority(event.getServer());
         int pending = CrimeWorldData.get(event.getServer()).pendingOperationCount();
         if (pending > 0) {
             McaCrime.LOGGER.info("MCA: Crime has {} queued cross-mod write(s) from a previous session; "

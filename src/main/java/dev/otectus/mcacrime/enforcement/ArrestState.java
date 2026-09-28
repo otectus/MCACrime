@@ -117,6 +117,20 @@ public final class ArrestState {
         return sentenceId;
     }
 
+    /**
+     * Adopts the id of a sentence already being served.
+     *
+     * <p>For the re-arrest of a prisoner who escaped a built cell: the cell that is raised for the walk
+     * has to carry the id of the term it will hold, or the sweep would see a cell for one sentence and
+     * a prisoner serving another and take it down under them. Null is ignored, so a fresh arrest keeps
+     * the id minted with it.
+     */
+    public void setSentenceId(@Nullable UUID sentenceId) {
+        if (sentenceId != null) {
+            this.sentenceId = sentenceId;
+        }
+    }
+
     public long getDeadlineOnlineTick() {
         return deadlineOnlineTick;
     }

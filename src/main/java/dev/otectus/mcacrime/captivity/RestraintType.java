@@ -1,18 +1,27 @@
 package dev.otectus.mcacrime.captivity;
 
 /**
- * The restraint securing a captive (spec §8.3). Distinct strengths are what make rope, cuffs, and locked
- * cuffs worth having separately; the actual escape-difficulty numbers are config (resolved at call time by
- * the capture/confine services), not baked here — so this stays a pure enum like {@link
- * dev.otectus.mcacrime.jail.JailContainmentMode}.
+ * The 0.7.4 restraint enum, kept as a <b>deprecated projection only</b> (0.7.5 §5.1).
+ *
+ * <p>It was the authority on what was holding a captive. It is not any more: physical restraint is
+ * {@code restraint/PhysicalRestraintState} -- nine definitions across three independent body slots,
+ * each with its own durability, applier and provenance -- and nothing in the mod writes one of these
+ * constants into world data again.
+ *
+ * <p>Two published API members still name it, which is the whole reason it exists:
+ * {@code api/event/EntityKidnappedEvent#getRestraint} and {@code api/model/CustodyView#restraint}.
+ * Both are filled by {@code restraint/LegacyRestraintProjection}, which computes the nearest old
+ * answer from the real state. {@code restraint/RestraintMigrationReconciler#definitionFor} is the
+ * opposite direction, used once per store at the schema 14 to 15 upgrade.
  *
  * <ul>
- *   <li>{@link #NONE} — no restraint (an unrestrained captive, e.g. a soft-confined jail prisoner).</li>
- *   <li>{@link #ROPE} — basic; broad mod compatibility via the {@code forge:rope} item tag; easiest escape.</li>
- *   <li>{@link #CUFFS} — the law/criminal arrest restraint; harder to escape.</li>
- *   <li>{@link #LOCKED_CUFFS} — strongest; needs a key/lockpick/rescue (Locks Reforged is a Phase 7 seam).</li>
+ *   <li>{@link #NONE} — nothing on the arms.</li>
+ *   <li>{@link #ROPE} — projects tape and the bundle hood.</li>
+ *   <li>{@link #CUFFS} — projects the shackles family.</li>
+ *   <li>{@link #LOCKED_CUFFS} — projects the handcuffs family.</li>
  * </ul>
  */
+@Deprecated
 public enum RestraintType {
     NONE,
     ROPE,

@@ -1,7 +1,6 @@
 package dev.otectus.mcacrime.job;
 
 import dev.otectus.mcacrime.McaCrime;
-import dev.otectus.mcacrime.McaCrimeConfig;
 import dev.otectus.mcacrime.compat.OccupationCompat;
 import dev.otectus.mcacrime.state.world.CriminalVillagerRecord;
 import dev.otectus.mcacrime.state.world.WorksiteRef;
@@ -62,7 +61,7 @@ public final class NativeJobAssignmentControl implements BehaviorControl<Village
         boolean committed = record != null && record.job() == CriminalJob.THIEF
                 && record.status() != OccupationStatus.RETIRED;
         switch (NativeOccupationPolicy.decide(true, arrived, committed,
-                McaCrimeConfig.COMMON.enableThieves.get())) {
+                dev.otectus.mcacrime.config.CrimeWorldSettings.resolve(level).thieves())) {
             case REBIND -> rebind(level, villager, potential, jobs, record);
             case REJECT -> reject(level, villager, potential);
             default -> { }

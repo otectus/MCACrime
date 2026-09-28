@@ -12,7 +12,13 @@ MCA: Crime is server-authoritative. It does not use generative AI, send gameplay
 
 ## Latest Release
 
-The mod now opens the Crime menu by drawing a weapon on an MCA villager: right-click while holding any sword, axe, trident, bow, crossbow, or modded firearm to open the menu. Sneaking is not required by default, the off hand counts, and the whole trigger can be configured off. The unbound keybind lets players open the menu for whoever is under their crosshair without drawing a weapon. An unbound `/crime debug weapon` command shows how the held item classifies and which rule decided it.
+**0.7.5 brings the working core of the Cuffed feature set into MCA: Crime as native code, and neither Cuffed nor Locks Reforged is required for any of it.** Restraints are now real gear in three independent slots—head, arms and legs—each with its own durability. Shackles, handcuffs, duct tape and a bundle hood; keys, struggling and a server-owned lockpicking mini-game; padlocks, a safe, a cell door and key rings; chains, fence and tripwire-hook anchors and guard escorts; a pillory, a guillotine and prison bunks; a search opened from the crime menu on a restrained subject; a reinforced prison building set; and five restraint enchantments.
+
+**A capital sentence for killing a guard** is the one feature here that is not from Cuffed. The only capital offence is killing a guard; nothing escalates automatically; an execution is always a deliberate act at a guillotine by a player or an on-duty guard; and with no usable guillotine the condemned simply stays in custody. One config key switches the whole thing off.
+
+0.7.5 uses **world schema 16** and **network protocol 18**: update the client and the server together, and back up your world before upgrading. Twenty-one config keys are retired, with their replacements named one for one in CONFIG.md.
+
+The mod also opens the Crime menu by drawing a weapon on an MCA villager: right-click while holding any sword, axe, trident, bow, crossbow, or modded firearm to open the menu. Sneaking is not required by default, the off hand counts, and the whole trigger can be configured off. The unbound keybind lets players open the menu for whoever is under their crosshair without drawing a weapon. An unbound `/crime debug weapon` command shows how the held item classifies and which rule decided it.
 
 The Heat and sentence status boxes now default to the bottom-left corner where they sit clear of the hotbar, health rows, and MCA: Quests' quest log. The HUD anchor is configurable and can be cycled from the in-game settings screen.
 
@@ -36,11 +42,14 @@ Killing a recently mugged victim becomes **murder during a robbery**, the heavie
 
 #### Restrain and capture
 
-Capture is a channel rather than a single click. The target must be eligible and vulnerable, and the captor must have a supported restraint. Taking damage, moving too far, losing line of sight, or letting the target escape range breaks the attempt.
+A restraint is applied to a slot on the subject's body and stays there as real gear with its own durability. Getting out of it is work: struggling wears the restraint down, a key opens it at once, and a lockpick is a mini-game the server runs and decides.
 
-- **Rope:** fast to apply and easier to escape.
-- **Cuffs:** slower to apply and harder to escape.
-- **Locked cuffs:** strongest restraint; ordinary struggle alone cannot open them.
+- **Duct tape:** quick and weak.
+- **Shackles:** the ordinary restraint.
+- **Handcuffs:** the strongest; struggling alone rarely wins.
+- **A bundle hood** covers the head, and leg restraints are a separate slot from arm restraints.
+
+Two presets ship. **Cuffed parity** is the default: restraints apply instantly and nothing gates who may be restrained. **Balanced village** adds an application duration, vulnerability requirements and stricter rules for capturing players, and is never applied to your config without you choosing it.
 
 Captured NPCs are never deleted. Custody is persisted, bounded by safety timers, and unwound on release, escape, rescue, death, invalid ownership, or administrative recovery.
 
@@ -227,6 +236,9 @@ For an existing world, make a backup before upgrading. When the world loads, sav
 | Mod loader | Forge 47.4.10+; compatible with Forge 47.x range [47,) |
 | Required | MCA Reborn 7.6.x or 7.7.x (version range [7.6,8)), plus GeckoLib for Forge 1.20.1 |
 | Optional | MCA: Reputation 0.3.0+ (the integration itself requires 0.3.0; older versions degrade to the built-in store) |
+| Optional | Townstead, reached entirely by reflection and silently absent without it |
+| Optional | Locks Reforged, for its own locks and for fence stock. **Not required**: since 0.7.5 lockpicking is native. On a block Locks Reforged already owns, MCA: Crime refuses to place a second lock. |
+| Not required | **Cuffed.** 0.7.5 absorbs its feature set natively. Installed alongside, it is detected by mod id and MCA: Crime logs one startup warning; a config option can additionally stop MCA: Crime applying new restraints. No Cuffed data is ever read, cleared or disabled, and there is no world-import tool. |
 | Java | Java 17 |
 
 MCA: Crime resolves MCA integration through a runtime compatibility layer rather than linking one specific MCA package layout. The same jar is tested against MCA Reborn 7.6.20, 7.7.0-beta.2, and 7.7.1-alpha.2 package layouts.
@@ -237,13 +249,15 @@ Architectury is MCA's own requirement and is deliberately not declared by this m
 
 ## For mod developers
 
-MCA: Crime exposes a read-only, server-authoritative Java API and Forge events for crimes, witnessing, Karma and Heat changes, Wanted changes, jail, release, custody, fines, and case resolution. Public reads return immutable views and safe empty results instead of exposing mutable internal state. Gameplay mutation remains behind the mod's authoritative services so integrations cannot bypass idempotency, case transitions, or economy rules.
+MCA: Crime exposes a server-authoritative Java API (read-only but for two clemency methods over a capital sentence) and Forge events for crimes, witnessing, Karma and Heat changes, Wanted changes, jail, release, custody, fines, and case resolution. Public reads return immutable views and safe empty results instead of exposing mutable internal state. Gameplay mutation remains behind the mod's authoritative services so integrations cannot bypass idempotency, case transitions, or economy rules.
 
 ---
 
 ## Credits
 
 Restraint item artwork (open cuffs, locked cuffs, rope) by TheWiggleDuck.
+
+The 0.7.5 restraint, lock and prison feature set is adapted from **Cuffed** by Lazr Productions under GPL-3.0, with attribution recorded in the repository's CREDITS.md and docs/0.7.5/PROVENANCE.md. Unattributed upstream art was replaced by original MCA: Crime work.
 
 ---
 

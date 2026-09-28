@@ -48,6 +48,7 @@ public final class DamageIncidentService {
         final LivingDamageEvent damageEvent;
         final long at;
         final boolean harmCharge, killCharge, lawfulNpc, raidSplash, mugging;
+        final dev.otectus.mcacrime.justice.ThiefCombatDecision thiefDecision;
         final List<LivingDeathEvent> deaths = new ArrayList<>();
         DeathConsequences deathConsequences;
         Pending(ServerLevel level, LivingEntity victim, LivingEntity actor, DamageSource source,
@@ -56,8 +57,11 @@ public final class DamageIncidentService {
             this.damageEvent = damageEvent; this.at = level.getGameTime();
             this.finality = new DamageFinality(damageEvent == null ? () -> true : damageEvent::isCanceled,
                     damageEvent == null ? () -> 0 : damageEvent::getAmount);
-            harmCharge = CrimeGate.resolveOffender(victim, source, level, false).isPresent();
-            killCharge = CrimeGate.resolveOffender(victim, source, level, true).isPresent();
+            var nativeDecision = dev.otectus.mcacrime.compat.mca.NativeCombatContext.decision(victim, source);
+            thiefDecision = nativeDecision != null ? nativeDecision : dev.otectus.mcacrime.justice.ThiefCombatService.sample(victim, source, "damage");
+            boolean thiefExempt = thiefDecision != null && thiefDecision.exempt();
+            harmCharge = !thiefExempt && CrimeGate.resolveOffender(victim, source, level, false).isPresent();
+            killCharge = !thiefExempt && CrimeGate.resolveOffender(victim, source, level, true).isPresent();
             lawfulNpc = !(actor instanceof ServerPlayer) && victim instanceof ServerPlayer player
                     && (EntitySelectors.isResponder(actor) && JusticeService.forGuard(level, actor, player).mayChallenge()
                         || MuggingService.isRecentThreat(player.getUUID(), actor.getUUID(), at)
@@ -114,7 +118,7 @@ public final class DamageIncidentService {
         if (!(CrimeGate.responsibleActor(source) instanceof LivingEntity actor) || actor == victim
                 || actor instanceof FakePlayer || victim instanceof FakePlayer) return null;
         boolean playerActor = actor instanceof ServerPlayer;
-        boolean playerVictim = victim instanceof ServerPlayer && McaCrimeConfig.COMMON.pvpCountsAsCrime.get();
+        boolean playerVictim = victim instanceof ServerPlayer && dev.otectus.mcacrime.config.CrimeWorldSettings.resolve((ServerLevel) victim.level()).pvpCrime();
         if (playerActor && (playerVictim || EntitySelectors.isProtected(victim))) return actor;
         return victim instanceof ServerPlayer && (EntitySelectors.isProtected(actor) || EntitySelectors.isResponder(actor))
                 ? actor : null;
@@ -146,7 +150,7 @@ public final class DamageIncidentService {
             var outcome = hit.finality.resolve(hit.victim.isDeadOrDying());
             if (outcome == DamageFinality.Outcome.NONE) continue;
             if (outcome == DamageFinality.Outcome.KILL && runtime.confirmedDeaths.putIfAbsent(hit.victim, true) != null) continue;
-            if (McaCrimeConfig.COMMON.enableCrimeDetection.get() && ServerMutationGate.allows(server)) {
+            if (dev.otectus.mcacrime.config.CrimeWorldSettings.resolve(server).crimeDetection() && ServerMutationGate.allows(server)) {
                 dev.otectus.mcacrime.incident.IncidentNotifications.safely(() -> reconcile(runtime, hit, outcome, cooldown));
             }
             if (outcome == DamageFinality.Outcome.KILL) {
@@ -204,10 +208,12 @@ public final class DamageIncidentService {
                                             Map<String, String> context,
                                             dev.otectus.mcacrime.incident.ObservationSnapshot snapshot) {
         if (level == null || actor == null || victim == null || actor == victim
-                || !McaCrimeConfig.COMMON.enableCrimeDetection.get()
+                || !dev.otectus.mcacrime.config.CrimeWorldSettings.resolve(level).crimeDetection()
                 || !ServerMutationGate.allows(level.getServer())) {
             return false;
         }
+        var thiefDecision = dev.otectus.mcacrime.justice.ThiefCombatService.sample(victim, actor, "non_damaging");
+        if (thiefDecision != null && thiefDecision.exempt()) return false;
         if (CrimeGate.resolveNonDamageOffender(victim, actor, level).isEmpty()) {
             return false;
         }

@@ -69,4 +69,41 @@ class CrimeCommandTest {
         assertFalse(parses("crime set heat TestPlayer -1", 2));
         assertFalse(parses("crime set heat TestPlayer", 2));
     }
+
+    // ------------------------------------------------------------------ 0.7.5 M6.5 and M6.8
+
+    /**
+     * The physical engine's commands parse, and their permission levels are the documented ones.
+     *
+     * <p>Parse-level rather than execution-level, like every other case here: executing one needs a
+     * world, and what is worth guarding is the shape of the tree and who may reach each branch. The
+     * split matters — inspecting is a level 2 diagnostic, and everything that changes a body or a
+     * lock is an operator act.
+     */
+    @Test
+    void thePhysicalCommandsParseAtTheirDocumentedLevels() {
+        for (String command : new String[]{"crime restraint inspect TestPlayer",
+                "crime lock inspect 0 64 0", "crime debug restraints", "crime debug capital",
+                "crime capital inspect TestPlayer"}) {
+            assertTrue(parses(command, 2), command + " should be a level 2 diagnostic");
+        }
+        for (String command : new String[]{"crime restraint apply TestPlayer handcuffs_arms",
+                "crime restraint remove TestPlayer arms", "crime anchor set TestPlayer OtherPlayer",
+                "crime anchor remove TestPlayer", "crime lock reset 0 64 0"}) {
+            assertFalse(parses(command, 2), command + " must not be reachable below level 3");
+            assertTrue(parses(command, 3), command);
+        }
+    }
+
+    /** Clemency and an execution order are operator acts; inspecting a sentence is not. */
+    @Test
+    void capitalSentencingCommandsAreGatedAtTheRightLevels() {
+        assertTrue(parses("crime capital inspect TestPlayer", 2));
+        for (String command : new String[]{"crime capital commute TestPlayer",
+                "crime capital pardon TestPlayer", "crime capital execute TestPlayer"}) {
+            assertFalse(parses(command, 2), command + " must not be reachable below level 3");
+            assertTrue(parses(command, 3), command);
+        }
+    }
+
 }

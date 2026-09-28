@@ -1,4 +1,8 @@
 {
   "replace": false,
-  "values": [ "mcacrime:mask_station" ]
+  "values": [
+    "mcacrime:mask_station",
+    "mcacrime:pillory",
+    "mcacrime:guillotine"
+  ]
 }

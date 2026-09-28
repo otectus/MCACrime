@@ -4,7 +4,8 @@ import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
 import dev.otectus.mcacrime.McaCrime;
 import dev.otectus.mcacrime.McaCrimeConfig;
-import dev.otectus.mcacrime.client.ClientRestraintData;
+import dev.otectus.mcacrime.client.ClientPhysicalRestraintData;
+import dev.otectus.mcacrime.restraint.PhysicalRestraintView;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.renderer.MultiBufferSource;
@@ -35,6 +36,10 @@ import java.util.UUID;
  * <p>{@code Mob.setLeashedTo} cannot target a player, so this rope is drawn from mod state rather than
  * from a real leash. That makes it purely cosmetic: it cannot desync, and switching it off changes
  * nothing about the escort.
+ *
+ * <p>Its source as of 0.7.5 is the physical tether the server publishes, not the old restraint packet:
+ * whoever holds the other end of a {@code tether/TetherRecord} is who the rope is drawn to. Until the
+ * transport engine fills that table there is simply nobody holding anybody, and this draws nothing.
  */
 @Mod.EventBusSubscriber(modid = McaCrime.MOD_ID, value = Dist.CLIENT)
 public final class EscortRopeRenderer {
@@ -48,10 +53,10 @@ public final class EscortRopeRenderer {
     @SubscribeEvent
     public static void onRenderLevel(RenderLevelStageEvent event) {
         if (event.getStage() != RenderLevelStageEvent.Stage.AFTER_ENTITIES
-                || !McaCrimeConfig.CLIENT.renderEscortRope.get()) {
+                || !McaCrimeConfig.CLIENT.renderTether.get()) {
             return;
         }
-        Map<UUID, ClientRestraintData.ClientRestraintEntry> restrained = ClientRestraintData.all();
+        Map<UUID, PhysicalRestraintView> restrained = ClientPhysicalRestraintData.all();
         if (restrained.isEmpty()) {
             return;
         }
@@ -67,10 +72,11 @@ public final class EscortRopeRenderer {
         PoseStack pose = event.getPoseStack();
         Map<UUID, Entity> loaded = null;
 
-        for (Map.Entry<UUID, ClientRestraintData.ClientRestraintEntry> entry : restrained.entrySet()) {
-            int guardId = entry.getValue() == null ? -1 : entry.getValue().guardEntityId();
-            if (guardId < 0) {
-                continue; // nobody is escorting them, or the captive is on a real vanilla leash
+        for (Map.Entry<UUID, PhysicalRestraintView> entry : restrained.entrySet()) {
+            int guardId = entry.getValue() == null
+                    ? PhysicalRestraintView.NO_HOLDER : entry.getValue().tetherHolderEntityId();
+            if (guardId == PhysicalRestraintView.NO_HOLDER || guardId < 0) {
+                continue; // nobody is holding the other end
             }
             Entity prisoner = level.getPlayerByUUID(entry.getKey());
             if (prisoner == null) {

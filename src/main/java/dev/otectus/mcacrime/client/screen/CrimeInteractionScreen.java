@@ -2,6 +2,7 @@ package dev.otectus.mcacrime.client.screen;
 
 import dev.otectus.mcacrime.McaCrimeConfig;
 import dev.otectus.mcacrime.action.ActionCategory;
+import dev.otectus.mcacrime.action.ActionMenuKind;
 import dev.otectus.mcacrime.client.screen.widget.CrimeHeaderWidget;
 import dev.otectus.mcacrime.client.screen.widget.CrimeRowList;
 import dev.otectus.mcacrime.client.screen.widget.CrimeRowWidget;
@@ -114,8 +115,23 @@ public class CrimeInteractionScreen extends Screen {
         list.setScrollAmount(scrollAmount);
         addRenderableWidget(list);
 
+        // The self panel grows one extra control: the restraint selector (0.7.5 M2.6). Only there, and
+        // only while something restraining is actually in hand, so the villager menu is unchanged and
+        // the button never appears with nothing to offer.
+        boolean selfRestraint = menu.kind() == ActionMenuKind.SELF && minecraft != null
+                && SelfRestraintScreen.available(minecraft.player);
+        int footerWidth = selfRestraint ? (PANEL_W - 12 - 4) / 2 : PANEL_W - 12;
         addRenderableWidget(Button.builder(CommonComponents.GUI_BACK, b -> onClose())
-                .bounds(panelLeft + 6, panelTop + panelHeight - 24, PANEL_W - 12, 20).build());
+                .bounds(panelLeft + 6, panelTop + panelHeight - 24, footerWidth, 20).build());
+        if (selfRestraint) {
+            addRenderableWidget(Button.builder(
+                            Component.translatable("gui.mcacrime.self_restraint.open"),
+                            b -> minecraft.setScreen(new SelfRestraintScreen(this)))
+                    .tooltip(Tooltip.create(
+                            Component.translatable("gui.mcacrime.self_restraint.open.tooltip")))
+                    .bounds(panelLeft + 6 + footerWidth + 4, panelTop + panelHeight - 24, footerWidth, 20)
+                    .build());
+        }
     }
 
     /** Builds one action row, with the server's own reason for refusing it attached as a tooltip. */

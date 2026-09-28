@@ -50,6 +50,13 @@ public final class McaCrimeConfig {
             dev.otectus.mcacrime.effect.SandExposurePolicy.DEFAULT_RECOVERY_TICKS;
 
     public static final class Common {
+        public final ForgeConfigSpec.BooleanValue enablePlayerReports;
+        public final ForgeConfigSpec.BooleanValue enableCrimeNews;
+        public final ForgeConfigSpec.IntValue crimeNewsIntervalDays;
+        public final ForgeConfigSpec.IntValue crimeNewsMaxStories;
+        public final ForgeConfigSpec.IntValue thiefDefenseGraceTicks;
+        public final ForgeConfigSpec.EnumValue<dev.otectus.mcacrime.justice.ThiefCombatPolicy> thiefCombatPolicy;
+
         // bands (§1.1) — read by the engine + validator
         public final ForgeConfigSpec.IntValue karmaBlueThreshold;
         public final ForgeConfigSpec.IntValue karmaRedThreshold;
@@ -105,6 +112,7 @@ public final class McaCrimeConfig {
         // detection (§5) — read by the crime detector
         public final ForgeConfigSpec.BooleanValue enableCrimeDetection;
         public final ForgeConfigSpec.IntValue witnessRadius;
+        public final ForgeConfigSpec.IntValue communitySearchRadius;
         public final ForgeConfigSpec.IntValue harmCooldownTicks;
         public final ForgeConfigSpec.IntValue maxStoredWitnesses;
         public final ForgeConfigSpec.BooleanValue enableWitnessSystem;
@@ -201,31 +209,122 @@ public final class McaCrimeConfig {
         public final ForgeConfigSpec.BooleanValue enableVillagerFlee;
         public final ForgeConfigSpec.DoubleValue villagerFleeRadius;
 
-        // kidnapping / capture (§8) — read by the capture + custody services
+        // kidnapping (§8) — the legal half only. Everything physical about a capture moved to
+        // [restraints] in 0.7.5; the channel, vulnerability and timed-escape keys went with it.
         public final ForgeConfigSpec.BooleanValue enableKidnappingNpc;
         public final ForgeConfigSpec.BooleanValue enableKidnappingPlayer;
-        public final ForgeConfigSpec.IntValue captureChannelTicks;
-        public final ForgeConfigSpec.DoubleValue captureMaxMoveBlocks;
-        public final ForgeConfigSpec.DoubleValue captureMaxRangeBlocks;
-        public final ForgeConfigSpec.BooleanValue captureRequireLineOfSight;
-        public final ForgeConfigSpec.DoubleValue captureLowHealthFraction;
-        public final ForgeConfigSpec.BooleanValue villagerCaptureRelaxedVulnerability;
-        public final ForgeConfigSpec.DoubleValue captureChannelMultiplierRope;
-        public final ForgeConfigSpec.DoubleValue captureChannelMultiplierCuffs;
-        public final ForgeConfigSpec.DoubleValue captureChannelMultiplierLockedCuffs;
-        public final ForgeConfigSpec.DoubleValue restraintEscapeChanceRope;
-        public final ForgeConfigSpec.DoubleValue restraintEscapeChanceCuffs;
-        public final ForgeConfigSpec.DoubleValue restraintEscapeChanceLockedCuffs;
-        public final ForgeConfigSpec.DoubleValue captiveTetherBlocks;
-        public final ForgeConfigSpec.BooleanValue captiveCanEscapeByDistance;
         public final ForgeConfigSpec.BooleanValue npcCaptiveVirtualizeWhenUnloaded;
         public final ForgeConfigSpec.IntValue maxUnlawfulCaptivesPerCaptor;
         public final ForgeConfigSpec.IntValue captorDisconnectGraceTicks;
-        public final ForgeConfigSpec.IntValue escapeWorkTicksRope;
-        public final ForgeConfigSpec.IntValue escapeWorkTicksCuffs;
-        public final ForgeConfigSpec.IntValue escapeWorkTicksLockedCuffs;
-        public final ForgeConfigSpec.BooleanValue cuffEscapeRequiresLockpick;
-        public final ForgeConfigSpec.IntValue escapeAttemptCooldownTicks;
+
+        // Physical restraints (0.7.5 §3.12) — the new top-level group. The legal kidnapping keys stay
+        // where they are; this group owns the physical engine's own limits.
+        public final ForgeConfigSpec.EnumValue<RestraintPreset> preset;
+        public final ForgeConfigSpec.ConfigValue<String> appliedPreset;
+        public final ForgeConfigSpec.IntValue maxConcurrentSessions;
+        public final ForgeConfigSpec.IntValue sessionTimeoutTicks;
+        // [restraints.definitions] -- the durability source of truth (0.7.5 M2.2). Arm and leg tape
+        // are independent keys on purpose: the source reads the arm setting for both.
+        public final ForgeConfigSpec.IntValue durabilityHandcuffs;
+        public final ForgeConfigSpec.IntValue durabilityShackles;
+        public final ForgeConfigSpec.IntValue durabilityDuckTapeArms;
+        public final ForgeConfigSpec.IntValue durabilityDuckTapeLegs;
+        public final ForgeConfigSpec.IntValue durabilityDuckTapeHead;
+        public final ForgeConfigSpec.IntValue durabilityBundleHood;
+        public final ForgeConfigSpec.BooleanValue headTapeMufflesTextChat;
+        // [restraints.application]
+        public final ForgeConfigSpec.BooleanValue allowSelfApplication;
+        public final ForgeConfigSpec.IntValue applicationChannelTicks;
+        public final ForgeConfigSpec.DoubleValue applicationMaxRangeBlocks;
+        public final ForgeConfigSpec.BooleanValue applicationRequireLineOfSight;
+        public final ForgeConfigSpec.DoubleValue lowHealthFraction;
+        public final ForgeConfigSpec.ConfigValue<List<? extends String>> vulnerabilityGates;
+        // [restraints.escape]
+        public final ForgeConfigSpec.IntValue escapeMinWorkIntervalTicks;
+        public final ForgeConfigSpec.IntValue escapeMaxInputsPerSecond;
+        public final ForgeConfigSpec.BooleanValue escapeReturnsWornItem;
+        public final ForgeConfigSpec.BooleanValue dropItemWhenBroken;
+
+        // Locks and lockpicking (0.7.5 §3.7, §3.16, M3). Two top-level groups: [locks] owns identity,
+        // capacity and what protection covers; [lockpicking] owns the mini-game's parity numbers.
+        public final ForgeConfigSpec.IntValue maxKeysPerRing;
+        public final ForgeConfigSpec.ConfigValue<String> foreignLockPolicy;
+        public final ForgeConfigSpec.ConfigValue<String> lockAutomationPolicy;
+        public final ForgeConfigSpec.BooleanValue protectLockedBlocksFromBreaking;
+        public final ForgeConfigSpec.BooleanValue protectLockedBlocksFromExplosions;
+        public final ForgeConfigSpec.BooleanValue protectLockedBlocksFromPistons;
+        public final ForgeConfigSpec.BooleanValue allowPadlockReinforcement;
+        public final ForgeConfigSpec.BooleanValue enableLockpicking;
+        public final ForgeConfigSpec.IntValue lockpickDrainPerTickDivisor;
+        public final ForgeConfigSpec.IntValue lockpickMinAttemptIntervalTicks;
+        public final ForgeConfigSpec.DoubleValue lockpickWindowBelowDegrees;
+        public final ForgeConfigSpec.DoubleValue lockpickWindowAboveDegrees;
+        public final ForgeConfigSpec.DoubleValue lockpickMaxRangeBlocks;
+        public final ForgeConfigSpec.BooleanValue lockpickDestructiveOutcome;
+        // Prison content (0.7.5 M3.5, M5.4-M5.7).
+        public final ForgeConfigSpec.IntValue safeSlots;
+        public final ForgeConfigSpec.ConfigValue<String> reinforcedBreakingPolicy;
+        public final ForgeConfigSpec.BooleanValue reinforcedResistsExplosions;
+        public final ForgeConfigSpec.BooleanValue reinforcedResistsPistons;
+        public final ForgeConfigSpec.BooleanValue reinforcedAuthorisedRemovalOnly;
+
+        // Frisking and possessions boxes (0.7.5 §3.8, M5.1-M5.3).
+        public final ForgeConfigSpec.DoubleValue friskMaxRangeBlocks;
+        public final ForgeConfigSpec.IntValue friskSessionTimeoutTicks;
+        public final ForgeConfigSpec.IntValue friskTransferIntervalTicks;
+        public final ForgeConfigSpec.BooleanValue friskRequiresArmRestraint;
+        public final ForgeConfigSpec.BooleanValue friskLawfulSeizureToEscrow;
+
+        // Compatibility: what MCA: Crime does about optional mods (0.7.5 §3.17, M6.2).
+        public final ForgeConfigSpec.ConfigValue<String> cuffedCoexistence;
+        public final ForgeConfigSpec.BooleanValue optionalAdaptersEnabled;
+        public final ForgeConfigSpec.BooleanValue reportAdapterVersions;
+
+        // Enchantments: the five restraint enchantments (0.7.5 §3.10, M6.1).
+        public final ForgeConfigSpec.ConfigValue<java.util.List<? extends String>> allowedEnchantments;
+        public final ForgeConfigSpec.IntValue enchantMaxLevelImbue;
+        public final ForgeConfigSpec.IntValue enchantMaxLevelFamine;
+        public final ForgeConfigSpec.IntValue enchantMaxLevelShroud;
+        public final ForgeConfigSpec.IntValue enchantMaxLevelExhaust;
+        public final ForgeConfigSpec.IntValue enchantMaxLevelSilence;
+        public final ForgeConfigSpec.IntValue enchantEffectDurationTicks;
+        public final ForgeConfigSpec.IntValue enchantEffectAmplifier;
+        public final ForgeConfigSpec.DoubleValue manaDrainPerTick;
+        public final ForgeConfigSpec.DoubleValue imbueTransferPerLevel;
+        public final ForgeConfigSpec.DoubleValue imbueMaxTransferFraction;
+        public final ForgeConfigSpec.IntValue imbueMaxRecipients;
+
+        // Transport: escorts, chains and anchors (0.7.5 §3.6, M4.1-M4.4).
+        public final ForgeConfigSpec.DoubleValue maxChainLength;
+        public final ForgeConfigSpec.DoubleValue overextensionLength;
+        public final ForgeConfigSpec.BooleanValue guardTransportHarmless;
+        public final ForgeConfigSpec.DoubleValue suspensionDamagePerTick;
+        public final ForgeConfigSpec.BooleanValue anchorOnlyWhenRestrained;
+        public final ForgeConfigSpec.BooleanValue allowFenceAnchors;
+        public final ForgeConfigSpec.BooleanValue allowTripwireHookAnchors;
+        public final ForgeConfigSpec.IntValue maxTethersPerHolder;
+        public final ForgeConfigSpec.BooleanValue forcedMountingEnabled;
+
+        // Detention devices (0.7.5 §3.9, M4.5-M4.7, M4.10).
+        public final ForgeConfigSpec.IntValue pilloryBreakoutTransitions;
+        public final ForgeConfigSpec.BooleanValue guillotineEnabled;
+        public final ForgeConfigSpec.BooleanValue guillotineDropsHead;
+        public final ForgeConfigSpec.IntValue guillotineActivationDelayTicks;
+        public final ForgeConfigSpec.BooleanValue bunkSetsRespawn;
+
+        // Capital sentencing (0.7.5 §3.19). M4.10 owns the device half; M6.6 adds the offence,
+        // eligibility and clemency keys beside these.
+        public final ForgeConfigSpec.BooleanValue capitalPunishmentEnabled;
+        public final ForgeConfigSpec.BooleanValue guardMayExecute;
+        public final ForgeConfigSpec.IntValue executionDelayTicks;
+        public final ForgeConfigSpec.BooleanValue requiresExecutionDevice;
+        public final ForgeConfigSpec.BooleanValue guardKillingIsCapital;
+        public final ForgeConfigSpec.BooleanValue npcOffendersEligible;
+        public final ForgeConfigSpec.IntValue condemnedEscortTimeoutTicks;
+        public final ForgeConfigSpec.IntValue executionSiteSearchRadius;
+        public final ForgeConfigSpec.BooleanValue capitalRefusesRansom;
+        public final ForgeConfigSpec.BooleanValue capitalRefusesBail;
+        public final ForgeConfigSpec.BooleanValue dropPossessionsOnExecution;
 
         // NPC crime (§9) — skeleton
         public final ForgeConfigSpec.BooleanValue enableNpcCrime;
@@ -521,6 +620,15 @@ public final class McaCrimeConfig {
         public final ForgeConfigSpec.IntValue townsteadFacilitySearchRadius;
 
         Common(ForgeConfigSpec.Builder b) {
+            b.push("villageJustice");
+            enablePlayerReports = b.comment("Players may report server-recorded robbery evidence to nearby guards.").define("enablePlayerReports", true);
+            enableCrimeNews = b.comment("Deliver relevant factual village news through MCA mail; MCA mailing and personal preference still apply.").define("enableCrimeNews", true);
+            crimeNewsIntervalDays = b.defineInRange("crimeNewsIntervalDays", 1, 1, 30);
+            crimeNewsMaxStories = b.defineInRange("crimeNewsMaxStories", 4, 1, 8);
+            thiefDefenseGraceTicks = b.defineInRange("thiefDefenseGraceTicks", 1200, 0, 240000);
+            thiefCombatPolicy = b.comment("ALL_THIEVES exempts adult canonical Thieves from combat blame, even after release; children, guards and restrained prisoners remain protected. This creates neither report evidence nor rewards. EVIDENCE_REQUIRED requires recent evidence or a local actionable report.")
+                    .defineEnum("thiefCombatPolicy", dev.otectus.mcacrime.justice.ThiefCombatPolicy.ALL_THIEVES);
+            b.pop();
             b.push("bands");
             karmaBlueThreshold = b.comment("Karma at or above this is the Blue (lawful) band. Must be > redThreshold.")
                     .defineInRange("karmaBlueThreshold", 100, -1_000_000, 1_000_000);
@@ -653,6 +761,12 @@ public final class McaCrimeConfig {
                     .define("enableCrimeDetection", true);
             witnessRadius = b.comment("Block radius in which an MCA villager/guard with line of sight witnesses a crime.")
                     .defineInRange("witnessRadius", 12, 1, 64);
+            communitySearchRadius = b.comment(
+                    "How far (blocks) beyond a village's border a victim with NO home village is still",
+                    "charged to that village. A bridged Guard Villagers guard's hidden MCA stand-in has no",
+                    "residency; without this a crime against it named no community and MCA: Reputation",
+                    "refused it. 0 restores the old home-village-only rule.")
+                    .defineInRange("communitySearchRadius", 64, 0, 256);
             harmCooldownTicks = b.comment(
                     "Minimum ticks between counted harm crimes against the same victim by the same player",
                     "(anti-spam so a melee flurry is one crime, not many; 0 = every hit counts).")
@@ -904,55 +1018,455 @@ public final class McaCrimeConfig {
             b.push("kidnapping");
             enableKidnappingNpc = b.define("enableKidnappingNpc", true);
             enableKidnappingPlayer = b.define("enableKidnappingPlayer", true);
-            captureChannelTicks = b.comment("Channel/cast duration to capture, broken by hit/move/line-of-sight loss.")
-                    .defineInRange("captureChannelTicks", 60, 0, 6000);
-            captureMaxMoveBlocks = b.comment("The capture channel breaks if the captor moves more than this many blocks from where it started.")
-                    .defineInRange("captureMaxMoveBlocks", 1.5, 0.0, 64.0);
-            captureMaxRangeBlocks = b.comment("The capture channel breaks if the target moves beyond this many blocks of the captor.")
-                    .defineInRange("captureMaxRangeBlocks", 4.0, 0.5, 64.0);
-            captureRequireLineOfSight = b.comment("The capture channel requires (and breaks on losing) line of sight to the target.")
-                    .define("captureRequireLineOfSight", true);
-            captureLowHealthFraction = b.comment("A player target counts as 'low health' (a capture vulnerability) at or below this fraction of max health.")
-                    .defineInRange("captureLowHealthFraction", 0.35, 0.0, 1.0);
-            villagerCaptureRelaxedVulnerability = b.comment("If true, ordinary (non-guard) villagers can be captured without meeting a vulnerability condition.")
-                    .define("villagerCaptureRelaxedVulnerability", false);
-            captureChannelMultiplierRope = b.comment("Per-restraint channel-duration multipliers (rope is faster, locked cuffs slower).")
-                    .defineInRange("captureChannelMultiplierRope", 0.6, 0.1, 10.0);
-            captureChannelMultiplierCuffs = b.defineInRange("captureChannelMultiplierCuffs", 1.0, 0.1, 10.0);
-            captureChannelMultiplierLockedCuffs = b.defineInRange("captureChannelMultiplierLockedCuffs", 1.5, 0.1, 10.0);
-            restraintEscapeChanceRope = b.comment("Per-attempt chance a captive breaks free of each restraint.")
-                    .defineInRange("restraintEscapeChanceRope", 0.25, 0.0, 1.0);
-            restraintEscapeChanceCuffs = b.defineInRange("restraintEscapeChanceCuffs", 0.08, 0.0, 1.0);
-            restraintEscapeChanceLockedCuffs = b.comment("Without Locks Reforged, 0 disables timed escape from locked cuffs. With Locks installed, cuffs use its minigame instead.")
-                    .defineInRange("restraintEscapeChanceLockedCuffs", 0.0, 0.0, 1.0);
-            captiveTetherBlocks = b.comment("How far (blocks) a captive may stray from the hold point before being tethered back or (if allowed) escaping.")
-                    .defineInRange("captiveTetherBlocks", 6.0, 1.0, 128.0);
-            captiveCanEscapeByDistance = b.comment("If true, a kidnapping captive who strays past the tether escapes (no crime); if false they are pulled back.",
-                            "Cuffs always tether back when Locks Reforged is installed: self-escape requires solving their lock.")
-                    .define("captiveCanEscapeByDistance", true);
             npcCaptiveVirtualizeWhenUnloaded = b.comment("If true, an NPC captive in an unloaded chunk is virtually contained instead of force-loading the chunk.")
                     .define("npcCaptiveVirtualizeWhenUnloaded", true);
             maxUnlawfulCaptivesPerCaptor = b.comment("Maximum simultaneous unlawful captives owned by one captor.")
                     .defineInRange("maxUnlawfulCaptivesPerCaptor", 1, 1, 16);
             captorDisconnectGraceTicks = b.comment("Player captive release grace after their captor disconnects.")
                     .defineInRange("captorDisconnectGraceTicks", 1200, 0, 72000);
-            escapeWorkTicksRope = b.comment("Continuous escape work required for rope.")
-                    .defineInRange("escapeWorkTicksRope", 200, 1, 72000);
-            escapeWorkTicksCuffs = b.comment("Continuous escape work required for ordinary cuffs.")
-                    .defineInRange("escapeWorkTicksCuffs", 600, 1, 72000);
-            escapeWorkTicksLockedCuffs = b.comment("Work duration for locked cuffs when Locks Reforged is absent and their escape chance is nonzero.")
-                    .defineInRange("escapeWorkTicksLockedCuffs", 1200, 1, 72000);
-            cuffEscapeRequiresLockpick = b.comment("With Locks Reforged installed, require a lockpick anywhere in the inventory for cuff lockpicking.",
-                    "False permits the native minigame without an item. Both cuff types always require winning the minigame when Locks is present.")
-                    .define("cuffEscapeRequiresLockpick", false);
             enableRescue = b.comment(
                     "Let a third party free somebody else's captive. This is the counterplay to kidnapping:",
                     "with it off, only the captor or the captive can ever end a captivity.")
                     .define("enableRescue", true);
             rescueChannelTicks = b.comment("Channel duration to cut or unlock another player's captive free.")
                     .defineInRange("rescueChannelTicks", 40, 0, 6000);
-            escapeAttemptCooldownTicks = b.comment("Cooldown stamped when escape work starts; repeated input does not reroll.")
-                    .defineInRange("escapeAttemptCooldownTicks", 1200, 0, 72000);
+            b.pop();
+
+            b.push("restraints");
+            preset = b.comment(
+                    "Which tuning this server wants for the physical restraint system (0.7.5 M7.2).",
+                    "CUFFED_PARITY is the shipped behaviour: immediate application, no vulnerability",
+                    "requirement, and upstream's destructive lock picking. BALANCED_VILLAGE adds an",
+                    "application duration, vulnerability requirements, stricter player-capture",
+                    "permissions and non-destructive picking.",
+                    "One deliberate exception: lockpicking.destructiveOutcome ships false while",
+                    "CUFFED_PARITY holds true, so the shipped defaults are this preset apart from that",
+                    "one key. Selecting CUFFED_PARITY explicitly -- that is, switching back to it from",
+                    "BALANCED_VILLAGE -- turns destructive picking on, which is what asking for parity",
+                    "means. A file that has never recorded a preset is left alone.",
+                    "A preset is never imposed silently. Nothing is rewritten while this matches",
+                    "appliedPreset below; changing it rewrites exactly the keys the preset owns, once,",
+                    "and every change is named in the log. Editing one of those keys afterwards is",
+                    "respected -- the preset is not re-applied until this value changes again.")
+                    .defineEnum("preset", RestraintPreset.CUFFED_PARITY);
+            appliedPreset = b.comment(
+                    "The preset this config was last written from. Managed automatically; it exists so a",
+                    "preset is applied once rather than overwriting an operator's own edits at every load.")
+                    .define("appliedPreset", RestraintPreset.CUFFED_PARITY.name());
+            maxConcurrentSessions = b.comment(
+                    "How many restraint, lockpicking and frisking sessions the server will run at once.",
+                    "A refusal, never an eviction: at the cap a new session is declined rather than",
+                    "cancelling somebody else's work, because evicting would make a busy server a way to",
+                    "interrupt other players.")
+                    .defineInRange("maxConcurrentSessions", 64, 1, 4096);
+            sessionTimeoutTicks = b.comment(
+                    "How long a session may go without input before the server drops it. Sessions are never",
+                    "saved, so this only bounds a session whose owner walked away in the same sitting.")
+                    .defineInRange("sessionTimeoutTicks", 200, 20, 24000);
+
+            b.push("definitions");
+            durabilityHandcuffs = b.comment(
+                    "Struggle work a pair of handcuffs withstands, in accepted struggle inputs. This is",
+                    "the restraint's durability, not the item's: it lives on the worn instance, so two",
+                    "prisoners never share one counter.")
+                    .defineInRange("durabilityHandcuffs", 40, 1, 4096);
+            durabilityShackles = b.defineInRange("durabilityShackles", 15, 1, 4096);
+            durabilityDuckTapeArms = b.comment(
+                    "Arm and leg tape are configured independently. The source reads its arm setting for",
+                    "both, which makes the leg key look configurable and do nothing.")
+                    .defineInRange("durabilityDuckTapeArms", 5, 1, 4096);
+            durabilityDuckTapeLegs = b.defineInRange("durabilityDuckTapeLegs", 5, 1, 4096);
+            durabilityDuckTapeHead = b.defineInRange("durabilityDuckTapeHead", 5, 1, 4096);
+            durabilityBundleHood = b.defineInRange("durabilityBundleHood", 5, 1, 4096);
+            headTapeMufflesTextChat = b.comment(
+                    "Whether a head restraint also silences typed chat. Off by default: a gag is about",
+                    "voice, and taking away a player's ability to say 'let me out' is a moderation problem,",
+                    "not a mechanic. Turn it on only with a server that wants it.")
+                    .define("headTapeMufflesTextChat", false);
+            b.pop();
+
+            b.push("application");
+            allowSelfApplication = b.comment(
+                    "Whether a subject may put a restraint on themselves. A self-applied restraint is never",
+                    "a kidnapping and files no case.")
+                    .define("allowSelfApplication", true);
+            applicationChannelTicks = b.comment(
+                    "How long applying a restraint to somebody else takes, in ticks. 0 applies instantly,",
+                    "which is the shipped parity behaviour and the replacement for the retired",
+                    "kidnapping.captureChannelTicks. The BALANCED_VILLAGE preset sets 60 instead.")
+                    .defineInRange("channelTicks", 0, 0, 6000);
+            applicationMaxRangeBlocks = b.comment("How far away a subject may be when a restraint is applied.")
+                    .defineInRange("maxRangeBlocks", 4.0, 0.5, 64.0);
+            applicationRequireLineOfSight = b.define("requireLineOfSight", true);
+            lowHealthFraction = b.comment(
+                    "What counts as 'low health' for the low_health vulnerability gate, as a fraction of",
+                    "the subject's maximum health. Only consulted when that gate is listed below; it",
+                    "replaces the retired kidnapping.captureLowHealthFraction.")
+                    .defineInRange("lowHealthFraction", 0.35, 0.0, 1.0);
+            vulnerabilityGates = b.comment(
+                    "Conditions a subject must meet before a restraint can be applied to them. Empty is the",
+                    "parity preset: the source gates nothing. Known gates: low_health, sleeping, unconscious,",
+                    "already_restrained, surrendered, detained.")
+                    .defineList("vulnerabilityGates", List.of(), o -> o instanceof String);
+            b.pop();
+
+            b.push("escape");
+            escapeMinWorkIntervalTicks = b.comment(
+                    "Minimum ticks between two accepted struggle inputs. The floor a hold-to-struggle",
+                    "accessibility binding hits, so an auto-clicker gains nothing over a human.")
+                    .defineInRange("minWorkIntervalTicks", 4, 1, 200);
+            escapeMaxInputsPerSecond = b.comment(
+                    "Per-player ceiling on struggle packets the server will consider in one second.",
+                    "Counts refused inputs too, so a client that spams the key costs the server a",
+                    "bounded amount of work. Keep it at or below 20 / escapeMinWorkIntervalTicks, since",
+                    "anything above that can never be reached.")
+                    .defineInRange("maxInputsPerSecond", 5, 1, 100);
+            escapeReturnsWornItem = b.comment(
+                    "Whether removing a restraint gives its item back. Only gear somebody actually supplied",
+                    "is ever returned; system-issued gear returns nothing whatever this says.")
+                    .define("returnsWornItem", true);
+            dropItemWhenBroken = b.comment(
+                    "Whether a restraint that was struggled to pieces still drops its item. Off: gear that",
+                    "somebody broke out of is broken, and dropping it would make struggling free the",
+                    "cheapest way to keep a spare pair of cuffs.")
+                    .define("dropItemWhenBroken", false);
+            b.pop();
+            b.pop();
+
+            b.comment("Physical locks: padlocks, cell doors, safes, keys and key rings (0.7.5 §3.7).",
+                            "These are physical access control and nothing else: a key is not a warrant, and",
+                            "having one proves no ownership to the legal system.")
+                    .push("locks");
+            maxKeysPerRing = b.comment(
+                    "How many keys one key ring holds. Lowering this never erases keys from a ring that",
+                    "is already fuller than the new limit -- it only refuses further additions until the",
+                    "ring is back within it.")
+                    .defineInRange("maxKeysPerRing", 16, 1, 64);
+            foreignLockPolicy = b.comment(
+                    "What to do when another lock mod already owns the target: REFUSE or IGNORE.",
+                    "REFUSE is the default and declines to be the second lock on one block. Two",
+                    "independent access checks on one chest is how a player gets locked out of their own",
+                    "container by whichever mod answered last.")
+                    .define("foreignLockPolicy", "REFUSE");
+            lockAutomationPolicy = b.comment(
+                    "What automation may do to a locked container: BLOCK_ALL, ALLOW_INSERT or ALLOW_ALL.",
+                    "Hoppers, hopper minecarts, droppers and any pipe mod holding an IItemHandler are all",
+                    "covered. Checked on every single operation, so a handler fetched while the safe was",
+                    "open stops working the moment it is locked.")
+                    .define("lockAutomationPolicy", "BLOCK_ALL");
+            protectLockedBlocksFromBreaking = b.comment(
+                    "Whether a locked block resists being broken by hand. Off makes every lock a formality:",
+                    "the chest opens with a pickaxe instead of a key.")
+                    .define("protectLockedBlocksFromBreaking", true);
+            protectLockedBlocksFromExplosions = b.comment(
+                    "Whether a locked block survives explosions. Off restores the obvious TNT route in.")
+                    .define("protectLockedBlocksFromExplosions", true);
+            protectLockedBlocksFromPistons = b.comment(
+                    "Whether a locked block refuses to be pushed or pulled. Off allows a piston to move a",
+                    "locked container away from its lock, which is the oldest protection bypass there is.")
+                    .define("protectLockedBlocksFromPistons", true);
+            allowPadlockReinforcement = b.comment(
+                    "Whether a padlock can be reinforced with an item from the mcacrime:can_reinforce_padlock",
+                    "tag. Reinforcement only makes the lock harder to pick; it is never impossible.")
+                    .define("allowPadlockReinforcement", true);
+            b.pop();
+
+            b.comment("The native lockpicking mini-game (0.7.5 §3.5). The server owns the outcome: a client",
+                            "sends aiming attempts and nothing else. The drain below is a tick reinterpretation",
+                            "of the source's per-rendered-frame drain and is deliberately not claimed to be",
+                            "frame-identical to it.")
+                    .push("lockpicking");
+            enableLockpicking = b.comment(
+                    "Master switch. Off leaves keys as the only way through a lock.")
+                    .define("enabled", true);
+            lockpickDrainPerTickDivisor = b.comment(
+                    "The divisor in the per-tick meter drain, (phase + 1) * speedIncrease / divisor.",
+                    "Larger is slower and therefore easier. 200 reproduces the source's numbers at the",
+                    "tick rate; the source ran the same arithmetic once per rendered frame, so its real",
+                    "difficulty depended on the picker's frame rate.")
+                    .defineInRange("drainPerTickDivisor", 200, 20, 4000);
+            lockpickMinAttemptIntervalTicks = b.comment(
+                    "Minimum ticks between two accepted alignment attempts. The floor an automated client",
+                    "hits; it cannot be made to hit it faster.")
+                    .defineInRange("minAttemptIntervalTicks", 2, 1, 100);
+            lockpickWindowBelowDegrees = b.comment(
+                    "How far below the phase target an alignment still counts. The source's window is",
+                    "asymmetric -- ten degrees below, five above -- and both halves are configurable here",
+                    "as the accessibility setting the specification asks for.")
+                    .defineInRange("windowBelowDegrees", 10.0, 0.5, 180.0);
+            lockpickWindowAboveDegrees = b.defineInRange("windowAboveDegrees", 5.0, 0.5, 180.0);
+            lockpickMaxRangeBlocks = b.comment(
+                    "How far a picker may drift from what they are picking before the session ends.")
+                    .defineInRange("maxRangeBlocks", 5.0, 1.0, 32.0);
+            lockpickDestructiveOutcome = b.comment(
+                    "What a successful pick does to a door or a safe. False unlocks it, which is the",
+                    "default. True reproduces the source outcome and destroys the block -- a safe moves its",
+                    "contents out exactly once before it goes. Padlocks and restraints are unaffected:",
+                    "picking those always removes the lock and leaves the block or the prisoner intact.",
+                    "This is the one key the shipped defaults hold differently from the CUFFED_PARITY",
+                    "preset (restraints.preset): destroying a player's safe is not an outcome anybody",
+                    "should arrive at by accident, so it is off until an operator asks for parity.")
+                    .define("destructiveOutcome", false);
+            b.pop();
+
+            b.comment("Prison fittings (0.7.5 M3.5).")
+                    .push("prison");
+            safeSlots = b.comment(
+                    "How many slots a safe holds. 36 is the source-derived value the specification asks",
+                    "for; the source's own live value is 27 and its 36 is a setting nothing reads.",
+                    "Rounded down to a multiple of nine. Lowering it never destroys stored items: a safe",
+                    "holding more than the new size keeps the surplus and simply does not show it until",
+                    "the size goes back up.")
+                    .defineInRange("safeSlots", 36, 9, 54);
+            reinforcedBreakingPolicy = b.comment(
+                    "How reinforced blocks resist being taken apart.",
+                    "PICKAXE_QUALIFIED (default): they are ordinary blocks that need an iron pickaxe and",
+                    "take a long time. That is what the code does and the documentation says so;",
+                    "nothing here is unbreakable.",
+                    "HARD_CONTAINMENT: a subject in custody cannot break one at all. Anybody else still",
+                    "can, under the same pickaxe rules.")
+                    .define("reinforcedBreakingPolicy", "PICKAXE_QUALIFIED");
+            reinforcedResistsExplosions = b.comment(
+                    "Whether an explosion may remove a reinforced block. Configured separately from the",
+                    "breaking policy on purpose: a cell that a pickaxe opens in a minute and a bed does",
+                    "not open at all are two different decisions.")
+                    .define("reinforcedResistsExplosions", true);
+            reinforcedResistsPistons = b.comment(
+                    "Whether a piston may push or pull a reinforced block. A wall a piston can walk away",
+                    "from is not a wall.")
+                    .define("reinforcedResistsPistons", true);
+            reinforcedAuthorisedRemovalOnly = b.comment(
+                    "Whether only an operator or a facility-authorised actor may break a reinforced block.",
+                    "Off by default: this is a survival building set, not a protection plugin.")
+                    .define("reinforcedAuthorisedRemovalOnly", false);
+            b.pop();
+
+            b.comment("Frisking (0.7.5 §3.8, M5.2-M5.3). Opened from the crime menu on a restrained",
+                            "subject. The screen is a read-only projection; every confiscation is one server",
+                            "transaction with its own id, and nothing a client sends decides what moved.",
+                            "What is taken goes to the searcher's own inventory, or into the property",
+                            "escrow when a lawful search seals it as evidence.")
+                    .push("frisking");
+            friskMaxRangeBlocks = b.comment(
+                    "How far the searcher may get from the subject before the search ends. Re-checked",
+                    "every tick, not only when the menu opens.")
+                    .defineInRange("maxRangeBlocks", 5.0, 1.0, 16.0);
+            friskSessionTimeoutTicks = b.comment(
+                    "How long a frisk session may stay open with no accepted transfer.")
+                    .defineInRange("sessionTimeoutTicks", 1200, 20, 24000);
+            friskTransferIntervalTicks = b.comment(
+                    "The minimum number of ticks between two accepted transfers in one session. The",
+                    "search delay is server-owned: a disabled button on a client is not enforcement.")
+                    .defineInRange("transferIntervalTicks", 5, 0, 200);
+            friskRequiresArmRestraint = b.comment(
+                    "Whether the subject's arms must be restrained before they can be searched.")
+                    .define("requiresArmRestraint", true);
+            friskLawfulSeizureToEscrow = b.comment(
+                    "Whether a lawful search's seizures are recorded in the property escrow so they come",
+                    "back when custody ends. Off makes a guard search an ordinary transfer into the",
+                    "searcher's own inventory, which is honest but forgets who owned what.")
+                    .define("lawfulSeizureToEscrow", true);
+            b.pop();
+
+            b.comment("Compatibility with optional mods (0.7.5 §3.17, M6.2, specification §15.1). No",
+                            "setting here selects a dependency, and no adapter may change a user's own",
+                            "configuration: a restriction is a refusal to perform an action, never an edit",
+                            "to somebody's settings file.")
+                    .push("compatibility");
+            cuffedCoexistence = b.comment(
+                    "What to do when the Cuffed mod -- the mod this release absorbs -- is installed",
+                    "alongside it: WARN or REFUSE. WARN logs one line at startup and proceeds. REFUSE",
+                    "additionally stops MCA: Crime applying new restraints; removal, recovery and loading",
+                    "existing ones stay enabled, because a disabled mechanic must still let an operator",
+                    "get equipment off somebody. No Cuffed data is read, cleared or disabled either way.")
+                    .define("cuffedCoexistence", "WARN");
+            optionalAdaptersEnabled = b.comment(
+                    "Master switch for every optional-mod adapter. Off leaves the mods installed and",
+                    "simply binds nothing: Silence drains no pool, foreign inventory slots are not",
+                    "searchable, and a downed player reads as an ordinary one.")
+                    .define("optionalAdaptersEnabled", true);
+            reportAdapterVersions = b.comment(
+                    "Whether the startup log names each installed optional mod, its version and exactly",
+                    "what MCA: Crime does about it. On by default: 'unsupported' has to be visible rather",
+                    "than inferred from a feature quietly doing nothing.")
+                    .define("reportAdapterVersions", true);
+            b.pop();
+
+            b.comment("The five restraint enchantments (0.7.5 §3.10, M6.1). The enchantment objects are",
+                            "inert: everything here is read by the services that apply the effects, so an",
+                            "operator can retune or switch one off without any registry changing shape and",
+                            "without an existing enchanted item becoming unloadable.")
+                    .push("enchantments");
+            allowedEnchantments = b.comment(
+                    "Which of the five may be applied at all: imbue, famine, shroud, exhaust, silence.",
+                    "A name removed here stops being offered, stops being applicable and stops",
+                    "having any effect -- but an item already carrying it still loads and can still be",
+                    "removed, because disabling a mechanic must never make saved data undeserialisable.")
+                    .defineList("allowed",
+                            java.util.List.of("imbue", "famine", "shroud", "exhaust", "silence"),
+                            entry -> entry instanceof String name
+                                    && dev.otectus.mcacrime.enchantment.CrimeEnchantKind.parse(name).isPresent());
+            enchantMaxLevelImbue = b.comment(
+                    "Maximum level of Imbue. Every level is clamped to this before any arithmetic reads it,",
+                    "which is the fix for the source's unbounded transfer percentage.")
+                    .defineInRange("maxLevelImbue", 1, 1, 5);
+            enchantMaxLevelFamine = b.comment("Maximum level of Famine.")
+                    .defineInRange("maxLevelFamine", 1, 1, 5);
+            enchantMaxLevelShroud = b.comment("Maximum level of Shroud.")
+                    .defineInRange("maxLevelShroud", 1, 1, 5);
+            enchantMaxLevelExhaust = b.comment("Maximum level of Exhaust.")
+                    .defineInRange("maxLevelExhaust", 1, 1, 5);
+            enchantMaxLevelSilence = b.comment("Maximum level of Silence.")
+                    .defineInRange("maxLevelSilence", 1, 1, 5);
+            enchantEffectDurationTicks = b.comment(
+                    "How long one applied Famine, Shroud or Exhaust instance lasts. Re-offered every",
+                    "second while the enchanted restraint is worn, so a shorter foreign instance of the",
+                    "same effect is never stomped and a longer one is never shortened.")
+                    .defineInRange("effectDurationTicks", 100, 20, 1200);
+            enchantEffectAmplifier = b.comment(
+                    "The amplifier those instances carry. 1 is the source's own figure.")
+                    .defineInRange("effectAmplifier", 1, 0, 4);
+            manaDrainPerTick = b.comment(
+                    "What share of a Silenced subject's maximum spell pool drains per tick, per level.",
+                    "The source hard-codes 0.005 with a TODO; this is that number, made a setting. With no",
+                    "supported spell mod installed nothing drains and the startup log says so.")
+                    .defineInRange("manaDrainPerTick", 0.005D, 0.0D, 1.0D);
+            imbueTransferPerLevel = b.comment(
+                    "What share of the captor's damage each level of Imbue moves onto the prisoners they",
+                    "hold. The default is the source's own (level / 3) * 0.8 at level one.")
+                    .defineInRange("imbueTransferPerLevel", 0.2666D, 0.0D, 1.0D);
+            imbueMaxTransferFraction = b.comment(
+                    "The ceiling on that share whatever the level, so the captor always keeps some of what",
+                    "they were dealt and no configuration turns a prison into immortality.")
+                    .defineInRange("imbueMaxTransferFraction", 0.8D, 0.0D, 1.0D);
+            imbueMaxRecipients = b.comment(
+                    "How many distinct prisoners may share one transfer. The budget does not grow with the",
+                    "number of recipients: more prisoners means a smaller share each, never more damage.")
+                    .defineInRange("imbueMaxRecipients", 8, 1, 64);
+            b.pop();
+
+            b.comment("Transport: escorts, chains and fixed anchors (0.7.5 §3.6, M4). One engine holds",
+                            "every subject, so these numbers govern a guard's escort, a kidnapper's chain and",
+                            "a prisoner tied to a fence alike.")
+                    .push("transport");
+            maxChainLength = b.comment(
+                    "How far a tethered subject may get before the tether starts pulling them back.")
+                    .defineInRange("maxChainLength", 5.0, 1.0, 64.0);
+            overextensionLength = b.comment(
+                    "How far past the anchor a subject may be dragged before the tether begins to hurt",
+                    "them -- suspension damage. Must be greater than maxChainLength; ConfigValidator",
+                    "refuses any other ordering, because a shorter overextension than pull length would",
+                    "mean the first tick of tension is also the first tick of damage.")
+                    .defineInRange("overextensionLength", 12.0, 1.0, 128.0);
+            guardTransportHarmless = b.comment(
+                    "Whether a lawful escort's tether refuses to injure the prisoner it is walking. On by",
+                    "default: a guard taking somebody to a cell is not trying to kill them, and a prisoner",
+                    "who dies on the way to trial is a bug report, not a feature.")
+                    .define("guardTransportHarmless", true);
+            suspensionDamagePerTick = b.comment(
+                    "Damage per tick past overextensionLength, through the mcacrime:hang damage type.",
+                    "Attributed to whoever or whatever holds the other end -- never to the victim.")
+                    .defineInRange("suspensionDamagePerTick", 2.0, 0.0, 20.0);
+            anchorOnlyWhenRestrained = b.comment(
+                    "Whether a chain may only be attached to a subject who is already restrained.")
+                    .define("anchorOnlyWhenRestrained", false);
+            allowFenceAnchors = b.comment("Whether a chain may be tied to a fence.")
+                    .define("allowFenceAnchors", true);
+            allowTripwireHookAnchors = b.comment("Whether a chain may be tied to a tripwire hook.")
+                    .define("allowTripwireHookAnchors", true);
+            maxTethersPerHolder = b.comment(
+                    "How many subjects one holder may lead at once. A bound on a hostile client's",
+                    "right-clicking as much as on a hoarder's chain collection.")
+                    .defineInRange("maxTethersPerHolder", 8, 1, 64);
+            forcedMountingEnabled = b.comment(
+                    "Whether a holder may put the subject they are leading into a seat, a boat, a mount",
+                    "or a bunk. Off leaves every mount voluntary.")
+                    .define("forcedMountingEnabled", true);
+            b.pop();
+
+            b.comment("Detention devices: the pillory, the guillotine and the prison bunk (0.7.5 §3.9, M4).",
+                            "Occupancy is world data keyed by the device, never a flag on the occupant, so a",
+                            "chunk unload is not a jailbreak and a broken device releases exactly once.")
+                    .push("detention");
+            pilloryBreakoutTransitions = b.comment(
+                    "How many crouch transitions break a pillory open from the inside. 0 disables breaking",
+                    "out entirely; stale-occupancy cleanup runs either way, which is the coupling the",
+                    "source got wrong.")
+                    .defineInRange("pilloryBreakoutTransitions", 100, 0, 10000);
+            guillotineEnabled = b.comment(
+                    "Whether the guillotine may carry out an authorised execution at all. Off leaves the",
+                    "block placeable and usable as a restraint device that never takes a life.")
+                    .define("guillotineEnabled", true);
+            guillotineDropsHead = b.comment(
+                    "Whether an executed player's head drops at the device. A non-player victim never",
+                    "fabricates a player head whatever this says.")
+                    .define("guillotineDropsHead", true);
+            guillotineActivationDelayTicks = b.comment(
+                    "Ticks between the blade being released and the blow landing. Persisted, so an unload",
+                    "inside the window neither cancels nor repeats the execution.")
+                    .defineInRange("guillotineActivationDelayTicks", 5, 1, 200);
+            bunkSetsRespawn = b.comment(
+                    "Whether sleeping in a bunk sets the sleeper's respawn point. The previous point is",
+                    "restored on release only while this system still owns the override: a player who has",
+                    "since chosen a newer spawn keeps it.")
+                    .define("bunkSetsRespawn", true);
+            b.pop();
+
+            b.comment("Capital sentencing (0.7.5 §3.19). Never automatic: no timer, redstone circuit,",
+                            "packet or scheduled task carries out a sentence, and the device acts only while a",
+                            "live execution authorisation names this subject, this device and this actor.")
+                    .push("sentencing").push("capitalPunishment");
+            capitalPunishmentEnabled = b.comment(
+                    "Master switch for the whole feature. Off leaves the guillotine a usable device that",
+                    "never receives a lawful execution order.")
+                    .define("enabled", true);
+            guardMayExecute = b.comment(
+                    "Whether an on-duty enforcement guard may carry out a sentence. Off leaves execution",
+                    "to players only.")
+                    .define("guardMayExecute", true);
+            executionDelayTicks = b.comment(
+                    "The ceremony window between arming the device and the blade. This is the rescue and",
+                    "pardon window: clemency, rescue, escape, guard death, device destruction or a chunk",
+                    "unload inside it returns the condemned to custody rather than to freedom.")
+                    .defineInRange("executionDelayTicks", 1200, 0, 72000);
+            requiresExecutionDevice = b.comment(
+                    "Whether a capital sentence needs a real device to be carried out. May only be false",
+                    "while enabled is false; ConfigValidator refuses any other combination, because a",
+                    "capital sentence with no device requirement is an automatic death.")
+                    .define("requiresExecutionDevice", true);
+            guardKillingIsCapital = b.comment(
+                    "The only offence gate there is. Off means no offence qualifies and every sentence is",
+                    "custodial, whatever the Heat, the charge count or the band -- which is what \"never",
+                    "automatic\" means in practice: killing a guard is the sole capital path, and this",
+                    "switch removes even that one.")
+                    .define("guardKillingIsCapital", true);
+            npcOffendersEligible = b.comment(
+                    "Whether a villager offender may be capitally sentenced at all. Off by default: an NPC",
+                    "arrest is carried out by another NPC with no player in the loop, and a village that",
+                    "executes its own by itself is a different game than the one this defaults to.")
+                    .define("npcOffendersEligible", false);
+            condemnedEscortTimeoutTicks = b.comment(
+                    "How long a guard may spend walking a condemned captive to a device before giving up",
+                    "and returning them to a cell. The captive stays condemned and stays held; only the",
+                    "walk ends.")
+                    .defineInRange("condemnedEscortTimeoutTicks", 2400, 20, 216000);
+            executionSiteSearchRadius = b.comment(
+                    "How far a guard looks for an assigned execution site. A site is an explicit facility",
+                    "assignment an operator made, never a guillotine somebody happened to place.")
+                    .defineInRange("executionSiteSearchRadius", 48, 8, 128);
+            capitalRefusesRansom = b.comment(
+                    "Whether a capital captive cannot be ransomed. On, the demand is refused with its own",
+                    "reason rather than quoting a price nobody may accept.")
+                    .define("refuseRansom", true);
+            capitalRefusesBail = b.comment(
+                    "Whether a capital sentence has no bail price. On, bail is refused with its own reason;",
+                    "a fine never clears a capital case either way.")
+                    .define("refuseBail", true);
+            dropPossessionsOnExecution = b.comment(
+                    "Whether the possessions held in escrow for the condemned spill at the device. Off",
+                    "banks them instead, so an operator can return them to a family or to the village.")
+                    .define("dropPossessionsOnExecution", true);
+            b.pop();
             b.pop();
 
             b.push("npccrime");
@@ -1252,9 +1766,12 @@ public final class McaCrimeConfig {
                     .defineInRange("jailRadiusDefault", 8, 1, 64);
             buildHoldingCell = b.comment(
                     "When no jail anchor is assigned and no fallback is configured, build a temporary",
-                    "iron-bar holding cell near the arrest and take it down again on release, restoring",
-                    "every block it replaced. Off means an arrest with nowhere to put the prisoner is",
-                    "refused instead, and surrender does nothing until an operator runs /crime assignjail.")
+                    "holding cell near the arrest -- reinforced stone and bars around a padlocked cell",
+                    "door -- and take it down again on release, restoring every block it replaced. The",
+                    "padlock can be picked, from outside or through the door; a prisoner who then walks",
+                    "out has escaped, and the cell comes down without a release. Off means an arrest with",
+                    "nowhere to put the prisoner is refused instead, and surrender does nothing until an",
+                    "operator runs /crime assignjail.")
                     .define("buildHoldingCell", true);
             holdingCellSearchRadius = b.comment(
                     "How far (blocks) from the arrest to look for ground clear enough to build a cell on.")
@@ -1799,9 +2316,10 @@ public final class McaCrimeConfig {
         public final ForgeConfigSpec.BooleanValue hudChannelBar;
         public final ForgeConfigSpec.BooleanValue hudStatusIndicator;
         public final ForgeConfigSpec.BooleanValue hudCustodyIndicator;
+        public final ForgeConfigSpec.BooleanValue hudRestraintPanel;
         public final ForgeConfigSpec.BooleanValue renderRestraintPose;
-        public final ForgeConfigSpec.BooleanValue renderCuffs;
-        public final ForgeConfigSpec.BooleanValue renderEscortRope;
+        public final ForgeConfigSpec.BooleanValue renderWornRestraints;
+        public final ForgeConfigSpec.BooleanValue renderTether;
         public final ForgeConfigSpec.BooleanValue showNpcMuggingHud;
         public final ForgeConfigSpec.EnumValue<CrimeButtonAnchor> crimeButtonAnchor;
         public final ForgeConfigSpec.EnumValue<dev.otectus.mcacrime.client.hud.HudAnchor> hudAnchor;
@@ -1841,14 +2359,26 @@ public final class McaCrimeConfig {
                     .define("hudStatusIndicator", true);
             hudCustodyIndicator = b.comment("Show the remaining jail sentence or captivity time.")
                     .define("hudCustodyIndicator", true);
+            hudRestraintPanel = b.comment(
+                    "Show the restraint panel: what is physically worn, how far a struggle has got, and",
+                    "which escape actions are available. Replaces the 0.7.4 renderCuffs, which drew the",
+                    "worn cuffs and gated this panel from the same switch.")
+                    .define("hudRestraintPanel", true);
             renderRestraintPose = b.comment(
                     "Pose a restrained player's arms behind their back. Presentation only -- turning it off",
                     "changes nothing the server knows or allows.")
                     .define("renderRestraintPose", true);
-            renderCuffs = b.comment("Draw cuffs on a restrained player's wrists.")
-                    .define("renderCuffs", true);
-            renderEscortRope = b.comment("Draw the lead between an escorting guard and their prisoner.")
-                    .define("renderEscortRope", true);
+            renderWornRestraints = b.comment(
+                    "Draw the worn restraint models -- cuffs, shackles, tape and hood -- on a restrained",
+                    "body. Presentation only: a hidden restraint restricts exactly as much as a drawn one.",
+                    "Replaces the 0.7.4 renderCuffs, which named one restraint when there is now a slot",
+                    "for each of head, arms and legs.")
+                    .define("renderWornRestraints", true);
+            renderTether = b.comment(
+                    "Draw the tether between whoever is holding somebody -- an escorting guard, a captor, a",
+                    "chain anchor -- and the subject. Replaces the 0.7.4 renderEscortRope, which named only",
+                    "the escort case of what is now one transport engine.")
+                    .define("renderTether", true);
             showNpcMuggingHud = b.comment(
                     "Show the bar and the hint line while a thief is mugging you. Presentation only --",
                     "with it off the mugging still runs, and drawing a weapon still stops it.")
@@ -1876,6 +2406,22 @@ public final class McaCrimeConfig {
                     .defineEnum("sandParticles", SandParticleMode.NORMAL);
             b.pop();
         }
+    }
+
+    /**
+     * The two tunings {@code restraints.preset} names (0.7.5 M7.2).
+     *
+     * <p>Two, not a scale: every intermediate setting is already reachable by editing the keys
+     * themselves, and a preset that is applied once and then left alone is easier to reason about
+     * than a slider whose position silently contradicts an edit somebody made afterwards. The key
+     * tables live in {@code config/RestraintPresets}, which is where a preset can be asserted without
+     * a running config.
+     */
+    public enum RestraintPreset {
+        /** Upstream's feel: immediate, ungated, destructive picking. The shipped default. */
+        CUFFED_PARITY,
+        /** A village-legal feel: a channel, an opening, no player-on-player capture, no destruction. */
+        BALANCED_VILLAGE
     }
 
     /** Profession matching strategy (spec §12). */

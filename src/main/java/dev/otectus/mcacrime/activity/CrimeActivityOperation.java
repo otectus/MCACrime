@@ -34,5 +34,25 @@ public enum CrimeActivityOperation {
     DISPLAY_TOOL,
 
     /** Idle social movement: gossip circles, meeting-point wander, schedule drift. */
-    SOCIAL_WANDER
+    SOCIAL_WANDER,
+
+    /**
+     * Moving of the villager's own accord at all (0.7.5 §3.3).
+     *
+     * <p>Broader than {@link #SOCIAL_WANDER}, and the reason it exists: a restrained or held villager
+     * does not merely skip the gossip circle, they do not walk anywhere they chose to. This is how a
+     * captive is held in place now that the vanilla leash is gone — a claim another system asks
+     * permission from, never {@code setNoAi}, which would freeze the villager solid and take their
+     * head, their breathing and their despawn rules with it.
+     */
+    VOLUNTARY_MOVEMENT,
+
+    /**
+     * Using or swapping what is in the villager's hands.
+     *
+     * <p>The NPC counterpart of the arm restraints' {@code useItem}: a villager whose arms are taped
+     * does not pick up a tool, eat, or start a hand-held behaviour. Distinct from
+     * {@link #DISPLAY_TOOL}, which is somebody else putting a prop in their hand for presentation.
+     */
+    ITEM_ACTION
 }

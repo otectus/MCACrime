@@ -242,7 +242,7 @@ public final class GuardEnforcement {
 
     /** Case-based activation supplements Wanted status; responders still select local cases below. */
     private static boolean hasKnownCases(MinecraftServer server, ServerPlayer player, long now) {
-        var configured = dev.otectus.mcacrime.justice.JusticeService.Settings.fromConfig();
+        var configured = dev.otectus.mcacrime.justice.JusticeService.Settings.resolve(server);
         var publicScope = new dev.otectus.mcacrime.justice.JusticeService.Settings(
                 configured.observations(), true, configured.confidence());
         return dev.otectus.mcacrime.justice.JusticeService.evaluate(

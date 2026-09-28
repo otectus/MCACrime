@@ -42,7 +42,7 @@ Two files, written on first run:
 
 Three rules hold throughout:
 
-1. **Everything is config.** Every number, chance, threshold, duration, and toggle in this mod is an
+1. **Config is the default authority.** Selected gameplay settings may be explicitly overridden by this world’s game rules (see below). Every configurable number, chance, threshold, duration, and toggle is an
    option here rather than a constant in the source. The whole key set was declared up front so the
    generated TOML shows the entire design surface from day one — which means a few blocks are
    present but **not yet wired**. Those are marked below; do not tune them expecting an effect.
@@ -110,6 +110,7 @@ consequence in this mod can be waited out while offline.
 |---|---|---|---|
 | `enableCrimeDetection` | `true` | — | Master switch. Off means no new crime is ever recorded; existing cases, Heat, and sentences are untouched. |
 | `witnessRadius` | `12` | `1 … 64` | Block radius around the **victim** in which a villager or guard with line of sight becomes a witness. Scanned only when a crime happens, never on a tick. |
+| `communitySearchRadius` | `64` | `0 … 256` | How far beyond a village's border a victim with **no home village** is still charged to that village (0.7.5). A Guard Villagers guard bridged by MCA: Mob Compatibility has a hidden MCA stand-in with no residency; before this, a crime against it named no community and MCA: Reputation refused it as invalid. Uses the victim's own position, never the offender's. `0` restores the old home-village-only rule. |
 | `harmCooldownTicks` | `20` | `0 … 6000` | Minimum ticks between counted harm crimes against the same victim by the same player, so a melee flurry is one crime rather than many. `0` counts every hit. |
 | `maxStoredWitnesses` | `8` | `1 … 64` | How many witness identities one record keeps. The nearest are kept and the true crowd size is recorded separately, so a riot outside a busy village does not write an unbounded list into the save. |
 
@@ -146,10 +147,19 @@ the same act costs in an alley, for reasons the player cannot see. What a filed 
 | `reactionHideTicks` | `600` | `0 … 24000` | How long a villager stays hidden before recovering. |
 | `reactionRecoveryTicks` | `1200` | `0 … 72000` | How long they keep refusing or altering interaction with the offender afterwards. Memory outlives this; only the behaviour stops. |
 | `safeDestinationSamples` | `8` | `1 … 32` | How many candidate destinations a fleeing villager scores. Bounded sampling — there is never an unbounded POI search on the server thread. |
+| `civilianCrimeReactionSpeedMultiplier` | `0.65` | `0.10 … 1.00` | Movement speed of an unarmed villager while this mod is steering them, as a fraction of normal. Applied as a transient attribute modifier and removed on every exit path, so it can never persist. |
+| `complianceResistThreshold` | `0.6` | `0.0 … 1.0` | Bravery at or above which an unthreatened villager fights rather than runs. |
+| `complianceHelpThreshold` | `0.5` | `0.0 … 1.0` | Score at or above which a villager fetches a responder rather than running, when there is one to fetch. |
 
 There is no scan of villagers anywhere in this system. Reactions are created by an event and only
 existing controllers are ticked, so a world with three hundred villagers and one mugging in progress
 does one villager's worth of work.
+
+## `[victimMemory]`
+
+| Option | Default | Range | What it does |
+|---|---|---|---|
+| `emptyHandApologyMode` | `CONTEXTUAL_DIRECT` | `CONTEXTUAL_DIRECT`, `MENU_ONLY` | How the empty-hand apology gesture behaves. `CONTEXTUAL_DIRECT`: right-clicking a villager you wronged while not sneaking, with an empty main hand and no weapon in the off hand, apologizes directly. `MENU_ONLY`: only the Crime menu, its keybind and the screen button offer it. Neither mode changes settling time, cooldowns or how much is repaired. |
 
 ## `[dialogue]`
 
@@ -225,6 +235,12 @@ default.** Takes effect on the next scan; no restart is required.
 | `guardPopulationMaxPerPass` | `1` | `1 … 16` | How many villagers may be converted in one pass, so a village grows its guard force gradually rather than a third of the population changing clothes at once. |
 | `guardPopulationScanIntervalTicks` | `1200` | `200 … 72000` | Game ticks between passes. One village in one dimension is examined per pass, and only dimensions that have players in them are considered at all. |
 | `guardPopulationCooldownTicks` | `6000` | `1200 … 1728000` | Game ticks before the same village is examined again. Should be comfortably longer than the scan interval, and `/crime validate` says so if it is not. |
+| `guardThiefResponseRadius` | `24.0` | `4.0 … 64.0` | How far a guard will notice a mugging in progress. Line of sight is required as well, so this is the range at which a guard who can already see the threat reacts to it. |
+| `guardThiefPursuitTimeoutTicks` | `600` | `40 … 24000` | How long a guard chases a thief before giving up. The chase also ends when the thief gets further away than `guardAggroRadius`. |
+| `guardsUseForceOnArmedThieves` | `true` | — | An armed thief is fought rather than merely chased. Off makes every arrest a non-lethal capture. |
+| `returnStolenGoodsOnArrest` | `true` | — | A guard hands back what the thief took, to any victim standing nearby. |
+| `stolenGoodsReturnRadius` | `16.0` | `1.0 … 64.0` | How close a victim must be to the arrest to be handed their property back. Owners further away keep their claim: the ledger entry is untouched. |
+| `npcEscortOrphanTicks` | `1200` | `100 … 24000` | How long a restrained thief waits for a replacement escort after its guard dies or wanders off, before being jailed where it stands. |
 
 **How the target rounds.** `ceil(population × ratio)`, floored at `guardPopulationMinimum` and capped
 at the population itself. So 10 villagers ask for 1 guard, 20 ask for 2, 50 ask for 5, and 11 ask for
@@ -253,53 +269,41 @@ re-evaluation is bounded by the per-village cooldown rather than by a margin on 
 
 ## `[kidnapping]`
 
+Kidnapping is a **legal** state: who holds whom, unlawfully, and what the law does about it. What is
+physically on the captive's body moved to `[restraints]` in 0.7.5, and the physical keys that used to
+live here are retired — see *Retired in 0.7.5* below.
+
 | Option | Default | Range | What it does |
 |---|---|---|---|
 | `enableKidnappingNpc` | `true` | — | Whether villagers can be taken captive. |
 | `enableKidnappingPlayer` | `true` | — | Whether players can. |
-| `captureChannelTicks` | `60` | `0 … 6000` | Base channel duration to restrain a target. `0` makes capture instant, which is exactly the grief button this gate exists to prevent. |
-| `captureMaxMoveBlocks` | `1.5` | `0.0 … 64.0` | The channel breaks if the captor moves this far from where it started. |
-| `captureMaxRangeBlocks` | `4.0` | `0.5 … 64.0` | The channel breaks if the target gets this far from the captor. |
-| `captureRequireLineOfSight` | `true` | — | The channel needs, and breaks on losing, line of sight. |
-| `captureLowHealthFraction` | `0.35` | `0.0 … 1.0` | A player target counts as vulnerable at or below this fraction of max health. |
-| `villagerCaptureRelaxedVulnerability` | `true` | — | Ordinary villagers may be captured without meeting a vulnerability condition. **Guards and combat NPCs never skip the gate, whatever this is set to.** |
-| `captureChannelMultiplierRope` | `0.6` | `0.1 … 10.0` | Per-restraint channel multipliers: rope is quick to tie… |
-| `captureChannelMultiplierCuffs` | `1.0` | `0.1 … 10.0` | …cuffs are the baseline… |
-| `captureChannelMultiplierLockedCuffs` | `1.5` | `0.1 … 10.0` | …and locked cuffs take longest. |
-| `restraintEscapeChanceRope` | `0.25` | `0.0 … 1.0` | Per-attempt chance a captive slips rope. |
-| `restraintEscapeChanceCuffs` | `0.08` | `0.0 … 1.0` | Per-attempt chance for cuffs. |
-| `restraintEscapeChanceLockedCuffs` | `0.0` | `0.0 … 1.0` | `0` means escape needs a key or a rescue, not a roll. |
-| `escapeWorkTicksRope` | `200` | `1 … 72000` | Work duration for rope escape attempts. |
-| `escapeWorkTicksCuffs` | `600` | `1 … 72000` | Work duration for ordinary cuffs when Locks Reforged is absent. |
-| `escapeWorkTicksLockedCuffs` | `1200` | `1 … 72000` | Work duration for locked cuffs when Locks Reforged is absent and their escape chance is nonzero. |
-| `cuffEscapeRequiresLockpick` | `false` | — | With Locks Reforged present, require a lockpick anywhere in the player's inventory to attempt cuff escape. |
-| `captiveTetherBlocks` | `6.0` | `1.0 … 128.0` | How far a captive may stray from the hold point. |
-| `captiveCanEscapeByDistance` | `true` | — | A kidnapping captive who strays past the tether escapes — and escaping kidnapping is never a crime. Set false and they are pulled back instead. |
 | `npcCaptiveVirtualizeWhenUnloaded` | `true` | — | An NPC captive in an unloaded chunk is virtually contained rather than force-loading the chunk. Turning this off makes every captive a permanently loaded chunk. |
-
-With **Locks Reforged installed**, the Escape action and `/crime escape` open its native lockpicking
-minigame for ordinary and locked cuffs, including cuffs worn during lawful arrest. Ordinary cuffs
-use five pins; locked cuffs use seven. A wrong pin resets progress. The server validates every pin;
-closing the screen cancels that attempt and reopening retains the same combination. This integration
-uses itemless minigame rules, so it does not consume or damage a pick, even when possession is required.
-The requirement is checked when opening and throughout the attempt, including the offhand inventory slot.
-
-To require a pick, set `cuffEscapeRequiresLockpick = true` under `[kidnapping]` in
-`config/mcacrime-common.toml` on the server. Default `false` permits attempts without an item. This
-setting controls cuff attempts independently of Locks' itemless block-lock setting and MCA: Crime's
-`locksReforgedFenceTrades` setting. The cuff escape chance, work duration and distance-escape settings
-do not bypass the minigame while Locks is present. Rope retains its configured escape behavior.
+| `maxUnlawfulCaptivesPerCaptor` | `1` | `1 … 16` | Maximum simultaneous unlawful captives owned by one captor. |
+| `captorDisconnectGraceTicks` | `1200` | `0 … 72000` | Player captive release grace after their captor disconnects. |
+| `enableRescue` | `true` | — | Let a third party free somebody else's captive. With it off, only the captor or the captive can ever end a captivity. |
+| `rescueChannelTicks` | `40` | `0 … 6000` | Channel duration to cut or unlock another player's captive free. |
 
 Escaping lawful cuffs preserves the assessed sentence, pauses sentence credit, ends the escort and
 files a jailbreak. Recapture or surrender resumes that sentence; returning to the jail region alone
-does not undo a cuff escape. Guards normally remove their cuffs at jail intake, so an uncuffed prisoner
-does not get a cuff-picking action. Rescue, captor release, administration and captivity failsafes still
-work. Without Locks, the existing timed escape rules apply; the pick requirement has no effect.
+does not undo an escape. Rescue, captor release, administration and captivity failsafes still work.
+
+Since 0.7.5 escape is physical work against the worn restraint, tuned under `[restraints.escape]` and
+`[lockpicking]`, and it needs neither Cuffed nor Locks Reforged installed. Locks Reforged is still an
+optional companion for its own locks and for fence stock; it no longer supplies the cuff minigame.
 
 ## `[criminalJobs]`
 
 Autonomous criminal professions: thieves who target and rob players, and fences who trade contraband
 with dynamic pricing.
+
+| Option | Default | Range | What it does |
+|---|---|---|---|
+| `villageFenceChance` | `0.010` | `0.0 … 1.0` | Chance a village villager becomes a fence. Fences belong to settlements, not the wilderness. |
+| `wildThiefChance` | `0.0025` | `0.0 … 1.0` | Chance for a villager with no home village. Independent criminals should be rare. |
+| `minVillagePopulationForFence` | `5` | `1 … 200` | A village smaller than this never produces a fence. |
+| `presentFenceAsMcaProfession` | `true` | — | Show a fence as the `mcacrime:fence` villager profession. The previous profession is remembered and restored if this is turned off again. |
+| `presentThiefAsMcaProfession` | `false` | — | Show a thief as the `mcacrime:thief` villager profession. Off by default: a thief wearing a label has no cover. |
+| `staleRecordGraceDays` | `14` | `1 … 365` | Days a criminal record is kept after the villager was last seen loaded. |
 
 ### `[criminalJobs.thief]`
 
@@ -307,6 +311,20 @@ with dynamic pricing.
 |---|---|---|---|
 | `mugProtectionHearts` | `50` | `-1 … 1000` | A villager will not mug a player with at least this many MCA relationship hearts toward that villager. `-1` disables relationship protection; `0` protects neutral and positive relationships. |
 | `thiefJailTicks` | `12000` | `200 … 240000` | Sentence length in online ticks when a thief is arrested. 12000 = 10 minutes. A thief comes out of jail still a thief. |
+| `mugDurationTicks` | `80` | `20 … 600` | How long the victim's bar takes to fill. Four seconds by default. |
+| `scanIntervalTicks` | `30` | `10 … 200` | Ticks between a scouting thief's target scans. |
+| `targetSearchRadius` | `20.0` | `4.0 … 64.0` | How far a thief will consider a victim. |
+| `guardAvoidRadius` | `16.0` | `0.0 … 64.0` | Guards within this distance contribute to the thief's risk score. |
+| `guardHardAbortRadius` | `8.0` | `0.0 … 64.0` | A guard this close is a problem whatever else is true: the risk score jumps and the thief breaks off. |
+| `guardRiskAbortThreshold` | `0.6` | `0.0 … 1.0` | Risk score at or above which a target is refused and an approach broken off. |
+| `minCurrencySteal` | `1` | `0 … 1000000` | Smallest amount of the active currency one mugging takes, when there is that much to take. |
+| `maxCurrencySteal` | `8` | `0 … 1000000` | Largest amount one mugging takes. Must not be below the minimum. |
+| `stealAllIfBelowMinimum` | `true` | — | When the victim holds less than `minCurrencySteal`, take all of it. Off skips currency entirely and falls through to the item. |
+| `protectHotbar` | `true` | — | Thieves never reach into the hotbar. What you are holding is yours. |
+| `protectArmor` | `true` | — | Thieves never take worn armor. |
+| `protectOffhand` | `true` | — | Thieves never take the offhand item. |
+| `itemTheftMode` | `SINGLE_ITEM` | `SINGLE_ITEM`, `WHOLE_STACK`, `RANDOM_COUNT` | How much of the chosen slot goes. `SINGLE_ITEM` is the default because it is the only one whose punishment does not depend on how the victim stacked. |
+| `stolenGoodsPersistenceDays` | `7` | `0 … 365` | Days a stolen item stays attributable to its owner before it is laundered out of the world data. `0` keeps stolen goods forever; goods are never expired out from under a thief who is still mugging or fleeing. |
 
 Set the threshold in `config/mcacrime-common.toml` on the server (or in your singleplayer
 instance), under `[criminalJobs.thief]`. Pack authors can ship that same common config. The
@@ -461,10 +479,10 @@ sentence like any other arrest.
 | `bailCostPerMinute` | `4` | `0 … 100000` | Emeralds per remaining real minute. Priced on what is left, not the original sentence, and rounded up so a sliver of a minute is never free. |
 | `bailMinServedFraction` | `0.25` | `0.0 … 1.0` | How much of the sentence must already be served before bail is offered. `0.0` lets a sentence be bought out the instant it starts. |
 | `maxCaptivityRealMinutes` | `360` | `1 … 100000` | Hard ceiling, in real online minutes, on how long any player may be held — jailed or kidnapped. This is the softlock backstop: it force-releases regardless of anchor, dimension, or chunk state. |
-| `jailContainmentMode` | `CONTAINMENT` | `CONTAINMENT`, `PHYSICAL`, `REINFORCED` | How jail resists escape. **Snapshotted at the moment of jailing**, so changing this mid-sentence cannot surprise a prisoner. |
+| `jailContainmentMode` | `CONTAINMENT` | `CONTAINMENT`, `PHYSICAL`, `REINFORCED` | How jail resists escape. **Snapshotted at the moment of jailing**, so changing this mid-sentence cannot surprise a prisoner. One rule sits above the mode: once a generated cell's padlock has been picked, detached or unlocked, walking out of that cell is an escape in every mode, because the door was the containment and it has been defeated. |
 | `maxJailCommandTicks` | `72000` | `1 … 100000000` | Upper clamp on a `/crime jail` sentence, in online ticks. 72000 is one online hour. |
 | `jailRadiusDefault` | `8` | `1 … 64` | Default jail-region radius for `/crime assignjail` and the fallback. |
-| `buildHoldingCell` | `true` | — | **This is the temporary-jail switch.** When no jail anchor is assigned and no fallback is configured, build a small iron-bar holding cell near the arrest and take it down again on release, restoring every block it replaced. It gates the only code path in the mod that places a block, so turning it off means the mod builds nothing, anywhere, ever. Player-built and `/crime assignjail` jails keep working exactly as before. See below for what happens to an arrest with nowhere to go. |
+| `buildHoldingCell` | `true` | — | **This is the temporary-jail switch.** When no jail anchor is assigned and no fallback is configured, build a small holding cell near the arrest — reinforced stone and reinforced bars around a cell door that faces the arrest, held shut by a padlock the mod hangs itself — and take it down again on release, restoring every block it replaced. The padlock can be picked, from outside or through the door; a prisoner who then walks out has escaped and the cell comes down without a release (see `jailContainmentMode`). It gates the only code path in the mod that places a block, so turning it off means the mod builds nothing, anywhere, ever. Player-built and `/crime assignjail` jails keep working exactly as before. See below for what happens to an arrest with nowhere to go. |
 | `holdingCellSearchRadius` | `24` | `4 … 96` | How far from the arrest to look for ground clear enough to build a cell on. A site is rejected outright if it contains any block entity, any fluid, or anything that is not air, replaceable foliage, or plain terrain. |
 | `holdingCellLifetimeTicks` | `1728000` | `1200 … 100000000` | Hard ceiling on how long a built cell may stand (24000 = one Minecraft day). The leak guard: a player arrested and never seen again would otherwise leave a cage in a village for the life of the save. |
 | `sentenceBaseTicks` | `1200` | `0 … 100000000` | Fixed part of a sentence, in online ticks (1200 = one online minute). |
@@ -524,6 +542,25 @@ confrontation screen against somebody already being arrested — which is what t
 
 Payment is allocated **oldest case first**, so the ledger afterwards records which offences were
 answered for. Charges are atomic: a failed charge takes nothing.
+
+## `[bounty]`
+
+| Option | Default | Range | What it does |
+|---|---|---|---|
+| `baseBounty` | `8` | `0 … 1000000` | What a freshly Wanted outlaw is worth before their record is counted. |
+| `minBounty` | `1` | `0 … 1000000` | Floor on the payout. A bounty worth nothing is a bounty nobody hunts. |
+| `maxBounty` | `128` | `0 … 1000000` | Ceiling on the payout, so a career criminal is not a jackpot. |
+| `severityRewardScale` | `2.0` | `0.0 … 100.0` | Multiplier on the Heat of the target's unresolved cases. |
+| `fineRewardShare` | `0.25` | `0.0 … 1.0` | Fraction of the target's outstanding fines folded into the price. |
+| `repeatOffenderBonus` | `4` | `0 … 100000` | Added per warrant already closed against the target. |
+| `payForKills` | `true` | — | Whether killing a bounty-eligible outlaw pays. |
+| `payForAliveCapture` | `true` | — | Whether taking a bounty-eligible outlaw alive pays. This is also the switch that makes restraining one a citizen's arrest rather than a kidnapping. |
+| `killMultiplier` | `1.0` | `0.0 … 10.0` | Multiplier applied to a kill payout. |
+| `aliveCaptureMultiplier` | `1.25` | `0.0 … 10.0` | Alive is worth more than dead by default, which is the reason the restraint and jail mechanics are worth a hunter's trouble. |
+| `karmaReward` | `2` | `0 … 50` | Karma granted to the claimant. Bounty hunting is lawful work. |
+| `redBandEligible` | `false` | — | Whether a Red-band player with no Wanted status can carry a bounty. Off by default: a reputation is not a warrant. |
+| `claimRetentionDays` | `30` | `1 … 3650` | In-game days a paid claim is remembered before it is forgotten. |
+| `deliveryRadius` | `4.0` | `1.0 … 16.0` | How close a hunter holding an outlaw must bring them to a guard for the arrest to count as a delivery. |
 
 ## `[surrender]`
 
@@ -836,6 +873,41 @@ and profession death drops.
 | `strictJsonValidation` | `false` | — | Treat any malformed or unknown crime JSON as a hard error rather than falling back to the built-in definitions. Useful while authoring a datapack; risky on a live server. |
 | `debugLogging` | `false` | — | Verbose DEBUG for MCA access failures, witness selection, custody transitions, and delivery outcomes. Never one line per tick. |
 
+## `[mask]`
+
+| Option | Default | Range | What it does |
+|---|---|---|---|
+| `maskEnabled` | `true` | — | Master switch for masks. Off leaves them as ordinary wearables with no legal effect. |
+| `maskSuppressesHeat` | `true` | — | Crimes committed while masked apply 0 Heat. Karma still applies immediately: what a player did is not in question, only whether anybody can say who did it. |
+| `maskDefersHeat` | `true` | — | Suppressed Heat is parked against the player and lands all at once if a witness sees the mask come off, or at jail intake. Off voids it instead. |
+| `maskHidesIdentityFromWitnesses` | `true` | — | Masked crimes write no identity-attributed villager observation or victim memory, and no responder files one on the spot. Only that attribution is hidden: the victim and any bystanders still react in real time. |
+| `maskedPursuitTicks` | `1200` | `0 … 432000` | How long a responder who witnessed a masked crime keeps hunting the figure they saw, in online ticks. `0` disables masked pursuit entirely. |
+| `maskedOffenderLethalForce` | `false` | — | Whether masked pursuit on its own authorises lethal force, or only subdual. |
+| `maskSuppressesRedBandTargeting` | `false` | — | While masked, the Red-band legal-target term does not apply. Being Wanted is never suppressed this way. |
+| `guardsChallengeMaskWearers` | `false` | — | Guards challenge anyone they see wearing a mask, with no crime behind it. A challenge only: the guard walks over and asks, and it never authorises force on its own. |
+| `maskedHeatExpiryTicks` | `0` | `0 … 1000000000` | Deferred Heat older than this many online ticks is dropped. `0` means it never lapses. |
+| `maskRemovalWitnessRadius` | `12.0` | `0.0 … 64.0` | Block radius of the witness scan run when a mask comes off. `0` means an unmask is never seen, which leaves deferred Heat parked indefinitely. |
+| `maskDurabilityEnabled` | `true` | — | Off makes masks take no damage from wear. |
+
+## `[maskStation]`
+
+| Option | Default | Range | What it does |
+|---|---|---|---|
+| `enableMaskStationCrafting` | `true` | — | Master switch for station crafting. Off closes any open station menu at the next tick and hands the inputs back; the block, its recipes and its worksite claim are untouched. |
+| `enableMaskRestyling` | `true` | — | Whether a mask can be remade as another style of the same family. Off hides every restyle recipe from the catalogue; ordinary crafting is unaffected. |
+
+## `[sandBottle]`
+
+| Option | Default | Range | What it does |
+|---|---|---|---|
+| `enableSandBottles` | `true` | — | Master switch. Off stops new throws immediately; a bottle already in flight stops applying anything and discards itself, ammunition already spent is not refunded, and an effect already running finishes normally. |
+| `sandCooldownTicks` | `80` | `0 … 1200` | Ticks between throws, shared across every Sand Bottle stack and both hands. |
+| `sandDirectDurationTicks` | `80` | `1 … 200` | How long a directly struck target is blinded, in ticks. |
+| `sandSplashDurationTicks` | `40` | `0 … 200` | The most a splash victim at the centre of the burst is blinded for, falling off linearly to nothing at the rim. Should not exceed `sandDirectDurationTicks`. |
+| `sandRadius` | `2.0` | `0.0 … 4.0` | Splash radius in blocks. `0` leaves only the directly struck target. |
+| `sandRecoveryTicks` | `60` | `1 … 1200` | After the effect ends or is cured, how long sand cannot take hold on that target again — from any thrower, which is what stops two players alternating bottles. |
+| `sandAffectsPlayers` | `false` | — | Whether sand can blind other players. The server's own PvP setting and team friendly-fire rules are still obeyed when this is on; catching yourself in your own splash is never PvP and always possible. |
+
 ## `[integrations]`
 
 Every setting here is a no-op when the companion mod is absent.
@@ -845,6 +917,7 @@ Every setting here is a no-op when the companion mod is absent.
 | `enableReputation` | `true` | — | Record community standing through MCA: Reputation when it is installed, instead of the built-in per-village store. **With this off, MCA: Reputation keeps detecting villager assault and killing itself** — there is never a state where both record the same deed, or neither does. |
 | `mirrorReputationFallback` | `true` | — | After Reputation commits a standing change, copy the resulting score into the built-in store. Costs nothing, and means uninstalling Reputation later does not reset every player to a stranger. |
 | `suppressLocalVillagePenalty` | `true` | — | Skip the built-in village penalty for crimes Reputation is recording canonically. **Turning this off applies both, which double-counts every witnessed crime.** |
+| `locksReforgedFenceTrades` | `true` | — | Let fences stock Locks Reforged locks, picks and keys when that mod is installed. A no-op without it. Since 0.7.5 this is the whole of the Locks Reforged integration: lockpicking is native and no longer routes through that mod. |
 | `replayPendingOperations` | `true` | — | Retry cross-mod writes that were queued but not delivered — after a crash, or while a companion was uninstalled. Off strands pending work indefinitely. |
 | `pumpIntervalTicks` | `100` | `20 … 12000` | How often the delivery queue is checked. |
 | `pumpBudgetPerTick` | `8` | `1 … 128` | How many queued writes may be delivered in one pass. |
@@ -852,6 +925,9 @@ Every setting here is a no-op when the companion mod is absent.
 | `retryBaseDelayTicks` | `200` | `20 … 24000` | First retry delay; doubles on each failure. Must not exceed the maximum. |
 | `retryMaxDelayTicks` | `24000` | `20 … 1728000` | Ceiling on the retry delay. |
 | `dedupeRetentionTicks` | `168000` | `1200 … 1728000` | How long a completed transaction is remembered so a replay of it changes nothing. Long-lived case-to-incident links live on the record itself and never expire; this only covers the replay window for one-off mutations. |
+| `currencyId` | `mcacrime:emerald` | string | Which registered currency fines, bail, ransom, theft and bounties are paid in. Built in: `mcacrime:emerald`, `mcacrime:item` (the item named by `currencyItem`, one item to one unit) and `mcacrime:numismatic` (the Numismatic Overhaul purse, in bronze, offered only when that mod is installed). Economy mods register their own ids through `McaCrimeApi.registerCurrency`; an unregistered id falls back to emeralds with one warning rather than taking the economy offline. |
+| `currencyItem` | `minecraft:emerald` | string | The item `mcacrime:item` pays in, as a registry id. Only paid in when `currencyId` is `mcacrime:item`; validated regardless. An unknown or absent item falls back to emeralds with one warning. |
+| `mcaQuestsBounties` | `true` | — | Publish open bounties as MCA: Quests contracts when that mod is installed. A bounty is paid once whichever route claims it. |
 
 A companion that is not installed yet is a *delay*, and the write is retried. A payload the companion
 actively rejects is *not* retried, because a thousand retries would bury the one log line an operator
@@ -914,6 +990,267 @@ but `enabled` false, any `[townstead]` switch still left on is reported too — 
 anything until `enabled` is true. With Townstead **absent**, no capability is ever reported as
 missing; the two ordering checks above are pure number checks and still apply.
 
+## The physical restraint system (0.7.5)
+
+Everything from here to `[sentencing.capitalPunishment]` is new in 0.7.5, when MCA: Crime absorbed
+the Cuffed feature set as native code. Two rules run through all of it:
+
+- **Physical is not legal.** These groups decide what is on somebody's body, what they are tied to
+  and which device holds them. They never decide who is in custody, under what sentence, for which
+  case — that stays in `[jail]`, `[kidnapping]`, `[ransom]` and `[enforcement]`. Removing a restraint
+  is not a release; opening a cell door is not a pardon.
+- **The server owns every outcome.** No durability delta, lockpick result or search transfer is ever
+  taken from a client packet.
+
+## `[restraints]`
+
+| Option | Default | Range | What it does |
+|---|---|---|---|
+| `preset` | `CUFFED_PARITY` | `CUFFED_PARITY`, `BALANCED_VILLAGE` | Which tuning this server wants for the physical restraint system. See *The two presets* below. A preset is never imposed silently. |
+| `appliedPreset` | `CUFFED_PARITY` | string | The preset this config was last written from. Managed automatically, so a preset is applied once rather than overwriting an operator's own edits at every load. |
+| `maxConcurrentSessions` | `64` | `1 … 4096` | How many restraint, lockpicking and frisking sessions run at once. At the cap a new session is refused, never an existing one evicted — evicting would make a busy server a way to interrupt other players. |
+| `sessionTimeoutTicks` | `200` | `20 … 24000` | How long a session may go without input before the server drops it. Sessions are never saved. |
+
+### The two presets
+
+`CUFFED_PARITY` is the default and is the shipped behaviour: immediate application, independent
+head/arms/legs slots, durability carried by the worn instance rather than the source item, keys,
+native lockpicking, chains, fixed anchors, furniture and every item functioning, with low-health
+gating **off**.
+
+`BALANCED_VILLAGE` is the opt-in alternative: it adds an application duration, vulnerability
+requirements before a subject can be restrained, stricter permissions for capturing players, and
+non-destructive lock picking.
+
+**One deliberate exception.** `CUFFED_PARITY` holds `lockpicking.destructiveOutcome` = `true`, while
+the shipped default for that key is `false`. The shipped defaults are therefore this preset apart
+from that one key: destroying a player's safe is not an outcome anybody should arrive at by
+accident, so it stays off until an operator asks for parity. Selecting `CUFFED_PARITY`
+explicitly — that is, switching back to it from `BALANCED_VILLAGE` — turns destructive picking on,
+which is what asking for parity means.
+
+A preset is never applied silently. Nothing is rewritten while `preset` matches `appliedPreset`;
+changing `preset` rewrites exactly the keys that preset owns, once, and names every change in the
+log with its old and new value. Editing one of those keys afterwards is respected — the preset is
+not re-applied until `preset` changes again.
+
+A config file whose `appliedPreset` marker is **blank** — a fresh file, or one an operator has
+hand-blanked — is left alone when the requested preset is the shipped default: the shipped defaults
+already *are* `CUFFED_PARITY` apart from `destructiveOutcome`, so auto-applying the default preset
+over a blank marker would move that key behind the operator's back. An explicitly chosen
+non-default preset still applies over a blank marker, because selecting it is the act.
+
+## `[restraints.definitions]`
+
+Durability is **struggle work the worn restraint withstands, in accepted struggle inputs**, not item
+damage: it lives on the worn instance, so two prisoners never share one counter.
+
+| Option | Default | Range | What it does |
+|---|---|---|---|
+| `durabilityHandcuffs` | `40` | `1 … 4096` | Work a pair of handcuffs withstands. |
+| `durabilityShackles` | `15` | `1 … 4096` | Work shackles withstand. |
+| `durabilityDuckTapeArms` | `5` | `1 … 4096` | Work arm tape withstands. |
+| `durabilityDuckTapeLegs` | `5` | `1 … 4096` | Work leg tape withstands; configured independently of the arm value. |
+| `durabilityDuckTapeHead` | `5` | `1 … 4096` | Work head tape withstands. |
+| `durabilityBundleHood` | `5` | `1 … 4096` | Work a bundle hood withstands. |
+| `headTapeMufflesTextChat` | `false` | — | Whether a head restraint also silences typed chat. Off by default: a gag is about voice, and taking away a player's ability to say "let me out" is a moderation problem, not a mechanic. |
+
+## `[restraints.application]`
+
+| Option | Default | Range | What it does |
+|---|---|---|---|
+| `allowSelfApplication` | `true` | — | Whether a subject may restrain themselves. A self-applied restraint is never a kidnapping and files no case. |
+| `channelTicks` | `0` | `0 … 6000` | How long applying a restraint to somebody else takes. `0` is instant, the shipped parity behaviour; `BALANCED_VILLAGE` sets `60`. |
+| `maxRangeBlocks` | `4.0` | `0.5 … 64.0` | How far away a subject may be when a restraint is applied. |
+| `requireLineOfSight` | `true` | — | Whether application needs line of sight to the subject. |
+| `lowHealthFraction` | `0.35` | `0.0 … 1.0` | What counts as "low health" for the `low_health` gate, as a fraction of maximum health. Only consulted when that gate is listed below. |
+| `vulnerabilityGates` | *(empty)* | list of `low_health`, `sleeping`, `unconscious`, `already_restrained`, `surrendered`, `detained` | Conditions a subject must meet before a restraint can be applied. Empty is parity: nothing is gated. |
+
+## `[restraints.escape]`
+
+| Option | Default | Range | What it does |
+|---|---|---|---|
+| `minWorkIntervalTicks` | `4` | `1 … 200` | Minimum ticks between two accepted struggle inputs — the floor a hold-to-struggle accessibility binding hits, so an auto-clicker gains nothing over a human. |
+| `maxInputsPerSecond` | `5` | `1 … 100` | Per-player ceiling on struggle packets considered in one second, counting refused ones, so a spamming client costs a bounded amount of work. |
+| `returnsWornItem` | `true` | — | Whether removing a restraint gives its item back. System-issued gear returns nothing whatever this says. |
+| `dropItemWhenBroken` | `false` | — | Whether a restraint struggled to pieces still drops its item. Off, so struggling free is not the cheapest way to keep a spare pair. |
+
+## `[transport]`
+
+| Option | Default | Range | What it does |
+|---|---|---|---|
+| `maxChainLength` | `5.0` | `1.0 … 64.0` | How far a tethered subject may get before the tether pulls them back. |
+| `overextensionLength` | `12.0` | `1.0 … 128.0` | How far past the anchor a subject may be dragged before suspension damage starts. Must be greater than `maxChainLength`; `/crime validate` refuses any other ordering. |
+| `guardTransportHarmless` | `true` | — | Whether a lawful escort's tether refuses to injure the prisoner it is walking. |
+| `suspensionDamagePerTick` | `2.0` | `0.0 … 20.0` | Damage per tick past `overextensionLength`, through `mcacrime:hang`. Attributed to whoever holds the other end, never to the victim. |
+| `anchorOnlyWhenRestrained` | `false` | — | Whether a chain may only be attached to an already restrained subject. |
+| `allowFenceAnchors` | `true` | — | Whether a chain may be tied to a fence. |
+| `allowTripwireHookAnchors` | `true` | — | Whether a chain may be tied to a tripwire hook. |
+| `maxTethersPerHolder` | `8` | `1 … 64` | How many subjects one holder may lead at once. |
+| `forcedMountingEnabled` | `true` | — | Whether a holder may put the subject they are leading into a seat, boat, mount or bunk. Off leaves every mount voluntary. |
+
+## `[detention]`
+
+| Option | Default | Range | What it does |
+|---|---|---|---|
+| `pilloryBreakoutTransitions` | `100` | `0 … 10000` | How many crouch transitions break a pillory open from the inside. `0` disables breaking out; stale-occupancy cleanup runs either way. |
+| `guillotineEnabled` | `true` | — | Whether the guillotine may carry out an authorised execution at all. Off leaves the block placeable and usable as a restraint device that never takes a life. |
+| `guillotineDropsHead` | `true` | — | Whether an executed player's head drops at the device. A non-player victim never fabricates a player head. |
+| `guillotineActivationDelayTicks` | `5` | `1 … 200` | Ticks between the blade being released and the blow landing. Persisted, so an unload inside the window neither cancels nor repeats it. |
+| `bunkSetsRespawn` | `true` | — | Whether sleeping in a bunk sets the sleeper's respawn point. The previous point is restored on release only while this system still owns the override. |
+
+## `[locks]`
+
+| Option | Default | Range | What it does |
+|---|---|---|---|
+| `maxKeysPerRing` | `16` | `1 … 64` | How many keys one key ring holds. Lowering this never erases keys from a fuller ring; it refuses further additions until the ring is back within the limit. |
+| `foreignLockPolicy` | `REFUSE` | `REFUSE`, `IGNORE` | What to do when another lock mod already owns the target. `REFUSE` declines to be the second lock on one block — two independent access checks on one chest is how a player gets locked out of their own container. |
+| `lockAutomationPolicy` | `BLOCK_ALL` | `BLOCK_ALL`, `ALLOW_INSERT`, `ALLOW_ALL` | What automation may do to a locked container. Checked on every operation, so a handler fetched while the safe was open stops working the moment it is locked. |
+| `protectLockedBlocksFromBreaking` | `true` | — | Whether a locked block resists being broken by hand. |
+| `protectLockedBlocksFromExplosions` | `true` | — | Whether a locked block survives explosions. |
+| `protectLockedBlocksFromPistons` | `true` | — | Whether a locked block refuses to be pushed or pulled. |
+| `allowPadlockReinforcement` | `true` | — | Whether a padlock can be reinforced with an item from `mcacrime:can_reinforce_padlock`. Reinforcement only makes a lock harder to pick; it is never impossible. |
+
+## `[lockpicking]`
+
+Native, server-owned, and needs neither Cuffed nor Locks Reforged installed.
+
+| Option | Default | Range | What it does |
+|---|---|---|---|
+| `enabled` | `true` | — | Master switch. Off leaves keys as the only way through a lock. |
+| `drainPerTickDivisor` | `200` | `20 … 4000` | The divisor in the per-tick meter drain. Larger is slower and therefore easier. |
+| `minAttemptIntervalTicks` | `2` | `1 … 100` | Minimum ticks between two accepted alignment attempts; an automated client cannot beat this floor. |
+| `windowBelowDegrees` | `10.0` | `0.5 … 180.0` | How far below the phase target an alignment still counts. |
+| `windowAboveDegrees` | `5.0` | `0.5 … 180.0` | How far above it counts. The window is deliberately asymmetric, and both halves are configurable as an accessibility setting. |
+| `maxRangeBlocks` | `5.0` | `1.0 … 32.0` | How far a picker may drift from what they are picking before the session ends. |
+| `destructiveOutcome` | `false` | — | What a successful pick does to a door or a safe. `false` unlocks it, which is the default; `true` reproduces the source outcome and destroys the block, a safe moving its contents out exactly once first. Padlocks and restraints are unaffected either way: picking those removes the lock and leaves the block or the prisoner intact. This is the one key the shipped defaults hold differently from the `CUFFED_PARITY` preset (`restraints.preset`) — it is off until an operator asks for parity. |
+
+## `[frisking]`
+
+A search opens from the crime menu on a restrained subject. What it takes goes to the searcher's
+own inventory, or into the property escrow when a lawful search seals it as evidence; a take the
+inventory cannot hold whole is refused and stays where it was.
+
+| Option | Default | Range | What it does |
+|---|---|---|---|
+| `maxRangeBlocks` | `5.0` | `1.0 … 16.0` | How far the searcher may get from the subject before the search ends. Re-checked every tick, not only when the menu opens. |
+| `sessionTimeoutTicks` | `1200` | `20 … 24000` | How long a frisk session may stay open with no accepted transfer. |
+| `transferIntervalTicks` | `5` | `0 … 200` | Minimum ticks between two accepted transfers. The delay is server-owned: a disabled button on a client is not enforcement. |
+| `requiresArmRestraint` | `true` | — | Whether the subject's arms must be restrained before they can be searched. |
+| `lawfulSeizureToEscrow` | `true` | — | Whether a lawful search's seizures are recorded in the property escrow, so they come back when custody ends. |
+
+## `[prison]`
+
+| Option | Default | Range | What it does |
+|---|---|---|---|
+| `safeSlots` | `36` | `9 … 54` | How many slots a safe holds, rounded down to a multiple of nine. Lowering it never destroys stored items: the surplus is kept and simply not shown until the size goes back up. |
+| `reinforcedBreakingPolicy` | `PICKAXE_QUALIFIED` | `PICKAXE_QUALIFIED`, `HARD_CONTAINMENT` | How reinforced blocks resist being taken apart. `PICKAXE_QUALIFIED`: ordinary blocks that need an iron pickaxe and a long time. `HARD_CONTAINMENT`: a subject in custody cannot break one at all; anybody else still can. Nothing here is unbreakable. |
+| `reinforcedResistsExplosions` | `true` | — | Whether an explosion may remove a reinforced block. |
+| `reinforcedResistsPistons` | `true` | — | Whether a piston may push or pull a reinforced block. |
+| `reinforcedAuthorisedRemovalOnly` | `false` | — | Whether only an operator or a facility-authorised actor may break a reinforced block. Off: this is a survival building set, not a protection plugin. |
+
+## `[enchantments]`
+
+| Option | Default | Range | What it does |
+|---|---|---|---|
+| `allowed` | `imbue, famine, shroud, exhaust, silence` | list of those five names | Which of the five restraint enchantments may be applied at all. A name removed here stops being offered, applicable and effective — but an item already carrying it still loads and can still be removed, because disabling a mechanic must never make saved data undeserialisable. |
+| `maxLevelImbue` | `1` | `1 … 5` | Maximum level of Imbue. Every level is clamped to this before any arithmetic reads it. |
+| `maxLevelFamine` | `1` | `1 … 5` | Maximum level of Famine. |
+| `maxLevelShroud` | `1` | `1 … 5` | Maximum level of Shroud. |
+| `maxLevelExhaust` | `1` | `1 … 5` | Maximum level of Exhaust. |
+| `maxLevelSilence` | `1` | `1 … 5` | Maximum level of Silence. |
+| `effectDurationTicks` | `100` | `20 … 1200` | How long one applied Famine, Shroud or Exhaust instance lasts. Re-offered each second while the enchanted restraint is worn, so a foreign instance of the same effect is never stomped or shortened. |
+| `effectAmplifier` | `1` | `0 … 4` | The amplifier those instances carry. |
+| `manaDrainPerTick` | `0.005` | `0.0 … 1.0` | Share of a Silenced subject's maximum spell pool drained per tick, per level. With no supported spell mod installed nothing drains and the startup log says so. |
+| `imbueTransferPerLevel` | `0.2666` | `0.0 … 1.0` | Share of the captor's damage each level of Imbue moves onto the prisoners they hold. |
+| `imbueMaxTransferFraction` | `0.8` | `0.0 … 1.0` | Ceiling on that share whatever the level, so no configuration turns a prison into immortality. |
+| `imbueMaxRecipients` | `8` | `1 … 64` | How many distinct prisoners may share one transfer. The budget does not grow with the number of recipients: more prisoners means a smaller share each, never more damage. |
+
+## `[compatibility]`
+
+| Option | Default | Range | What it does |
+|---|---|---|---|
+| `cuffedCoexistence` | `WARN` | `WARN`, `REFUSE` | What to do when the Cuffed mod — the mod this release absorbs — is installed alongside. `WARN` logs one startup line and proceeds. `REFUSE` additionally stops MCA: Crime applying new restraints; removal, recovery and loading existing ones stay enabled, because a disabled mechanic must still let an operator get equipment off somebody. No Cuffed data is read, cleared or disabled either way. |
+| `optionalAdaptersEnabled` | `true` | — | Master switch for every optional-mod adapter. Off leaves the mods installed and binds nothing. |
+| `reportAdapterVersions` | `true` | — | Whether the startup log names each installed optional mod, its version and what MCA: Crime does about it. |
+
+## `[sentencing.capitalPunishment]`
+
+The **only** capital offence is killing a guard. Nothing escalates automatically: no other offence
+qualifies, no timer, circuit, packet or scheduled task ever carries a sentence out, and execution is
+always a deliberate act at a guillotine by a player or an on-duty guard. With no usable guillotine
+the condemned simply stays in custody. `enabled = false` switches the whole feature off.
+
+| Option | Default | Range | What it does |
+|---|---|---|---|
+| `enabled` | `true` | — | Master switch for the whole feature. Off leaves the guillotine a usable device that never receives a lawful execution order. |
+| `guardKillingIsCapital` | `true` | — | The only offence gate there is. Off means no offence qualifies and every sentence is custodial, whatever the Heat, charge count or band. |
+| `npcOffendersEligible` | `false` | — | Whether a villager offender may be capitally sentenced at all. Off by default: an NPC arrest has no player in the loop. |
+| `executionDelayTicks` | `1200` | `0 … 72000` | The ceremony window between arming the device and the blade — the rescue and pardon window. Clemency, rescue, escape, guard death, device destruction or a chunk unload inside it returns the condemned to custody, never to freedom. |
+| `condemnedEscortTimeoutTicks` | `2400` | `20 … 216000` | How long a guard may spend walking a condemned captive to a device before giving up and returning them to a cell. The captive stays condemned and stays held; only the walk ends. |
+| `guardMayExecute` | `true` | — | Whether an on-duty enforcement guard may carry out a sentence. Off leaves execution to players only. |
+| `executionSiteSearchRadius` | `48` | `8 … 128` | How far a guard looks for an assigned execution site. A site is an explicit facility assignment, never a guillotine somebody happened to place. |
+| `requiresExecutionDevice` | `true` | — | Whether a capital sentence needs a real device. May only be `false` while `enabled` is `false`; `/crime validate` refuses any other combination, because a capital sentence with no device requirement is an automatic death. |
+| `refuseRansom` | `true` | — | A capital captive cannot be ransomed; the demand is refused with its own reason rather than quoting a price nobody may accept. |
+| `refuseBail` | `true` | — | A capital sentence has no bail price. A fine never clears a capital case either way. |
+| `dropPossessionsOnExecution` | `true` | — | Whether the possessions held in escrow for the condemned spill at the device. Off banks them instead. |
+
+`executionDelayTicks` must be at or below `condemnedEscortTimeoutTicks`, and both must be finite and
+non-negative. `/crime validate` reports any violation.
+
+## Retired in 0.7.5
+
+These keys no longer exist. Their values are **not** migrated: `ForgeConfigSpec` drops them from an
+existing `.toml` on rewrite, and `ConfigValidator` reads the raw files at startup, names every
+survivor it finds with its replacement, and does **not** fail the load. Set the replacement yourself
+if you had tuned the old key.
+
+| Retired key | Section | Replacement |
+|---|---|---|
+| `captureChannelTicks` | `[kidnapping]` | `restraints.application.channelTicks` |
+| `captureMaxMoveBlocks` | `[kidnapping]` | no equivalent — an application is decided once, not channelled at a distance |
+| `captureMaxRangeBlocks` | `[kidnapping]` | `restraints.application.maxRangeBlocks` |
+| `captureRequireLineOfSight` | `[kidnapping]` | `restraints.application.requireLineOfSight` |
+| `captureLowHealthFraction` | `[kidnapping]` | `restraints.application.lowHealthFraction` |
+| `villagerCaptureRelaxedVulnerability` | `[kidnapping]` | `restraints.application.vulnerabilityGates` — an empty gate list gates nothing, the same way |
+| `captureChannelMultiplierRope` | `[kidnapping]` | `restraints.application.channelTicks` — one duration for every restraint |
+| `captureChannelMultiplierCuffs` | `[kidnapping]` | `restraints.application.channelTicks` |
+| `captureChannelMultiplierLockedCuffs` | `[kidnapping]` | `restraints.application.channelTicks` |
+| `restraintEscapeChanceRope` | `[kidnapping]` | `restraints.definitions.durabilityDuckTapeArms` — escape is work against durability, not a roll |
+| `restraintEscapeChanceCuffs` | `[kidnapping]` | `restraints.definitions.durabilityShackles` |
+| `restraintEscapeChanceLockedCuffs` | `[kidnapping]` | `restraints.definitions.durabilityHandcuffs` |
+| `captiveTetherBlocks` | `[kidnapping]` | no equivalent in 0.7.5 — the hold is a tether record, not a radius |
+| `captiveCanEscapeByDistance` | `[kidnapping]` | `[restraints.escape]` — a captive struggles out, rather than walking out |
+| `escapeWorkTicksRope` | `[kidnapping]` | `restraints.definitions.durabilityDuckTapeArms` |
+| `escapeWorkTicksCuffs` | `[kidnapping]` | `restraints.definitions.durabilityShackles` |
+| `escapeWorkTicksLockedCuffs` | `[kidnapping]` | `restraints.definitions.durabilityHandcuffs` |
+| `cuffEscapeRequiresLockpick` | `[kidnapping]` | `lockpicking.enabled` — picking is native now; otherwise a key or a cutting tool |
+| `escapeAttemptCooldownTicks` | `[kidnapping]` | `restraints.escape.minWorkIntervalTicks` |
+| `renderCuffs` | `[client]` | `client.renderWornRestraints` (the worn models) and `client.hudRestraintPanel` (the panel) |
+| `renderEscortRope` | `[client]` | `client.renderTether` |
+
+### Renamed before release
+
+Thirteen 0.7.5 keys were renamed during development so that no key repeats the name of its own
+section. They are new in this unreleased version, so **no existing config file is affected**; the
+list is here only for anyone who followed the release along.
+
+| Earlier spelling | Final key |
+|---|---|
+| `restraints.application.applicationChannelTicks` | `restraints.application.channelTicks` |
+| `restraints.application.applicationMaxRangeBlocks` | `restraints.application.maxRangeBlocks` |
+| `restraints.application.applicationRequireLineOfSight` | `restraints.application.requireLineOfSight` |
+| `restraints.escape.escapeMinWorkIntervalTicks` | `restraints.escape.minWorkIntervalTicks` |
+| `restraints.escape.escapeMaxInputsPerSecond` | `restraints.escape.maxInputsPerSecond` |
+| `restraints.escape.escapeReturnsWornItem` | `restraints.escape.returnsWornItem` |
+| `lockpicking.enableLockpicking` | `lockpicking.enabled` |
+| `lockpicking.lockpickDrainPerTickDivisor` | `lockpicking.drainPerTickDivisor` |
+| `lockpicking.lockpickMinAttemptIntervalTicks` | `lockpicking.minAttemptIntervalTicks` |
+| `lockpicking.lockpickWindowBelowDegrees` | `lockpicking.windowBelowDegrees` |
+| `lockpicking.lockpickWindowAboveDegrees` | `lockpicking.windowAboveDegrees` |
+| `lockpicking.lockpickMaxRangeBlocks` | `lockpicking.maxRangeBlocks` |
+| `lockpicking.lockpickDestructiveOutcome` | `lockpicking.destructiveOutcome` |
+
 ## Client — `[client]`
 
 | Option | Default | Range | What it does |
@@ -930,12 +1267,17 @@ missing; the two ordering checks above are pure number checks and still apply.
 | `hudStatusIndicator` | `true` | — | Heat and Wanted status. Draws nothing at all when you have neither. |
 | `hudCustodyIndicator` | `true` | — | Remaining jail sentence or captivity time, counted down continuously and shown as `1m 42s remaining`. The client runs its own clock between the server's periodic resyncs, so the number moves every tick without a packet every tick; the server remains the only thing that decides when a sentence actually ends. |
 | `renderRestraintPose` | `true` | — | Pose a restrained player's arms behind their back. Drawn by a client-only mixin a dedicated server never loads. Presentation only: turning it off changes nothing the server knows or allows. |
-| `renderCuffs` | `true` | — | Draw cuffs on a restrained player's wrists. Parented to the arms, so they sit correctly with or without the pose above. |
-| `renderEscortRope` | `true` | — | Draw the lead between an escorting guard and their prisoner. Cosmetic: it is drawn from mod state rather than a real leash, because a vanilla lead cannot be attached to a player. |
+| `hudRestraintPanel` | `true` | — | Show the restraint panel: what is physically worn, how far a struggle has got, and which escape actions are available. |
+| `renderWornRestraints` | `true` | — | Draw the worn restraint models — cuffs, shackles, tape and hood — on a restrained body. Presentation only: a hidden restraint restricts exactly as much as a drawn one. |
+| `renderTether` | `true` | — | Draw the tether between whoever is holding somebody — an escorting guard, a captor, a chain anchor — and the subject. Cosmetic: it is drawn from mod state rather than a real leash, because a vanilla lead cannot be attached to a player. |
 | `hudAnchor` | `BOTTOM_LEFT` | `TOP_LEFT`, `TOP_CENTER`, `TOP_RIGHT`, `CENTER_LEFT`, `CENTER_RIGHT`, `BOTTOM_LEFT`, `BOTTOM_CENTER`, `BOTTOM_RIGHT` | Anchor for one combined Heat/Sentence panel. BOTTOM_LEFT fits below chat and left of the hotbar; other bottom anchors clear the health rows (and the channel bar at BOTTOM_CENTER). |
 | `hudLayoutVersion` | `0` → `1` | `0 … 1` | Managed migration marker. On first load, the former TOP_LEFT default at offsets 4/4 becomes BOTTOM_LEFT. Custom anchor/offset combinations survive. |
 | `hudOffsetX` | `4` | `-4096 … 4096` | Horizontal nudge inward from the anchored edge — right from a left anchor, left from a right one. Clamped so an element never leaves the screen. |
 | `hudOffsetY` | `4` | `-4096 … 4096` | Vertical nudge inward from the anchored edge — down from a top anchor, up from a bottom one. Clamped the same way. |
+| `crimeButtonAnchor` | `BOTTOM` | `BOTTOM`, `TOP_RIGHT` | Where the Crime button sits on MCA's interaction screen. `BOTTOM` measures MCA's own widgets and drops in underneath them; `TOP_RIGHT` is the corner placement used before 0.5.1, kept for MCA builds whose panel reaches the bottom of the screen. |
+| `showNpcMuggingHud` | `true` | — | Show the bar and the hint line while a thief is mugging you. Presentation only — with it off the mugging still runs, and drawing a weapon still stops it. |
+| `maskHidesNameTag` | `true` | — | Hide the nameplate of a player wearing a mask. Presentation only: the server still knows who they are. |
+| `sandParticles` | `NORMAL` | `NORMAL`, `REDUCED`, `OFF` | How much dust a sand burst throws up. Presentation only: a blinded NPC is exactly as blind either way. |
 
 The default panel stays below vanilla chat, including its queued-message strip, and beside the hotbar.
 Sentence shares the same panel as Heat, with no reserved empty Heat row when Heat is hidden. On small
@@ -966,3 +1308,52 @@ A few coherent configurations rather than a list of switches:
 - **Suite standing without suite double-counting.** With MCA: Reputation installed, leave
   `enableReputation`, `mirrorReputationFallback`, and `suppressLocalVillagePenalty` all at their
   defaults. Changing the third is the one that quietly doubles every penalty.
+
+## `[villageJustice]`
+
+| Option | Default | Range | What it does |
+|---|---|---|---|
+| `enablePlayerReports` | `true` | boolean | Permit server-evidenced player reports to nearby responders; observations must also be enabled. |
+| `enableCrimeNews` | `true` | boolean | Optional relevant digests through MCA's native mailbox, subject to its mailing switch and personal subscription. |
+| `crimeNewsIntervalDays` | `1` | `1 … 30` | Monotonic Minecraft days between nonempty combined editions. |
+| `crimeNewsMaxStories` | `4` | `1 … 8` | Stories per edition, also bounded by four pages and 2,000 serialized text characters. |
+| `thiefDefenseGraceTicks` | `1200` | `0 … 240000` | Strict-mode identified robbery evidence window; custody ends eligibility immediately. |
+| `thiefCombatPolicy` | `ALL_THIEVES` | `NORMAL_LAW`, `EVIDENCE_REQUIRED`, `ALL_THIEVES` | Combat blame policy. All-Thieves includes free Thieves after serving a sentence; children, guards, unresolved roles and restrained prisoners remain protected. It creates neither report evidence nor rewards. |
+
+## Per-world game rules
+
+Set `mcaCrimeUseWorldRules` in Create World → Game Rules, or with `/gamerule` during play.
+It defaults to **false**, preserving every existing server COMMON setting. When true, **all 17 mapped
+settings** use stored world-rule values, including values equal to shipped defaults. Switching back
+to false preserves those stored overrides. Client config never controls server gameplay.
+
+`/crime rules import` copies all validated mapped COMMON values and enables overrides in one batch.
+Use it when converting a configured existing world. `/crime rules defaults` explicitly resets the
+mapped values to shipped defaults and enables overrides. Both require vanilla permission level 2;
+`/crime rules status` shows effective values and source without changing anything.
+
+| Rule | Default | Legal values / mapped config |
+|---|---|---|
+| `mcaCrimeDetection` | true | `enableCrimeDetection` |
+| `mcaCrimeObservations` | true | `enableObservations` |
+| `mcaCrimeThieves` | true | `enableThieves` |
+| `mcaCrimeNpcMugging` | true | `enableNpcMugging` |
+| `mcaCrimeSeriousNpcCrime` | false | `enableNpcCrime` |
+| `mcaCrimePvpCrime` | false | `pvpCountsAsCrime` |
+| `mcaCrimeRequireWitnessForHeat` | true | `requireWitnessForHeat` |
+| `mcaCrimePlayerReports` | true | `enablePlayerReports` |
+| `mcaCrimeThiefCombatPolicy` | 2 | 0 normal law; 1 evidence required; 2 all eligible Thieves |
+| `mcaCrimeNews` | true | `enableCrimeNews` |
+| `mcaCrimeNewsIntervalDays` | 1 | 1–30 |
+| `mcaCrimeNewsMaxStories` | 4 | 1–8, subject to page/text bounds |
+| `mcaCrimeThiefMugCooldownTicks` | 24000 | 0–240000 |
+| `mcaCrimePlayerMugProtectionTicks` | 36000 | 0–1728000 |
+| `mcaCrimeMaxMuggingsPerDay` | 2 | 0–64; zero means unlimited |
+| `mcaCrimeThiefJailTicks` | 12000 | 200–240000 |
+| `mcaCrimeThiefProtectHotbar` | true | `thiefProtectHotbar` |
+
+Out-of-range editor/NBT/API integers normalize to the nearest legal bound; `/gamerule` rejects them
+through bounded integer arguments. Changes affect new actions and grants. Existing sentence and
+protection deadlines retain their assigned durations. Disabling mugging terminates uncommitted
+threats safely; disabling reporting invalidates offers and preserves accepted reports. Turning news
+off stops optional delivery and avoids a backlog burst when reenabled.

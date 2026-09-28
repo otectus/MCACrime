@@ -153,21 +153,26 @@ public final class CustodyCareService {
             return false;
         }
         Supply supply = supplies.get(slot);
-        ItemStack stack = supply.container().getItem(supply.slot());
-        if (stack.isEmpty()) {
+        ItemStack stack = supply.peek().get();
+        if (stack == null || stack.isEmpty()) {
             return false;
         }
         Boolean started = TownsteadBridge.feedInCustody(prisoner, stack, supply.pos()).orElse(Boolean.FALSE);
         if (!Boolean.TRUE.equals(started)) {
             return false;
         }
-        supply.container().removeItem(supply.slot(), 1);
-        supply.container().setChanged();
+        supply.consumeOne().run();
         return true;
     }
 
-    /** One consumable in one container inside the cell. */
-    private record Supply(Container container, int slot, BlockPos pos, boolean food, boolean drink) {
+    /**
+     * One consumable inside the cell, and the two operations custody needs on it.
+     *
+     * <p>A pair of callbacks rather than a {@code Container} and a slot, so a source that is not a
+     * container can be added later without making it something a hopper could feed and empty.
+     */
+    private record Supply(BlockPos pos, boolean food, boolean drink,
+                          java.util.function.Supplier<ItemStack> peek, Runnable consumeOne) {
     }
 
     /**
@@ -198,7 +203,13 @@ public final class CustodyCareService {
                         boolean food = stack.isEdible();
                         boolean drink = isDrink(stack);
                         if (food || drink) {
-                            supplies.add(new Supply(container, slot, pos, food, drink));
+                            final int taken = slot;
+                            supplies.add(new Supply(pos.immutable(), food, drink,
+                                    () -> container.getItem(taken),
+                                    () -> {
+                                        container.removeItem(taken, 1);
+                                        container.setChanged();
+                                    }));
                         }
                     }
                 }

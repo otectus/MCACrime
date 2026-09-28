@@ -23,105 +23,180 @@ Machine-generated map of this mod. Read this first when picking the project up.
 ```
 dev.otectus.mcacrime                                 2 files
 dev.otectus.mcacrime.action                          25 files
-dev.otectus.mcacrime.action.handler                  18 files
+dev.otectus.mcacrime.action.handler                  20 files
 dev.otectus.mcacrime.activity                        4 files
 dev.otectus.mcacrime.ai                              16 files
 dev.otectus.mcacrime.ai.thief                        10 files
-dev.otectus.mcacrime.api                             1 file
-dev.otectus.mcacrime.api.event                       23 files
-dev.otectus.mcacrime.api.model                       12 files
+dev.otectus.mcacrime.api                             4 files
+dev.otectus.mcacrime.api.event                       31 files
+dev.otectus.mcacrime.api.jurisdiction                3 files
+dev.otectus.mcacrime.api.model                       19 files
 dev.otectus.mcacrime.api.result                      1 file
-dev.otectus.mcacrime.audio                           1 file
-dev.otectus.mcacrime.block                           2 files
+dev.otectus.mcacrime.audio                           2 files
+dev.otectus.mcacrime.block                           7 files
+dev.otectus.mcacrime.block.entity                    8 files
+dev.otectus.mcacrime.block.prison                    11 files
 dev.otectus.mcacrime.bounty                          9 files
-dev.otectus.mcacrime.captivity                       20 files
-dev.otectus.mcacrime.civic                           9 files
-dev.otectus.mcacrime.client                          21 files
-dev.otectus.mcacrime.client.hud                      3 files
+dev.otectus.mcacrime.captivity                       10 files
+dev.otectus.mcacrime.civic                           10 files
+dev.otectus.mcacrime.client                          24 files
+dev.otectus.mcacrime.client.hud                      4 files
 dev.otectus.mcacrime.client.render                   4 files
-dev.otectus.mcacrime.client.screen                   11 files
+dev.otectus.mcacrime.client.render.mask              3 files
+dev.otectus.mcacrime.client.render.restraint         3 files
+dev.otectus.mcacrime.client.screen                   16 files
 dev.otectus.mcacrime.client.screen.widget            3 files
-dev.otectus.mcacrime.command                         2 files
-dev.otectus.mcacrime.compat                          38 files
-dev.otectus.mcacrime.compat.locksreforged            2 files
-dev.otectus.mcacrime.compat.mca                      2 files
+dev.otectus.mcacrime.command                         3 files
+dev.otectus.mcacrime.compat                          45 files
+dev.otectus.mcacrime.compat.inventory                1 file
+dev.otectus.mcacrime.compat.locksreforged            1 file
+dev.otectus.mcacrime.compat.mana                     1 file
+dev.otectus.mcacrime.compat.mca                      4 files
 dev.otectus.mcacrime.compat.mca.client               1 file
 dev.otectus.mcacrime.compat.mcaquests                2 files
 dev.otectus.mcacrime.compat.numismatic               1 file
 dev.otectus.mcacrime.compat.reputation               1 file
+dev.otectus.mcacrime.compat.revive                   1 file
 dev.otectus.mcacrime.compat.townstead                3 files
 dev.otectus.mcacrime.compat.townstead.client         1 file
-dev.otectus.mcacrime.config                          1 file
+dev.otectus.mcacrime.config                          5 files
 dev.otectus.mcacrime.crime                           3 files
 dev.otectus.mcacrime.crime.type                      6 files
 dev.otectus.mcacrime.detect                          17 files
+dev.otectus.mcacrime.detention                       5 files
 dev.otectus.mcacrime.dialogue                        6 files
 dev.otectus.mcacrime.economy                         17 files
 dev.otectus.mcacrime.economy.account                 6 files
 dev.otectus.mcacrime.economy.fence                   12 files
-dev.otectus.mcacrime.effect                          9 files
-dev.otectus.mcacrime.enforcement                     45 files
+dev.otectus.mcacrime.effect                          11 files
+dev.otectus.mcacrime.enchantment                     9 files
+dev.otectus.mcacrime.enforcement                     41 files
 dev.otectus.mcacrime.engine                          3 files
-dev.otectus.mcacrime.entity                          2 files
+dev.otectus.mcacrime.entity                          4 files
 dev.otectus.mcacrime.event                           3 files
 dev.otectus.mcacrime.facility                        7 files
+dev.otectus.mcacrime.frisk                           16 files
 dev.otectus.mcacrime.incident                        4 files
 dev.otectus.mcacrime.integration                     9 files
 dev.otectus.mcacrime.item                            11 files
 dev.otectus.mcacrime.item.contraband                 4 files
+dev.otectus.mcacrime.item.creative                   4 files
+dev.otectus.mcacrime.item.lock                       6 files
+dev.otectus.mcacrime.item.restraint                  1 file
+dev.otectus.mcacrime.item.tool                       1 file
 dev.otectus.mcacrime.item.weapon                     7 files
 dev.otectus.mcacrime.jail                            16 files
 dev.otectus.mcacrime.job                             26 files
-dev.otectus.mcacrime.justice                         2 files
-dev.otectus.mcacrime.ledger                          12 files
+dev.otectus.mcacrime.justice                         5 files
+dev.otectus.mcacrime.ledger                          15 files
+dev.otectus.mcacrime.lockpick                        6 files
+dev.otectus.mcacrime.locks                           14 files
 dev.otectus.mcacrime.loot                            3 files
 dev.otectus.mcacrime.mask                            7 files
 dev.otectus.mcacrime.memory                          17 files
-dev.otectus.mcacrime.menu                            7 files
-dev.otectus.mcacrime.mixin                           7 files
+dev.otectus.mcacrime.menu                            10 files
+dev.otectus.mcacrime.mixin                           13 files
 dev.otectus.mcacrime.mixin.client                    1 file
+dev.otectus.mcacrime.mixin.mca                       4 files
 dev.otectus.mcacrime.mixin.townstead                 5 files
 dev.otectus.mcacrime.mixin.townstead.client          1 file
 dev.otectus.mcacrime.mug                             1 file
 dev.otectus.mcacrime.mug.npc                         12 files
-dev.otectus.mcacrime.network                         29 files
+dev.otectus.mcacrime.network                         46 files
+dev.otectus.mcacrime.news                            2 files
 dev.otectus.mcacrime.property                        15 files
 dev.otectus.mcacrime.ransom                          8 files
 dev.otectus.mcacrime.recipe                          8 files
+dev.otectus.mcacrime.recipe.lock                     8 files
 dev.otectus.mcacrime.relationship                    5 files
+dev.otectus.mcacrime.report                          6 files
+dev.otectus.mcacrime.restraint                       41 files
+dev.otectus.mcacrime.stat                            2 files
 dev.otectus.mcacrime.state                           5 files
 dev.otectus.mcacrime.state.world                     13 files
+dev.otectus.mcacrime.tether                          11 files
 dev.otectus.mcacrime.util                            3 files
 ```
 
-## Registered content (15 entries)
+## Registered content (75 entries)
 
-### Blocks (1)
+### Blocks (14)
 
 | id | field | type | declared in |
 |---|---|---|---|
+| `bunk` | `BUNK` | `Block` | src/main/java/dev/otectus/mcacrime/block/CrimeBlocks.java |
+| `cell_door` | `CELL_DOOR` | `Block` | src/main/java/dev/otectus/mcacrime/block/CrimeBlocks.java |
+| `chiseled_reinforced_stone` | `CHISELED_REINFORCED_STONE` | `Block` | src/main/java/dev/otectus/mcacrime/block/CrimeBlocks.java |
+| `guillotine` | `GUILLOTINE` | `Block` | src/main/java/dev/otectus/mcacrime/block/CrimeBlocks.java |
 | `mask_station` | `MASK_STATION` | `Block` | src/main/java/dev/otectus/mcacrime/block/CrimeBlocks.java |
+| `pillory` | `PILLORY` | `Block` | src/main/java/dev/otectus/mcacrime/block/CrimeBlocks.java |
+| `reinforced_bars` | `REINFORCED_BARS` | `Block` | src/main/java/dev/otectus/mcacrime/block/CrimeBlocks.java |
+| `reinforced_bars_gap` | `REINFORCED_BARS_GAP` | `Block` | src/main/java/dev/otectus/mcacrime/block/CrimeBlocks.java |
+| `reinforced_lamp` | `REINFORCED_LAMP` | `Block` | src/main/java/dev/otectus/mcacrime/block/CrimeBlocks.java |
+| `reinforced_smooth_stone` | `REINFORCED_SMOOTH_STONE` | `Block` | src/main/java/dev/otectus/mcacrime/block/CrimeBlocks.java |
+| `reinforced_stone` | `REINFORCED_STONE` | `Block` | src/main/java/dev/otectus/mcacrime/block/CrimeBlocks.java |
+| `reinforced_stone_slab` | `REINFORCED_STONE_SLAB` | `Block` | src/main/java/dev/otectus/mcacrime/block/CrimeBlocks.java |
+| `reinforced_stone_stairs` | `REINFORCED_STONE_STAIRS` | `Block` | src/main/java/dev/otectus/mcacrime/block/CrimeBlocks.java |
+| `safe` | `SAFE` | `Block` | src/main/java/dev/otectus/mcacrime/block/CrimeBlocks.java |
 
-### Items (5)
+### Items (30)
 
 | id | field | type | declared in |
 |---|---|---|---|
+| `baked_key_mold` | `BAKED_KEY_MOLD` | `Item` | src/main/java/dev/otectus/mcacrime/item/CrimeItems.java |
+| `bunk` | `BUNK` | `Item` | src/main/java/dev/otectus/mcacrime/item/CrimeItems.java |
+| `cell_door` | `CELL_DOOR` | `Item` | src/main/java/dev/otectus/mcacrime/item/CrimeItems.java |
+| `chiseled_reinforced_stone` | `CHISELED_REINFORCED_STONE` | `Item` | src/main/java/dev/otectus/mcacrime/item/CrimeItems.java |
+| `creative_bind_breaker` | `CREATIVE_BIND_BREAKER` | `Item` | src/main/java/dev/otectus/mcacrime/item/CrimeItems.java |
+| `creative_key` | `CREATIVE_KEY` | `Item` | src/main/java/dev/otectus/mcacrime/item/CrimeItems.java |
+| `creative_restraint_cutter` | `CREATIVE_RESTRAINT_CUTTER` | `Item` | src/main/java/dev/otectus/mcacrime/item/CrimeItems.java |
+| `duck_tape` | `DUCK_TAPE` | `Item` | src/main/java/dev/otectus/mcacrime/item/CrimeItems.java |
+| `guillotine` | `GUILLOTINE` | `Item` | src/main/java/dev/otectus/mcacrime/item/CrimeItems.java |
+| `handcuffs_key` | `HANDCUFFS_KEY` | `Item` | src/main/java/dev/otectus/mcacrime/item/CrimeItems.java |
+| `key` | `KEY` | `Item` | src/main/java/dev/otectus/mcacrime/item/CrimeItems.java |
+| `key_mold` | `KEY_MOLD` | `Item` | src/main/java/dev/otectus/mcacrime/item/CrimeItems.java |
+| `key_ring` | `KEY_RING` | `Item` | src/main/java/dev/otectus/mcacrime/item/CrimeItems.java |
+| `lockpick` | `LOCKPICK` | `Item` | src/main/java/dev/otectus/mcacrime/item/CrimeItems.java |
 | `mask_station` | `MASK_STATION` | `Item` | src/main/java/dev/otectus/mcacrime/item/CrimeItems.java |
+| `padlock` | `PADLOCK` | `Item` | src/main/java/dev/otectus/mcacrime/item/CrimeItems.java |
+| `pillory` | `PILLORY` | `Item` | src/main/java/dev/otectus/mcacrime/item/CrimeItems.java |
+| `reinforced_bars` | `REINFORCED_BARS` | `Item` | src/main/java/dev/otectus/mcacrime/item/CrimeItems.java |
+| `reinforced_bars_gap` | `REINFORCED_BARS_GAP` | `Item` | src/main/java/dev/otectus/mcacrime/item/CrimeItems.java |
+| `reinforced_lamp` | `REINFORCED_LAMP` | `Item` | src/main/java/dev/otectus/mcacrime/item/CrimeItems.java |
+| `reinforced_smooth_stone` | `REINFORCED_SMOOTH_STONE` | `Item` | src/main/java/dev/otectus/mcacrime/item/CrimeItems.java |
+| `reinforced_stone` | `REINFORCED_STONE` | `Item` | src/main/java/dev/otectus/mcacrime/item/CrimeItems.java |
+| `reinforced_stone_slab` | `REINFORCED_STONE_SLAB` | `Item` | src/main/java/dev/otectus/mcacrime/item/CrimeItems.java |
+| `reinforced_stone_stairs` | `REINFORCED_STONE_STAIRS` | `Item` | src/main/java/dev/otectus/mcacrime/item/CrimeItems.java |
 | `restraint_cuffs` | `RESTRAINT_CUFFS` | `Item` | src/main/java/dev/otectus/mcacrime/item/CrimeItems.java |
 | `restraint_locked_cuffs` | `RESTRAINT_LOCKED_CUFFS` | `Item` | src/main/java/dev/otectus/mcacrime/item/CrimeItems.java |
 | `restraint_rope` | `RESTRAINT_ROPE` | `Item` | src/main/java/dev/otectus/mcacrime/item/CrimeItems.java |
+| `safe` | `SAFE` | `Item` | src/main/java/dev/otectus/mcacrime/item/CrimeItems.java |
 | `sand_bottle` | `SAND_BOTTLE` | `Item` | src/main/java/dev/otectus/mcacrime/item/CrimeItems.java |
+| `shackles_key` | `SHACKLES_KEY` | `Item` | src/main/java/dev/otectus/mcacrime/item/CrimeItems.java |
 
-### Entities (1)
+### Block entities (5)
 
 | id | field | type | declared in |
 |---|---|---|---|
+| `bunk` | `BUNK` | `BlockEntityType<BunkBlockEntity>` | src/main/java/dev/otectus/mcacrime/block/entity/CrimeBlockEntities.java |
+| `cell_door` | `CELL_DOOR` | `BlockEntityType<LockableBlockEntity>` | src/main/java/dev/otectus/mcacrime/block/entity/CrimeBlockEntities.java |
+| `guillotine` | `GUILLOTINE` | `BlockEntityType<GuillotineBlockEntity>` | src/main/java/dev/otectus/mcacrime/block/entity/CrimeBlockEntities.java |
+| `pillory` | `PILLORY` | `BlockEntityType<PilloryBlockEntity>` | src/main/java/dev/otectus/mcacrime/block/entity/CrimeBlockEntities.java |
+| `safe` | `SAFE` | `BlockEntityType<SafeBlockEntity>` | src/main/java/dev/otectus/mcacrime/block/entity/CrimeBlockEntities.java |
+
+### Entities (3)
+
+| id | field | type | declared in |
+|---|---|---|---|
+| `chain_knot` | `CHAIN_KNOT` | `EntityType<ChainKnotEntity>` | src/main/java/dev/otectus/mcacrime/entity/CrimeEntities.java |
+| `padlock` | `PADLOCK` | `EntityType<PadlockEntity>` | src/main/java/dev/otectus/mcacrime/entity/CrimeEntities.java |
 | `sand_bottle` | `SAND_BOTTLE` | `EntityType<SandBottleProjectile>` | src/main/java/dev/otectus/mcacrime/entity/CrimeEntities.java |
 
-### Menus / GUIs (1)
+### Menus / GUIs (2)
 
 | id | field | type | declared in |
 |---|---|---|---|
+| `frisking` | `FRISKING` | `MenuType<FriskingMenu>` | src/main/java/dev/otectus/mcacrime/menu/CrimeMenus.java |
 | `mask_station` | `MASK_STATION` | `MenuType<MaskStationMenu>` | src/main/java/dev/otectus/mcacrime/menu/CrimeMenus.java |
 
 ### Creative tabs (1)
@@ -130,10 +205,23 @@ dev.otectus.mcacrime.util                            3 files
 |---|---|---|---|
 | `crime` | `TAB` | `CreativeModeTab` | src/main/java/dev/otectus/mcacrime/item/CrimeItems.java |
 
-### Mob effects (1)
+### Sounds (7)
 
 | id | field | type | declared in |
 |---|---|---|---|
+| `block.guillotine.arm` | `GUILLOTINE_ARM` | `SoundEvent` | src/main/java/dev/otectus/mcacrime/audio/CrimeSoundEvents.java |
+| `block.guillotine.use` | `GUILLOTINE_USE` | `SoundEvent` | src/main/java/dev/otectus/mcacrime/audio/CrimeSoundEvents.java |
+| `block.pillory.use` | `PILLORY_USE` | `SoundEvent` | src/main/java/dev/otectus/mcacrime/audio/CrimeSoundEvents.java |
+| `block.safe.close` | `SAFE_CLOSE` | `SoundEvent` | src/main/java/dev/otectus/mcacrime/audio/CrimeSoundEvents.java |
+| `block.safe.open` | `SAFE_OPEN` | `SoundEvent` | src/main/java/dev/otectus/mcacrime/audio/CrimeSoundEvents.java |
+| `restraint.apply_handcuffs` | `RESTRAINT_APPLY_HANDCUFFS` | `SoundEvent` | src/main/java/dev/otectus/mcacrime/audio/CrimeSoundEvents.java |
+| `restraint.apply_shackles` | `RESTRAINT_APPLY_SHACKLES` | `SoundEvent` | src/main/java/dev/otectus/mcacrime/audio/CrimeSoundEvents.java |
+
+### Mob effects (2)
+
+| id | field | type | declared in |
+|---|---|---|---|
+| `restrained` | `RESTRAINED` | `MobEffect` | src/main/java/dev/otectus/mcacrime/effect/CrimeEffects.java |
 | `sand_blinded` | `SAND_BLINDED` | `MobEffect` | src/main/java/dev/otectus/mcacrime/effect/CrimeEffects.java |
 
 ### Recipe types (1)
@@ -142,10 +230,16 @@ dev.otectus.mcacrime.util                            3 files
 |---|---|---|---|
 | `mask_making` | `MASK_MAKING` | `RecipeType<MaskMakingRecipe>` | src/main/java/dev/otectus/mcacrime/recipe/CrimeRecipes.java |
 
-### Recipe serializers (1)
+### Recipe serializers (7)
 
 | id | field | type | declared in |
 |---|---|---|---|
+| `baked_key_mold_copy` | `BAKED_KEY_MOLD_COPY` | `RecipeSerializer<BakedKeyMoldCopyRecipe>` | src/main/java/dev/otectus/mcacrime/recipe/CrimeRecipes.java |
+| `key_mold_bake` | `KEY_MOLD_BAKE` | `RecipeSerializer<KeyMoldBakeRecipe>` | src/main/java/dev/otectus/mcacrime/recipe/CrimeRecipes.java |
+| `key_mold_copy` | `KEY_MOLD_COPY` | `RecipeSerializer<KeyMoldCopyRecipe>` | src/main/java/dev/otectus/mcacrime/recipe/CrimeRecipes.java |
+| `key_ring_add` | `KEY_RING_ADD` | `RecipeSerializer<KeyRingAddRecipe>` | src/main/java/dev/otectus/mcacrime/recipe/CrimeRecipes.java |
+| `key_ring_create` | `KEY_RING_CREATE` | `RecipeSerializer<KeyRingCreateRecipe>` | src/main/java/dev/otectus/mcacrime/recipe/CrimeRecipes.java |
+| `key_ring_disassemble` | `KEY_RING_DISASSEMBLE` | `RecipeSerializer<KeyRingDisassembleRecipe>` | src/main/java/dev/otectus/mcacrime/recipe/CrimeRecipes.java |
 | `mask_making` | `MASK_MAKING_SERIALIZER` | `RecipeSerializer<MaskMakingRecipe>` | src/main/java/dev/otectus/mcacrime/recipe/CrimeRecipes.java |
 
 ### Villager Profession (2)
@@ -169,25 +263,23 @@ _No datagen providers detected — assets and data JSON are hand-written._
 
 | kind | count |
 |---|---|
-| blockstates | 1 |
-| block models | 1 |
-| item models | 21 |
-| block textures | 4 |
-| item textures | 20 |
-| recipes | 7 |
-| block loot tables | 1 |
-| block tags | 0 |
-| item tags | 12 |
+| blockstates | 14 |
+| block models | 57 |
+| item models | 50 |
+| block textures | 25 |
+| item textures | 37 |
+| recipes | 38 |
+| block loot tables | 14 |
+| block tags | 2 |
+| item tags | 15 |
 | biome modifiers | 0 |
 | lang files | en_us.json |
+
+Also: `sounds.json` present.
 
 Run `check_mod.py` for a full consistency check (missing models, lang keys, textures).
 
 <!-- MODMAP:AUTO:END — everything below is hand-maintained and preserved -->
-
-
-
-
 
 
 
@@ -242,10 +334,11 @@ _Bugs you know about but have not fixed, with the symptom and any lead._
   either, because `TownsteadMixinPlugin` refuses to apply them. It also asserts that nothing at all
   names a Townstead mixin, and adds `com/aetherianartificer/townstead/` to the forbidden internal
   package roots. Adding a class to `compat/townstead/` means updating its expectations.
-- Two mixin configs: `mcacrime.mixins.json` (required, vanilla-only, 8 mixins including the
-  client one) and `mcacrime.townstead.mixins.json` (`required: false`, `defaultRequire 0`,
-  plugin-gated, 3 common + 1 client). Both are listed in the jar manifest's `MixinConfigs`.
-  `MixinConfigTest` checks side separation and registration across both;
+- Three mixin configs: `mcacrime.mixins.json` (required, vanilla-only, 12 mixins: 11 common and the
+  one client pose mixin), `mcacrime.townstead.mixins.json` (`required: false`, `defaultRequire 0`,
+  plugin-gated, 4 common + 1 client) and `mcacrime.mca.mixins.json` (optional, descriptor-gated native
+  justice/mail layer; MCA targets as dotted strings). All three are listed in the jar manifest's
+  `MixinConfigs`. `MixinConfigTest` checks side separation and registration across them;
   `NoTownsteadStaticLinkTest` and `TownsteadMixinTargetTest` cover the Townstead rules.
 - New packages: `activity/` (enforcement claims and what they refuse), `facility/` (civic facilities,
   roles, assignments, cell reservations, custody-care policy) and `civic/` (the read-only village
@@ -276,3 +369,34 @@ _Bugs you know about but have not fixed, with the symptom and any lead._
   `com.aetherianartificer.townstead.storage.StorageSearchContext#isProtectedStorage`. It is what makes
   `storage_policy` reportable at all — the capability was `unavailable` in 0.7.3.
 - Support matrix and known limits for this release: `docs/0.7.4/TOWNSTEAD.md`.
+
+## 0.7.5 notes (hand-maintained)
+
+- The physical restraint system is its own layer and does not live in `captivity/`. `restraint/` owns
+  what is on a body (definitions, slots, application, removal, struggle, restrictions, sessions),
+  `tether/` owns holds and transport, `lockpick/`, `locks/`, `frisk/`, `detention/`, `enchantment/`
+  and `stat/` own the rest of the transferred Cuffed feature set, and
+  `restraint/CustodyTransitionService` is the only bridge between any of them and the legal side.
+- `captivity/` is now legal custody only. `captivity/RestraintType` survives as a deprecated
+  projection for `EntityKidnappedEvent` and `CustodyView` and is never authoritative or persisted.
+- Config: the §3.12 groups are `restraints` (+`definitions`, `application`, `escape`), `transport`,
+  `detention`, `locks`, `lockpicking`, `frisking`, `prison`, `enchantments`, `compatibility` and
+  `sentencing.capitalPunishment`. A key never repeats its own section name
+  (`restraints.application.channelTicks`, not `applicationChannelTicks`), which
+  `config/ConfigGroupCoverageTest` enforces for those groups. `restraints.preset` picks between
+  `CUFFED_PARITY` (shipped) and `BALANCED_VILLAGE`; `config/RestraintPresets` owns both tables and is
+  the only thing that writes them, once, logging every key it moves.
+- Nineteen physical `kidnapping.*` keys and the two client keys `renderCuffs` and `renderEscortRope`
+  are retired. Values are not migrated: `ConfigValidator.RETIRED_KEYS` reports any survivor found in
+  a server's own `.toml` at startup, with its replacement, and never fails the load.
+- A common-config reload cancels every live restraint, lockpicking and frisking session
+  (`restraint/SessionReloadPolicy`, `SessionCancelCause.CONFIG_RELOADED`). Tethers are persistent
+  state rather than sessions and read their numbers live, so they are not touched.
+- World data is schema 16 and the network protocol is `"18"`.
+- Trimmed before release: bandage, knife, fork, spoon, prisoner tag, possessions box, fuzzy handcuffs,
+  meal tray, poster, warden's guide, weighted anchor and toilet, together with the wound, excavation,
+  identity/consent and Buoyant systems that existed only for them. Frisking stays and opens from the
+  crime menu (`action/handler/FriskActionHandler`), seizing into the searcher's inventory or the
+  property escrow. Keys, key rings, key molds, padlocks, the safe, the cell door and lockpicking stay.
+  `docs/0.7.5/CUFFED_INTEGRATION.md` records the dropped set.
+- Stage records for the 0.7.5 work: `docs/0.7.5/`.

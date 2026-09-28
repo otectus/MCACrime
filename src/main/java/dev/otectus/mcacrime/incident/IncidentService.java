@@ -26,6 +26,7 @@ import dev.otectus.mcacrime.state.CrimeCapabilities;
 import dev.otectus.mcacrime.state.world.CrimeWorldData;
 import dev.otectus.mcacrime.state.world.ServerMutationGate;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.LivingEntity;
@@ -36,6 +37,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
+import java.util.TreeSet;
 import java.util.Set;
 import java.util.UUID;
 
@@ -119,10 +121,11 @@ public final class IncidentService {
                 ? witnesses == null ? WitnessResult.none() : witnesses
                 : WitnessChecker.resolve(level, offender, victim, awareness);
         var c = McaCrimeConfig.COMMON;
+        var worldSettings = dev.otectus.mcacrime.config.CrimeWorldSettings.resolve(level);
         long karma = karmaOverride != null ? karmaOverride
                 : CrimeDetector.karmaFor(type, effective.witnessed(), c.unwitnessedKarmaFactor.get());
         long heat = heatOverride != null ? heatOverride
-                : CrimeDetector.heatFor(type, effective.witnessed(), c.requireWitnessForHeat.get());
+                : CrimeDetector.heatFor(type, effective.witnessed(), worldSettings.requireWitnessForHeat());
         // A mask is decided once, here, and the decision is what the rest of the tail reads. The record
         // keeps the full Heat; only the number handed to applyIncident becomes 0, so nothing downstream
         // has to know the difference between a crime that was cheap and a crime that was hidden.
@@ -197,6 +200,38 @@ public final class IncidentService {
                     IncidentNotifications.post(new NpcCrimeCommittedEvent(offender.getUUID(), record.victim(),
                             crimeId, incidentId, incidentId));
                 });
+    }
+
+    /**
+     * Finalizes a visible NPC threat from its server-authored boundary snapshot. No entity rescan is
+     * involved, so unload, death, a changed mask, or a moved victim cannot rewrite the attempted case.
+     */
+    public static Optional<CrimeRecordView> commitNpcSnapshot(ServerLevel level, UUID incidentId,
+            UUID offenderId, UUID victimId, ResourceLocation crimeId, ResourceLocation dimension,
+            BlockPos location, long observedAt, @Nullable CrimeCommunityKey authority,
+            Set<UUID> capturedWitnesses, String detection, Set<CrimeFlag> flags) {
+        if (!available(level) || incidentId == null || offenderId == null || victimId == null
+                || crimeId == null || dimension == null || location == null
+                || CrimeTypeRegistry.getOrBuiltin(crimeId).isEmpty()) return Optional.empty();
+        Set<UUID> witnesses = new TreeSet<>();
+        witnesses.add(victimId);
+        if (capturedWitnesses != null) witnesses.addAll(capturedWitnesses);
+        Map<String, String> context = new LinkedHashMap<>();
+        context.put(CrimeContext.DETECTION, detection == null ? "npc_snapshot" : detection);
+        context.put(CrimeContext.OFFENDER_KIND, "npc");
+        context.put(CrimeContext.VICTIM_ROLE, "player");
+        context.put(CrimeContext.FLAGS, CrimeFlag.encode(flags == null || flags.isEmpty()
+                ? java.util.EnumSet.noneOf(CrimeFlag.class) : java.util.EnumSet.copyOf(flags)));
+        context.putAll(IncidentContext.at(dimension, location).provenance());
+        OptionalInt village = authority == null ? OptionalInt.empty()
+                : OptionalInt.of(authority.villageId());
+        CrimeRecord record = new CrimeRecord(incidentId, offenderId, victimId, crimeId, village, authority,
+                true, witnesses, observedAt, 0, 0, 0, 0, Resolution.UNRESOLVED, 0, List.of(), null, context);
+        return commitPrepared(CrimeWorldData.get(level.getServer()), record, () -> {}, () -> {}, () -> {
+            IncidentNotifications.safely(() -> CrimeIntegrationHooks.onCommitted(level.getServer(), record.view()));
+            IncidentNotifications.post(new NpcCrimeCommittedEvent(offenderId, victimId,
+                    crimeId, incidentId, incidentId));
+        });
     }
 
     /** A paid ransom is an audit fact; capture already applied its Karma/Heat and private effects. */

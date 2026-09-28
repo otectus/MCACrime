@@ -19,6 +19,11 @@ public final class BuiltinCrimeTypes {
         put(new CrimeType(CrimeIds.HARM_VILLAGER, -10L, 15L, 1.0, "villager"));
         put(new CrimeType(CrimeIds.KILL_VILLAGER, -50L, 40L, 1.0, "villager"));
         put(new CrimeType(CrimeIds.ASSAULT_GUARD, -15L, 25L, 1.0, "guard"));
+        // 0.7.5 §3.19. Heavier than killing an ordinary villager and heavier than a mugging murder:
+        // the victim class is "guard", so a datapack can reweigh it on its own, and the id is what the
+        // capital-sentence gate reads. The weights move Karma and Heat like any other killing; nothing
+        // about a capital sentence is automatic and no number here can produce one.
+        put(new CrimeType(CrimeIds.KILL_GUARD, -80L, 60L, 1.0, "guard"));
         put(new CrimeType(CrimeIds.JAILBREAK, -20L, 30L, 1.0, ""));
         put(new CrimeType(CrimeIds.KIDNAP, -40L, 35L, 1.0, "villager"));
         put(new CrimeType(CrimeIds.THEFT, -8L, 12L, 1.0, "villager"));

@@ -113,6 +113,13 @@ public final class CrimeCommand {
     private static void register(CommandDispatcher<CommandSourceStack> dispatcher) {
         dispatcher.register(Commands.literal("crime")
                 .then(RecoveryCommand.tree())
+                .then(dev.otectus.mcacrime.command.CrimeRulesCommand.build())
+                .then(Commands.literal("report").executes(c -> dev.otectus.mcacrime.report.PlayerCrimeReportService.openTargetedFromCommand(c.getSource().getPlayerOrException())))
+                .then(Commands.literal("reports").executes(c -> dev.otectus.mcacrime.report.PlayerCrimeReportService.openReports(c.getSource().getPlayerOrException())))
+                .then(Commands.literal("news")
+                        .then(Commands.literal("on").executes(c -> dev.otectus.mcacrime.news.CrimeNewsService.preference(c.getSource().getPlayerOrException(), true)))
+                        .then(Commands.literal("off").executes(c -> dev.otectus.mcacrime.news.CrimeNewsService.preference(c.getSource().getPlayerOrException(), false)))
+                        .then(Commands.literal("status").executes(c -> dev.otectus.mcacrime.news.CrimeNewsService.status(c.getSource().getPlayerOrException()))))
                 .then(Commands.literal("collectbounty").executes(ctx -> BountyService.collect(ctx.getSource().getPlayerOrException())))
                 .then(Commands.literal("karma")
                         .executes(CrimeCommand::karma))
@@ -288,8 +295,69 @@ public final class CrimeCommand {
                                 .requires(src -> src.hasPermission(3))
                                 .then(Commands.argument("contract", StringArgumentType.word())
                                         .executes(CrimeCommand::serviceCancel))))
+                // The physical engine's operator commands (0.7.5 §3.14, M6.5). Inspection at level 2,
+                // every mutating form at level 3. None of them is a release: taking a restraint off
+                // with /crime restraint remove pardons nobody, and /crime release still means the
+                // legal thing it always meant.
+                .then(Commands.literal("restraint")
+                        .then(Commands.literal("inspect")
+                                .requires(src -> src.hasPermission(2))
+                                .then(Commands.argument("target", EntityArgument.entity())
+                                        .executes(CrimeCommand::restraintInspect)))
+                        .then(Commands.literal("apply")
+                                .requires(src -> src.hasPermission(3))
+                                .then(Commands.argument("target", EntityArgument.entity())
+                                        .then(Commands.argument("definition", StringArgumentType.word())
+                                                .executes(CrimeCommand::restraintApply))))
+                        .then(Commands.literal("remove")
+                                .requires(src -> src.hasPermission(3))
+                                .then(Commands.argument("target", EntityArgument.entity())
+                                        .then(Commands.argument("slot", StringArgumentType.word())
+                                                .executes(CrimeCommand::restraintRemove)))))
+                .then(Commands.literal("anchor")
+                        .requires(src -> src.hasPermission(3))
+                        .then(Commands.literal("set")
+                                .then(Commands.argument("target", EntityArgument.entity())
+                                        .then(Commands.argument("holder", EntityArgument.entity())
+                                                .executes(CrimeCommand::anchorSet))))
+                        .then(Commands.literal("remove")
+                                .then(Commands.argument("target", EntityArgument.entity())
+                                        .executes(CrimeCommand::anchorRemove))))
+                .then(Commands.literal("lock")
+                        .then(Commands.literal("inspect")
+                                .requires(src -> src.hasPermission(2))
+                                .then(Commands.argument("pos", BlockPosArgument.blockPos())
+                                        .executes(CrimeCommand::lockInspect)))
+                        .then(Commands.literal("reset")
+                                .requires(src -> src.hasPermission(3))
+                                .then(Commands.argument("pos", BlockPosArgument.blockPos())
+                                        .executes(CrimeCommand::lockReset))))
+                // Capital sentencing (0.7.5 §3.19, M6.8). Inspection at level 2, every mutating form
+                // at level 3: clemency and an execution order are operator acts, and the last of them
+                // is the one place a sentence can be carried out without a device.
+                .then(Commands.literal("capital")
+                        .then(Commands.literal("inspect")
+                                .requires(src -> src.hasPermission(2))
+                                .then(Commands.argument("target", EntityArgument.entity())
+                                        .executes(CrimeCommand::capitalInspect)))
+                        .then(Commands.literal("commute")
+                                .requires(src -> src.hasPermission(3))
+                                .then(Commands.argument("target", EntityArgument.entity())
+                                        .executes(CrimeCommand::capitalCommute)))
+                        .then(Commands.literal("pardon")
+                                .requires(src -> src.hasPermission(3))
+                                .then(Commands.argument("target", EntityArgument.entity())
+                                        .executes(CrimeCommand::capitalPardon)))
+                        .then(Commands.literal("execute")
+                                .requires(src -> src.hasPermission(3))
+                                .then(Commands.argument("target", EntityArgument.entity())
+                                        .executes(CrimeCommand::capitalExecute))))
                 .then(Commands.literal("debug")
                         .requires(src -> src.hasPermission(2))
+                        .then(Commands.literal("capital")
+                                .executes(CrimeCommand::debugCapital))
+                        .then(Commands.literal("restraints")
+                                .executes(CrimeCommand::debugRestraints))
                         .then(Commands.literal("witness").executes(ctx -> debugAwareness(ctx, "witness", null))
                                 .then(Commands.argument("villager", EntityArgument.entity()).executes(ctx -> debugAwareness(ctx, "witness", EntityArgument.getEntity(ctx, "villager")))))
                         .then(Commands.literal("threat").executes(ctx -> debugAwareness(ctx, "threat", null))
@@ -635,7 +703,7 @@ public final class CrimeCommand {
         StringBuilder sb = new StringBuilder("Thief debug:");
         sb.append("\n  tracked=").append(controllers.size())
                 .append(" muggings=").append(sessions.size())
-                .append(" enableThieves=").append(McaCrimeConfig.COMMON.enableThieves.get());
+                .append(" enableThieves=").append(dev.otectus.mcacrime.config.CrimeWorldSettings.resolve(ctx.getSource().getServer()).thieves());
         for (ThiefBehaviorController controller : controllers) {
             sb.append("\n  ").append(controller.thiefId())
                     .append(" ").append(controller.state())
@@ -680,7 +748,7 @@ public final class CrimeCommand {
         }
         StringBuilder sb = new StringBuilder("Criminal jobs debug:");
         sb.append("\n  thieves=").append(thieves).append(" fences=").append(fences);
-        sb.append("\n  enableThieves=").append(McaCrimeConfig.COMMON.enableThieves.get())
+        sb.append("\n  enableThieves=").append(dev.otectus.mcacrime.config.CrimeWorldSettings.resolve(ctx.getSource().getServer()).thieves())
                 .append(" enableFences=").append(McaCrimeConfig.COMMON.enableFences.get());
         sb.append("\n  presentThief=").append(McaCrimeConfig.COMMON.presentThiefAsMcaProfession.get())
                 .append(" presentFence=").append(McaCrimeConfig.COMMON.presentFenceAsMcaProfession.get());
@@ -798,6 +866,19 @@ public final class CrimeCommand {
     }
 
     private static int validate(CommandContext<CommandSourceStack> ctx) {
+        var server = ctx.getSource().getServer();
+        var news = dev.otectus.mcacrime.state.world.CrimeWorldData.get(server).news();
+        var reports = dev.otectus.mcacrime.report.PlayerReportData.get(server);
+        ctx.getSource().sendSuccess(() -> Component.literal("Village justice: settings="
+                + dev.otectus.mcacrime.config.CrimeWorldSettings.resolve(server).sourceName()
+                + "; combat=" + dev.otectus.mcacrime.compat.mca.NativeJusticeCapabilities.status()
+                + "; native hooks=" + dev.otectus.mcacrime.mixin.mca.McaJusticeMixinPlugin.APPLIED
+                + "; native degraded=" + dev.otectus.mcacrime.mixin.mca.McaJusticeMixinPlugin.DEGRADED
+                + "; mailbox=" + dev.otectus.mcacrime.compat.McaMailBridge.status()
+                + "; Reputation exemption=" + dev.otectus.mcacrime.compat.ReputationExemptionBridge.status()
+                + "; reports=" + reports.reportCount() + "; pending dispatch=" + reports.pendingDispatchCount()
+                + "; news facts=" + news.facts.size() + "; retained envelopes=" + news.envelopes.size()
+                + "; dropped optional news=" + news.dropped), false);
         List<String> problems = ConfigValidator.validateCurrentConfig();
         if (problems.isEmpty()) {
             ctx.getSource().sendSuccess(() -> Component.translatable("mcacrime.command.validate.ok"), false);
@@ -871,7 +952,13 @@ public final class CrimeCommand {
         return CrimeActionService.startMugFromCommand(ctx.getSource().getPlayerOrException());
     }
 
-    /** A captive's attempt to break free of an unlawful captor (escaping kidnapping is no crime, §8.1). */
+    /**
+     * A subject's request to work their way out of what is physically on them (0.7.5 §5.4).
+     *
+     * <p>No longer a timed roll: one bounded struggle input through {@code restraint/EscapeService},
+     * identical in rules and rate to the one a key press sends. Escaping kidnapping is still no crime
+     * (§8.1); escaping a cell is still {@code JailService}'s to file.
+     */
     private static int escape(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
         return CrimeActionService.startSelfFromCommand(
                 ctx.getSource().getPlayerOrException(), CrimeActionIds.ESCAPE);
@@ -1502,5 +1589,284 @@ public final class CrimeCommand {
             case GREY -> ChatFormatting.GRAY;
         };
         return Component.translatable("mcacrime.band." + band.lower()).withStyle(color);
+    }
+
+    // ------------------------------------------------------------------ capital sentencing (§3.19)
+
+    /** What the law has decided about this subject, and whether an order is armed right now. */
+    private static int capitalInspect(CommandContext<CommandSourceStack> ctx)
+            throws CommandSyntaxException {
+        var target = EntityArgument.getEntity(ctx, "target");
+        var server = ctx.getSource().getServer();
+        var view = dev.otectus.mcacrime.api.McaCrimeApi.capitalSentence(server, target.getUUID());
+        if (view.isEmpty()) {
+            ctx.getSource().sendSuccess(() -> Component.translatable("mcacrime.capital.inspect.none",
+                    target.getDisplayName()), false);
+            return 0;
+        }
+        var sentence = view.get();
+        if (sentence.pendingExecution()) {
+            long[] device = sentence.device().orElse(new long[] {0L, 0L, 0L});
+            ctx.getSource().sendSuccess(() -> Component.translatable("mcacrime.capital.inspect.pending",
+                    target.getDisplayName(), device[0] + ", " + device[1] + ", " + device[2]), false);
+        } else {
+            ctx.getSource().sendSuccess(() -> Component.translatable("mcacrime.capital.inspect",
+                    target.getDisplayName(),
+                    Component.translatable("mcacrime.capital.condemned")), false);
+        }
+        return 1;
+    }
+
+    /** Commutes a capital sentence to a custodial one. The holding term is untouched. */
+    private static int capitalCommute(CommandContext<CommandSourceStack> ctx)
+            throws CommandSyntaxException {
+        var target = EntityArgument.getEntity(ctx, "target");
+        var outcome = dev.otectus.mcacrime.ledger.CapitalSentenceService.commute(
+                ctx.getSource().getServer(), target.getUUID());
+        return reportClemency(ctx, target, outcome, "mcacrime.capital.commuted");
+    }
+
+    /** Pardons a capital sentence and closes the cases it was for. A privileged transaction. */
+    private static int capitalPardon(CommandContext<CommandSourceStack> ctx)
+            throws CommandSyntaxException {
+        var target = EntityArgument.getEntity(ctx, "target");
+        var source = ctx.getSource().getEntity();
+        var outcome = dev.otectus.mcacrime.ledger.CapitalSentenceService.pardon(
+                ctx.getSource().getServer(), target.getUUID(),
+                source == null ? null : source.getUUID());
+        return reportClemency(ctx, target, outcome, "mcacrime.capital.pardoned");
+    }
+
+    private static int reportClemency(CommandContext<CommandSourceStack> ctx,
+                                      net.minecraft.world.entity.Entity target,
+                                      dev.otectus.mcacrime.ledger.CapitalSentenceService.Clemency outcome,
+                                      String grantedKey) {
+        switch (outcome) {
+            case GRANTED -> ctx.getSource().sendSuccess(() ->
+                    Component.translatable(grantedKey, target.getDisplayName()), true);
+            case NOT_CONDEMNED -> ctx.getSource().sendFailure(
+                    Component.translatable("mcacrime.capital.not_condemned", target.getDisplayName()));
+            case REFUSED -> ctx.getSource().sendFailure(
+                    Component.translatable("mcacrime.capital.refused"));
+        }
+        return outcome == dev.otectus.mcacrime.ledger.CapitalSentenceService.Clemency.GRANTED ? 1 : 0;
+    }
+
+    /**
+     * The operator's own act: start a guard-carried execution, or carry one out where no device
+     * exists.
+     *
+     * <p>Never a shortcut past the device. With an assigned site and a standing guillotine in range
+     * this begins the ordinary escort, which arms an order at the device and waits out the ceremony
+     * window like every other execution. Only when there is no device at all does it act directly,
+     * and then it says so — which is the operator overriding, visibly, rather than the mod quietly
+     * killing somebody.
+     */
+    private static int capitalExecute(CommandContext<CommandSourceStack> ctx)
+            throws CommandSyntaxException {
+        var target = EntityArgument.getEntity(ctx, "target");
+        var server = ctx.getSource().getServer();
+        if (!(target instanceof net.minecraft.world.entity.LivingEntity captive)) {
+            ctx.getSource().sendFailure(Component.translatable("mcacrime.capital.not_condemned",
+                    target.getDisplayName()));
+            return 0;
+        }
+        if (!dev.otectus.mcacrime.ledger.CapitalSentenceService.condemned(server, captive.getUUID())) {
+            ctx.getSource().sendFailure(Component.translatable("mcacrime.capital.not_condemned",
+                    target.getDisplayName()));
+            return 0;
+        }
+        var level = captive.level() instanceof net.minecraft.server.level.ServerLevel lvl ? lvl : null;
+        var executor = ctx.getSource().getEntity() instanceof net.minecraft.world.entity.LivingEntity actor
+                ? actor : null;
+        if (level != null && executor != null) {
+            var outcome = dev.otectus.mcacrime.enforcement.CondemnedEscortService.begin(level, executor,
+                    captive);
+            if (outcome == dev.otectus.mcacrime.enforcement.CondemnedEscortService.Outcome.BEGUN) {
+                ctx.getSource().sendSuccess(() -> Component.translatable("mcacrime.capital.escort.begun",
+                        target.getDisplayName()), true);
+                return 1;
+            }
+            if (outcome != dev.otectus.mcacrime.enforcement.CondemnedEscortService.Outcome.NO_SITE) {
+                ctx.getSource().sendFailure(Component.translatable("mcacrime.capital.refused"));
+                return 0;
+            }
+        }
+        // No assigned site or no device: the sentence stands and the prisoner stays in custody. The
+        // operator is told plainly rather than left wondering whether anything happened.
+        ctx.getSource().sendFailure(Component.translatable("mcacrime.capital.escort.no_site",
+                target.getDisplayName()));
+        return 0;
+    }
+
+    /** Live capital sentences, pending orders and the escorts walking toward them. */
+    private static int debugCapital(CommandContext<CommandSourceStack> ctx) {
+        var server = ctx.getSource().getServer();
+        var data = CrimeWorldData.get(server);
+        var live = dev.otectus.mcacrime.ledger.CapitalSentenceService.live(data);
+        ctx.getSource().sendSuccess(() -> Component.literal("capital sentences: " + live.size()
+                + ", pending orders: "
+                + dev.otectus.mcacrime.detention.ExecutionAuthorization.all().size()
+                + ", escorts: "
+                + dev.otectus.mcacrime.enforcement.CondemnedEscortService.activeCount()
+                + ", remembered devices: "
+                + dev.otectus.mcacrime.enforcement.ExecutionSiteRegistry.size()), false);
+        live.forEach((sentenceId, subject) -> ctx.getSource().sendSuccess(() -> Component.literal(
+                "  " + subject + " under " + sentenceId
+                        + (dev.otectus.mcacrime.enforcement.CondemnedEscortService.ceremonyRunning(subject)
+                                ? " (ceremony running)" : "")), false));
+        return live.size();
+    }
+
+    // ------------------------------------------------------------------ the physical engine (§3.14)
+
+    /** What is on this subject, what holds them and what device has them. Read-only. */
+    private static int restraintInspect(CommandContext<CommandSourceStack> ctx)
+            throws CommandSyntaxException {
+        var target = EntityArgument.getEntity(ctx, "target");
+        var server = ctx.getSource().getServer();
+        var view = dev.otectus.mcacrime.api.McaCrimeApi.restraints(server, target.getUUID());
+        if (view.isEmpty()) {
+            ctx.getSource().sendSuccess(() -> Component.translatable("mcacrime.command.restraint.none",
+                    target.getDisplayName()), false);
+            return 0;
+        }
+        var state = view.get();
+        ctx.getSource().sendSuccess(() -> Component.literal(target.getDisplayName().getString()
+                + ": " + state.slots().size() + " worn, generation " + state.generation()
+                + (state.tetherId().isPresent() ? ", held" : "")
+                + (state.detentionId().isPresent() ? ", detained" : "")), false);
+        state.slots().forEach(slot -> ctx.getSource().sendSuccess(() -> Component.literal(
+                "  " + slot.slot() + ": " + slot.definitionId()
+                        + " " + Math.round(slot.durability() * 100.0F) + "%"
+                        + (slot.systemIssued() ? " (system-issued)" : "")), false));
+        return state.slots().size();
+    }
+
+    /**
+     * Puts a restraint on somebody, administratively.
+     *
+     * <p>System-issued and administrative: nothing is taken from anybody's inventory and removal owes
+     * nobody an item, because an operator command did not buy the cuffs it conjured.
+     */
+    private static int restraintApply(CommandContext<CommandSourceStack> ctx)
+            throws CommandSyntaxException {
+        var target = EntityArgument.getEntity(ctx, "target");
+        String definition = StringArgumentType.getString(ctx, "definition");
+        var id = definition.contains(":") ? net.minecraft.resources.ResourceLocation.tryParse(definition)
+                : dev.otectus.mcacrime.McaCrime.id(definition);
+        var known = dev.otectus.mcacrime.restraint.RestraintDefinitions.get(id).orElse(null);
+        if (!(target instanceof net.minecraft.world.entity.LivingEntity subject) || known == null
+                || known.slot().isEmpty()) {
+            ctx.getSource().sendFailure(Component.translatable("mcacrime.command.restraint.unknown",
+                    definition));
+            return 0;
+        }
+        boolean applied = dev.otectus.mcacrime.restraint.RestraintService.applySystemIssued(subject, id,
+                known.slot().orElseThrow(),
+                dev.otectus.mcacrime.restraint.AppliedRestraint.ApplicationContext.ADMINISTRATIVE, null);
+        if (!applied) {
+            ctx.getSource().sendFailure(Component.translatable("mcacrime.command.restraint.refused"));
+            return 0;
+        }
+        ctx.getSource().sendSuccess(() -> Component.translatable("mcacrime.command.restraint.applied",
+                id.toString(), target.getDisplayName()), true);
+        return 1;
+    }
+
+    /** Takes one restraint off. Physical only: this pardons nobody and releases nobody. */
+    private static int restraintRemove(CommandContext<CommandSourceStack> ctx)
+            throws CommandSyntaxException {
+        var target = EntityArgument.getEntity(ctx, "target");
+        var slot = dev.otectus.mcacrime.restraint.RestraintSlot.parse(
+                StringArgumentType.getString(ctx, "slot")).orElse(null);
+        if (!(target instanceof net.minecraft.world.entity.LivingEntity subject) || slot == null) {
+            ctx.getSource().sendFailure(Component.translatable("mcacrime.command.restraint.refused"));
+            return 0;
+        }
+        var result = dev.otectus.mcacrime.restraint.RemovalService.remove(subject, slot,
+                dev.otectus.mcacrime.restraint.RemovalService.Reason.ADMINISTRATIVE, null);
+        if (!result.removed()) {
+            ctx.getSource().sendFailure(Component.translatable("mcacrime.command.restraint.refused"));
+            return 0;
+        }
+        ctx.getSource().sendSuccess(() -> Component.translatable("mcacrime.command.restraint.removed",
+                slot.id(), target.getDisplayName()), true);
+        return 1;
+    }
+
+    /** Chains a subject to a holder. The ordinary transport rules apply, including the privacy one. */
+    private static int anchorSet(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
+        var target = EntityArgument.getEntity(ctx, "target");
+        var holder = EntityArgument.getEntity(ctx, "holder");
+        var data = CrimeWorldData.get(ctx.getSource().getServer());
+        var tether = dev.otectus.mcacrime.tether.TetherService.attach(data, target, holder,
+                dev.otectus.mcacrime.tether.TetherKind.CHAIN, null, false);
+        if (tether.isEmpty()) {
+            ctx.getSource().sendFailure(Component.translatable(
+                    dev.otectus.mcacrime.tether.TetherService.messageKey(
+                            dev.otectus.mcacrime.tether.TetherService.evaluate(data, target, holder,
+                                    dev.otectus.mcacrime.tether.TetherKind.CHAIN))));
+            return 0;
+        }
+        ctx.getSource().sendSuccess(() -> Component.translatable("mcacrime.transport.attached"), true);
+        return 1;
+    }
+
+    /** Drops every hold on a subject. Not a release either: they may still be in custody. */
+    private static int anchorRemove(CommandContext<CommandSourceStack> ctx)
+            throws CommandSyntaxException {
+        var target = EntityArgument.getEntity(ctx, "target");
+        int dropped = dev.otectus.mcacrime.tether.TetherService.detachAll(ctx.getSource().getServer(),
+                target.getUUID(), dev.otectus.mcacrime.tether.TetherService.DetachReason.ADMINISTRATIVE);
+        ctx.getSource().sendSuccess(() -> Component.translatable("mcacrime.command.anchor.removed",
+                dropped, target.getDisplayName()), true);
+        return dropped;
+    }
+
+    /** What the lock at this block is, without ever naming a key binding. */
+    private static int lockInspect(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
+        BlockPos pos = BlockPosArgument.getLoadedBlockPos(ctx, "pos");
+        var level = ctx.getSource().getLevel();
+        var data = CrimeWorldData.get(ctx.getSource().getServer());
+        var lock = dev.otectus.mcacrime.locks.LockService.at(data, level, level.dimension().location(), pos).orElse(null);
+        if (lock == null) {
+            ctx.getSource().sendSuccess(() -> Component.translatable("mcacrime.command.lock.none"), false);
+            return 0;
+        }
+        ctx.getSource().sendSuccess(() -> Component.literal("lock " + lock.lockId() + ": "
+                + (lock.locked() ? "locked" : "unlocked")
+                + (lock.reinforced() ? ", reinforced" : "")
+                + ", binding revision " + lock.bindingRevision()), false);
+        return 1;
+    }
+
+    /** Rotates the binding, invalidating every key cut for it. The command form of a bind breaker. */
+    private static int lockReset(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
+        BlockPos pos = BlockPosArgument.getLoadedBlockPos(ctx, "pos");
+        var level = ctx.getSource().getLevel();
+        var data = CrimeWorldData.get(ctx.getSource().getServer());
+        var lock = dev.otectus.mcacrime.locks.LockService.at(data, level, level.dimension().location(), pos).orElse(null);
+        if (lock == null || dev.otectus.mcacrime.locks.LockService.rekey(data, lock.lockId()).isEmpty()) {
+            ctx.getSource().sendFailure(Component.translatable("mcacrime.command.lock.none"));
+            return 0;
+        }
+        ctx.getSource().sendSuccess(() -> Component.translatable("mcacrime.lock.rekeyed_by_operator",
+                Component.literal(lock.lockId().toString())), true);
+        return 1;
+    }
+
+    /** Every restrained subject, every hold and every occupied device. */
+    private static int debugRestraints(CommandContext<CommandSourceStack> ctx) {
+        var data = CrimeWorldData.get(ctx.getSource().getServer());
+        var worn = data.physicalRestraints();
+        ctx.getSource().sendSuccess(() -> Component.literal("restrained subjects: " + worn.size()
+                + ", tethers: " + data.tethers().size()
+                + ", detentions: " + data.detentions().size()
+                + ", locks: " + data.locks().size()), false);
+        worn.forEach(state -> ctx.getSource().sendSuccess(() -> Component.literal(
+                "  " + state.subject() + " generation " + state.generation()
+                        + " revision " + state.revision()), false));
+        return worn.size();
     }
 }

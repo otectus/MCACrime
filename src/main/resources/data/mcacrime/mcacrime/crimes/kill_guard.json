@@ -1,0 +1,7 @@
+{
+  "id": "mcacrime:kill_guard",
+  "karmaDelta": -80,
+  "heatDelta": 60,
+  "witnessedMultiplier": 1.0,
+  "victimTag": "guard"
+}

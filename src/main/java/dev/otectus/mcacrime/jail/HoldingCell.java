@@ -1,6 +1,9 @@
 package dev.otectus.mcacrime.jail;
 
+import dev.otectus.mcacrime.locks.LockRecord;
+import dev.otectus.mcacrime.state.world.CrimeWorldData;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
@@ -36,6 +39,12 @@ import java.util.UUID;
  * any block that has since changed. If somebody broke a bar and put a chest in the gap, that position
  * is left alone: the same "never destroy someone else's work" rule that governs building, applied on
  * the way back out.
+ *
+ * <p>Since the redesign around the prison set, a cell also knows its door: where the lower half is,
+ * which way it faces, the lock that holds it shut and the padlock entity that carries that lock. The
+ * door is the one intended way out, and whether its lock still holds is what decides whether a
+ * prisoner found outside the cell has escaped or has merely been thrown out of it (see
+ * {@link #breached}). Cells built before the door existed carry none of this and behave as they did.
  */
 public final class HoldingCell {
 
@@ -57,6 +66,18 @@ public final class HoldingCell {
      * rule, same reason -- the inference is a one-time upgrade guess, not a standing policy.
      */
     private boolean legacyBound;
+    /** The lower half of the cell door, or null for a cell built before doors existed. */
+    @Nullable
+    private BlockPos door;
+    /** Which way the door faces: the side of the cell it is on, and the side a released prisoner exits to. */
+    @Nullable
+    private Direction facing;
+    /** The lock holding the door shut, in the {@code locks} table. */
+    @Nullable
+    private UUID lockId;
+    /** The padlock entity carrying that lock, hanging on the door's outside face. */
+    @Nullable
+    private UUID padlock;
 
     public HoldingCell(UUID prisoner, UUID sentenceId, BlockPos anchor, ResourceLocation dim, int radius,
                        long createdGameTime, Map<BlockPos, BlockState> replaced,
@@ -69,6 +90,25 @@ public final class HoldingCell {
         this.createdGameTime = createdGameTime;
         this.replaced = new LinkedHashMap<>(replaced);
         this.placed = new LinkedHashMap<>(placed);
+    }
+
+    /**
+     * The same cell with its door recorded.
+     *
+     * <p>A copy rather than a setter so a cell is complete the moment it enters the roster: the
+     * builder only has a door to record once the padlock is hanging, and a record that could be
+     * stored half-described is a record that will be.
+     */
+    public HoldingCell withDoor(@Nullable BlockPos door, @Nullable Direction facing, @Nullable UUID lockId,
+                                @Nullable UUID padlock) {
+        HoldingCell copy = new HoldingCell(prisoner, sentenceId, anchor, dim, radius, createdGameTime,
+                replaced, placed);
+        copy.legacyBound = legacyBound;
+        copy.door = door == null ? null : door.immutable();
+        copy.facing = facing == null ? null : CellBlueprint.horizontal(facing);
+        copy.lockId = lockId;
+        copy.padlock = padlock;
+        return copy;
     }
 
     public UUID prisoner() {
@@ -115,12 +155,71 @@ public final class HoldingCell {
         this.legacyBound = legacyBound;
     }
 
+    /** The lower half of the door, or null for a cell that has none. */
+    @Nullable
+    public BlockPos door() {
+        return door;
+    }
+
+    /** The side the door is on, or null for a cell that has none. */
+    @Nullable
+    public Direction facing() {
+        return facing;
+    }
+
+    /** The lock on the door, or null for a cell that has none. */
+    @Nullable
+    public UUID lockId() {
+        return lockId;
+    }
+
+    /** The padlock entity on the door, or null for a cell that has none. */
+    @Nullable
+    public UUID padlock() {
+        return padlock;
+    }
+
+    /** True for a cell built with a door, a lock and a padlock. */
+    public boolean hasDoor() {
+        return door != null && lockId != null;
+    }
+
+    /**
+     * Whether the door's lock no longer holds.
+     *
+     * <p>Derived from the {@code locks} table rather than stored, so it can never disagree with the
+     * padlock: the lock row is gone, it has been detached from its target (a picked padlock comes off
+     * and takes the lock with it), or somebody with a key turned it. A cell with no door was never
+     * lockable and is never breached; a prisoner found outside one got there some other way, and the
+     * containment mode decides what that means.
+     */
+    public boolean breached(@Nullable CrimeWorldData data) {
+        if (lockId == null) {
+            return false;
+        }
+        LockRecord lock = data == null ? null : data.lock(lockId);
+        return lock == null || !lock.target().present() || !lock.locked();
+    }
+
+    /**
+     * Where somebody leaving this cell is stood: two blocks clear of the wall on the door side.
+     *
+     * <p>A cell without a door keeps the pre-door side, so an old record releases exactly where it
+     * always did.
+     */
+    public BlockPos outsideStand() {
+        Direction side = facing == null ? CellBlueprint.DEFAULT_FACING : facing;
+        int reach = CellBlueprint.RADIUS + 2;
+        return anchor.offset(side.getStepX() * reach, 0, side.getStepZ() * reach);
+    }
+
     /**
      * The same cell narrowed to the positions in {@code positions}.
      *
      * <p>Used by the restoration journal: what is left of a demolition that only partly ran is the
      * original cell minus everything that did come back, and stating it that way means the retry needs
-     * nothing the first attempt did not already have.
+     * nothing the first attempt did not already have. The door, lock and padlock come along, so the
+     * retry can still take the padlock down before the door under it goes.
      */
     public HoldingCell retaining(Set<BlockPos> positions) {
         Map<BlockPos, BlockState> keptReplaced = new LinkedHashMap<>();
@@ -137,6 +236,10 @@ public final class HoldingCell {
         HoldingCell narrowed = new HoldingCell(prisoner, sentenceId, anchor, dim, radius, createdGameTime,
                 keptReplaced, keptPlaced);
         narrowed.legacyBound = legacyBound;
+        narrowed.door = door;
+        narrowed.facing = facing;
+        narrowed.lockId = lockId;
+        narrowed.padlock = padlock;
         return narrowed;
     }
 
@@ -190,6 +293,20 @@ public final class HoldingCell {
         if (legacyBound) {
             tag.putBoolean("legacyBound", true);
         }
+        if (door != null) {
+            tag.putInt("doorX", door.getX());
+            tag.putInt("doorY", door.getY());
+            tag.putInt("doorZ", door.getZ());
+        }
+        if (facing != null) {
+            tag.putString("facing", facing.getSerializedName());
+        }
+        if (lockId != null) {
+            tag.putUUID("lock", lockId);
+        }
+        if (padlock != null) {
+            tag.putUUID("padlock", padlock);
+        }
         return tag;
     }
 
@@ -233,6 +350,17 @@ public final class HoldingCell {
                 dim, Math.max(1, tag.getInt("radius")), tag.getLong("created"), replaced, placed);
         // Absent means the inference has not run, which is right for every pre-0.6.0 cell.
         cell.legacyBound = tag.getBoolean("legacyBound");
+        // All absent on a cell built before the door existed, and that is a complete description of
+        // such a cell: no door, no lock, nothing to breach.
+        if (tag.contains("doorX") && tag.contains("doorY") && tag.contains("doorZ")) {
+            cell.door = new BlockPos(tag.getInt("doorX"), tag.getInt("doorY"), tag.getInt("doorZ"));
+        }
+        if (tag.contains("facing")) {
+            Direction parsed = Direction.byName(tag.getString("facing"));
+            cell.facing = parsed == null ? null : CellBlueprint.horizontal(parsed);
+        }
+        cell.lockId = tag.hasUUID("lock") ? tag.getUUID("lock") : null;
+        cell.padlock = tag.hasUUID("padlock") ? tag.getUUID("padlock") : null;
         return cell;
     }
 }

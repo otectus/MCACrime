@@ -11,12 +11,33 @@ never hears about it.
 - **Requires** MCA Reborn `[7.6,8)` — one jar covers every build in that range, including the
   7.7.1 package rename
 - **Requires** GeckoLib (compatible version declared in `gradle.properties`) for the shaped mask models
-- **Optional companion** MCA: Reputation 0.2.0+
+- **Optional companion** MCA: Reputation 0.2.0+ · Townstead · Locks Reforged
+- **Not required** the Cuffed mod, whose feature set 0.7.5 absorbs natively, and Locks Reforged
 - **Licence** GPL-3.0-only
 
 ---
 
 ## What it does
+
+After a robbery or witnessed attempt, approach a guard peacefully and choose **Report a crime**.
+The server supplies your recent accounts; unknown identities remain unknown. `/crime report` opens
+the same picker for a targeted nearby guard, and `/crime reports` shows your accepted reports.
+Acceptance may mean a guard is responding or that the case awaits an available guard. Actual arrest
+uses the existing custody, sentence and property recovery systems; property is secured in owner
+escrow, with delivery when possible. Reporting pays no reward.
+
+The default combat policy exempts adult canonical Thieves from combat blame, including after release.
+Children, guards, restrained prisoners and unresolved roles remain protected. Evidence-required and
+normal-law alternatives are available. Native MCA and optional Reputation support have explicit
+capability checks; see [compatibility and verification](docs/compatibility/VILLAGE_JUSTICE.md).
+
+Relevant public outcomes and personal report/property updates arrive as nonempty digests through
+**`/mca mail`**, normally once per Minecraft day. `/crime news off`, `on`, and `status` manage your
+subscription. MCA's own mailing switch still applies. Publication never gives guards new knowledge.
+
+World owners can set genuine rules in **Create World → Game Rules**. Overrides default off, preserving
+COMMON config. Use `/crime rules import` to carry configured values into a world, or `/crime rules defaults`
+to start from shipped defaults; both use normal operator permissions. See [configuration](CONFIG.md).
 
 The latest development pass confirms death before awarding kill bounties or recovering stolen
 property. Recovered goods go to their owner's escrow, with delivery attempted immediately for
@@ -74,14 +95,22 @@ what the **law** does about you, on two separate axes that never read each other
   remains a voluntary settlement of the whole record and Heat, including unreported crimes.
   Mandatory-custody cases and cases already assigned to a sentence cannot be paid away. The configured
   Heat threshold and Outlaw payment policy still apply to each settlement's scope.
-- **Kidnapping** is the structural twin of jail, deliberately kept legally distinct. Restrain a
-  villager or a player with rope, cuffs, or locked cuffs after a channel that a hit, a step, or a
-  lost line of sight will break — and only against a target who is genuinely vulnerable. Guards
-  are never capturable this way.
-- **Cuff lockpicking with Locks Reforged.** When installed, escaping ordinary or locked cuffs
-  requires winning its native minigame. Attempts need no item by default; enable
-  `[kidnapping].cuffEscapeRequiresLockpick` to require a lockpick in the inventory. Lawful cuff
-  escape counts as jailbreak and preserves the sentence. Rope keeps its existing escape rules.
+- **Kidnapping** is the structural twin of jail, deliberately kept legally distinct — and since
+  0.7.5 it is entirely separate from what is physically on the captive. Removing a restraint is not
+  a release, and escaping a kidnapper is never a crime.
+- **Restraints (0.7.5).** Head, arms and legs are three independent slots, each holding real gear
+  with its own durability, applier and provenance. Shackles, handcuffs, duct tape and a bundle
+  hood, with keys, struggling, chains, fence and tripwire-hook anchors, escort, pillory, guillotine
+  and bunks. Five restraint enchantments, a search opened from the crime menu on a restrained
+  subject, and a reinforced prison building set.
+- **Native lockpicking and locks (0.7.5).** Padlocks, a safe, a cell door, key rings and key molds,
+  and a server-owned lockpicking mini-game. **Neither Cuffed nor Locks Reforged is required for any
+  of it.** Locks Reforged stays an optional companion for its own locks and fence stock; on a block
+  it already owns, MCA: Crime refuses to be the second lock.
+- **A capital sentence for killing a guard (0.7.5, on by default, one key to switch off).** The only
+  capital offence is killing a guard. Nothing escalates automatically, and execution is always a
+  deliberate act at a guillotine by a player or an on-duty guard — with no usable guillotine the
+  condemned simply stays in custody. Pardon and commutation are the only legal exits.
 - **Ransom.** Somebody has to pay for your captive, and who it is follows a strict priority:
   spouse, parent, adult child, sibling, close relative, and failing all of those, the village
   itself at a lower price. Family payers must be reachable online players.
@@ -275,16 +304,20 @@ its file and field. Schemas and worked examples are in **[DATAPACK.md](DATAPACK.
 
 ## For mod authors
 
-A read-only, server-authoritative Java API plus twenty-two Forge events, of which the eleven most
-often used are documented in detail. Mutation is never exposed — it stays behind the single state
-chokepoint on purpose. See **[API.md](API.md)**.
+A server-authoritative Java API — read-only but for two clemency methods over a capital sentence —
+plus thirty Forge events, of which the most often used are documented in detail. 0.7.5 is **API
+version 2**: physical restraint, transport, detention, lock and capital-sentence views, eight new
+events, and `RestraintRegistrationApi` for another mod's own restraint definitions and searchable
+inventories. See **[API.md](API.md)**.
 
 ## Upgrading an existing world
 
-Older saves are migrated on load through schema 9 without a server or a config
-being consulted. The migration is **not reversible** — take a copy of your world first. The
+Older saves are migrated on load, up to schema 16, without a server or a config
+being consulted. 0.7.5 also bumps the network protocol to 18, so client and server must be updated
+together, and retires twenty-one config keys whose replacements are named one for one in
+[CONFIG.md](CONFIG.md). The migration is **not reversible** — take a copy of your world first. The
 policy, what changes about village identity, and what an old jar does with a new save are in
-**[MIGRATION.md](MIGRATION.md)**.
+**[docs/MIGRATION.md](docs/MIGRATION.md)**.
 
 ## Documentation
 
@@ -293,7 +326,7 @@ policy, what changes about village identity, and what an old jar does with a new
 | [CONFIG.md](CONFIG.md) | every config option, default, range, and disabled behaviour |
 | [DATAPACK.md](DATAPACK.md) | crime and incident schemas with examples |
 | [API.md](API.md) | the public Java API, its Forge events, and the failure contracts |
-| [MIGRATION.md](MIGRATION.md) | schema migration, removal, and rollback |
+| [docs/MIGRATION.md](docs/MIGRATION.md) | schema migration, removal, and rollback |
 | [CHANGELOG.md](CHANGELOG.md) | release notes |
 | [CURSEFORGE.md](CURSEFORGE.md) | the store listing copy |
 | [mca-crime-spec-document.md](mca-crime-spec-document.md) | the original design specification |
@@ -303,6 +336,8 @@ policy, what changes about village identity, and what an old jar does with a new
 ## Credits
 
 Restraint item artwork (open cuffs, locked cuffs, rope) by TheWiggleDuck.
+
+The 0.7.5 restraint, lock and prison feature set is adapted from **Cuffed** by Lazr Productions under GPL-3.0; see [CREDITS.md](CREDITS.md) and [docs/0.7.5/PROVENANCE.md](docs/0.7.5/PROVENANCE.md). Unattributed upstream art was replaced by original MCA: Crime work.
 
 ## Building
 

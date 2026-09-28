@@ -1,0 +1,64 @@
+{
+  "variants": {
+    "facing=north,blade_down=false,bloody=false": {
+      "model": "mcacrime:block/guillotine_open"
+    },
+    "facing=north,blade_down=false,bloody=true": {
+      "model": "mcacrime:block/guillotine_open_bloody"
+    },
+    "facing=north,blade_down=true,bloody=false": {
+      "model": "mcacrime:block/guillotine_closed"
+    },
+    "facing=north,blade_down=true,bloody=true": {
+      "model": "mcacrime:block/guillotine_closed_bloody"
+    },
+    "facing=east,blade_down=false,bloody=false": {
+      "model": "mcacrime:block/guillotine_open",
+      "y": 90
+    },
+    "facing=east,blade_down=false,bloody=true": {
+      "model": "mcacrime:block/guillotine_open_bloody",
+      "y": 90
+    },
+    "facing=east,blade_down=true,bloody=false": {
+      "model": "mcacrime:block/guillotine_closed",
+      "y": 90
+    },
+    "facing=east,blade_down=true,bloody=true": {
+      "model": "mcacrime:block/guillotine_closed_bloody",
+      "y": 90
+    },
+    "facing=south,blade_down=false,bloody=false": {
+      "model": "mcacrime:block/guillotine_open",
+      "y": 180
+    },
+    "facing=south,blade_down=false,bloody=true": {
+      "model": "mcacrime:block/guillotine_open_bloody",
+      "y": 180
+    },
+    "facing=south,blade_down=true,bloody=false": {
+      "model": "mcacrime:block/guillotine_closed",
+      "y": 180
+    },
+    "facing=south,blade_down=true,bloody=true": {
+      "model": "mcacrime:block/guillotine_closed_bloody",
+      "y": 180
+    },
+    "facing=west,blade_down=false,bloody=false": {
+      "model": "mcacrime:block/guillotine_open",
+      "y": 270
+    },
+    "facing=west,blade_down=false,bloody=true": {
+      "model": "mcacrime:block/guillotine_open_bloody",
+      "y": 270
+    },
+    "facing=west,blade_down=true,bloody=false": {
+      "model": "mcacrime:block/guillotine_closed",
+      "y": 270
+    },
+    "facing=west,blade_down=true,bloody=true": {
+      "model": "mcacrime:block/guillotine_closed_bloody",
+      "y": 270
+    }
+  }
+}

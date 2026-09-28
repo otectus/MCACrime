@@ -61,10 +61,12 @@ class CrimeDataMigrationsV13toV14Test {
     @Test
     void theCurrentSchemaIsFourteenAndIsIntroducedOnce() {
         assertEquals(14, CrimeDataMigrations.SCHEMA_PROPERTY_LAW);
-        assertEquals(CrimeDataMigrations.SCHEMA_PROPERTY_LAW, CrimeDataMigrations.CURRENT_SCHEMA);
         assertEquals(CrimeDataMigrations.SCHEMA_TOWNSTEAD_FACILITIES + 1,
                 CrimeDataMigrations.SCHEMA_PROPERTY_LAW,
                 "schema 14 must follow 13 directly; a gap would make the version meaningless");
+        assertTrue(CrimeDataMigrations.CURRENT_SCHEMA >= CrimeDataMigrations.SCHEMA_PROPERTY_LAW,
+                "0.7.5 moved the current schema to 15; a released constant is never renumbered, so "
+                        + "this step's own number stays 14 and the ladder keeps climbing past it");
     }
 
     @Test

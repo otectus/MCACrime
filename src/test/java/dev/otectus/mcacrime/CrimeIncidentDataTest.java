@@ -90,7 +90,10 @@ class CrimeIncidentDataTest {
     void everyBuiltInCrimeMapsToExactlyOneIncident() {
         List<ResourceLocation> crimes = List.of(CrimeIds.HARM_VILLAGER, CrimeIds.KILL_VILLAGER,
                 CrimeIds.ASSAULT_GUARD, CrimeIds.JAILBREAK, CrimeIds.KIDNAP, CrimeIds.THEFT,
-                CrimeIds.MUGGING_MURDER);
+                CrimeIds.MUGGING_MURDER,
+                // 0.7.5 §3.19: killing a guard is its own crime, so it is its own incident. A village
+                // that heard "a villager was killed" would be told something true and useless.
+                CrimeIds.KILL_GUARD);
 
         Set<ResourceLocation> incidents = new HashSet<>();
         for (ResourceLocation crime : crimes) {
@@ -288,6 +291,7 @@ class CrimeIncidentDataTest {
             onDisk.add(file.getFileName().toString().replace(".json", ""));
         }
         for (ResourceLocation incident : List.of(CrimeIncidentMapping.GUARD_ASSAULTED,
+                CrimeIncidentMapping.GUARD_KILLED,
                 CrimeIncidentMapping.JAILBREAK, CrimeIncidentMapping.KIDNAPPING,
                 CrimeIncidentMapping.THEFT, CrimeIncidentMapping.MUGGING_MURDER,
                 CrimeIncidentMapping.FINE_PAID, CrimeIncidentMapping.SENTENCE_SERVED,

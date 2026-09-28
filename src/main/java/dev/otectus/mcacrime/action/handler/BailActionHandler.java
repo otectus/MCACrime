@@ -59,6 +59,14 @@ public final class BailActionHandler implements CrimeActionHandler {
         if (jail == null) {
             return ActionAvailability.hidden("mcacrime.bail.not_jailed");
         }
+        // A capital sentence has no bail price (0.7.5 §3.19). Blocked with its own reason rather than
+        // priced: the sentence is not a number of ticks somebody may buy, and quoting one would be a
+        // lie the player could act on.
+        if (dev.otectus.mcacrime.ledger.CapitalSentenceService.refusesBail()
+                && dev.otectus.mcacrime.ledger.CapitalSentenceService.condemned(player.getServer(),
+                        player.getUUID())) {
+            return ActionAvailability.blocked("mcacrime.bail.capital");
+        }
         if (servedFraction(jail) < McaCrimeConfig.COMMON.bailMinServedFraction.get()) {
             return ActionAvailability.blocked("mcacrime.bail.too_soon");
         }
@@ -82,6 +90,13 @@ public final class BailActionHandler implements CrimeActionHandler {
             return ActionResult.rejected("mcacrime.bail.not_jailed");
         }
         long cost = cost(jail);
+        // The same refusal again at the commit, because evaluate() and start() are separate calls and
+        // a clemency decision -- or a fresh capital binding -- can land between them (§3.19).
+        if (dev.otectus.mcacrime.ledger.CapitalSentenceService.refusesBail()
+                && dev.otectus.mcacrime.ledger.CapitalSentenceService.condemned(server,
+                        player.getUUID())) {
+            return ActionResult.rejected("mcacrime.bail.capital");
+        }
         // Charge before releasing. The other order would free the player and then discover they could
         // not pay, and there is no way back into a sentence that has already ended.
         if (!Currencies.active().tryCharge(player, cost, TransactionReason.BAIL)) {

@@ -8,6 +8,7 @@ import dev.otectus.mcacrime.action.handler.ApologizeActionHandler;
 import dev.otectus.mcacrime.action.handler.PayBailActionHandler;
 import dev.otectus.mcacrime.action.handler.EscapeActionHandler;
 import dev.otectus.mcacrime.action.handler.FenceTradeActionHandler;
+import dev.otectus.mcacrime.action.handler.FriskActionHandler;
 import dev.otectus.mcacrime.action.handler.MugActionHandler;
 import dev.otectus.mcacrime.action.handler.PayRansomActionHandler;
 import dev.otectus.mcacrime.action.handler.RansomActionHandler;
@@ -16,6 +17,7 @@ import dev.otectus.mcacrime.action.handler.RescueActionHandler;
 import dev.otectus.mcacrime.action.handler.BailActionHandler;
 import dev.otectus.mcacrime.action.handler.CivicServiceActionHandler;
 import dev.otectus.mcacrime.action.handler.RestrainActionHandler;
+import dev.otectus.mcacrime.action.handler.ReportCrimeActionHandler;
 import dev.otectus.mcacrime.action.handler.SettleCaseActionHandler;
 import dev.otectus.mcacrime.action.handler.SurrenderActionHandler;
 import dev.otectus.mcacrime.captivity.CustodyRecord;
@@ -74,7 +76,8 @@ public final class CrimeActionService {
             CrimeActionIds.ASK_LOOKOUT,
             CrimeActionIds.ASK_DISTRACTION,
             CrimeActionIds.ASK_ESCAPE_HELP,
-            CrimeActionIds.PAY_BAIL);
+            CrimeActionIds.PAY_BAIL,
+            CrimeActionIds.REPORT_CRIME);
 
     /** Actions offered to a player about their own situation — the captive panel and the player card. */
     private static final List<ResourceLocation> SELF_MENU = List.of(
@@ -106,6 +109,8 @@ public final class CrimeActionService {
         ActionHandlerRegistry.register(CrimeActionIds.ASK_ESCAPE_HELP, new AskEscapeHelpActionHandler());
         ActionHandlerRegistry.register(CrimeActionIds.PAY_BAIL, new PayBailActionHandler());
         ActionHandlerRegistry.register(CrimeActionIds.CIVIC_SERVICE, new CivicServiceActionHandler());
+        ActionHandlerRegistry.register(CrimeActionIds.REPORT_CRIME, new ReportCrimeActionHandler());
+        ActionHandlerRegistry.register(CrimeActionIds.FRISK, new FriskActionHandler());
         bootstrapped = true;
     }
 

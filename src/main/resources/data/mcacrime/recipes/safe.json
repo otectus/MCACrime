@@ -1,0 +1,13 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "pattern": [
+    "BBB",
+    "BPB",
+    "BBB"
+  ],
+  "key": {
+    "B": { "item": "minecraft:iron_block" },
+    "P": { "item": "mcacrime:padlock" }
+  },
+  "result": { "item": "mcacrime:safe", "count": 1 }
+}

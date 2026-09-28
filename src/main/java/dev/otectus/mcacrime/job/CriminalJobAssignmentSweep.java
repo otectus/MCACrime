@@ -75,7 +75,7 @@ public final class CriminalJobAssignmentSweep {
             return;
         }
         counter = 0;
-        AssignmentPolicy policy = AssignmentPolicy.fromConfig();
+        AssignmentPolicy policy = AssignmentPolicy.resolve(server);
         if (!policy.enableThieves() && !policy.enableFences()) {
             return;
         }

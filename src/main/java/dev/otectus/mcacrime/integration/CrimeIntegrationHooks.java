@@ -49,7 +49,7 @@ public final class CrimeIntegrationHooks {
      * applies the local penalty after all, so a deed that never reached the companion still costs the
      * player standing somewhere.
      */
-    public static boolean willRecordCanonically(ResourceLocation crimeType) {
+    public static boolean willRecordCanonically(MinecraftServer server, ResourceLocation crimeType) {
         return willRecordCanonically(crimeType,
                 McaCrimeConfig.COMMON.enableReputation.get(),
                 McaCrimeConfig.COMMON.suppressLocalVillagePenalty.get(),
@@ -91,7 +91,7 @@ public final class CrimeIntegrationHooks {
             return;
         }
         // Personal records become public only after identified information reaches an authority.
-        if (McaCrimeConfig.COMMON.enableObservations.get()
+        if (dev.otectus.mcacrime.config.CrimeWorldSettings.resolve(server).observations()
                 && !"jailbreak".equals(view.context().get("detection")) && !"command".equals(view.context().get("detection"))
                 && CrimeWorldData.get(server).reportsAgainst(view.offenderId()).stream().noneMatch(report ->
                         report.incidentId().equals(view.id()) && report.supportsArrest(McaCrimeConfig.COMMON.reportConfidenceThreshold.get()))) return;

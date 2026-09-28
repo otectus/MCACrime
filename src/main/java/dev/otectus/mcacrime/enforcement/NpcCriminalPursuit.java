@@ -65,6 +65,8 @@ public final class NpcCriminalPursuit {
         if (guard.getUUID().equals(incident.offenderId())) {
             return; // a guard is not sent after itself
         }
+        if (!(level.getEntity(incident.offenderId()) instanceof LivingEntity suspect)
+                || !NpcArrestService.arrestableSuspect(level.getServer(), suspect)) return;
         long now = level.getGameTime();
         if (ResponderAssignments.isCommitted(guard.getUUID(),
                 dev.otectus.mcacrime.activity.CrimeActivityView.Kind.PURSUIT, now)) {

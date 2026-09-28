@@ -46,10 +46,10 @@ public final class CriminalJobAssigner {
                                    double villageFenceChance, double wildThiefChance,
                                    int minVillagePopulationForFence, int criminalAssignmentCooldownDays) {
 
-        public static AssignmentPolicy fromConfig() {
+        public static AssignmentPolicy resolve(net.minecraft.server.MinecraftServer server) {
             McaCrimeConfig.Common c = McaCrimeConfig.COMMON;
             return new AssignmentPolicy(
-                    c.enableThieves.get(),
+                    dev.otectus.mcacrime.config.CrimeWorldSettings.resolve(server).thieves(),
                     c.enableFences.get(),
                     c.villageThiefChance.get(),
                     c.villageFenceChance.get(),

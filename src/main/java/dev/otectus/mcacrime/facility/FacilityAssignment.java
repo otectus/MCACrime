@@ -56,6 +56,11 @@ public record FacilityAssignment(UUID id, TownsteadBuildingRef ref, FacilityRole
         return role.holdsPrisoners() && capacity > 0;
     }
 
+    /** Whether a slot here may be reserved: a cell, or an execution site (0.7.5 M6.7). */
+    public boolean reservable() {
+        return role.reservable() && capacity > 0;
+    }
+
     /** The same assignment with a re-stamped revision, after a revalidation confirmed the building. */
     public FacilityAssignment revalidatedAt(int revision) {
         TownsteadBuildingRef updated = ref.observedAt(revision);

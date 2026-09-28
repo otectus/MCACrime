@@ -6,6 +6,148 @@ the second one, because that is what changes shape between versions.
 
 ---
 
+## 0.7.5
+
+The 0.7.5 release replaces MCA: Crime's single-slot restraint enum, capture channel, cuff-escape
+path, kidnapping teleport tether and NPC leash with one native physical-restraint engine. It uses
+**network protocol 18** and **world save schema 16**.
+
+**Back up your world before upgrading.**
+
+```bash
+# with the server stopped
+cp -r world world-backup-pre-0.7.5
+```
+
+### Network protocol 18
+
+`network/CrimeNetwork.PROTOCOL_VERSION` is `"18"`. Update the client and the server together. The
+bump is deliberate rather than cosmetic: the old restraint packets are gone, and an old client that
+was allowed to connect would decode a multi-slot physical snapshot as the old single-enum packet.
+With the bump it fails the handshake cleanly instead. Protocols 16 and 17 were unreleased previews
+of this same release; 18 is what ships, after the player-report menus were added and the warden-guide
+and identity-projection packets were dropped, so a client from any preview build must update.
+
+### Schema 15 — the physical tables
+
+World data in `<world>/data/mcacrime.dat` advances from schema 14 to schema 15
+(`SCHEMA_CUFFED_PHYSICAL` in `state/world/CrimeDataMigrations`). Four root tables are added:
+
+- `physicalRestraints` — what is worn, per subject, in the head, arms and legs slots, each entry
+  carrying its own item snapshot, durability, applier and provenance.
+- `tethers` — chain, anchor and escort records.
+- `detentions` — pillory, guillotine and bunk occupancy.
+- `locks` — lock identity, binding revision, reinforcement and target.
+
+Every existing custody row also gains a `custodyId` and a `generation`, so two successive captures
+of the same subject can never accept each other's packets.
+
+### The pure step and the impure reconciler
+
+The migration is in two parts, and only the first is part of the tag-to-tag ladder.
+
+1. **`v14to15` is pure**, like every step before it. It creates the five empty lists, stamps
+   `custodyId` and `generation` on every custody row that lacks one, cancels any `escapeActive` flag
+   and stamps the schema. **It invents no gear**: the old record stored a single enum, and a
+   migration that guessed beyond it would put handcuffs on people nobody cuffed.
+2. **`restraint/RestraintMigrationReconciler` is impure and runs once**, at the first load after the
+   migration, inside `ServerMutationGate` and behind `frozen()`. It converts the legacy enum into
+   real worn instances:
+   - `ROPE` → a `duck_tape_arms` instance flagged `LEGACY_CONVERSION`;
+   - `CUFFS` → `shackles_arms`, using the `restraint_cuffs` item;
+   - `LOCKED_CUFFS` → `handcuffs_arms`, using the `restraint_locked_cuffs` item;
+   - an arrest phase of `RESTRAINED` with no explicit gear → one `handcuffs_arms` instance marked
+     `SYSTEM_ISSUED`.
+
+   Every migrated instance gets a conservative item snapshot — the right item, full durability, no
+   enchantments claimed, because the old record never stored any — and `returnPolicy = NONE`, so
+   release cannot mint free cuffs. The legacy `cuffCombination` byte array is archived under
+   `reserved` and then retired; it does not unlock the new state. A legacy kidnapping `holdPos`
+   becomes a `TetherRecord` of kind `LEGACY_HOLD`: no fence knot is fabricated and no chain item is
+   dropped. Legacy capture and escape sessions in flight are cancelled, with a message to the
+   participant and no item charged.
+
+The reconciler is **idempotent** and stamps a `reconciledSchema` marker in `mcacrime.dat`
+(`state/world/CrimeWorldData`), so a second load is a no-op. That marker exists to prevent exactly
+one failure: a migration that creates a free extra pair of cuffs on every login.
+
+### The rope carrier and its conversion recipe
+
+`mcacrime:restraint_rope` stays registered — no id is repurposed or removed — but is hidden from the
+creative tab and is normalised to `mcacrime:duck_tape` at controlled boundaries: application, fence
+stock and recipes. A lossless `rope_to_duck_tape` shapeless recipe ships so existing rope in a chest
+is not stranded. No broad NBT text replacement is performed anywhere in the save. Fence prices for
+rope are retired and re-pointed at `duck_tape`.
+
+`mcacrime:restraint_cuffs` is now **Shackles** and `mcacrime:restraint_locked_cuffs` is now
+**Handcuffs**; both keep their ids and their textures byte for byte.
+
+Datapacks may now ship restraint profile overrides under
+`data/<namespace>/mcacrime/restraint_profiles/`; none ship with the mod and an absent override
+leaves the code values in place. The format is in [DATAPACK.md](../DATAPACK.md).
+
+### Retired configuration keys
+
+Twenty-one keys are retired: nineteen physical keys under `[kidnapping]` and the two client keys
+`renderCuffs` and `renderEscortRope`. **Values are not auto-migrated.** `ForgeConfigSpec` drops an
+unknown key from an existing `.toml` when it rewrites it, so they disappear without error, and
+`config/ConfigValidator` runs a startup pass that reads the raw `mcacrime-common.toml` and
+`mcacrime-client.toml`, names every retired key it still finds together with its replacement, and
+**does not fail the load**. Re-tune the replacement yourself if you had tuned the old key. The
+one-for-one mapping is in [CONFIG.md](../CONFIG.md), under *Retired in 0.7.5*.
+
+Thirteen further keys were renamed during 0.7.5 development, before release, so no key repeats the
+name of its own section. Those keys are new in this version and no existing config file contains
+them; the list is in `CONFIG.md` for completeness only.
+
+The legal keys under `[kidnapping]` are unchanged and stay where they are. `locksReforgedFenceTrades`
+stays too.
+
+### API projections removed
+
+`captivity/RestraintType` is deprecated and demoted: it survives only as a read projection behind
+`api/event/EntityKidnappedEvent#getRestraint` and `api/model/CustodyView#restraint`, filled by
+`restraint/LegacyRestraintProjection`, and it is **never written to world data again**. Consumers
+should read `McaCrimeApi.restraints(...)` instead, which reports every slot. The facade's API
+version is now `2`; a companion that handshakes on it refuses an incompatible build instead of dying
+on a missing member. `JailSentenceView` grew a trailing `sentenceKind` component additively and kept
+its 0.7.4 constructor.
+
+### Capital sentencing
+
+0.7.5 adds a capital sentence, and it is worth stating plainly in a migration document because it
+changes what can happen to a prisoner in an existing world. **The only capital offence is killing a
+guard**, through the new `mcacrime:kill_guard` crime id. **Nothing escalates automatically**: no
+other offence qualifies, and no timer, circuit, packet or scheduled task ever carries a sentence out.
+Execution is always a deliberate act at a guillotine, by a player or an on-duty guard. With no usable
+guillotine the condemned simply stays in custody — there is no substitute death, no despawn, no
+automatic commutation and no expiry into freedom. Pardon and commutation are the only legal exits.
+One key, `sentencing.capitalPunishment.enabled`, switches the whole group off, and existing cases in
+a migrated world are never re-classified: the kind is decided when a sentence is bound, and a bound
+sentence is never upgraded.
+
+Importing a world from an existing **Cuffed** install is **out of scope for 0.7.5**. There is no
+donor import tool, no foreign data is read, and a world that has had both mods keeps two independent
+sets of state.
+
+### Rollback
+
+Schema 15 migration runs on load in one direction and **cannot run backwards**. Downgrading a world
+saved by 0.7.5 is unsupported:
+
+- An older jar that has the future-schema safety gate detects schema 15, opens the world read-only
+  and refuses every mutation (`state/world/ServerMutationGate`, `CrimeWorldData.frozen()`).
+- An older jar without that gate cannot address the five physical tables or the reconciled restraint
+  instances. Unrecognised tags are preserved verbatim through the reserved passthrough, so the data
+  is still in the file, but the old code cannot read it — and the old restraint enum it *can* read no
+  longer describes what a prisoner is wearing.
+- Restoring the pre-upgrade backup is the only supported rollback.
+
+The forward direction is protected the same way it always has been: a save stamped with a schema
+from the future is quarantined rather than migrated, and the world opens read-only.
+
+---
+
 ## 0.7.2
 
 The 0.7.2 release establishes Thief as an exclusive native villager profession (`mcacrime:thief`) with a
@@ -357,3 +499,20 @@ After the first load on the upgraded world:
 - [ ] `/crime debug integrations` reports the state you expect for the mods actually installed.
 - [ ] The world has been saved at least once, so schema 3 is written back to disk before you draw any
       conclusions from a second load.
+
+## Schema 15 → 16: player reports, village news and world rules
+
+The main overworld store adds optional `crimeNews` tables, absent-as-empty. Existing cases, scores,
+occupations, restraints, custody and exact stolen-property provenance remain intact. Player threat and
+report receipts use the bounded, independently versioned `mcacrime_player_reports.dat` overworld store;
+mutations also honor the main world's future-schema gate. No migration invents old eyewitness accounts
+or news. Native inbox receipt tags are namespaced and existing MCA letters are retained.
+
+The world-rule selector defaults false. Configured worlds keep their existing mapped COMMON behavior;
+`/crime rules import` explicitly snapshots those values and enables overrides. Future attacks use the
+selected Thief policy; earlier penalties are not refunded. `DECEASED` is a new terminal case resolution.
+
+Native mailbox acknowledgements and world outbox acknowledgements live in different saved objects.
+Envelopes reconcile for seven game days; native receipts remain for thirty days after append and survive
+collection. This repairs either ordinary save ordering without forcing a world save per letter.
+Minecraft's broader player-inventory crash persistence is not a cross-file transaction guarantee.

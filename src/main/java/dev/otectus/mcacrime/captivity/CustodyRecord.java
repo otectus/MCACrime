@@ -5,6 +5,7 @@ import net.minecraft.nbt.CompoundTag;
 import net.minecraft.resources.ResourceLocation;
 
 import javax.annotation.Nullable;
+import java.nio.charset.StandardCharsets;
 import java.util.UUID;
 
 /**
@@ -23,11 +24,45 @@ import java.util.UUID;
  */
 public final class CustodyRecord {
 
+    /**
+     * This captivity's own identity (0.7.5 §6.2).
+     *
+     * <p>Neither the captive nor the sentence can stand in for it. An unlawful capture has no
+     * sentence at all, and two successive captures of the same person share a captive UUID -- so a
+     * delayed packet or a stale session from the first would be accepted against the second. This is
+     * what those are pinned to.
+     *
+     * <p>Allocated once, at capture, and never rewritten: a custody that changes hands is the same
+     * custody, which is what {@link #generation} is for.
+     */
+    @Nullable
+    private UUID custodyId;
+
+    /**
+     * Bumped every time this custody changes hands (guard to jail, guard to guard).
+     *
+     * <p>The id says which captivity; the generation says which phase of it. An escort packet issued
+     * to the arresting guard must stop working the moment the jail takes over, and the alternative --
+     * releasing and re-capturing -- would fire the public events twice and briefly free the prisoner.
+     */
+    private long generation = 1L;
+
     private UUID captive;
     private boolean captiveIsPlayer;
     private boolean lawful;
     private CustodyOwner owner = CustodyOwner.none();
-    private RestraintType restraint = RestraintType.NONE;
+    /**
+     * What a pre-0.7.5 row said was on this captive, and nothing else (0.7.5 §3.2, §3.18).
+     *
+     * <p>Physical restraint lives in {@code state/world/CrimeWorldData}'s {@code physicalRestraints}
+     * table now, keyed by the same subject UUID this record is keyed by -- so the reference from a
+     * captivity to the gear on the captive is the captive themselves, and there is nothing to keep in
+     * sync. This field survives only as <em>migration input</em>: {@code
+     * restraint/RestraintMigrationReconciler} reads it once, converts it into a real worn instance,
+     * and it is never written back.
+     */
+    @Deprecated
+    private RestraintType legacyRestraint = RestraintType.NONE;
     /** The captor's online-tick clock value at capture (provenance / debugging). */
     private long startTickOnline;
     /** Lawful custody only: the mirrored sentence (the authority is {@code JailService}; this is a projection). */
@@ -35,6 +70,17 @@ public final class CustodyRecord {
     /** Assigned at arrest, even when the sentence has no cases or no generated cell. */
     @Nullable
     private UUID sentenceId;
+    /**
+     * What that sentence is (0.7.5 §3.19), mirrored here from the world's sentence-kind table.
+     *
+     * <p>A mirror rather than the authority, and the distinction matters: the table is keyed by
+     * sentence id and is what clemency rewrites, while this is what the confinement, ransom and bail
+     * paths read without a second lookup for every captive on every tick. It is written when the
+     * sentence is bound and again when it is commuted, and absent reads as custodial -- which is what
+     * every custody record written before this release was.
+     */
+    private dev.otectus.mcacrime.ledger.SentenceKind sentenceKind =
+            dev.otectus.mcacrime.ledger.SentenceKind.CUSTODIAL;
     /** Real online ticks the captive has been held, for the §7.2 captivity cap. */
     private long realTicksHeld;
     @Nullable
@@ -62,27 +108,84 @@ public final class CustodyRecord {
     private boolean recovery;
     private String recoveryReason = "";
     private long recoverySince;
+    /**
+     * The retired pre-0.7.5 cuff combination, archived and cleared by the reconciler.
+     *
+     * <p>Kept readable only so the upgrade can file it under {@code reserved}; it unlocks nothing.
+     */
     private byte[] cuffCombination = new byte[0];
 
     public byte[] getCuffCombination() { return cuffCombination.clone(); }
+
+    /**
+     * Accepts a legacy combination if it is well formed: three to eight pins, each in range and each
+     * used once. Anything else loads as "no combination", which is what an unreadable one means.
+     */
     public void setCuffCombination(byte[] pins) {
-        cuffCombination = CuffLockProgress.validCombination(pins) ? pins.clone() : new byte[0];
+        cuffCombination = validCombination(pins) ? pins.clone() : new byte[0];
+    }
+
+    private static boolean validCombination(byte[] pins) {
+        if (pins == null || pins.length < 3 || pins.length > 8) {
+            return false;
+        }
+        int seen = 0;
+        for (byte pin : pins) {
+            if (pin < 0 || pin >= pins.length || (seen & (1 << pin)) != 0) {
+                return false;
+            }
+            seen |= 1 << pin;
+        }
+        return true;
     }
 
     public CustodyRecord() {
     }
 
+    /**
+     * The custody id a pre-0.7.5 record is given.
+     *
+     * <p>Derived from the captive rather than random, and that is the whole point: the schema 14 to
+     * 15 migration and a direct {@link #load} of an un-migrated row must agree on it, and loading the
+     * same file twice must not produce two different identities for one captivity.
+     */
+    public static UUID legacyCustodyId(UUID captive) {
+        return UUID.nameUUIDFromBytes(("mcacrime:custody:" + captive).getBytes(StandardCharsets.UTF_8));
+    }
+
     public CustodyRecord(UUID captive, boolean captiveIsPlayer, boolean lawful, CustodyOwner owner,
-                         RestraintType restraint, long startTickOnline, @Nullable BlockPos holdPos,
+                         long startTickOnline, @Nullable BlockPos holdPos,
                          @Nullable ResourceLocation holdDim) {
+        // A fresh capture is a fresh captivity: new identity, first generation.
+        this.custodyId = UUID.randomUUID();
+        this.generation = 1L;
         this.captive = captive;
         this.captiveIsPlayer = captiveIsPlayer;
         this.lawful = lawful;
         this.owner = owner;
-        this.restraint = restraint;
         this.startTickOnline = startTickOnline;
         this.holdPos = holdPos;
         this.holdDim = holdDim;
+    }
+
+    /** This captivity's identity. Null only for a record loaded from a row that named no captive. */
+    @Nullable
+    public UUID getCustodyId() {
+        return custodyId;
+    }
+
+    public long getGeneration() {
+        return generation;
+    }
+
+    /**
+     * Advances the generation, refusing every packet and session bound to the previous holder.
+     *
+     * @return the new generation
+     */
+    public long bumpGeneration() {
+        generation = Math.max(1L, generation) + 1L;
+        return generation;
     }
 
     public UUID getCaptive() {
@@ -105,12 +208,21 @@ public final class CustodyRecord {
         this.owner = owner;
     }
 
-    public RestraintType getRestraint() {
-        return restraint;
+    /**
+     * What a pre-0.7.5 row recorded, for the migration and for the deprecated API projections only.
+     *
+     * <p>Not authoritative and never will be again: ask
+     * {@code CrimeWorldData.physicalRestraint(getCaptive())} what is actually on this captive.
+     */
+    @Deprecated
+    public RestraintType getLegacyRestraint() {
+        return legacyRestraint;
     }
 
-    public void setRestraint(RestraintType restraint) {
-        this.restraint = restraint;
+    /** Migration input only: the reconciler clears this once it has converted the row. */
+    @Deprecated
+    public void setLegacyRestraint(RestraintType restraint) {
+        this.legacyRestraint = restraint == null ? RestraintType.NONE : restraint;
     }
 
     public long getStartTickOnline() {
@@ -130,6 +242,21 @@ public final class CustodyRecord {
 
     /** Null is reserved for custody written before arrest-time sentence assignment. */
     public void setSentenceId(UUID sentenceId) { this.sentenceId = sentenceId; }
+
+    /** What this captive's sentence is. Custodial unless a capital binding named them (§3.19). */
+    public dev.otectus.mcacrime.ledger.SentenceKind getSentenceKind() {
+        return sentenceKind == null ? dev.otectus.mcacrime.ledger.SentenceKind.CUSTODIAL : sentenceKind;
+    }
+
+    /** Mirrors the sentence-kind table onto this record. The table stays the authority. */
+    public void setSentenceKind(@Nullable dev.otectus.mcacrime.ledger.SentenceKind kind) {
+        this.sentenceKind = kind == null ? dev.otectus.mcacrime.ledger.SentenceKind.CUSTODIAL : kind;
+    }
+
+    /** True while a live capital sentence names this captive. */
+    public boolean isCondemned() {
+        return getSentenceKind().capital();
+    }
 
     public long getRealTicksHeld() {
         return realTicksHeld;
@@ -221,14 +348,17 @@ public final class CustodyRecord {
 
     public CustodyRecord copy() {
         CustodyRecord c = new CustodyRecord();
+        c.custodyId = custodyId; // UUID is immutable
+        c.generation = generation;
         c.captive = captive; // UUID is immutable
         c.captiveIsPlayer = captiveIsPlayer;
         c.lawful = lawful;
         c.owner = owner; // CustodyOwner is immutable
-        c.restraint = restraint;
+        c.legacyRestraint = legacyRestraint;
         c.startTickOnline = startTickOnline;
         c.remainingJailTicks = remainingJailTicks;
         c.sentenceId = sentenceId;
+        c.sentenceKind = sentenceKind;
         c.realTicksHeld = realTicksHeld;
         c.holdPos = holdPos; // BlockPos is immutable
         c.holdDim = holdDim; // ResourceLocation is immutable
@@ -248,16 +378,28 @@ public final class CustodyRecord {
 
     public CompoundTag save() {
         CompoundTag tag = new CompoundTag();
+        if (custodyId != null) {
+            tag.putUUID("custodyId", custodyId);
+        }
+        tag.putLong("generation", generation);
         if (captive != null) {
             tag.putUUID("captive", captive);
         }
         tag.putBoolean("player", captiveIsPlayer);
         tag.putBoolean("lawful", lawful);
         tag.put("owner", owner.save());
-        tag.putString("restraint", restraint.name());
+        // Written only while the reconciler has not yet converted it. A row whose gear has become a
+        // real worn instance must not keep a second, stale answer to the same question.
+        if (legacyRestraint != RestraintType.NONE) {
+            tag.putString("restraint", legacyRestraint.name());
+        }
         tag.putLong("start", startTickOnline);
         tag.putLong("remaining", remainingJailTicks);
         if (sentenceId != null) tag.putUUID("sentenceId", sentenceId);
+        // Written only when it is not the default, so an ordinary custody row is unchanged (§3.19).
+        if (sentenceKind != null && sentenceKind.capital()) {
+            tag.putString("sentenceKind", sentenceKind.name());
+        }
         tag.putLong("held", realTicksHeld);
         if (holdPos != null) {
             tag.putInt("hx", holdPos.getX());
@@ -288,13 +430,21 @@ public final class CustodyRecord {
     public static CustodyRecord load(CompoundTag tag) {
         CustodyRecord r = new CustodyRecord();
         r.captive = tag.hasUUID("captive") ? tag.getUUID("captive") : null;
+        // A row written before 0.7.5 has no identity. Deriving one from the captive rather than
+        // minting a random one means the same file always loads to the same custody id, whether it
+        // came through the migration or straight off disk.
+        r.custodyId = tag.hasUUID("custodyId") ? tag.getUUID("custodyId")
+                : r.captive == null ? null : legacyCustodyId(r.captive);
+        r.generation = Math.max(1L, tag.getLong("generation"));
         r.captiveIsPlayer = tag.getBoolean("player");
         r.lawful = tag.getBoolean("lawful");
         r.owner = CustodyOwner.load(tag.getCompound("owner"));
-        r.restraint = RestraintType.parse(tag.getString("restraint"));
+        r.legacyRestraint = RestraintType.parse(tag.getString("restraint"));
         r.startTickOnline = tag.getLong("start");
         r.remainingJailTicks = Math.max(0L, tag.getLong("remaining"));
         r.sentenceId = tag.hasUUID("sentenceId") ? tag.getUUID("sentenceId") : null;
+        r.sentenceKind = dev.otectus.mcacrime.ledger.SentenceKind.parseOr(tag.getString("sentenceKind"),
+                dev.otectus.mcacrime.ledger.SentenceKind.CUSTODIAL);
         r.realTicksHeld = tag.getLong("held");
         if (tag.contains("hx") && tag.contains("hy") && tag.contains("hz")) {
             r.holdPos = new BlockPos(tag.getInt("hx"), tag.getInt("hy"), tag.getInt("hz"));

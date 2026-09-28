@@ -62,13 +62,21 @@ public final class CrimeReconciler {
         // Read through the policy, not the arrest phases alone: a player who logs back in still held
         // in somebody's rope keeps the penalty, and one whom neither source holds any longer loses a
         // modifier that nothing else would ever have taken off.
-        if (dev.otectus.mcacrime.enforcement.RestraintPolicy.effective(player).isEmpty()) {
+        // Also the moment a save that predates 0.7.5 gets the gear its arrest phase implied: the world
+        // pass cannot read an arrest phase, because that lives on the player's own capability.
+        dev.otectus.mcacrime.restraint.RestraintMigrationReconciler.reconcileArrestPhase(
+                dev.otectus.mcacrime.restraint.RestraintService.data(player), player.getUUID(),
+                dev.otectus.mcacrime.enforcement.ArrestStates.isRestrained(player),
+                player.level().getGameTime());
+        if (dev.otectus.mcacrime.enforcement.RestraintHandlers.policy(player).unrestrictedPolicy()) {
             dev.otectus.mcacrime.enforcement.RestraintHandlers.onReleased(player);
         } else {
             dev.otectus.mcacrime.enforcement.RestraintHandlers.onRestrained(player);
         }
-        dev.otectus.mcacrime.enforcement.RestraintSync.syncOnLogin(player);
-        dev.otectus.mcacrime.enforcement.RestraintSync.broadcast(player);
+        dev.otectus.mcacrime.restraint.RestraintSyncService.sendFullState(player,
+                dev.otectus.mcacrime.restraint.RestraintService.data(player));
+        dev.otectus.mcacrime.restraint.RestraintSyncService.broadcastDelta(player,
+                dev.otectus.mcacrime.restraint.RestraintService.data(player));
         CrimeNetwork.sendSelfStatus(player);
         // The weapon gate the Crime button greys itself out on is the server's, not the client's own
         // config file, so the client is told it rather than left to guess.

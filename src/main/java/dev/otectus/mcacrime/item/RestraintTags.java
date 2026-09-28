@@ -57,6 +57,18 @@ public final class RestraintTags {
      */
     public static final TagKey<Item> KEYS = ItemTags.create(new ResourceLocation(McaCrime.MOD_ID, "keys"));
 
+    /**
+     * The restraint keys specifically (0.7.5 §3.7).
+     *
+     * <p>Narrower than {@link #KEYS} on purpose. That tag is "anything a lock mod calls a key" and is
+     * about locks; this one is the two items that open a restraint <em>family</em>, and membership in
+     * it is not permission to open anything — {@code item/restraint/RestraintKeyItem} still has to name
+     * the family, so a pack adding a third-party key here has made it a key-shaped item, not a
+     * skeleton key for every pair of handcuffs on the server.
+     */
+    public static final TagKey<Item> CUFF_KEYS =
+            ItemTags.create(new ResourceLocation(McaCrime.MOD_ID, "cuff_keys"));
+
     private RestraintTags() {
     }
 }

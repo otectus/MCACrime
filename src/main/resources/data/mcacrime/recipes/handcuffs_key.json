@@ -1,0 +1,6 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "pattern": ["  N", " NN", "N  "],
+  "key": { "N": { "item": "minecraft:copper_ingot" } },
+  "result": { "item": "mcacrime:handcuffs_key", "count": 1 }
+}

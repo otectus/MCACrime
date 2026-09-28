@@ -1,0 +1,11 @@
+# Mask Station artwork
+
+Generated using the built-in image generation tool. The production textures are nearest-neighbor samples at exactly 16×16, with a 12-color worktop and 8-color wood palette, without dithering. Front and bottom reuse the wood artwork; the drawer pull and mounted mask are model geometry. The mounted mask uses the existing clay mask item texture.
+
+## Worktop
+
+Use case: stylized-concept. Asset type: one Minecraft block workbench TOP texture. Create a square, seamless-edge, fully opaque 16 by 16 logical pixel-art texture, enlarged with exact nearest-neighbor square pixels. It will be reduced to EXACTLY 16x16. Orthographic straight-down flat texture, fills the entire square edge to edge, no surrounding space, no perspective. A mask maker's dark warm oak workbench top: brown wood plank frame two pixels thick around all edges; inset worn muted desaturated teal-green leather cutting mat, from logical pixels (3,3) to (12,12), with just a few sparse tan cut marks. Pixel scale is extremely coarse, like vanilla Minecraft crafting table. Restrained 8-color palette, solid flat squares, no anti-aliasing, no smooth shading, no noise finer than one logical pixel. No tools, no mask, no lettering, no grid lines, no labels, no watermark. The mat is an unadorned working surface for a 3D mask-making workstation model.
+
+## Wood
+
+Use case: stylized-concept. Asset type: one Minecraft wooden workstation block SIDE texture. Opaque seamless warm medium-dark brown oak planks, extremely coarse vanilla Minecraft 16x16 pixel art, exact 16 by 16 logical grid, square texture filling the canvas completely edge to edge. Four horizontal wooden planks, each four logical pixels tall. Sparse short straight darker grain streaks and occasional warm tan pixels, restrained palette of six earthy brown shades. Subtle one-pixel dark seams between planks. Every logical pixel a perfectly flat solid square. This is for the legs, rim and shelf of a mask maker's workbench. Flat orthographic material texture ONLY. No hardware, no objects, no mask, no perspective, no antialiasing, no gradients, no fine noise, no borders or surrounding background. Native 16x16 if possible, otherwise enlarged with nearest-neighbor. Medium contrast and readable shapes like vanilla spruce wood.

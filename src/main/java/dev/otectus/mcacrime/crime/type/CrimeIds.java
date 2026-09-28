@@ -9,6 +9,15 @@ public final class CrimeIds {
     public static final ResourceLocation HARM_VILLAGER = new ResourceLocation(McaCrime.MOD_ID, "harm_villager");
     public static final ResourceLocation KILL_VILLAGER = new ResourceLocation(McaCrime.MOD_ID, "kill_villager");
     public static final ResourceLocation ASSAULT_GUARD = new ResourceLocation(McaCrime.MOD_ID, "assault_guard");
+    /**
+     * 0.7.5 §3.19: killing a guard, and the only offence that may ever produce a capital sentence.
+     *
+     * <p>Its own id rather than a victim-class test at sentencing time, because everything downstream
+     * keys off the crime id: the ledger row, the dossier line, the witness rules, the warrant, the
+     * bounty, the companion incident mapping and any datapack that wants to reweigh it. Reusing
+     * {@link #KILL_VILLAGER} would leave every one of them reading "killed a villager".
+     */
+    public static final ResourceLocation KILL_GUARD = new ResourceLocation(McaCrime.MOD_ID, "kill_guard");
     public static final ResourceLocation JAILBREAK = new ResourceLocation(McaCrime.MOD_ID, "jailbreak");
     /** Phase 4: taking an entity into unlawful captivity (spec §8). */
     public static final ResourceLocation KIDNAP = new ResourceLocation(McaCrime.MOD_ID, "kidnap");

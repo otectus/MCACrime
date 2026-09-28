@@ -2,22 +2,37 @@ package dev.otectus.mcacrime.jail;
 
 import dev.otectus.mcacrime.McaCrime;
 import dev.otectus.mcacrime.McaCrimeConfig;
+import dev.otectus.mcacrime.block.CellDoorBlock;
+import dev.otectus.mcacrime.block.CrimeBlocks;
 import dev.otectus.mcacrime.compat.TownsteadBridge;
 import dev.otectus.mcacrime.compat.TownsteadBuildingView;
 import dev.otectus.mcacrime.compat.TownsteadCapability;
 import dev.otectus.mcacrime.compat.TownsteadQueryResult;
+import dev.otectus.mcacrime.entity.PadlockEntity;
+import dev.otectus.mcacrime.locks.LockRecord;
+import dev.otectus.mcacrime.locks.LockService;
+import dev.otectus.mcacrime.locks.LockTarget;
+import dev.otectus.mcacrime.locks.LockTargetNormalizer;
+import dev.otectus.mcacrime.state.world.CrimeWorldData;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.tags.BlockTags;
+import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.DoorBlock;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.properties.DoorHingeSide;
+import net.minecraft.world.level.block.state.properties.DoubleBlockHalf;
 import net.minecraft.world.level.material.FluidState;
 
 import javax.annotation.Nullable;
+import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
@@ -30,6 +45,12 @@ import java.util.UUID;
  * coordinate that ships disabled, so on any server where an operator had not hand-built a jail an
  * arrest had nowhere to go and surrender quietly became a Heat discount.
  *
+ * <p>What it builds is the prison set's own cell: a reinforced-stone floor and roof, four
+ * reinforced-stone pillars, reinforced bars between them, a lamp overhead and, in the middle of the
+ * wall facing the arrest, a cell door held shut by a padlock the mod hangs itself. The padlock is the
+ * one intended way out. Pick it -- from outside, or through the door from inside -- and the door
+ * swings open; walk out, and {@code JailConfine} treats that as an escape and takes the cell down.
+ *
  * <h2>Rules it holds to</h2>
  * <ul>
  *   <li><b>It only builds where nothing was.</b> The footprint must be air, replaceable foliage, or
@@ -41,6 +62,8 @@ import java.util.UUID;
  *   <li><b>Everything it replaces is recorded.</b> Release restores the exact prior {@link BlockState}
  *       of every block, so the world goes back to what it was rather than keeping a cage standing in a
  *       field. The snapshot is persisted, so a restart mid-sentence cannot orphan a cell.</li>
+ *   <li><b>The padlock is never loot.</b> It is generated, so it drops nothing whatever takes it off,
+ *       and it comes down with the cell before the door under it does.</li>
  * </ul>
  */
 public final class CellBuilder {
@@ -125,31 +148,114 @@ public final class CellBuilder {
         if (anchor == null) {
             return new Outcome(null, site.refusal());
         }
+        // The door faces whoever brought the prisoner here, so the cell reads as having been built
+        // around the arrest rather than dropped beside it, and a released prisoner walks out toward
+        // where the guard stood.
+        Direction facing = CellBlueprint.facingToward(anchor, near);
+        BlockPos doorLower = anchor.offset(CellBlueprint.doorX(facing), 0, CellBlueprint.doorZ(facing));
         Map<BlockPos, BlockState> replaced = new LinkedHashMap<>();
-        Map<BlockPos, BlockState> placed = new LinkedHashMap<>();
         try {
-            for (CellBlueprint.Placement placement : CellBlueprint.placements()) {
+            for (CellBlueprint.Placement placement : CellBlueprint.placements(facing)) {
                 BlockPos pos = anchor.offset(placement.dx(), placement.dy(), placement.dz());
                 BlockState previous = level.getBlockState(pos);
-                BlockState target = stateFor(placement.role());
+                BlockState target = stateFor(placement.role(), facing);
                 if (previous == target) {
                     continue; // nothing to change, so nothing to undo
                 }
                 replaced.put(pos, previous);
                 level.setBlockAndUpdate(pos, target);
-                // Read back rather than trusting the target: iron bars recompute their connection
-                // shape on placement, so the state now in the world is not the one handed to setBlock,
-                // and demolition compares against what is actually there.
-                placed.put(pos, level.getBlockState(pos));
             }
+            // Every block went in with its default state and only learned about its neighbours as
+            // they arrived, so the last bar placed has no arms and the first has all of them. Settle
+            // each one against the finished structure, and only then write down what is standing:
+            // the journal has to describe the world as it is, or demolition will find a block that
+            // "somebody changed" at every position and leave the cage up.
+            settle(level, replaced.keySet());
+            Map<BlockPos, BlockState> placed = snapshot(level, replaced.keySet());
+            Hung padlock = hangPadlock(level, doorLower, facing);
+            if (padlock == null) {
+                McaCrime.LOGGER.warn("MCA: Crime could not lock the holding cell at {}; rolling back", anchor);
+                restoreBlocks(level, replaced, Map.of());
+                return new Outcome(null, Refusal.NO_CLEAR_SITE);
+            }
+            HoldingCell cell = new HoldingCell(prisoner, sentenceId, anchor, level.dimension().location(),
+                    CellBlueprint.RADIUS, level.getGameTime(), replaced, placed)
+                    .withDoor(doorLower, facing, padlock.lockId(), padlock.entityId());
+            return new Outcome(cell, Refusal.NONE);
         } catch (Throwable t) {
             // Half a cell is worse than none: undo what went down and report failure.
             McaCrime.LOGGER.warn("MCA: Crime failed to build a holding cell at {}; rolling back", anchor, t);
             restoreBlocks(level, replaced, Map.of());
             return new Outcome(null, Refusal.NO_CLEAR_SITE);
         }
-        return new Outcome(new HoldingCell(prisoner, sentenceId, anchor, level.dimension().location(),
-                CellBlueprint.RADIUS, level.getGameTime(), replaced, placed), Refusal.NONE);
+    }
+
+    /**
+     * Lets every placed block re-read its neighbours now that they are all there.
+     *
+     * <p>{@code setBlockAndUpdate} tells the <em>neighbours</em> of a new block to update their shape;
+     * it never asks the new block itself, because a player-placed block already did that in
+     * {@code getStateForPlacement}. Blocks placed by code from a default state skip that step, so the
+     * bars' arms, the reinforced bars' column texture and the door's in-bars shape are all computed
+     * here instead, with the same {@code updateShape} the game would have used. Written with
+     * {@code UPDATE_KNOWN_SHAPE} so the settle does not cascade into another round of the same.
+     */
+    private static void settle(ServerLevel level, Collection<BlockPos> positions) {
+        for (BlockPos pos : positions) {
+            BlockState state = level.getBlockState(pos);
+            BlockState settled = state;
+            for (Direction direction : Direction.values()) {
+                BlockPos neighbourPos = pos.relative(direction);
+                settled = settled.updateShape(direction, level.getBlockState(neighbourPos), level, pos,
+                        neighbourPos);
+            }
+            if (settled != state && !settled.isAir()) {
+                level.setBlock(pos, settled, Block.UPDATE_CLIENTS | Block.UPDATE_KNOWN_SHAPE);
+            }
+        }
+    }
+
+    /** The states actually standing at these positions, for the journal. */
+    private static Map<BlockPos, BlockState> snapshot(ServerLevel level, Collection<BlockPos> positions) {
+        Map<BlockPos, BlockState> placed = new LinkedHashMap<>();
+        for (BlockPos pos : positions) {
+            placed.put(pos, level.getBlockState(pos));
+        }
+        return placed;
+    }
+
+    /** The lock and the padlock that carry it, once both are in place. */
+    private record Hung(UUID lockId, UUID entityId) {
+    }
+
+    /**
+     * Locks the door: one lock row, one padlock hanging on the door's outside face.
+     *
+     * <p>The lock has no owner. That is what makes the cell a cell rather than a room with a door: a
+     * blank key binds only for the owner or an operator, so a prisoner's own blank key does nothing,
+     * and a lockpick is the one thing the interaction router sends to the padlock. The padlock is
+     * marked generated so it is never an item, whichever way it eventually comes off.
+     */
+    @Nullable
+    private static Hung hangPadlock(ServerLevel level, BlockPos doorLower, Direction facing) {
+        CrimeWorldData data = LockService.data(level);
+        if (data == null) {
+            return null;
+        }
+        LockTarget target = LockTargetNormalizer.forBlock(level, level.dimension().location(), doorLower);
+        Optional<LockRecord> lock = LockService.create(data, target, null);
+        if (lock.isEmpty()) {
+            return null;
+        }
+        UUID lockId = lock.get().lockId();
+        PadlockEntity padlock = new PadlockEntity(level, doorLower, facing);
+        padlock.markGenerated();
+        if (!padlock.survives() || !padlock.bindLock(lockId) || !level.addFreshEntity(padlock)) {
+            LockService.forget(data, lockId);
+            return null;
+        }
+        padlock.playPlacementSound();
+        return new Hung(lockId, padlock.getUUID());
     }
 
     /**
@@ -160,24 +266,51 @@ public final class CellBuilder {
      * method could say so, the caller dropped the cell's record anyway and left the cage standing
      * forever with nothing in the world pointing at it.
      *
+     * <p>The padlock comes down first, deliberately. It hangs on the door, and a door restored to
+     * grass under a padlock leaves the padlock to notice it is unsupported on some later tick and go
+     * through vanilla's drop path. A generated padlock drops nothing either way, but a lock row with
+     * no padlock and no door is still a row, so the lock is forgotten here as well.
+     *
      * @return the positions still holding this cell's blocks, empty when everything came back
      */
     public static Set<BlockPos> demolish(ServerLevel level, HoldingCell cell) {
         if (level == null || cell == null) {
             return Set.of();
         }
+        takeDownPadlock(level, cell);
         return restoreBlocks(level, cell.replaced(), cell.placed());
+    }
+
+    private static void takeDownPadlock(ServerLevel level, HoldingCell cell) {
+        if (!cell.hasDoor()) {
+            return;
+        }
+        try {
+            if (cell.padlock() != null && level.getEntity(cell.padlock()) instanceof PadlockEntity padlock) {
+                padlock.vanish();
+            }
+            LockService.forget(LockService.data(level), cell.lockId());
+        } catch (Throwable t) {
+            McaCrime.LOGGER.debug("MCA: Crime could not take down the padlock on a cell at {}", cell.anchor(), t);
+        }
     }
 
     /**
      * Restores a snapshot in reverse placement order, so the interior is filled back in before the
      * walls holding it open come down.
      *
-     * <p>A position is only restored when it still holds the block this mod put there. If somebody
-     * broke a bar and filled the gap with their own, that is now their block and the cell has no
-     * business overwriting it — the same rule that governs where a cell may be built, applied on the
-     * way back out. An empty {@code placed} map means "restore unconditionally", which is only used by
-     * the rollback path, where every block was placed moments ago by this same call.
+     * <p>A position is only restored when it still holds the <em>kind</em> of block this mod put there.
+     * If somebody broke a bar and filled the gap with their own, that is now their block and the cell
+     * has no business overwriting it — the same rule that governs where a cell may be built, applied
+     * on the way back out. The comparison is by block rather than by exact state because the state
+     * legitimately drifts: a cell door that has been swung open is still the mod's door. An empty
+     * {@code placed} map means "restore unconditionally", which is only used by the rollback path,
+     * where every block was placed moments ago by this same call.
+     *
+     * <p>Door halves are restored with {@code UPDATE_KNOWN_SHAPE}, and air is accepted where a half
+     * stood, because vanilla removes the other half of a door the moment one half goes: restoring the
+     * upper half would otherwise pop the lower into air before the loop reached it, and the lower's
+     * own restore would then find "somebody's" air and leave whatever grass was there unrestored.
      */
     private static Set<BlockPos> restoreBlocks(ServerLevel level, Map<BlockPos, BlockState> replaced,
                                                Map<BlockPos, BlockState> placed) {
@@ -195,11 +328,14 @@ public final class CellBuilder {
                     continue;
                 }
                 BlockState expected = placed.get(entry.getKey());
-                if (expected != null && !level.getBlockState(entry.getKey()).equals(expected)) {
+                if (expected != null && !stillOurs(expected, level.getBlockState(entry.getKey()))) {
                     skipped++;
                     continue; // somebody changed this block; it is theirs now
                 }
-                level.setBlockAndUpdate(entry.getKey(), entry.getValue());
+                int flags = expected != null && expected.getBlock() instanceof DoorBlock
+                        ? Block.UPDATE_ALL | Block.UPDATE_KNOWN_SHAPE
+                        : Block.UPDATE_ALL;
+                level.setBlock(entry.getKey(), entry.getValue(), flags);
             } catch (Throwable t) {
                 // One block failing to restore must not leave the rest of the cell standing, but it is
                 // still one of this cell's blocks in the world, so it is retried later.
@@ -213,13 +349,48 @@ public final class CellBuilder {
         return unresolved;
     }
 
-    private static BlockState stateFor(CellBlueprint.Role role) {
+    /** Whether what stands at a position is still the block this mod put there, whatever state it is in. */
+    public static boolean stillOurs(BlockState expected, BlockState current) {
+        if (expected == null || current == null) {
+            return false;
+        }
+        if (current.is(expected.getBlock())) {
+            return true;
+        }
+        return expected.getBlock() instanceof DoorBlock && current.isAir();
+    }
+
+    /**
+     * The block one blueprint role is built from.
+     *
+     * <p>The door's state is written out in full rather than left to placement logic: it faces
+     * outward, sits in bars, and starts closed. Its in-bars shape and hinge are re-derived by the
+     * settle pass like every other neighbour-dependent property, so a value here only has to be
+     * sensible, not final.
+     */
+    public static BlockState stateFor(CellBlueprint.Role role, Direction facing) {
         return switch (role) {
-            case FLOOR -> Blocks.STONE_BRICKS.defaultBlockState();
-            case BARS -> Blocks.IRON_BARS.defaultBlockState();
-            case LIGHT -> Blocks.GLOWSTONE.defaultBlockState();
+            case FLOOR, PILLAR, ROOF -> CrimeBlocks.REINFORCED_STONE.get().defaultBlockState();
+            case BARS -> CrimeBlocks.REINFORCED_BARS.get().defaultBlockState();
+            case LIGHT -> CrimeBlocks.REINFORCED_LAMP.get().defaultBlockState();
+            case DOOR_LOWER -> doorState(facing, DoubleBlockHalf.LOWER);
+            case DOOR_UPPER -> doorState(facing, DoubleBlockHalf.UPPER);
             case INTERIOR -> Blocks.AIR.defaultBlockState();
         };
+    }
+
+    private static BlockState doorState(Direction facing, DoubleBlockHalf half) {
+        return CrimeBlocks.CELL_DOOR.get().defaultBlockState()
+                .setValue(DoorBlock.FACING, CellBlueprint.horizontal(facing))
+                .setValue(DoorBlock.HALF, half)
+                .setValue(DoorBlock.HINGE, DoorHingeSide.LEFT)
+                .setValue(DoorBlock.OPEN, Boolean.FALSE)
+                .setValue(DoorBlock.POWERED, Boolean.FALSE)
+                .setValue(CellDoorBlock.IN_BARS, Boolean.TRUE);
+    }
+
+    /** A chosen site, or the reason there is not one. */
+    public record Site(@Nullable BlockPos anchor, Refusal refusal) {
     }
 
     /**
@@ -230,10 +401,6 @@ public final class CellBuilder {
      * height comes from the surface of each column rather than from the arrest, so an arrest on a roof
      * does not produce a cell hanging in the air.
      */
-    /** A chosen site, or the reason there is not one. */
-    public record Site(@Nullable BlockPos anchor, Refusal refusal) {
-    }
-
     private static Site findSite(ServerLevel level, BlockPos near, int searchRadius) {
         // The strongest refusal seen wins the report. A search that found only settlement buildings
         // should say so rather than blaming the terrain, and one that could not ask at all outranks
@@ -380,7 +547,8 @@ public final class CellBuilder {
      * <p>Deliberately conservative. Anything that is not air, replaceable foliage, or naturally
      * generated ground is treated as somebody's work — including any block entity at all, which covers
      * chests, signs, beds and every modded container in one check rather than by keeping a list that
-     * would be wrong the moment a new mod is installed.
+     * would be wrong the moment a new mod is installed. The footprint is the same whichever wall the
+     * door ends up in, so the default blueprint is the right one to test with.
      */
     private static boolean siteIsClear(ServerLevel level, BlockPos anchor) {
         for (CellBlueprint.Placement placement : CellBlueprint.placements()) {

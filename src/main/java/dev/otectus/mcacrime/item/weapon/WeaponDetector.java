@@ -1,7 +1,6 @@
 package dev.otectus.mcacrime.item.weapon;
 
 import dev.otectus.mcacrime.McaCrimeConfig;
-import dev.otectus.mcacrime.captivity.RestraintType;
 import dev.otectus.mcacrime.item.CrimeItems;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.tags.TagKey;
@@ -120,7 +119,7 @@ public final class WeaponDetector {
         return new WeaponProbe(
                 ForgeRegistries.ITEMS.getKey(item),
                 tag -> stack.is(TagKey.create(Registries.ITEM, tag)),
-                CrimeItems.restraintFor(stack) != RestraintType.NONE,
+                CrimeItems.familyFor(stack).isPresent(),
                 item instanceof SwordItem,
                 item instanceof AxeItem,
                 item instanceof TridentItem,

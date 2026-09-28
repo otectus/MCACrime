@@ -6,7 +6,6 @@ import dev.otectus.mcacrime.captivity.CustodyRecord;
 import dev.otectus.mcacrime.crime.Band;
 import dev.otectus.mcacrime.engine.CrimeState;
 import dev.otectus.mcacrime.enforcement.OutlawResolver;
-import dev.otectus.mcacrime.enforcement.RestraintVisualState;
 import dev.otectus.mcacrime.item.weapon.WeaponPolicySnapshot;
 import dev.otectus.mcacrime.jail.JailService;
 import dev.otectus.mcacrime.job.CriminalJob;
@@ -36,9 +35,9 @@ import java.util.function.Supplier;
  */
 public final class CrimeNetwork {
 
-    // 14 adds the Townstead-era pair: the restraint rig a subject is drawn on, and the public village
-    // security summary with its request. Update clients and server together.
-    private static final String PROTOCOL_VERSION = "14";
+    // 17 added bounded player-report menus, submission and private receipt status; 18 drops the
+    // warden-guide and identity-projection packets, which shifts every later message index.
+    private static final String PROTOCOL_VERSION = "18";
 
     public static final SimpleChannel CHANNEL = NetworkRegistry.newSimpleChannel(
             new ResourceLocation(McaCrime.MOD_ID, "main"),
@@ -82,12 +81,6 @@ public final class CrimeNetwork {
                 CaseLedgerS2CPacket::encode, CaseLedgerS2CPacket::decode, CaseLedgerS2CPacket::handle);
         // Appended, never inserted: ids are the registration order, so reordering this list would make
         // two builds that differ only in packet order silently misread each other.
-        toClient(RestraintSyncS2CPacket.class,
-                RestraintSyncS2CPacket::encode, RestraintSyncS2CPacket::decode,
-                RestraintSyncS2CPacket::handle);
-        toClient(RestraintBulkSyncS2CPacket.class,
-                RestraintBulkSyncS2CPacket::encode, RestraintBulkSyncS2CPacket::decode,
-                RestraintBulkSyncS2CPacket::handle);
         toClient(WeaponPolicyS2CPacket.class,
                 WeaponPolicyS2CPacket::encode, WeaponPolicyS2CPacket::decode,
                 WeaponPolicyS2CPacket::handle);
@@ -114,6 +107,159 @@ public final class CrimeNetwork {
         toClient(VillageSecurityS2CPacket.class,
                 VillageSecurityS2CPacket::encode, VillageSecurityS2CPacket::decode,
                 VillageSecurityS2CPacket::handle);
+        toClient(PhysicalStateS2CPacket.class,
+                PhysicalStateS2CPacket::encode, PhysicalStateS2CPacket::decode,
+                PhysicalStateS2CPacket::handle);
+        toClient(PhysicalStateDeltaS2CPacket.class,
+                PhysicalStateDeltaS2CPacket::encode, PhysicalStateDeltaS2CPacket::decode,
+                PhysicalStateDeltaS2CPacket::handle);
+        toClient(PhysicalStateRemoveS2CPacket.class,
+                PhysicalStateRemoveS2CPacket::encode, PhysicalStateRemoveS2CPacket::decode,
+                PhysicalStateRemoveS2CPacket::handle);
+        toServer(RestraintStruggleC2SPacket.class,
+                RestraintStruggleC2SPacket::encode, RestraintStruggleC2SPacket::decode,
+                RestraintStruggleC2SPacket::handle);
+        toServer(SelfRestraintC2SPacket.class,
+                SelfRestraintC2SPacket::encode, SelfRestraintC2SPacket::decode,
+                SelfRestraintC2SPacket::handle);
+        toClient(LockpickBeginS2CPacket.class,
+                LockpickBeginS2CPacket::encode, LockpickBeginS2CPacket::decode,
+                LockpickBeginS2CPacket::handle);
+        toClient(LockpickPhaseS2CPacket.class,
+                LockpickPhaseS2CPacket::encode, LockpickPhaseS2CPacket::decode,
+                LockpickPhaseS2CPacket::handle);
+        toClient(LockpickResultS2CPacket.class,
+                LockpickResultS2CPacket::encode, LockpickResultS2CPacket::decode,
+                LockpickResultS2CPacket::handle);
+        toServer(LockpickAttemptC2SPacket.class,
+                LockpickAttemptC2SPacket::encode, LockpickAttemptC2SPacket::decode,
+                LockpickAttemptC2SPacket::handle);
+        toServer(LockpickCancelC2SPacket.class,
+                LockpickCancelC2SPacket::encode, LockpickCancelC2SPacket::decode,
+                LockpickCancelC2SPacket::handle);
+        toClient(FriskSnapshotS2CPacket.class,
+                FriskSnapshotS2CPacket::encode, FriskSnapshotS2CPacket::decode,
+                FriskSnapshotS2CPacket::handle);
+        toServer(FriskTransferC2SPacket.class,
+                FriskTransferC2SPacket::encode, FriskTransferC2SPacket::decode,
+                FriskTransferC2SPacket::handle);
+        toClient(RestraintProfileSyncS2CPacket.class,
+                RestraintProfileSyncS2CPacket::encode, RestraintProfileSyncS2CPacket::decode,
+                RestraintProfileSyncS2CPacket::handle);
+        toClient(ReportMenuS2CPacket.class,
+                ReportMenuS2CPacket::encode, ReportMenuS2CPacket::decode, ReportMenuS2CPacket::handle);
+        toServer(SubmitPlayerReportC2SPacket.class,
+                SubmitPlayerReportC2SPacket::encode, SubmitPlayerReportC2SPacket::decode,
+                SubmitPlayerReportC2SPacket::handle);
+        toServer(RequestPlayerReportsC2SPacket.class,
+                RequestPlayerReportsC2SPacket::encode, RequestPlayerReportsC2SPacket::decode,
+                RequestPlayerReportsC2SPacket::handle);
+        toClient(PlayerReportsS2CPacket.class,
+                PlayerReportsS2CPacket::encode, PlayerReportsS2CPacket::decode,
+                PlayerReportsS2CPacket::handle);
+    }
+
+    public static void sendReportMenu(ServerPlayer player,
+                                      dev.otectus.mcacrime.report.PlayerCrimeReportService.Menu menu) {
+        if (player != null && menu != null) CHANNEL.send(PacketDistributor.PLAYER.with(() -> player),
+                new ReportMenuS2CPacket(menu));
+    }
+
+    public static void sendPlayerReports(ServerPlayer player, PlayerReportsS2CPacket packet) {
+        if (player != null && packet != null) CHANNEL.send(PacketDistributor.PLAYER.with(() -> player), packet);
+    }
+
+    /**
+     * Sends the {@code restraint_profiles} datapack layer to one player (plan §3.13).
+     *
+     * <p>Sent even when the list is empty, which is how a client learns that the last server's
+     * numbers no longer apply.
+     */
+    public static void sendRestraintProfiles(ServerPlayer player,
+            java.util.List<dev.otectus.mcacrime.restraint.RestraintProfile> profiles) {
+        CHANNEL.send(PacketDistributor.PLAYER.with(() -> player),
+                new RestraintProfileSyncS2CPacket(profiles));
+    }
+
+    /** Opens one picker's dial. To that player alone: a lock is nobody else's business. */
+    public static void sendLockpickBegin(ServerPlayer player, LockpickBeginS2CPacket packet) {
+        CHANNEL.send(PacketDistributor.PLAYER.with(() -> player), packet);
+    }
+
+    /** Tells one picker the phase moved on, and where the server's meter really is. */
+    public static void sendLockpickPhase(ServerPlayer player, LockpickPhaseS2CPacket packet) {
+        CHANNEL.send(PacketDistributor.PLAYER.with(() -> player), packet);
+    }
+
+    /** Closes one picker's dial with the outcome the server already carried out. */
+    public static void sendLockpickResult(ServerPlayer player, LockpickResultS2CPacket packet) {
+        CHANNEL.send(PacketDistributor.PLAYER.with(() -> player), packet);
+    }
+
+    /**
+     * Gives one searcher the revisions their open frisking screen has to quote back (M5.2).
+     *
+     * <p>To that player alone. Only the authorised searcher ever receives a searchable projection,
+     * which is the §1.6 rule about never sending another player's inventory to anybody else.
+     */
+    public static void sendFriskSnapshot(ServerPlayer player, FriskSnapshotS2CPacket packet) {
+        CHANNEL.send(PacketDistributor.PLAYER.with(() -> player), packet);
+    }
+
+    /** Sends one alignment attempt. Intent only: the server scores it. */
+    public static void sendLockpickAttempt(LockpickAttemptC2SPacket packet) {
+        CHANNEL.sendToServer(packet);
+    }
+
+    /** Asks the server to end the sender's own lockpick session. */
+    public static void sendLockpickCancel(LockpickCancelC2SPacket packet) {
+        CHANNEL.sendToServer(packet);
+    }
+
+    /** Asks the server to put the held restraint on the sender's own chosen slot. */
+    public static void sendSelfRestraint(SelfRestraintC2SPacket packet) {
+        CHANNEL.sendToServer(packet);
+    }
+
+    /** Sends one struggle input. Intent only: the server owns durability and the outcome. */
+    public static void sendStruggle(RestraintStruggleC2SPacket packet) {
+        CHANNEL.sendToServer(packet);
+    }
+
+    /** Sends one client the whole physical-restraint picture: login, respawn, dimension change. */
+    public static void sendPhysicalState(ServerPlayer to, PhysicalStateS2CPacket packet) {
+        CHANNEL.send(PacketDistributor.PLAYER.with(() -> to), packet);
+    }
+
+    /** Sends one client one subject's physical state, for the moment it starts tracking them. */
+    public static void sendPhysicalStateDelta(ServerPlayer to, PhysicalStateDeltaS2CPacket packet) {
+        CHANNEL.send(PacketDistributor.PLAYER.with(() -> to), packet);
+    }
+
+    /**
+     * Tells everybody tracking this subject what changed about them.
+     *
+     * <p>Tracking rather than everybody: gear is drawn by the people who can see the person wearing
+     * it, and a server-wide broadcast would hand every client the whole prison roster.
+     */
+    public static void broadcastPhysicalStateDelta(Entity subject, PhysicalStateDeltaS2CPacket packet) {
+        if (subject == null) {
+            return;
+        }
+        CHANNEL.send(PacketDistributor.TRACKING_ENTITY.with(() -> subject), packet);
+    }
+
+    /** Sends one client a removal for a subject nobody can track any more. */
+    public static void sendPhysicalStateRemoval(ServerPlayer to, PhysicalStateRemoveS2CPacket packet) {
+        CHANNEL.send(PacketDistributor.PLAYER.with(() -> to), packet);
+    }
+
+    /** Tells everybody tracking this subject to forget their physical state. */
+    public static void broadcastPhysicalStateRemoval(Entity subject, PhysicalStateRemoveS2CPacket packet) {
+        if (subject == null) {
+            return;
+        }
+        CHANNEL.send(PacketDistributor.TRACKING_ENTITY.with(() -> subject), packet);
     }
 
     /**
@@ -245,26 +391,6 @@ public final class CrimeNetwork {
     }
 
     /**
-     * Broadcasts one player's restraint state, so everybody who can see the arrest draws it.
-     *
-     * <p>Broadcast rather than sent to the subject, because cuffs and a lead are things other people
-     * look at. Display-only, like every other sync on this channel.
-     */
-    public static void broadcastRestraint(UUID subject, RestraintVisualState state) {
-        CHANNEL.send(PacketDistributor.ALL.noArg(), RestraintSyncS2CPacket.of(subject, state));
-    }
-
-    /**
-     * Sends one subject's restraint state to a single client.
-     *
-     * <p>What a client that has just started tracking an entity needs: it missed the broadcast, and
-     * telling everybody again for its benefit would be a broadcast per chunk load.
-     */
-    public static void sendRestraintTo(ServerPlayer to, UUID subject, RestraintVisualState state) {
-        CHANNEL.send(PacketDistributor.PLAYER.with(() -> to), RestraintSyncS2CPacket.of(subject, state));
-    }
-
-    /**
      * Tells one client which weapons the server counts as drawn.
      *
      * <p>Sent on login, because the client's own COMMON file is not the one being gated on and a
@@ -304,8 +430,4 @@ public final class CrimeNetwork {
                 new CriminalJobSyncS2CPacket(villager.getUUID(), job));
     }
 
-    /** Sends every currently restrained subject to one joining client. */
-    public static void sendRestraintBulk(ServerPlayer to, Map<UUID, RestraintVisualState> restrained) {
-        CHANNEL.send(PacketDistributor.PLAYER.with(() -> to), new RestraintBulkSyncS2CPacket(restrained));
-    }
 }

@@ -1,0 +1,20 @@
+// Regression fixtures run in a disposable production server, never in the release jar.
+allprojects {
+    afterEvaluate {
+        sourceSets {
+            justiceRuntime {
+                java.srcDir 'tools/justice/java'
+                compileClasspath = sourceSets.main.compileClasspath + sourceSets.main.output
+            }
+        }
+        tasks.register('justiceRuntimeJar', Jar) {
+            dependsOn tasks.named('justiceRuntimeClasses')
+            archiveBaseName = 'crime-justice-runtime-checks'
+            from sourceSets.justiceRuntime.output
+            from('tools/justice/resources')
+            doFirst { manifest.attributes.remove('MixinConfigs') }
+        }
+        reobf { justiceRuntimeJar {} }
+        tasks.named('justiceRuntimeJar').configure { finalizedBy 'reobfJusticeRuntimeJar' }
+    }
+}

@@ -97,6 +97,12 @@ public final class JailService {
 
         if (data.isJailed()) {
             JailState existing = data.getJail();
+            // A recapture into a different jail: the built cell the prisoner escaped from came down
+            // with the escape, so the term resumes somewhere new. The move is attempted first, because
+            // a refused move must not have already lengthened the sentence.
+            if (existing.isEscaped() && explicit != null && !reanchor(player, existing, explicit)) {
+                return false;
+            }
             existing.setRemainingOnlineTicks(
                     mergeSentence(existing.getRemainingOnlineTicks(), clamped, allowReduce));
             // An extension is time added for charges that were not part of the original term, so those
@@ -117,6 +123,7 @@ public final class JailService {
         if (intakeId == null) return false;
         JailState jail = new JailState(clamped, anchor.pos(), anchor.dim(), anchor.radius(), mode);
         jail.setSentenceId(intakeId);
+        jail.setTemporaryCell(isTemporaryCellAnchor(player.getServer(), player.getUUID(), anchor));
         var arrestAtIntake = dev.otectus.mcacrime.enforcement.ArrestStates.of(player);
         if (arrestAtIntake != null) jail.setSurrenderCredited(arrestAtIntake.isSurrenderCredited());
         // The move happens before the sentence is written, and a refusal ends the whole thing. A
@@ -142,6 +149,37 @@ public final class JailService {
         MinecraftForge.EVENT_BUS.post(new PlayerJailedEvent(player, clamped, anchor.pos()));
         CrimeNetwork.sendSelfStatus(player);
         player.sendSystemMessage(Component.translatable("mcacrime.jail.jailed", TickFormat.compact(clamped)));
+        return true;
+    }
+
+    /**
+     * Whether {@code anchor} is the holding cell the mod built for this prisoner.
+     *
+     * <p>Recorded on the sentence because the cell does not outlive an escape: once it is gone, the
+     * anchor is a coordinate and nothing else, and both the confinement tick and a recapture have to
+     * know that rather than treat open ground as a jail.
+     */
+    static boolean isTemporaryCellAnchor(@Nullable MinecraftServer server, UUID prisoner, JailAnchor anchor) {
+        HoldingCell cell = HoldingCellService.existingFor(server, prisoner);
+        return cell != null && anchor != null && cell.toAnchor().equals(anchor);
+    }
+
+    /**
+     * Moves an escaped prisoner's sentence to a new jail and puts them in it.
+     *
+     * <p>Teleported against a copy first, so a refusal -- no safe footing, a dimension that did not
+     * resolve -- leaves the stored sentence exactly as it was, still escaped and still pointing at
+     * wherever it pointed.
+     */
+    private static boolean reanchor(ServerPlayer player, JailState jail, JailAnchor anchor) {
+        JailState moved = jail.copy();
+        boolean temporary = isTemporaryCellAnchor(player.getServer(), player.getUUID(), anchor);
+        moved.reanchor(anchor.pos(), anchor.dim(), anchor.radius(), temporary);
+        if (!teleportToAnchor(player, moved)) {
+            return false;
+        }
+        jail.reanchor(anchor.pos(), anchor.dim(), anchor.radius(), temporary);
+        jail.setEscaped(false);
         return true;
     }
 
@@ -240,6 +278,10 @@ public final class JailService {
             case PARDON -> "mcacrime.jail.released.pardon";
             case BAILED -> "mcacrime.jail.released.bailed";
             case INVALID_JAIL -> "mcacrime.jail.released.invalid";
+            // Said to nobody in practice -- a player who has just been executed is dead and this
+            // message is sent to the living -- but enumerated rather than defaulted, so the coverage
+            // test names it and a future path that does reach it says something true (§3.19).
+            case EXECUTED -> "mcacrime.jail.released.executed";
         };
     }
 
@@ -366,6 +408,7 @@ public final class JailService {
             jail.setSentenceId(arrest.getSentenceId());
             jail.setLegacyBound(true);
             jail.setSurrenderCredited(arrest.isSurrenderCredited());
+            jail.setTemporaryCell(isTemporaryCellAnchor(player.getServer(), player.getUUID(), anchor));
             data.setJail(jail);
         }
         if (jail != null) {
@@ -388,6 +431,11 @@ public final class JailService {
         JailState jail = CrimeCapabilities.get(player).map(PlayerCrimeData::getJail).orElse(null);
         if (jail == null) return false;
         if (!jail.isEscaped()) return true;
+        if (jail.isTemporaryCell() && HoldingCellService.existingFor(player.getServer(), player.getUUID()) == null) {
+            // The cell came down with the escape. Where it stood is open ground, and "recaptured" into
+            // a field is not recaptured: the arrest has to raise a fresh cell and walk them to it.
+            return false;
+        }
         if (!teleportToAnchor(player, jail)) return false;
         jail.setEscaped(false);
         CrimeNetwork.sendSelfStatus(player);

@@ -1,6 +1,5 @@
 package dev.otectus.mcacrime.detect;
 
-import dev.otectus.mcacrime.McaCrimeConfig;
 import dev.otectus.mcacrime.enforcement.OutlawResolver;
 import dev.otectus.mcacrime.enforcement.OutlawStatus;
 import net.minecraft.server.level.ServerLevel;
@@ -46,7 +45,8 @@ public final class CrimeGate {
         // 1. Victim must be protected: an MCA villager, a configured extra, or -- when PvP crime is
         //    enabled -- a real player. This kills the overwhelming majority of hurt events cheaply.
         boolean playerVictim = victim instanceof ServerPlayer && !(victim instanceof FakePlayer);
-        boolean pvp = playerVictim && McaCrimeConfig.COMMON.pvpCountsAsCrime.get();
+        boolean pvp = playerVictim
+                && dev.otectus.mcacrime.config.CrimeWorldSettings.resolve(level).pvpCrime();
         if (!pvp && !EntitySelectors.isProtected(victim)) {
             return Optional.empty();
         }
@@ -101,7 +101,8 @@ public final class CrimeGate {
     public static Optional<ServerPlayer> resolveNonDamageOffender(LivingEntity victim, Entity actor,
                                                                   ServerLevel level) {
         boolean playerVictim = victim instanceof ServerPlayer && !(victim instanceof FakePlayer);
-        boolean pvp = playerVictim && McaCrimeConfig.COMMON.pvpCountsAsCrime.get();
+        boolean pvp = playerVictim
+                && dev.otectus.mcacrime.config.CrimeWorldSettings.resolve(level).pvpCrime();
         if (!pvp && !EntitySelectors.isProtected(victim)) {
             return Optional.empty();
         }

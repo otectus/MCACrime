@@ -1,0 +1,32 @@
+{
+  "parent": "item/generated",
+  "textures": {
+    "layer0": "mcacrime:item/key_ring_0"
+  },
+  "overrides": [
+    {
+      "predicate": {
+        "mcacrime:keys": 1
+      },
+      "model": "mcacrime:item/key_ring_1"
+    },
+    {
+      "predicate": {
+        "mcacrime:keys": 2
+      },
+      "model": "mcacrime:item/key_ring_2"
+    },
+    {
+      "predicate": {
+        "mcacrime:keys": 3
+      },
+      "model": "mcacrime:item/key_ring_3"
+    },
+    {
+      "predicate": {
+        "mcacrime:keys": 4
+      },
+      "model": "mcacrime:item/key_ring_4"
+    }
+  ]
+}

@@ -78,6 +78,18 @@ class OptionalClassloadTest {
             // to a single MCA layout. NoTownsteadStaticLinkTest enforces that half; what matters here is
             // the other half -- that nothing outside compat/townstead/ names the package, so an install
             // without Townstead never asks a classloader for any of it.
+            // The three M6.2 adapters. Each names its mods only as strings, because none of them is on
+            // this mod's compile classpath -- but the package is still isolated, because a common
+            // class naming one would resolve it on a server that has none of those mods.
+            new String[] {"dev/otectus/mcacrime/compat/mana/",
+                    "dev/otectus/mcacrime/compat/ManaCompat.class",
+                    "dev.otectus.mcacrime.compat.mana.ManaDrainAdapters"},
+            new String[] {"dev/otectus/mcacrime/compat/inventory/",
+                    "dev/otectus/mcacrime/compat/InventoryCompat.class",
+                    "dev.otectus.mcacrime.compat.inventory.ExternalInventoryAdapters"},
+            new String[] {"dev/otectus/mcacrime/compat/revive/",
+                    "dev/otectus/mcacrime/compat/ReviveCompat.class",
+                    "dev.otectus.mcacrime.compat.revive.PlayerReviveAdapter"},
             new String[] {"dev/otectus/mcacrime/compat/townstead/",
                     "dev/otectus/mcacrime/compat/TownsteadBridge.class",
                     "dev.otectus.mcacrime.compat.townstead.ReflectiveTownsteadBridge",
@@ -184,38 +196,42 @@ class OptionalClassloadTest {
      * Common code must not reach into client code, and the restraint resolver is the file where that
      * would happen first.
      *
-     * <p>{@code RestraintVisualResolver} decides how a restrained subject looks, which sounds like a
-     * rendering concern and is not: it runs on the server and feeds the packets. If it ever named a
-     * class under {@code client/} or {@code mixin/}, a dedicated server would classload rendering code
-     * the moment somebody was arrested — and the crash would land on a host, not on the author's
-     * machine. Byte-scanned rather than import-scanned for the same reason as the MCA guard above: the
-     * constant pool catches a field type or a signature that no import line mentions.
+     * <p>{@code RestraintSyncService} decides what a client is told about a restrained subject, which
+     * sounds like a rendering concern and is not: it runs on the server and builds the packets. If it
+     * ever named a class under {@code client/} or {@code mixin/}, a dedicated server would classload
+     * rendering code the moment somebody was arrested — and the crash would land on a host, not on the
+     * author's machine. Byte-scanned rather than import-scanned for the same reason as the MCA guard
+     * above: the constant pool catches a field type or a signature that no import line mentions.
+     *
+     * <p>It replaced {@code enforcement/RestraintVisualResolver}, which 0.7.5 M2.11 deleted with the
+     * rest of the legacy engine; the rule it was written for did not go anywhere.
      */
     @Test
     void theRestraintResolverNamesNoClientClass() throws IOException {
         Path root = compiledClasses();
-        Path resolver = root.resolve("dev/otectus/mcacrime/enforcement/RestraintVisualResolver.class");
-        assertTrue(Files.exists(resolver), "RestraintVisualResolver.class not found");
+        Path resolver = root.resolve("dev/otectus/mcacrime/restraint/RestraintSyncService.class");
+        assertTrue(Files.exists(resolver), "RestraintSyncService.class not found");
 
         String bytes = new String(Files.readAllBytes(resolver), StandardCharsets.ISO_8859_1);
         for (String clientPackage : CLIENT_PACKAGES) {
             assertTrue(!bytes.contains(clientPackage),
-                    "RestraintVisualResolver names " + clientPackage + "; it runs server-side and must "
+                    "RestraintSyncService names " + clientPackage + "; it runs server-side and must "
                             + "stay loadable on a dedicated server");
         }
     }
 
     /**
      * The same rule for the shared restraint value types the packets carry. They sit in
-     * {@code enforcement} precisely so a dedicated server can name them; a client reference in either
-     * would undo that and take the packets down with it.
+     * {@code restraint} precisely so a dedicated server can name them; a client reference in any of
+     * them would undo that and take the packets down with it.
      */
     @Test
     void theRestraintValueTypesNameNoClientClass() throws IOException {
         Path root = compiledClasses();
         List<String> offenders = new ArrayList<>();
-        for (String name : List.of("RestraintVisualState", "RestraintVisualType", "RestraintSync")) {
-            Path file = root.resolve("dev/otectus/mcacrime/enforcement/" + name + ".class");
+        for (String name : List.of("PhysicalRestraintState", "PhysicalRestraintView", "AppliedRestraint",
+                "RestraintServerEvents")) {
+            Path file = root.resolve("dev/otectus/mcacrime/restraint/" + name + ".class");
             assertTrue(Files.exists(file), name + ".class not found");
             String bytes = new String(Files.readAllBytes(file), StandardCharsets.ISO_8859_1);
             for (String clientPackage : CLIENT_PACKAGES) {

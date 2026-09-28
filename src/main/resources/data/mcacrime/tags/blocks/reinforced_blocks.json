@@ -1,0 +1,15 @@
+{
+    "replace": false,
+    "values": [
+        "mcacrime:reinforced_stone",
+        "mcacrime:reinforced_lamp",
+        "mcacrime:reinforced_stone_slab",
+        "mcacrime:reinforced_stone_stairs",
+        "mcacrime:reinforced_smooth_stone",
+        "mcacrime:chiseled_reinforced_stone",
+        "mcacrime:cell_door",
+        "mcacrime:reinforced_bars",
+        "mcacrime:reinforced_bars_gap",
+        "mcacrime:bunk"
+    ]
+}

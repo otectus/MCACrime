@@ -37,6 +37,16 @@ public final class CrimeClientSetup {
                 net.minecraftforge.client.event.EntityRenderersEvent.RegisterRenderers event) {
             event.registerEntityRenderer(dev.otectus.mcacrime.entity.CrimeEntities.SAND_BOTTLE.get(),
                     net.minecraft.client.renderer.entity.ThrownItemRenderer::new);
+            // A padlock draws as its own item, flat on the block it hangs on (0.7.5 M3.4). Not
+            // optional: a client refuses to start with an entity type that has no renderer.
+            event.registerEntityRenderer(dev.otectus.mcacrime.entity.CrimeEntities.PADLOCK.get(),
+                    dev.otectus.mcacrime.client.render.PadlockRenderer::new);
+            // The knot draws as a chain item at the fence post (0.7.5 M4.2). The same choice the
+            // padlock made, for the same reason: the item art already exists, and a bespoke entity
+            // model would need entity textures this release does not ship. Every entity type must
+            // have a renderer or the client refuses to start.
+            event.registerEntityRenderer(dev.otectus.mcacrime.entity.CrimeEntities.CHAIN_KNOT.get(),
+                    dev.otectus.mcacrime.client.render.ChainKnotRenderer::new);
         }
 
         /**
@@ -62,10 +72,23 @@ public final class CrimeClientSetup {
 
         @SubscribeEvent
         public static void onClientSetup(FMLClientSetupEvent event) {
+            // A key ring shows how many keys are on it (0.7.5 M3.2). The four count textures shipped
+            // with the ring and the model that selects between them did not, so until now every ring
+            // drew as the same two-key icon whatever it held. The predicate is client-only and reads
+            // the same tag the server writes; a ring with more than four keys keeps the four-key art.
+            event.enqueueWork(() -> net.minecraft.client.renderer.item.ItemProperties.register(
+                    dev.otectus.mcacrime.item.CrimeItems.KEY_RING.get(),
+                    dev.otectus.mcacrime.McaCrime.id("keys"),
+                    (stack, level, holder, seed) -> Math.min(4,
+                            dev.otectus.mcacrime.locks.KeyRingBindings.count(stack.getTag()))));
             // The station's screen, bound to the menu type the server opens (0.7.2 §8.1).
             event.enqueueWork(() -> net.minecraft.client.gui.screens.MenuScreens.register(
                     dev.otectus.mcacrime.menu.CrimeMenus.MASK_STATION.get(),
                     dev.otectus.mcacrime.client.screen.MaskStationScreen::new));
+            // The frisking screen, bound to the menu the search opens (0.7.5 M5.2).
+            event.enqueueWork(() -> net.minecraft.client.gui.screens.MenuScreens.register(
+                    dev.otectus.mcacrime.menu.CrimeMenus.FRISKING.get(),
+                    dev.otectus.mcacrime.client.screen.FriskingScreen::new));
             event.enqueueWork(() -> ModLoadingContext.get().registerExtensionPoint(
                     ConfigScreenHandler.ConfigScreenFactory.class,
                     () -> new ConfigScreenHandler.ConfigScreenFactory(
@@ -87,12 +110,16 @@ public final class CrimeClientSetup {
         ClientCaptiveData.clear();
         ClientActionData.clear();
         ClientChallengeData.clear();
+        ClientFriskData.clear();
         ClientCaseData.clear();
-        ClientRestraintData.clear();
+        ClientPhysicalRestraintData.clear();
         ClientRestraintRig.clear();
         ClientVillageSecurityData.clear();
         ClientWeaponPolicy.clear();
         ClientCriminalJobData.clear();
+        // The datapack layer belongs to the server that sent it (§3.13). Keeping it would predict the
+        // next world's input against the last world's pack.
+        dev.otectus.mcacrime.restraint.RestraintProfileOverrides.clear();
         // The close reason belongs to one screen on one server. Carrying it across a disconnect would
         // apply this session's interruption to the next session's first conversation.
         dev.otectus.mcacrime.compat.TownsteadDialogueState.clear();

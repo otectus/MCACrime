@@ -11,6 +11,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.phys.AABB;
@@ -20,8 +21,10 @@ import javax.annotation.Nullable;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.nio.charset.StandardCharsets;
 
 /**
  * Turns "a crime just happened here" into the set of NPCs who know about it, and starts them reacting
@@ -95,7 +98,8 @@ public final class ObservationService {
                                                 dev.otectus.mcacrime.crime.type.CrimeAwareness awareness,
                                                 long observedAt) {
         MinecraftServer server = level == null ? null : level.getServer();
-        if (!dev.otectus.mcacrime.state.world.ServerMutationGate.allows(server) || !McaCrimeConfig.COMMON.enableObservations.get()) {
+        if (!dev.otectus.mcacrime.state.world.ServerMutationGate.allows(server)
+                || !dev.otectus.mcacrime.config.CrimeWorldSettings.resolve(server).observations()) {
             return List.of();
         }
         long now = observedAt;
@@ -107,7 +111,14 @@ public final class ObservationService {
 
         // 1. The direct victim. They do not need line of sight to know it happened to them, and their
         //    identity confidence is total when the offender was standing in front of them.
-        if (victim != null && dev.otectus.mcacrime.ai.NpcAwareness.canObserveAct(victim) && McaCompat.isMcaVillager(victim)) {
+        if (victim instanceof ServerPlayer playerVictim) {
+            CrimeObservation observation = recordPlayerVictim(level, offender, playerVictim, crimeId,
+                    incidentId, now).orElse(null);
+            if (observation != null) {
+                covered.add(playerVictim.getUUID());
+                stored.add(observation);
+            }
+        } else if (victim != null && dev.otectus.mcacrime.ai.NpcAwareness.canObserveAct(victim) && McaCompat.isMcaVillager(victim)) {
             boolean faceToFace = !offender.isInvisible() && victim.hasLineOfSight(offender)
                     && !dev.otectus.mcacrime.effect.SandBlindness.blocksSight(victim, offender)
                     && !victim.hasEffect(net.minecraft.world.effect.MobEffects.BLINDNESS)
@@ -120,6 +131,13 @@ public final class ObservationService {
                 stored.add(observation);
                 startReaction(level, victim, offender, observation);
             }
+        }
+
+        // Nearby real players get one server-side perception sample at the act boundary. They are
+        // observers only: no villager reaction state, age check, or client assertion participates.
+        for (CrimeObservation playerAccount : recordPlayerEyewitnesses(level, offender, victim, crimeId,
+                incidentId, awareness, now)) {
+            if (covered.add(playerAccount.observerId())) stored.add(playerAccount);
         }
 
         // 2. Everybody the line-of-sight scan already identified. Reusing those identities is what
@@ -205,6 +223,90 @@ public final class ObservationService {
     }
 
     /**
+     * Captures a player's own account without routing them through villager age, speech or reaction AI.
+     * The deterministic evidence id makes visible-threat capture and terminal incident commit one fact.
+     */
+    public static Optional<CrimeObservation> recordPlayerVictim(ServerLevel level, LivingEntity offender,
+            ServerPlayer victim, ResourceLocation crimeId, UUID incidentId, long observedAt) {
+        MinecraftServer server = level == null ? null : level.getServer();
+        if (!dev.otectus.mcacrime.state.world.ServerMutationGate.allows(server) || offender == null
+                || victim == null || crimeId == null || incidentId == null || victim.level() != level
+                || offender.level() != level || !victim.isAlive()
+                || !dev.otectus.mcacrime.config.CrimeWorldSettings.resolve(server).observations()) {
+            return Optional.empty();
+        }
+        UUID observationId = playerObservationId(incidentId, victim.getUUID());
+        CrimeWorldData data = CrimeWorldData.get(server);
+        CrimeObservation existing = data.observation(observationId).orElse(null);
+        if (existing != null) {
+            if (!existing.actionId().equals(crimeId)) {
+                CrimeObservation promoted = existing.withAction(crimeId);
+                data.replaceObservation(promoted);
+                return Optional.of(promoted);
+            }
+            return Optional.of(existing);
+        }
+        boolean masked = dev.otectus.mcacrime.mask.Masks.isMasked(offender)
+                && McaCrimeConfig.COMMON.maskHidesIdentityFromWitnesses.get();
+        boolean identifies = !masked && !offender.isInvisible() && victim.hasLineOfSight(offender)
+                && !dev.otectus.mcacrime.effect.SandBlindness.blocksSight(victim, offender)
+                && !victim.hasEffect(net.minecraft.world.effect.MobEffects.BLINDNESS);
+        long expiresAt = observedAt + McaCrimeConfig.COMMON.observationStatuteTicks.get();
+        CrimeObservation observation = new CrimeObservation(observationId, incidentId, victim.getUUID(),
+                ObserverRole.DIRECT_VICTIM, identifies ? offender.getUUID() : null, victim.getUUID(),
+                crimeId, level.dimension().location(), victim.blockPosition(), observedAt,
+                identifies ? 1.0F : 0.0F, identifies, true, true, ReportState.PENDING, expiresAt);
+        return storePlayer(server, observation) ? Optional.of(observation) : Optional.empty();
+    }
+
+    /** Captures all nearby real-player eyewitnesses once, at the threat/commit boundary. */
+    public static List<CrimeObservation> recordPlayerEyewitnesses(ServerLevel level, LivingEntity offender,
+            @Nullable LivingEntity victim, ResourceLocation crimeId, UUID incidentId,
+            dev.otectus.mcacrime.crime.type.CrimeAwareness awareness, long observedAt) {
+        MinecraftServer server = level == null ? null : level.getServer();
+        if (!dev.otectus.mcacrime.state.world.ServerMutationGate.allows(server) || offender == null
+                || awareness == null || !dev.otectus.mcacrime.config.CrimeWorldSettings.resolve(server).observations()) {
+            return List.of();
+        }
+        double radius = Math.max(1.0D, McaCrimeConfig.COMMON.witnessRadius.get());
+        List<CrimeObservation> out = new ArrayList<>();
+        for (ServerPlayer witness : level.players()) {
+            if (witness == offender || witness == victim || !witness.isAlive() || witness.isSpectator()
+                    || witness.distanceToSqr(victim == null ? offender : victim) > radius * radius) continue;
+            var perceived = dev.otectus.mcacrime.detect.WitnessChecker.perceive(witness, offender,
+                    victim == null ? offender : victim, awareness);
+            if (!perceived.aware() || !perceived.sawAct()) continue;
+            boolean masked = dev.otectus.mcacrime.mask.Masks.isMasked(offender)
+                    && McaCrimeConfig.COMMON.maskHidesIdentityFromWitnesses.get();
+            boolean identifies = perceived.identifiesActor() && !masked;
+            UUID observationId = playerObservationId(incidentId, witness.getUUID());
+            CrimeWorldData data = CrimeWorldData.get(server);
+            CrimeObservation existing = data.observation(observationId).orElse(null);
+            if (existing != null) {
+                if (!existing.actionId().equals(crimeId)) {
+                    existing = existing.withAction(crimeId);
+                    data.replaceObservation(existing);
+                }
+                out.add(existing);
+                continue;
+            }
+            CrimeObservation observation = new CrimeObservation(observationId, incidentId, witness.getUUID(),
+                    ObserverRole.EYEWITNESS, identifies ? offender.getUUID() : null,
+                    victim == null ? null : victim.getUUID(), crimeId, level.dimension().location(),
+                    victim == null ? offender.blockPosition() : victim.blockPosition(), observedAt,
+                    identifies ? perceived.confidence() : 0.0F, identifies, true, perceived.heardAct(),
+                    ReportState.PENDING, observedAt + McaCrimeConfig.COMMON.observationStatuteTicks.get());
+            if (storePlayer(server, observation)) out.add(observation);
+        }
+        return List.copyOf(out);
+    }
+
+    public static UUID playerObservationId(UUID incidentId, UUID playerId) {
+        return UUID.nameUUIDFromBytes(("mcacrime:player-victim:" + incidentId + ":" + playerId)
+                .getBytes(StandardCharsets.UTF_8));
+    }
+
+    /**
      * Builds one observation, applying the incapacity rules from §12.2 as it goes.
      *
      * <p>Incapacity lowers <em>reporting ability</em> rather than deleting knowledge. A villager who
@@ -241,6 +343,14 @@ public final class ObservationService {
 
     /** Fires the cancellable pre-event, stores, and fires the post-event. */
     private static boolean store(MinecraftServer server, CrimeObservation observation) {
+        return store(server, observation, false);
+    }
+
+    private static boolean storePlayer(MinecraftServer server, CrimeObservation observation) {
+        return store(server, observation, true);
+    }
+
+    private static boolean store(MinecraftServer server, CrimeObservation observation, boolean playerAccount) {
         CrimeObservationEvent.Pre pre = new CrimeObservationEvent.Pre(observation.observationId(),
                 observation.incidentId(), observation.observerId(), observation.suspectedActorId(),
                 observation.victimId(), observation.actionId(), observation.role(),
@@ -248,7 +358,8 @@ public final class ObservationService {
         if (MinecraftForge.EVENT_BUS.post(pre)) {
             return false;
         }
-        if (!CrimeWorldData.get(server).addObservation(observation)) {
+        if (!(playerAccount ? CrimeWorldData.get(server).addPlayerObservation(observation)
+                : CrimeWorldData.get(server).addObservation(observation))) {
             return false;
         }
         WitnessSocialService.schedule(observation.observerId(), observation.observedAt());

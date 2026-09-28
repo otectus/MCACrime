@@ -174,6 +174,43 @@ class LangCoverageTest {
         for (dev.otectus.mcacrime.civic.CivicTask task : dev.otectus.mcacrime.civic.CivicTask.values()) {
             require(lang, missing, task.labelKey());
         }
+        // A lock explains its own refusal through LockAccess.messageKey, which is a switch over the
+        // decision rather than a literal at the call site -- exactly the shape the literal scan misses
+        // (0.7.5 M3.1).
+        for (dev.otectus.mcacrime.locks.LockAccess.Decision decision
+                : dev.otectus.mcacrime.locks.LockAccess.Decision.values()) {
+            require(lang, missing, dev.otectus.mcacrime.locks.LockAccess.messageKey(decision));
+        }
+
+        // The transport, detention and execution refusals follow the same shape (0.7.5 M4): a
+        // messageKey switch over the enum rather than a literal at each call site, which is exactly
+        // what the literal scan above cannot see.
+        for (dev.otectus.mcacrime.tether.TetherService.Refusal refusal
+                : dev.otectus.mcacrime.tether.TetherService.Refusal.values()) {
+            require(lang, missing, dev.otectus.mcacrime.tether.TetherService.messageKey(refusal));
+        }
+        for (dev.otectus.mcacrime.tether.MountTransfer.Refusal refusal
+                : dev.otectus.mcacrime.tether.MountTransfer.Refusal.values()) {
+            require(lang, missing, dev.otectus.mcacrime.tether.MountTransfer.messageKey(refusal));
+        }
+        for (dev.otectus.mcacrime.detention.DetentionService.Refusal refusal
+                : dev.otectus.mcacrime.detention.DetentionService.Refusal.values()) {
+            require(lang, missing,
+                    dev.otectus.mcacrime.detention.DetentionService.messageKey(refusal));
+        }
+        for (dev.otectus.mcacrime.detention.ExecutionAuthorization.Refusal refusal
+                : dev.otectus.mcacrime.detention.ExecutionAuthorization.Refusal.values()) {
+            require(lang, missing,
+                    dev.otectus.mcacrime.detention.ExecutionAuthorization.messageKey(refusal));
+        }
+
+        // RestraintItem.appendHoverText builds "mcacrime.restraint.family." + family.id() + ".scope".
+        // The two dormant dispositions this corrects (D07, D08) are wrong *text*, so a family added
+        // without a line would reintroduce exactly the defect M6.3 exists to fix.
+        for (dev.otectus.mcacrime.restraint.RestraintFamily family
+                : dev.otectus.mcacrime.restraint.RestraintFamily.values()) {
+            require(lang, missing, "mcacrime.restraint.family." + family.id() + ".scope");
+        }
 
         assertTrue(missing.isEmpty(),
                 "These translation keys are built by concatenation and have no entry in en_us.json:\n  "

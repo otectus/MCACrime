@@ -1,7 +1,8 @@
 # MCA: Crime — Java API
 
-Package `dev.otectus.mcacrime.api`. Everything a companion mod needs is here: a read-only facade,
-immutable model types, and Forge events.
+Package `dev.otectus.mcacrime.api`. Everything a companion mod needs is here: a facade that reads —
+with two named exceptions in 0.7.5, clemency over a capital sentence — immutable model types, a
+registration front door for third-party restraints, and Forge events.
 
 ## Victim and witness context (0.6.0)
 
@@ -74,8 +75,13 @@ client-side equivalent, because the client is never authoritative about any of i
 ## Versioning
 
 ```java
-int version = McaCrimeApi.getApiVersion();   // currently 1
+int version = McaCrimeApi.getApiVersion();   // currently 2
 ```
+
+Version 2 is 0.7.5. Everything it adds is **additive** — no existing method changed shape, and a v1
+consumer keeps working — but the surface is large enough to be worth a handshake: the physical
+restraint, transport, detention and lock views; the capital-sentence view; eight new events; the
+third-party registration front door; and `CustodyView.custodyId`, which finally carries a real value.
 
 `getApiVersion()` is a **method, not a constant**, and that is load-bearing. `javac` copies a
 `public static final int` straight into the consumer's own constant pool, so a companion compiled
@@ -206,7 +212,7 @@ pardon the wrong crime.
 ```java
 public record CustodyView(
         UUID captiveId, boolean captiveIsPlayer, boolean lawful,
-        Optional<UUID> captorId, RestraintType restraint,
+        Optional<UUID> captorId, RestraintType restraint,   // deprecated projection since 0.7.5
         long realTicksHeld, long remainingJailTicks,
         Optional<ResourceLocation> holdDimension,
         Optional<UUID> custodyId, Optional<UUID> linkedCaseId)
@@ -220,20 +226,96 @@ outlive the entity it describes.
 
 `McaCrimeApi.sentence(player)` includes the persisted sentence UUID and the still-actionable cases
 bound to that exact sentence. A lawful cuff escape keeps the same UUID and cases and reports
-`escaped = true`; it does not settle them. The custody view's separate `custodyId` and `linkedCaseId`
-remain empty pending a canonical custody identity/link contract; neither is synthesized from a sentence UUID.
+`escaped = true`; it does not settle them. Since 0.7.5 the custody view's `custodyId` carries a real value —
+schema 15 stamps a `custodyId` and a `generation` on every custody row — while `linkedCaseId` is
+still populated only where a canonical link exists. Neither is synthesized from a sentence UUID.
 
 ```java
 public record JailSentenceView(
         Optional<UUID> sentenceId,
         long remainingOnlineTicks, long realOnlineTicksServed,
         Optional<ResourceLocation> jailDimension, boolean escaped,
-        JailContainmentMode containmentMode, Set<UUID> linkedCaseIds)
+        JailContainmentMode containmentMode, Set<UUID> linkedCaseIds,
+        String sentenceKind)                                    // 0.7.5 (API v2)
 ```
+
+`sentenceKind` is `"custodial"` or `"capital"`, with a `capital()` helper. It is a lowercase string
+rather than an enum on purpose: an enum constant a consumer compiled against would be copied into
+their constant pool, and a future third kind would break them at a `switch` rather than at the
+handshake. Absent and unknown both read as custodial, which is what every sentence before 0.7.5 was.
+**The 0.7.4 seven-argument constructor is kept**, so a call written before this release still
+compiles and still means custodial.
 
 Both tick counts are **online** ticks. `linkedCaseIds` is what makes serving a sentence mean
 something specific: those cases resolve, and no others. It is the difference between atonement and
 blanket amnesty.
+
+### The 0.7.5 physical views
+
+Four read-only projections of the physical half of the physical/legal split, plus one for a lock.
+None of them holds an entity reference, and none of them carries a secret: no key binding, no
+frisked inventory, no private case evidence.
+
+```java
+public record RestraintView(UUID subject, long generation, long revision,
+                            List<RestraintSlotView> slots,
+                            Optional<UUID> tetherId, Optional<UUID> detentionId,
+                            Optional<ResourceLocation> dimension)
+
+public record RestraintSlotView(String slot, ResourceLocation definitionId, float durability,
+                                Optional<UUID> applier, Optional<UUID> custodyId,
+                                boolean systemIssued)
+
+public record TransportView(UUID tetherId, UUID subject, String kind, Optional<UUID> holder,
+                            Optional<long[]> anchorPos, Optional<ResourceLocation> dimension,
+                            double maxLength, boolean lawful)
+
+public record DetentionView(UUID detentionId, UUID subject, String kind,
+                            Optional<ResourceLocation> dimension, long[] device,
+                            long generation, boolean condemned)
+
+public record LockView(UUID lockId, boolean locked, boolean reinforced,
+                       Optional<ResourceLocation> dimension, Optional<long[]> pos)
+```
+
+`RestraintView.slots` is one entry per filled slot — head, arms, legs — each with its own durability
+fraction and its own applier, because durability lives on the worn instance rather than on an item
+somebody is carrying. `generation` distinguishes two successive holds of the same subject;
+`revision` orders snapshots. `systemIssued` marks gear the mod supplied at arrest, which is never
+returned on removal.
+
+`TransportView.lawful` is the whole point of the record existing separately: a guard's escort and a
+kidnapper's chain are the same physical fact and different legal ones. `DetentionView.condemned`
+says a capital sentence is live, not that an execution is authorised.
+
+`LockView` never carries the binding. A view cannot mint a key.
+
+### `CapitalSentenceView`
+
+```java
+public record CapitalSentenceView(UUID subject, boolean subjectIsPlayer, UUID sentenceId,
+                                  long holdingTicks, boolean pendingExecution,
+                                  Optional<long[]> device, long expiresAt)
+```
+
+`windowRemaining(long now)` reports how much of the ceremony window is left, or zero when none is
+running. `pendingExecution` is the only state in which a device may act, and it is cleared by
+clemency, rescue, escape, guard death, device destruction or a chunk unload — each of which returns
+the subject to custody, never to freedom. A view with `pendingExecution = false` and a live sentence
+is a condemned prisoner sitting in a cell, which is the normal state when there is no usable device.
+
+### `FriskSessionView`
+
+```java
+public record FriskSessionView(UUID sessionId, UUID searcher, UUID subject, boolean lawful,
+                               long revision, int seizures)
+```
+
+A search in progress, **without its contents**, and that omission is the design. Only the authorised
+searcher ever receives what is in somebody's pockets, and it goes to their own client through the
+frisking packets — never into a public view a third mod could read, queue or log. What a companion
+may know is that a search is happening, who is searching whom, whether it is lawful, and how many
+stacks have changed hands.
 
 ### `CrimePublicView`
 
@@ -331,6 +413,28 @@ static int                       unresolvedCaseCount(ServerPlayer player);
 static Optional<CustodyView>      custody(MinecraftServer server, UUID entityId);
 static Optional<JailSentenceView> sentence(ServerPlayer player);
 
+// 0.7.5 (API v2). The physical half of the physical/legal split: what is on a subject, what holds
+// them, what device has them, and what a lock is. Read-only, and none of them carries a secret --
+// no key binding, no frisked inventory, no private case evidence.
+static Optional<RestraintView>  restraints(MinecraftServer server, UUID subjectId);
+static Optional<TransportView>  transport(MinecraftServer server, UUID subjectId);
+static Optional<DetentionView>  detention(MinecraftServer server, UUID subjectId);
+static Optional<LockView>       lock(MinecraftServer server, UUID lockId);
+
+// 0.7.5 (API v2). The capital sentence, if there is one. There is deliberately no method to assign
+// one or to carry one out: an execution is a deliberate act at a device. Clemency is the one
+// exception, immediately below.
+static Optional<CapitalSentenceView> capitalSentence(MinecraftServer server, UUID subjectId);
+
+// 0.7.5 (API v2). The two exceptions to "this facade only reads": clemency over a capital sentence,
+// which has to be reachable as an explicit privileged transaction rather than only from an
+// operator's keyboard. Both take the same service path as `/crime capital commute|pardon`.
+// `Clemency` is GRANTED / NOT_CONDEMNED / REFUSED.
+static CapitalSentenceService.Clemency commuteCapitalSentence(
+        MinecraftServer server, UUID subjectId, @Nullable UUID authority);
+static CapitalSentenceService.Clemency pardonCapitalSentence(
+        MinecraftServer server, UUID subjectId, @Nullable UUID authority);
+
 static int communityStanding(MinecraftServer server, UUID playerId, CrimeCommunityKey community);
 static int effectiveStanding(MinecraftServer server, UUID playerId, CrimeCommunityKey community);
 
@@ -341,6 +445,13 @@ static Optional<CrimePublicView> publicView(ServerPlayer player, CrimeCommunityK
 static ServiceRefusalView       serviceRefusal(ServerLevel level, Entity provider,
                                                UUID subject, String serviceKind);
 static List<CivicContractView>  civicContracts(MinecraftServer server, UUID offender);
+
+// jurisdiction policy extension (0.7.5); see JurisdictionPolicyApi below
+static void registerJurisdictionPolicyProvider(MinecraftServer server, JurisdictionPolicyProvider provider);
+static void unregisterJurisdictionPolicyProvider(MinecraftServer server, JurisdictionPolicyProvider provider);
+static Optional<JurisdictionSnapshot> jurisdictionPolicy(MinecraftServer server, CrimeCommunityKey community,
+                                                         @Nullable UUID subject);
+static boolean mayEnforce(LivingEntity responder, LivingEntity target);
 ```
 
 `serviceRefusal` answers the same question MCA: Crime asks itself before a villager serves somebody,
@@ -351,6 +462,12 @@ one rule that must never be got wrong is that an essential service is never refu
 `civicContracts` is read-only and has no companion method to accept or advance a contract. Work is
 credited only from transitions MCA: Crime observed itself, so a presentation layer can draw a
 contract and cannot complete one.
+
+`commuteCapitalSentence` rewrites the binding to custodial, keeps the holding term, clears any
+pending execution and posts `SentenceCommutedEvent`. `pardonCapitalSentence` pardons the cases the
+sentence was for, attributed to `authority`. Nothing else on the facade touches a capital sentence:
+there is no way to assign one, arm a device or carry an execution out, and `CapitalClemencyApiTest`
+asserts that these two are the only capital mutators.
 
 `custody` takes any entity UUID, player or villager.
 
@@ -371,6 +488,112 @@ Both overloads answer `Optional.empty()` on bad input or an internal failure rat
 optional-classloading seam, it may change shape in any release, and a companion should read the
 `api` package instead.
 
+## `RestraintRegistrationApi` (0.7.5)
+
+The front door for another mod adding a restraint definition or a searchable inventory. It exists
+because the alternative is what companion mods do when there is none: reflect into the definition
+registry, mutate the map, and break on the release that changes its shape.
+
+```java
+public static boolean  open();
+public static Result   registerDefinition(RestraintDefinition definition);
+public static Result   registerInventoryProvider(InventoryProvider provider);
+public static Optional<RestraintDefinition> definition(ResourceLocation id);
+public static int      thirdPartyDefinitionCount();
+public static final int MAX_THIRD_PARTY_DEFINITIONS = 64;
+```
+
+It registers **definitions and inventory providers, and nothing else**. Four rules make it safe to
+keep working:
+
+- **Unique, foreign ids.** A registration carries its own namespace. Nothing may claim an id in
+  `mcacrime`, and nothing replaces an existing definition — including another mod's. A silently
+  replaced definition is a prisoner whose cuffs change behaviour when an unrelated mod updates.
+- **A closed window.** Registrations are accepted during mod setup and refused afterwards
+  (`open()` reports whether the window is still open). A definition arriving after a world loaded
+  would be absent from every row already written and present in every row written next.
+- **Bounded.** `MAX_THIRD_PARTY_DEFINITIONS` caps how many exist at all, because each is a row in a
+  client snapshot and a branch in a restriction composition.
+- **No registry sniffing.** Nothing scans another mod's registries or guesses at its items.
+
+Every method reports rather than throws: `Result` is `ACCEPTED`, `TOO_LATE`, `BAD_ID`, `DUPLICATE`,
+`FULL` or `INVALID`, with `accepted()` for the happy path. A companion that fails to register should
+log one line and keep working, not take the game down during setup.
+
+## `InstitutionalServiceApi` (0.7.5)
+
+A private, authenticated policy read for a paid institutional service, such as a recognised
+workshop commission offered by Ultima Kingdoms. It is separate from `serviceRefusal`: it never gates
+food or shelter, does not consult personal victim memory or global standing, and answers
+*unavailable* instead of *allowed* whenever MCA: Crime cannot establish the answer.
+
+```java
+public static WorkshopAccess workshop(ServerPlayer player, Entity giver);
+
+public record WorkshopAccess(String status, String reason, String fingerprint,
+                             List<CivicContractView> restitution);
+public static final String ALLOWED = "allowed", REFUSED = "refused", UNAVAILABLE = "unavailable";
+public static final int MAX_RESTITUTION = 8;
+```
+
+- **No arbitrary subject.** The subject is the online player making the request, the giver must be
+  the same loaded, living entity within 8 blocks, and the community is resolved from that giver at
+  call time. The facade is not a directory of other players' cases.
+- **Public knowledge only.** A case refuses the service when it is unresolved or escaped *and*
+  public in the giver's community under the same rule `publicView` uses — the per-world observation
+  setting and reports accepted in that community. Resolving every such case restores access at once.
+- **A fingerprint to re-check.** `fingerprint` binds the relevant case ids and resolution revisions,
+  the policy flags, the community and the returned restitution rows. A caller compares it with a
+  fresh result before committing a paid transaction.
+- **Restitution is the requester's own.** At most eight of the requester's completed local service
+  contracts, newest first.
+
+Townstead integration and `townstead.serviceRestrictions` must both be on; otherwise the answer is
+`unavailable` with reason `service_disabled`.
+
+## `JurisdictionPolicyApi` (0.7.5)
+
+An additive extension through which one political or territorial mod supplies immutable
+sovereignty, control and treaty *evidence* for a village community. MCA: Crime alone decides what
+that evidence means legally.
+
+```java
+public static void register(MinecraftServer server, JurisdictionPolicyProvider provider);
+public static void unregister(MinecraftServer server, JurisdictionPolicyProvider provider);
+public static Optional<JurisdictionSnapshot> policy(MinecraftServer server, CrimeCommunityKey community,
+                                                    @Nullable UUID subject);
+public static boolean mayEnforce(LivingEntity responder, LivingEntity target);
+```
+
+`JurisdictionPolicyProvider` (in `api.jurisdiction`) answers `resolve(server, community, subject)`
+and, optionally, `jurisdiction(server, responder)` for responders that are not MCA guards.
+`JurisdictionSnapshot` carries the community, jurisdiction and law-profile ids, the recognised
+sovereign and physical controller, `CivilLaw`, `Cooperation`, the occupied/contested/safe-conduct
+flags, a sequence number, an `Availability` and an explanation.
+
+- **One provider per server**, registered and removed on the server thread. A second registration
+  is refused.
+- **Conservative interpretation.** For an MCA guard's challenge, missing, suspended or unavailable
+  evidence changes nothing. Occupation never switches local civilian law off. `Cooperation.LOCAL_ONLY`
+  stops reports from other communities counting. Safe conduct with remote-wanted immunity suppresses
+  only a standalone remote Wanted pursuit, never a local case.
+- **`mayEnforce`** answers whether a responder has a Crime-owned local basis to use force against a
+  target. Occupation, political hostility or a global Heat value alone is never enough. Unless the
+  evidence is available with `Cooperation.CONFIGURED`, only reports from the responder's own
+  community count and a Wanted flag is ignored. Callers must still apply server protection,
+  friendly-fire and attack-capability rules.
+- A provider that throws or answers for a different community is treated as absent.
+
+## Deprecations
+
+- **`dev.otectus.mcacrime.captivity.RestraintType` (0.7.5).** A subject now has three independent
+  restraint slots, so one enum cannot describe what they are wearing. The type is retained only as
+  the projection behind `EntityKidnappedEvent#getRestraint` and `CustodyView#restraint`, filled by
+  `restraint/LegacyRestraintProjection`, and it is **never written to world data again**. Read
+  `McaCrimeApi.restraints(...)` instead.
+- The seven-argument constructors on `CrimeCommittedEvent` and `CrimeWitnessedEvent` remain
+  deprecated in favour of the view-carrying ones (unchanged from 0.7.4).
+
 ## Forge events
 
 All on `MinecraftForge.EVENT_BUS`, all server-side, and **none of them are cancellable**. They fire
@@ -390,6 +613,14 @@ which carries `getPlayer()`.
 | `PlayerReleasedFromJailEvent` | Any release path | Carries a `ReleaseReason` — served, captivity cap, admin, pardon, invalid jail. Idempotent: one release, one event. |
 | `EntityKidnappedEvent` | Custody begins unlawfully | **Extends `Event`, not `CrimeEvent`**, because either party may be an NPC. Captive and captor are UUIDs with `isCaptivePlayer()` / `isCaptorPlayer()` flags and nullable `ServerPlayer` convenience accessors. Carries the `RestraintType`. |
 | `EntityReleasedFromCaptivityEvent` | Custody ends | Same shape, with a `CustodyReleaseReason` — escaped, rescued, captor gone, cap reached, admin, ransom paid, served, died. Idempotent. |
+| `RestraintAppliedEvent` (0.7.5) | A restraint has been committed onto a subject | Post-commit. Carries the slot, the definition id, the context (`voluntary`, `unlawful`, `lawful`, …) and a `RestraintSlotView`. Applying a restraint is not an arrest; the legal side has its own events. |
+| `RestraintRemovedEvent` (0.7.5) | A restraint comes off | Carries a `Cause`: released, struggled, broken, administrative. **Removing one restraint is not a release** — the subject may still be chained, detained and sentenced. |
+| `PhysicalEscapeEvent` (0.7.5) | A subject gets free of everything holding them | Says whether it was lawful custody and whether a jailbreak was filed. A kidnapping escape files none and is not a crime; a listener treating this as one would punish victims. |
+| `SubjectSeizedEvent` (0.7.5) | Somebody is chained, anchored or escorted | Carries the kind and whether the hold is lawful. A guard's escort and a kidnapper's chain are the same physical event and different legal ones. |
+| `DetentionOutcomeEvent` (0.7.5) | A device stops holding somebody | Every ending, including the ones nobody chose: broke out, device gone, occupant died, executed. |
+| `CapitalSentenceAssignedEvent` (0.7.5) | An arrest bound a capital sentence | Not a countdown: with no usable device the subject serves the holding term in a cell. |
+| `ExecutionCarriedOutEvent` (0.7.5) | A capital sentence was carried out | Only on a **confirmed** death. A totem, PlayerRevive or a cancelled damage event raises nothing at all. |
+| `SentenceCommutedEvent` (0.7.5) | Clemency ended a capital sentence | `isPardon()` tells a commutation (keeps the term and the cases) from a pardon (closes the cases too). |
 
 ### Choosing between the two crime events
 
@@ -433,3 +664,40 @@ make that safe, and you should use all three:
 
 A no-op posts nothing at all. If you receive an event, something actually changed — the question is
 only whether you have already accounted for it.
+
+## Village justice additions
+
+`CrimeWorldSettings.resolve(MinecraftServer|ServerLevel)` is the authority for mapped gameplay settings;
+COMMON values remain defaults until the world opts in. Do not cache one world's snapshot globally.
+`ThiefCombatDecision` is immutable for one action; it grants no report evidence, loot or reward.
+`Resolution.DECEASED` closes confirmed NPC death cases without claiming a sentence was served.
+
+Player reporting reuses `CrimeReportEvent.Pre/Post`; civilian reports remain non-authoritative and
+never receive fabricated `CAUGHT_IN_ACT`. Public projections accept identified reports scoped to the
+receiving authority, including wilderness cases without moving the underlying case community.
+Player report packets carry offered evidence/session identity, never client-authored criminal charges.
+
+Native mail is isolated in `McaMailBridge`; typed enqueue results distinguish disabled, unavailable,
+full, retryable and already-delivered states. Stable edition receipts persist beside MCA's inbox and
+survive collection. News is optional projection state, not an incident or score writer.
+The separate [Reputation patch](docs/compatibility/MCAReputation-thief-exemption.patch) adds
+`CoreIncidentExemptions.capabilityVersion() == 1` and read-only PASS/EXEMPT queries for only the two
+villager harm/death kinds, independently of normal incident authority/delivery ownership.
+
+## `CrimeDialogueHooks` — voicing this mod's lines (0.7.5)
+
+`api/CrimeDialogueHooks` holds an ordered chain of `api/CrimeDialogueResolver`s. `dialogue/CrimeDialogueService.speak`
+asks the chain before every line it sends — the guard's challenge, the stand-down, a filed report, an
+accepted apology, the fence's greetings — passing the speaker (nullable), the listener, the event id
+(a `dialogue/DialogueEvents` constant), the selection `DialogueContext` and the datapack line as the
+fallback. The first non-null `Component` wins; a resolver that throws hands over to the next, and the
+datapack line is used when none answers, so a misbehaving add-on can never silence a guard.
+
+```java
+CrimeDialogueHooks.addResolver("mcaconversations",
+        (speaker, listener, event, context, fallback) -> voiced(speaker, listener, event).orElse(null));
+```
+
+`addResolver(id, resolver)` replaces an existing id in place; `removeResolver(id)` is idempotent;
+`resolverIds()` lists the chain for `/crime debug integrations`. Registered from an add-on's common
+setup; MCA: Conversations 1.8.0 is the first consumer.

@@ -1,0 +1,19 @@
+modLoader="javafml"
+loaderVersion="[47,)"
+license="GPL-3.0-only"
+[[mods]]
+modId="crime_justice_client_checks"
+version="1"
+displayName="MCA Crime justice client fixtures"
+[[dependencies.crime_justice_client_checks]]
+modId="mcacrime"
+mandatory=true
+versionRange="[0,)"
+ordering="AFTER"
+side="CLIENT"
+[[dependencies.crime_justice_client_checks]]
+modId="mca"
+mandatory=true
+versionRange="[0,)"
+ordering="AFTER"
+side="CLIENT"

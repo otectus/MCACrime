@@ -39,6 +39,42 @@ public final class PacketBounds {
     public static final int MAX_ID_LENGTH = 128;
     /** Any string that exists to be shown to a player rather than looked up. */
     public static final int MAX_DISPLAY_LENGTH = 256;
+    /**
+     * Occupied slots in one physical-restraint message.
+     *
+     * <p>Three, because there are three body slots. A peer claiming four is not describing a subject
+     * this build can have, so the packet is refused rather than read at the wrong offset.
+     */
+    public static final int MAX_RESTRAINT_SLOTS = 3;
+    /** Subjects in one physical-state snapshot. Sized like {@link #MAX_MAP_ENTRIES}. */
+    public static final int MAX_PHYSICAL_SUBJECTS = MAX_MAP_ENTRIES;
+    /**
+     * The highest lockpick phase a client may claim to be on (0.7.5 M3.3).
+     *
+     * <p>A ceiling rather than a limit anybody reaches: the meter wins at forty and the smallest
+     * progress step is three, so fourteen phases is already a won lock. What this refuses is a client
+     * naming phase two billion, whose {@code (phase + 1) * speed} drain would overflow the arithmetic
+     * it is fed into.
+     */
+    public static final int MAX_LOCKPICK_PHASE = 1024;
+
+    /**
+     * Slots one search may project (0.7.5 M5.2).
+     *
+     * <p>A player has forty-one; a villager has fewer; a modded subject with several providers could
+     * have more. Fifty-four is a double chest and comfortably above every case this build produces,
+     * so a peer claiming more is describing a screen that cannot exist.
+     */
+    public static final int MAX_FRISK_SLOTS = 54;
+
+    /**
+     * The largest count one transfer may ask for.
+     *
+     * <p>Not 64: modded stacks legitimately exceed it, and the specification says not to hard-code
+     * vanilla's limit as a universal maximum. The real bound is the live stack's own count, checked
+     * on the server; this is only the ceiling that stops a packet naming two billion.
+     */
+    public static final int MAX_FRISK_COUNT = 1024;
 
     private PacketBounds() {
     }
@@ -130,6 +166,41 @@ public final class PacketBounds {
             }
         }
         return Optional.empty();
+    }
+
+    /**
+     * Reads a 0..1 fraction, rejecting anything that is not one.
+     *
+     * <p>Rejected rather than clamped, and NaN is the reason. A clamp turns {@code NaN} into a number
+     * silently, and a durability bar driven by one renders as whatever the comparison happens to do;
+     * more importantly, a peer sending it is not a peer whose remaining fields should be trusted.
+     */
+    public static float readUnitFraction(FriendlyByteBuf buf) {
+        float value = buf.readFloat();
+        if (!Float.isFinite(value) || value < 0.0F || value > 1.0F) {
+            throw new DecoderException("Fraction " + value + " outside [0, 1]");
+        }
+        return value;
+    }
+
+    /**
+     * Reads an enum by <em>ordinal</em>, empty when the ordinal names no constant of this type.
+     *
+     * <p>Used where the wire format is a single byte rather than a name, and it carries the same rule
+     * as {@link #readEnum} and as the port's {@code CrimeStreamCodecs.enumCodec}: an unknown value is
+     * <b>refused</b>, never clamped to a default. A clamp is a decision the player did not make — a
+     * struggle packet whose slot byte is out of range would become a struggle against the arms, and a
+     * self-application would put a restraint somewhere nobody chose. One rule, both lines.
+     */
+    public static <E extends Enum<E>> Optional<E> readEnumOrdinal(FriendlyByteBuf buf, Class<E> type) {
+        int ordinal = buf.readUnsignedByte();
+        E[] values = type.getEnumConstants();
+        return ordinal >= 0 && ordinal < values.length ? Optional.of(values[ordinal]) : Optional.empty();
+    }
+
+    /** The write side of {@link #readEnumOrdinal}. */
+    public static void writeEnumOrdinal(FriendlyByteBuf buf, Enum<?> value) {
+        buf.writeByte(value.ordinal());
     }
 
     /** The write side of {@link #readEnum}. */

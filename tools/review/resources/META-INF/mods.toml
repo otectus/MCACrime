@@ -1,0 +1,13 @@
+modLoader="javafml"
+loaderVersion="[47,)"
+license="GPL-3.0-only"
+[[mods]]
+modId="crime_review_checks"
+version="1"
+displayName="MCA Crime regression fixtures"
+[[dependencies.crime_review_checks]]
+modId="mcacrime"
+mandatory=true
+versionRange="[0,)"
+ordering="AFTER"
+side="SERVER"

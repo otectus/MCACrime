@@ -60,6 +60,27 @@ class ClientConfigIsolationTest {
         assertTrue(total > 10, "expected the client package to exist and be non-trivial, found " + total);
     }
 
+    /**
+     * The 0.7.5 client packages are inside the walked roots (M2.10).
+     *
+     * <p>The roots above are walked recursively, so a new sub-package is covered the moment it exists
+     * — which is exactly why it is worth asserting that these three <em>do</em> exist. A restraint HUD
+     * that read a COMMON durability number, or a worn-model layer that read a COMMON toggle, would be
+     * the player's own file deciding what they see of a server's rules; and a guard that silently
+     * stopped covering the package would look identical to one that had nothing to find.
+     */
+    @Test
+    void theRestraintClientPackagesAreCovered() {
+        List<Path> covered = CLIENT_ROOTS.stream().flatMap(root -> sources(root).stream()).toList();
+        for (String expected : List.of("render/restraint/RestraintSlotLayer.java",
+                "hud/RestraintHudSection.java", "HoodOverlayHandler.java",
+                "RestraintInputHandler.java")) {
+            assertTrue(covered.stream().anyMatch(path -> path.toString().endsWith(
+                            expected.replace('/', java.io.File.separatorChar))),
+                    expected + " is not inside a walked client root, so nothing checks it");
+        }
+    }
+
     private static List<Path> sources(Path root) {
         if (!Files.isDirectory(root)) {
             return List.of();

@@ -31,7 +31,7 @@ class ArrestSentenceAssignmentTest {
     private CrimeWorldData held(boolean player) {
         CrimeWorldData data = new CrimeWorldData();
         assertTrue(CustodyService.captureLawful(data, OFFENDER, player, CustodyOwner.guard(GUARD),
-                RestraintType.CUFFS, 100L, BlockPos.ZERO, DIM).ok());
+                100L, BlockPos.ZERO, DIM).ok());
         return data;
     }
 
@@ -75,7 +75,7 @@ class ArrestSentenceAssignmentTest {
         data.addRecord(charge);
         assertFalse(SentenceAssignmentService.assign(data, OFFENDER, UUID.randomUUID(), List.of(charge.id()), 1L));
         data.putCustody(new CustodyRecord(OFFENDER, false, false, CustodyOwner.kidnapper(GUARD),
-                RestraintType.ROPE, 0L, BlockPos.ZERO, DIM));
+                0L, BlockPos.ZERO, DIM));
         assertFalse(SentenceAssignmentService.assign(data, OFFENDER, UUID.randomUUID(), List.of(charge.id()), 1L));
         assertNull(data.recordById(charge.id()).orElseThrow().sentenceId());
     }

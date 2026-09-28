@@ -135,6 +135,8 @@ public final class CrimeReputationCompat implements ReputationOps {
                 ReputationCapabilities.FEATURE_PROFILED_DELIVERY);
         compare(drift, "profile_change", ReputationCapabilitySnapshot.FEATURE_PROFILE_CHANGE,
                 ReputationCapabilities.FEATURE_PROFILE_CHANGE);
+        compare(drift, "incident_exemptions", ReputationCapabilitySnapshot.FEATURE_INCIDENT_EXEMPTIONS,
+                ReputationCapabilities.FEATURE_INCIDENT_EXEMPTIONS);
 
         Set<String> declared = new LinkedHashSet<>();
         DECLARED_KINDS.forEach(kind -> declared.add(kind.name()));
@@ -195,12 +197,12 @@ public final class CrimeReputationCompat implements ReputationOps {
     // ------------------------------------------------------------------ authority
 
     @Override
-    public synchronized boolean claimAuthority() {
+    public synchronized boolean claimAuthority(MinecraftServer server) {
         if (authority != null && authority.isActive()) {
             return true;
         }
         try {
-            authority = McaReputationApi.registerCoreIncidentAuthority(new CrimeCoreAuthority());
+            authority = McaReputationApi.registerCoreIncidentAuthority(new CrimeCoreAuthority(server));
             boolean claimed = authority.isActive()
                     && McaReputationApi.hasExternalAuthority(CoreIncidentKind.MCA_VILLAGER_ASSAULT)
                     && McaReputationApi.hasExternalAuthority(CoreIncidentKind.MCA_VILLAGER_KILL);
@@ -543,6 +545,11 @@ public final class CrimeReputationCompat implements ReputationOps {
      * which is unit-testable with the companion absent from the classpath.
      */
     private static final class CrimeCoreAuthority implements CoreIncidentAuthority {
+        private final MinecraftServer server;
+
+        private CrimeCoreAuthority(MinecraftServer server) {
+            this.server = server;
+        }
 
         @Override
         public ResourceLocation authorityId() {
@@ -570,7 +577,7 @@ public final class CrimeReputationCompat implements ReputationOps {
         @Override
         public boolean owns(CoreIncidentKind kind) {
             return kind != null && CrimeAuthorityPolicy.owns(kind.name(),
-                    McaCrimeConfig.COMMON.enableCrimeDetection.get(),
+                    server != null && dev.otectus.mcacrime.config.CrimeWorldSettings.resolve(server).crimeDetection(),
                     McaCrimeConfig.COMMON.enableReputation.get(),
                     ReputationBridge.isAvailable());
         }
@@ -578,7 +585,7 @@ public final class CrimeReputationCompat implements ReputationOps {
         @Override
         public boolean canDeliver(CoreIncidentKind kind) {
             return kind != null && CrimeAuthorityPolicy.canDeliver(kind.name(),
-                    McaCrimeConfig.COMMON.enableCrimeDetection.get(),
+                    server != null && dev.otectus.mcacrime.config.CrimeWorldSettings.resolve(server).crimeDetection(),
                     McaCrimeConfig.COMMON.enableReputation.get(),
                     ReputationBridge.isAvailable(),
                     McaCrimeConfig.COMMON.replayPendingOperations.get());

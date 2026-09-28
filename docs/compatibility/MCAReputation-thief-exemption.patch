@@ -1,0 +1,66 @@
+--- /dev/null
++++ b/src/main/java/dev/otectus/mcareputation/api/CoreIncidentExemptions.java
+@@ -0,0 +1,43 @@
++package dev.otectus.mcareputation.api;
++
++import net.minecraft.resources.ResourceLocation;
++import net.minecraft.server.level.ServerPlayer;
++import net.minecraft.world.entity.LivingEntity;
++import net.minecraft.world.damagesource.DamageSource;
++import java.util.LinkedHashMap;
++import java.util.Map;
++import java.util.Set;
++
++/** Optional legal exemptions, independent of authority/delivery ownership. API capability version 1. */
++public final class CoreIncidentExemptions {
++    public enum Decision { PASS, EXEMPT }
++    @FunctionalInterface public interface Query {
++        Decision evaluate(CoreIncidentKind kind, ServerPlayer actor, LivingEntity target, DamageSource source, float amount);
++    }
++    private record Registration(Set<CoreIncidentKind> kinds, Query query) {}
++    private static final Map<ResourceLocation, Registration> QUERIES = new LinkedHashMap<>();
++    private static final Set<ResourceLocation> WARNED = new java.util.HashSet<>();
++    private CoreIncidentExemptions() {}
++    public static int capabilityVersion() { return 1; }
++    /** Setup-time registration, bounded and idempotent by provider. Only the two NPC harm kinds. */
++    public static void register(ResourceLocation id, Set<CoreIncidentKind> kinds, Query query) {
++        if (id == null || query == null || kinds == null || kinds.isEmpty()
++                || !Set.of(CoreIncidentKind.MCA_VILLAGER_ASSAULT, CoreIncidentKind.MCA_VILLAGER_KILL).containsAll(kinds))
++            throw new IllegalArgumentException("Only villager harm/death exemptions are supported");
++        if (!QUERIES.containsKey(id) && QUERIES.size() >= 16) throw new IllegalStateException("Exemption capacity reached");
++        QUERIES.put(id, new Registration(Set.copyOf(kinds), query));
++    }
++    public static boolean exempt(CoreIncidentKind kind, ServerPlayer actor, LivingEntity target, DamageSource source, float amount) {
++        if (actor == null || target == null || source == null || actor.getServer() != target.getServer()) return false;
++        for (var entry : QUERIES.entrySet()) {
++            if (!entry.getValue().kinds.contains(kind)) continue;
++            try {
++                if (entry.getValue().query.evaluate(kind, actor, target, source, amount) == Decision.EXEMPT) return true;
++            } catch (Throwable failure) {
++                if (WARNED.add(entry.getKey())) dev.otectus.mcareputation.McaReputation.LOGGER.warn(
++                        "Incident exemption provider {} failed; normal law applies", entry.getKey(), failure);
++            }
++        }
++        return false;
++    }
++}
+--- a/src/main/java/dev/otectus/mcareputation/event/ReputationGameplayEvents.java
++++ b/src/main/java/dev/otectus/mcareputation/event/ReputationGameplayEvents.java
+@@ -111,6 +111,8 @@
+             return;
+         }
+         ServerPlayer player = responsible.get();
++        if (dev.otectus.mcareputation.api.CoreIncidentExemptions.exempt(CoreIncidentKind.MCA_VILLAGER_ASSAULT,
++                player, target, event.getSource(), event.getAmount())) return;
+         Optional<CommunityKey> community = CommunityResolver.resolve(target);
+         if (community.isEmpty()) {
+             // A villager with no village and none nearby has no public to be outraged (§12.2).
+@@ -209,6 +211,8 @@
+             return;
+         }
+         ServerPlayer player = responsible.get();
++        if (dev.otectus.mcareputation.api.CoreIncidentExemptions.exempt(CoreIncidentKind.MCA_VILLAGER_KILL,
++                player, victim, event.getSource(), 0)) return;
+         Optional<CommunityKey> maybeCommunity = CommunityResolver.resolve(victim);
+         if (maybeCommunity.isEmpty()) {
+             return;

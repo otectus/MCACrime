@@ -42,6 +42,8 @@ public final class CrimeIncidentMapping {
 
     /** Crime-authored incidents, shipped as datapack JSON in this mod's namespace. */
     public static final ResourceLocation GUARD_ASSAULTED = new ResourceLocation(CRIME, "guard_assaulted");
+    /** 0.7.5 §3.19: a guard killed. Its own incident, because it is its own crime. */
+    public static final ResourceLocation GUARD_KILLED = new ResourceLocation(CRIME, "guard_killed");
     public static final ResourceLocation JAILBREAK = new ResourceLocation(CRIME, "jailbreak");
     public static final ResourceLocation KIDNAPPING = new ResourceLocation(CRIME, "kidnapping");
     public static final ResourceLocation THEFT = new ResourceLocation(CRIME, "theft");
@@ -61,6 +63,7 @@ public final class CrimeIncidentMapping {
             CrimeIds.HARM_VILLAGER, VILLAGER_ASSAULTED,
             CrimeIds.KILL_VILLAGER, VILLAGER_KILLED,
             CrimeIds.ASSAULT_GUARD, GUARD_ASSAULTED,
+            CrimeIds.KILL_GUARD, GUARD_KILLED,
             CrimeIds.JAILBREAK, JAILBREAK,
             CrimeIds.KIDNAP, KIDNAPPING,
             CrimeIds.THEFT, THEFT,
@@ -99,7 +102,7 @@ public final class CrimeIncidentMapping {
             case FINED -> Optional.of(normalise(fineStatus, "atoned"));
             case SERVED -> Optional.of(normalise(servedStatus, "atoned"));
             case PARDONED -> Optional.of("forgiven");
-            case UNRESOLVED, ESCAPED, EXPIRED -> Optional.empty();
+            case UNRESOLVED, ESCAPED, EXPIRED, DECEASED -> Optional.empty();
         };
     }
 

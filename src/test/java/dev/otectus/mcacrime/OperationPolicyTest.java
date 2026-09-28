@@ -54,23 +54,28 @@ class OperationPolicyTest {
 
     @Test
     void escortNeedsBothMovementAndHandState() {
+        // 0.7.5 §3.3 added the last two: a prisoner under escort does not choose where to walk and does
+        // not use what is in their hands, which is what replaced the vanilla leash.
         row(CrimeActivityView.Kind.ESCORT, ops(CrimeActivityOperation.WORK_START,
                 CrimeActivityOperation.REST_TRAVEL, CrimeActivityOperation.SOCIAL_WANDER,
-                CrimeActivityOperation.REACTION_LOCK, CrimeActivityOperation.DISPLAY_TOOL));
+                CrimeActivityOperation.REACTION_LOCK, CrimeActivityOperation.DISPLAY_TOOL,
+                CrimeActivityOperation.VOLUNTARY_MOVEMENT, CrimeActivityOperation.ITEM_ACTION));
     }
 
     @Test
     void arrestNeedsBothMovementAndHandState() {
         row(CrimeActivityView.Kind.ARREST, ops(CrimeActivityOperation.WORK_START,
                 CrimeActivityOperation.REST_TRAVEL, CrimeActivityOperation.SOCIAL_WANDER,
-                CrimeActivityOperation.REACTION_LOCK, CrimeActivityOperation.DISPLAY_TOOL));
+                CrimeActivityOperation.REACTION_LOCK, CrimeActivityOperation.DISPLAY_TOOL,
+                CrimeActivityOperation.VOLUNTARY_MOVEMENT, CrimeActivityOperation.ITEM_ACTION));
     }
 
     @Test
     void custodyAllowsAReactionButNotABorrowedTool() {
         row(CrimeActivityView.Kind.CUSTODY, ops(CrimeActivityOperation.WORK_START,
                 CrimeActivityOperation.REST_TRAVEL, CrimeActivityOperation.SOCIAL_WANDER,
-                CrimeActivityOperation.DISPLAY_TOOL));
+                CrimeActivityOperation.DISPLAY_TOOL, CrimeActivityOperation.VOLUNTARY_MOVEMENT,
+                CrimeActivityOperation.ITEM_ACTION));
         assertFalse(OperationPolicy.yields(CrimeActivityView.Kind.CUSTODY,
                         CrimeActivityOperation.REACTION_LOCK),
                 "a prisoner is not going anywhere, so a reaction that freezes them costs nothing");

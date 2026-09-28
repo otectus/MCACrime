@@ -251,6 +251,8 @@ public final class McaBinding {
             optionalStatik(C_VILLAGE_MANAGER, "get", Object.class, 1);
     public static final Member VILLAGE_MANAGER_GET_OR_EMPTY =
             optionalVirtual(C_VILLAGE_MANAGER, "getOrEmpty", Object.class, 1);
+    public static final Member VILLAGE_MANAGER_AT_POSITION =
+            optionalVirtual(C_VILLAGE_MANAGER, "findNearestVillage", Object.class, 2);
 
     // Guard population — converting villagers to guards -------------------------------------------
     //
@@ -322,7 +324,7 @@ public final class McaBinding {
             GET_VILLAGER_BRAIN, GET_RESIDENCY, GET_PROFESSION_ID, GET_AGE_STATE,
             GET_MEMORIES_FOR_PLAYER, REWARD_HEARTS, GET_HEARTS, GET_PERSONALITY,
             GET_HOME_VILLAGE, VILLAGE_GET_ID,
-            VILLAGE_GET_NAME, VILLAGE_MANAGER_GET, VILLAGE_MANAGER_GET_OR_EMPTY,
+            VILLAGE_GET_NAME, VILLAGE_MANAGER_GET, VILLAGE_MANAGER_GET_OR_EMPTY, VILLAGE_MANAGER_AT_POSITION,
             VILLAGE_GET_RESIDENTS, VILLAGE_GET_POPULATION, VILLAGE_IS_VILLAGE,
             VILLAGER_IS_GUARD, VILLAGER_IS_PROFESSION_IMPORTANT, VILLAGER_SET_PROFESSION,
             VILLAGER_GET_CLOTHES, VILLAGER_SET_CLOTHES, VILLAGER_GET_DESPAWN_DELAY,

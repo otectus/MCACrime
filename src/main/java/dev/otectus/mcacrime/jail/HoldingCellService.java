@@ -219,8 +219,8 @@ public final class HoldingCellService {
         }
         ServerLevel level = JailService.resolveLevel(server, cell.dim());
         if (level != null) {
-            BlockPos outside = SafeCustodyDestination.validate(level,
-                    cell.anchor().offset(CellBlueprint.RADIUS + 2, 0, 0), 8).orElse(null);
+            // Outside the door, not an arbitrary side: a prisoner let out of a cell walks out of it.
+            BlockPos outside = SafeCustodyDestination.validate(level, cell.outsideStand(), 8).orElse(null);
             if (outside == null) {
                 McaCrime.LOGGER.debug("MCA: Crime found nowhere safe outside a cell; leaving it standing");
                 return;

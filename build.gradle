@@ -106,6 +106,48 @@ mcaProbeVersions.eachWithIndex { version, i ->
     }
 }
 
+// The sibling add-on APIs are vendored as compile-only jars in libs/api/ and pinned by
+// gradle/sibling-apis.properties: version, provider commit and SHA-256 for each (the pattern MCA:
+// Conversations established). Compiling against a checked-in artifact rather than a sibling checkout's
+// class output is what makes a clean clone -- or CI, which has no siblings at all -- produce the same
+// optional integrations the release did, and verifySiblingApis refuses the build the moment a jar is
+// swapped underneath it.
+ext.siblingApis = new Properties()
+file('gradle/sibling-apis.properties').withInputStream { ext.siblingApis.load(it) }
+
+// Resolves one provider's API artifact. -PmcaReputationApiPath / -PmcaQuestsApiPath replace the
+// vendored jar with a jar or a class directory, for iterating against a provider working tree; an
+// override is announced and skips the hash check. Absence is never a warning: an unbuildable optional
+// integration is a broken build, not a quieter jar.
+ext.siblingApi = { String key, String overrideProperty ->
+    def override = project.findProperty(overrideProperty)
+    if (override) {
+        def overridden = file(override)
+        if (!overridden.exists()) {
+            throw new GradleException("-P${overrideProperty}=${override} does not exist; " +
+                    "point it at a ${key} API jar or class directory, or drop the property to use " +
+                    "the vendored ${siblingApis.getProperty("${key}.jar")}.")
+        }
+        logger.lifecycle("sibling API override in effect: ${key} <- ${overridden} (SHA-256 check skipped)")
+        return [file: overridden, pinned: false]
+    }
+    def relative = siblingApis.getProperty("${key}.jar")
+    if (!relative) {
+        throw new GradleException("gradle/sibling-apis.properties has no '${key}.jar' key; " +
+                "the ${key} API artifact cannot be resolved.")
+    }
+    def jar = file(relative)
+    if (!jar.exists()) {
+        throw new GradleException("${key} API jar missing at ${jar} (manifest key '${key}.jar' in " +
+                "gradle/sibling-apis.properties). Build the provider's apiJar task and copy " +
+                "build/libs/${key}-${siblingApis.getProperty("${key}.version")}-api.jar into libs/api/, " +
+                "or point -P${overrideProperty} at a local jar or class directory.")
+    }
+    return [file: jar, pinned: true]
+}
+ext.mcaReputationApi = siblingApi('mcareputation', 'mcaReputationApiPath')
+ext.mcaQuestsApi = siblingApi('mcaquests', 'mcaQuestsApiPath')
+
 dependencies {
     minecraft "net.minecraftforge:forge:${minecraft_version}-${forge_version}"
     implementation fg.deobf("software.bernie.geckolib:geckolib-forge-${minecraft_version}:${geckolib_version}")
@@ -140,46 +182,19 @@ dependencies {
     // at runtime. A pinned published artifact also makes standalone clones include the adapter.
     compileOnly fg.deobf('maven.modrinth:locks-reforged:1.7.3')
 
-    // MCA: Reputation — OPTIONAL integration, compile-only. The sibling mod is not published to a
-    // Maven, so we compile against its dev-mapped class output; both mods use `official` 1.20.1
-    // mappings, so the Minecraft type names line up and reobfJar remaps our own references for
-    // production. Never bundled: the real mod supplies these classes at runtime, and everything that
-    // touches them is gated behind ReputationBridge's ModList check.
-    //
-    // When the sibling is absent the adapter package is excluded from compilation rather than failing
-    // the build. A standalone clone of this repo must be buildable — ReputationBridge reaches the
-    // adapter by name, so a missing class is the ClassNotFoundException its catch block already
-    // handles, and the mod behaves exactly as it does with Reputation uninstalled. CI that must
-    // include the adapter passes -PrequireReputation=true.
-    def mcaReputationClasses = file("${projectDir}/../MCAReputation/build/classes/java/main")
-    if (mcaReputationClasses.exists()) {
-        compileOnly files(mcaReputationClasses)
-    } else if (project.hasProperty('requireReputation')) {
-        throw new GradleException("-PrequireReputation was set but ${mcaReputationClasses} does not exist. " +
-                "Build it first: (cd ../MCAReputation && ./gradlew classes)")
-    } else {
-        sourceSets.main.java { exclude 'dev/otectus/mcacrime/compat/reputation/**' }
-        logger.warn("MCA: Reputation classes not found at ${mcaReputationClasses}; building WITHOUT the " +
-                "optional Reputation adapter. Build ../MCAReputation (./gradlew classes) to include it.")
-    }
-
-    // MCA: Quests — OPTIONAL integration, compile-only, on exactly the same terms as MCA: Reputation
-    // above: dev-mapped class output of the sibling project, never bundled, and the adapter package
-    // excluded from compilation when the sibling is absent so a standalone clone still builds.
-    // McaQuestsBridge reaches compat/mcaquests by name, so a missing class is the
-    // ClassNotFoundException its catch block already handles and bounties are simply not offered as
-    // quests. CI that must include the adapter passes -PrequireQuests=true.
-    def mcaQuestsClasses = file("${projectDir}/../MCAQuests/build/classes/java/main")
-    if (mcaQuestsClasses.exists()) {
-        compileOnly files(mcaQuestsClasses)
-    } else if (project.hasProperty('requireQuests')) {
-        throw new GradleException("-PrequireQuests was set but ${mcaQuestsClasses} does not exist. " +
-                "Build it first: (cd ../MCAQuests && ./gradlew classes)")
-    } else {
-        sourceSets.main.java { exclude 'dev/otectus/mcacrime/compat/mcaquests/**' }
-        logger.warn("MCA: Quests classes not found at ${mcaQuestsClasses}; building WITHOUT the " +
-                "optional bounty-contract adapter. Build ../MCAQuests (./gradlew classes) to include it.")
-    }
+    // MCA: Reputation and MCA: Quests — OPTIONAL integrations, compile-only. Resolved from the vendored,
+    // hash-pinned API jars in libs/api/ (see gradle/sibling-apis.properties and ext.siblingApi above),
+    // never from a sibling checkout's class output. Until 0.7.6 this compiled against
+    // ../MCAReputation/build/classes and ../MCAQuests/build/classes and, when either was absent,
+    // silently EXCLUDED compat/reputation and compat/mcaquests from the build with a warning -- so a
+    // clean clone produced a jar whose Reputation and bounty-contract integrations were simply gone,
+    // while still shipping the bounty_board quest JSON that needs them. A missing jar is now a build
+    // failure, and the jars carry only the siblings' published surface, so an import of one of their
+    // internals is a compile error here rather than a NoClassDefFoundError in somebody's world. Never
+    // bundled: the real mods supply these classes at runtime, and everything that touches them is gated
+    // behind ReputationBridge's / McaQuestsBridge's ModList checks (integration spec §14.4).
+    compileOnly files(mcaReputationApi.file)
+    compileOnly files(mcaQuestsApi.file)
 
     // Unit tests for the non-MCA karma/heat engine (spec section 18).
     // The mixin annotation processor generates the refmap that remaps `official` member names to SRG
@@ -316,6 +331,7 @@ mixin {
     // annotation processor would write no entries for those mixins and each redirect would resolve in
     // dev and silently miss in a production jar.
     config "${mod_id}.townstead.mixins.json"
+    config "${mod_id}.mca.mixins.json"
 }
 
 tasks.named('jar', Jar).configure {
@@ -331,7 +347,7 @@ tasks.named('jar', Jar).configure {
                 // [[mixins]] block in this mod's mods.toml -- and multiple configs are comma-separated.
                 // The second one is the Townstead layer: optional, plugin-gated, and omitted from this
                 // list it would simply never be read.
-                'MixinConfigs'            : "${mod_id}.mixins.json,${mod_id}.townstead.mixins.json"
+                'MixinConfigs'            : "${mod_id}.mixins.json,${mod_id}.townstead.mixins.json,${mod_id}.mca.mixins.json"
         ])
     }
     finalizedBy 'reobfJar'
@@ -348,6 +364,224 @@ tasks.withType(JavaCompile).configureEach {
     // is not present, and by TownsteadMixinTargetTest, which reads the real class out of a Townstead
     // jar and asserts the target method is there with the shape the hook expects.
     options.compilerArgs += ['-AMSG_MIXIN_SOFT_TARGET_NOT_FOUND=note']
+}
+
+// The vendored sibling API jars must match their pinned SHA-256. A jar copied from the wrong loader's
+// build directory or edited in place is a silently wrong build otherwise: it compiles, and the mismatch
+// only surfaces as a NoSuchMethodError in someone's world.
+tasks.register('verifySiblingApis') {
+    group = 'verification'
+    description = 'Fails if a vendored sibling API jar does not match its pinned SHA-256.'
+    doLast {
+        def problems = []
+        [[key: 'mcareputation', property: 'mcaReputationApiPath', api: mcaReputationApi],
+         [key: 'mcaquests', property: 'mcaQuestsApiPath', api: mcaQuestsApi]].each { provider ->
+            if (!provider.api.pinned) {
+                logger.lifecycle("verifySiblingApis: ${provider.key} is overridden, hash not checked.")
+                return
+            }
+            def expected = siblingApis.getProperty("${provider.key}.sha256")
+            if (!expected) {
+                problems << "gradle/sibling-apis.properties has no '${provider.key}.sha256' key"
+                return
+            }
+            def digest = java.security.MessageDigest.getInstance('SHA-256')
+            provider.api.file.withInputStream { stream ->
+                byte[] buffer = new byte[8192]
+                int read
+                while ((read = stream.read(buffer)) != -1) {
+                    digest.update(buffer, 0, read)
+                }
+            }
+            def actual = digest.digest().encodeHex().toString()
+            if (!expected.equalsIgnoreCase(actual)) {
+                problems << "${provider.api.file} does not match ${provider.key}.sha256:" +
+                        System.lineSeparator() + "      expected ${expected}" +
+                        System.lineSeparator() + "      actual   ${actual}" +
+                        System.lineSeparator() + "      Refresh: rebuild the provider's apiJar, copy " +
+                        "build/libs/${provider.key}-${siblingApis.getProperty("${provider.key}.version")}-api.jar " +
+                        "into libs/api/ and update version, commit and sha256 in gradle/sibling-apis.properties. " +
+                        "To compile against a working tree instead, pass -P${provider.property}=<jar or class dir>."
+            }
+        }
+        if (!problems.isEmpty()) {
+            throw new GradleException("verifySiblingApis failed:" + System.lineSeparator()
+                    + problems.collect { "  - ${it}" }.join(System.lineSeparator()))
+        }
+        logger.lifecycle('verifySiblingApis: every pinned sibling API jar matches its SHA-256.')
+    }
+}
+
+tasks.named('compileJava') {
+    dependsOn 'verifySiblingApis'
+}
+
+/**
+ * Compile-only API contract for sibling add-ons (MCA: Quests, MCA: Conversations, Ultima Kingdoms) (0.7.6).
+ *
+ * Classes only, never resources, so a consumer can compile against the public surface without pulling
+ * in mods.toml, data or anything that would make it a second mod. Everything under api/ is exported.
+ * The classes outside api/ in apiReadModel are a READ MODEL: the types api/'s own public signatures
+ * name, directly or transitively (Band, Resolution, the ledger and restraint records, ...). They are
+ * there so those signatures resolve and a consumer compiles against the jar alone -- ApiJarClosureTest
+ * fails the build when an exported signature names a type missing from this list -- not as a stability
+ * promise. Consumers must never ship (shade, jar-in-jar, or otherwise bundle) any of these classes;
+ * this mod provides them at runtime.
+ *
+ * Deliberately NOT reobfuscated: the jar keeps official (Mojang) names and matches the dev-time
+ * classpath of the mods that compile on it.
+ */
+def apiReadModel = [
+        'dev/otectus/mcacrime/ai/VictimReactionState',
+        'dev/otectus/mcacrime/bounty/BountyClaimKey',
+        'dev/otectus/mcacrime/bounty/BountyResolution',
+        'dev/otectus/mcacrime/bounty/BountyResolutionType',
+        'dev/otectus/mcacrime/captivity/CustodyOwner',
+        'dev/otectus/mcacrime/captivity/CustodyOwnerType',
+        'dev/otectus/mcacrime/captivity/CustodyRecord',
+        'dev/otectus/mcacrime/captivity/CustodyReleaseReason',
+        'dev/otectus/mcacrime/captivity/RestraintType',
+        'dev/otectus/mcacrime/civic/CivicTask',
+        'dev/otectus/mcacrime/civic/ServiceContract',
+        'dev/otectus/mcacrime/compat/TownsteadBuildingView',
+        'dev/otectus/mcacrime/crime/Band',
+        'dev/otectus/mcacrime/crime/KarmaSource',
+        'dev/otectus/mcacrime/detention/DetentionKind',
+        'dev/otectus/mcacrime/detention/DetentionRecord',
+        'dev/otectus/mcacrime/dialogue/DialogueContext',
+        'dev/otectus/mcacrime/economy/Currency',
+        'dev/otectus/mcacrime/economy/TransactionReason',
+        'dev/otectus/mcacrime/economy/account/ReconciliationDecision',
+        'dev/otectus/mcacrime/economy/account/TransactionReceipt',
+        'dev/otectus/mcacrime/economy/account/VillagerPurse',
+        'dev/otectus/mcacrime/economy/fence/FenceStockRecord',
+        'dev/otectus/mcacrime/facility/CellReservation',
+        'dev/otectus/mcacrime/facility/FacilityAssignment',
+        'dev/otectus/mcacrime/facility/FacilityRole',
+        'dev/otectus/mcacrime/facility/TownsteadBuildingRef',
+        'dev/otectus/mcacrime/frisk/FriskSlotKind',
+        'dev/otectus/mcacrime/frisk/FriskSlotRef',
+        'dev/otectus/mcacrime/frisk/InventoryProvider',
+        'dev/otectus/mcacrime/integration/CrimeIntegrationOperation',
+        'dev/otectus/mcacrime/integration/DedupeEntry',
+        'dev/otectus/mcacrime/jail/HoldingCell',
+        'dev/otectus/mcacrime/jail/JailAnchor',
+        'dev/otectus/mcacrime/jail/JailContainmentMode',
+        'dev/otectus/mcacrime/jail/ReleaseReason',
+        'dev/otectus/mcacrime/job/CriminalJob',
+        'dev/otectus/mcacrime/job/HistoricalProfessionKind',
+        'dev/otectus/mcacrime/job/OccupationSource',
+        'dev/otectus/mcacrime/job/OccupationStatus',
+        'dev/otectus/mcacrime/ledger/CapitalSentenceService',
+        'dev/otectus/mcacrime/ledger/CrimeRecord',
+        'dev/otectus/mcacrime/ledger/CrimeResolutionEntry',
+        'dev/otectus/mcacrime/ledger/Resolution',
+        'dev/otectus/mcacrime/ledger/SentenceKind',
+        'dev/otectus/mcacrime/ledger/Warrant',
+        'dev/otectus/mcacrime/locks/LockRecord',
+        'dev/otectus/mcacrime/locks/LockTarget',
+        'dev/otectus/mcacrime/memory/CrimeMemoryCategory',
+        'dev/otectus/mcacrime/memory/CrimeObservation',
+        'dev/otectus/mcacrime/memory/CrimeReport',
+        'dev/otectus/mcacrime/memory/ObserverRole',
+        'dev/otectus/mcacrime/memory/OffenderMemory',
+        'dev/otectus/mcacrime/memory/ReportState',
+        'dev/otectus/mcacrime/memory/VictimCrimeMemory',
+        'dev/otectus/mcacrime/memory/VillagerCrimeProfile',
+        'dev/otectus/mcacrime/news/CrimeNewsData',
+        'dev/otectus/mcacrime/property/PropertyAccess',
+        'dev/otectus/mcacrime/property/PropertyAccessRule',
+        'dev/otectus/mcacrime/property/PropertyActor',
+        'dev/otectus/mcacrime/property/PropertyOwnerKind',
+        'dev/otectus/mcacrime/property/PropertyPolicy',
+        'dev/otectus/mcacrime/property/PropertyReceipt',
+        'dev/otectus/mcacrime/property/PropertyScope',
+        'dev/otectus/mcacrime/property/PropertySource',
+        'dev/otectus/mcacrime/property/TransferAttribution',
+        'dev/otectus/mcacrime/property/WorkTransferContext',
+        'dev/otectus/mcacrime/ransom/PayerTier',
+        'dev/otectus/mcacrime/ransom/RansomState',
+        'dev/otectus/mcacrime/ransom/RansomStatus',
+        'dev/otectus/mcacrime/restraint/AppliedRestraint',
+        'dev/otectus/mcacrime/restraint/PhysicalRestraintState',
+        'dev/otectus/mcacrime/restraint/RestraintAction',
+        'dev/otectus/mcacrime/restraint/RestraintApplier',
+        'dev/otectus/mcacrime/restraint/RestraintDefinition',
+        'dev/otectus/mcacrime/restraint/RestraintFamily',
+        'dev/otectus/mcacrime/restraint/RestraintSlot',
+        'dev/otectus/mcacrime/restraint/RestrictionPolicy',
+        'dev/otectus/mcacrime/restraint/RigProfile',
+        'dev/otectus/mcacrime/state/world/AccompliceRecord',
+        'dev/otectus/mcacrime/state/world/BountyClaimRecord',
+        'dev/otectus/mcacrime/state/world/BountyContractRecord',
+        'dev/otectus/mcacrime/state/world/CapacityResult',
+        'dev/otectus/mcacrime/state/world/CrimeWorldData',
+        'dev/otectus/mcacrime/state/world/CriminalVillagerRecord',
+        'dev/otectus/mcacrime/state/world/PropertyLot',
+        'dev/otectus/mcacrime/state/world/StolenGoodsRecord',
+        'dev/otectus/mcacrime/state/world/WorksiteRef',
+        'dev/otectus/mcacrime/tether/TetherKind',
+        'dev/otectus/mcacrime/tether/TetherRecord',
+]
+
+def apiExports = ['dev/otectus/mcacrime/api/**'] + apiReadModel.collectMany { [it + '.class', it + '$*.class'] }
+
+tasks.register('apiJar', Jar) {
+    // Reproducible: no entry timestamps and a fixed entry order, so a rebuild from the same sources yields
+    // the same bytes and the SHA-256 pins in consumers' gradle/sibling-apis.properties survive it.
+    preserveFileTimestamps = false
+    reproducibleFileOrder = true
+    group = 'build'
+    description = 'Compile-only API artifact for sibling add-ons; classes only, official mappings.'
+    dependsOn 'compileJava'
+    archiveClassifier = 'api'
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    from(sourceSets.main.output.classesDirs) {
+        include apiExports
+    }
+    manifest {
+        attributes([
+                'Specification-Title'   : "${mod_id}-api".toString(),
+                'Specification-Version' : mod_version.toString(),
+                'Implementation-Title'  : "${mod_id}-api".toString()
+        ])
+    }
+}
+
+tasks.named('assemble').configure {
+    dependsOn 'apiJar'
+}
+
+tasks.register('verifyApiJar') {
+    group = 'verification'
+    description = 'Fails if the api jar is missing an exported class or has leaked resources into it.'
+    dependsOn 'apiJar'
+    def apiArchive = tasks.named('apiJar', Jar).flatMap { it.archiveFile }
+    def required = apiReadModel.collect { it + '.class' }
+    inputs.file(apiArchive)
+    doLast {
+        def jarFile = apiArchive.get().asFile
+        def names = new java.util.zip.ZipFile(jarFile).withCloseable { zip -> zip.entries().collect { it.name } }
+        if (!names.any { it.startsWith('dev/otectus/mcacrime/api/') }) {
+            throw new GradleException("${jarFile.name} carries no dev/otectus/mcacrime/api/ classes at all; " +
+                    'the export filter matched nothing.')
+        }
+        def missing = required.findAll { !names.contains(it) }
+        if (missing) {
+            throw new GradleException("${jarFile.name} is missing read-model class(es): ${missing}; " +
+                    'a class in apiReadModel was renamed or removed.')
+        }
+        def resources = names.findAll { !it.endsWith('.class') && !it.endsWith('/') && !it.startsWith('META-INF/') }
+        if (resources) {
+            throw new GradleException("${jarFile.name} leaked resources into the api jar: ${resources.take(10)}")
+        }
+        logger.lifecycle("verifyApiJar: ${jarFile.name} is a clean compile-only API artifact " +
+                "(${names.count { it.endsWith('.class') }} classes).")
+    }
+}
+
+tasks.named('check').configure {
+    dependsOn 'verifyApiJar'
 }
 
 /**

@@ -186,4 +186,140 @@ class ConfigValidatorTest {
                 List.of("gun"), List.of("tacz"), -1.0);
         assertTrue(problems.stream().anyMatch(p -> p.contains("autoDetectMinAttackDamage")), problems.toString());
     }
+
+    // --- the 0.7.5 rule blocks, one per group (M7.1, M7.7) ---
+
+    /**
+     * The ordering rule that turns every escort into an execution when it is broken.
+     *
+     * <p>A tether that starts hurting a subject before it starts pulling them has no "held but
+     * unharmed" band at all. The pair ships the right way round and nothing used to check it.
+     */
+    @Test
+    void aTetherThatHurtsBeforeItPullsIsReported() {
+        assertTrue(ConfigValidator.validateTransport(5.0, 12.0, 2.0, true, 8).isEmpty(),
+                "the shipped transport numbers are clean");
+        List<String> inverted = ConfigValidator.validateTransport(12.0, 5.0, 2.0, true, 8);
+        assertTrue(inverted.stream().anyMatch(p -> p.contains("first tick of tension")), inverted.toString());
+        List<String> equal = ConfigValidator.validateTransport(8.0, 8.0, 2.0, true, 8);
+        assertFalse(equal.isEmpty(), "equal lengths leave no band either");
+    }
+
+    @Test
+    void aTetherThatCanKillALawfulPrisonerIsReported() {
+        assertFalse(ConfigValidator.validateTransport(5.0, 12.0, 2.0, false, 8).isEmpty());
+        assertTrue(ConfigValidator.validateTransport(5.0, 12.0, 12.0, true, 8).stream()
+                .anyMatch(p -> p.contains("under a second")));
+    }
+
+    /** Session caps: a cap of one is a server where only one player may act at a time. */
+    @Test
+    void theSessionCapsAreReportedWhenTheyDefeatThemselves() {
+        assertTrue(ConfigValidator.validateRestraints(64, 200).isEmpty());
+        assertTrue(ConfigValidator.validateRestraints(1, 200).stream()
+                .anyMatch(p -> p.contains("only one player at a time")));
+        assertTrue(ConfigValidator.validateRestraints(64, 10).stream()
+                .anyMatch(p -> p.contains("under one second")));
+    }
+
+    /** The frisking rules: the shipped numbers are clean, and the two switches say what they cost. */
+    @Test
+    void friskingSwitchesAreReportedWhenTurnedOff() {
+        assertTrue(ConfigValidator.validateFrisking(5.0, 1200, 5, true, true).isEmpty(),
+                "the shipped frisking numbers are clean");
+        assertTrue(ConfigValidator.validateFrisking(5.0, 1200, 5, false, true).stream()
+                .anyMatch(p -> p.contains("requiresArmRestraint")));
+        assertTrue(ConfigValidator.validateFrisking(5.0, 1200, 5, true, false).stream()
+                .anyMatch(p -> p.contains("lawfulSeizureToEscrow")));
+    }
+
+    /** Safe slot bounds: a safe has to hold something and has to fit a screen. */
+    @Test
+    void aSafeWithNoUsableSlotCountIsReported() {
+        assertTrue(ConfigValidator.validatePrison(36).isEmpty());
+        assertFalse(ConfigValidator.validatePrison(37).isEmpty(), "a part row cannot be drawn");
+    }
+
+    /** Positive durability: gear that one input ends is gear that does nothing. */
+    @Test
+    void flimsyRestraintDurabilityIsReported() {
+        assertTrue(ConfigValidator.validateRestraintDurability(40, 15, 5, 5, 5, 5, false).isEmpty());
+        assertTrue(ConfigValidator.validateRestraintDurability(40, 1, 5, 5, 5, 5, false).stream()
+                .anyMatch(p -> p.contains("single")));
+        assertTrue(ConfigValidator.validateRestraintDurability(10, 15, 5, 5, 5, 5, false).stream()
+                .anyMatch(p -> p.contains("lighter restraint is the harder")));
+    }
+
+    // --- §3.19 capital sentencing ---
+
+    /**
+     * The one refused combination: a death sentence that needs no device.
+     *
+     * <p>Everything else in the group is a warning. This one is the user's own boundary — execution is
+     * always a deliberate act at a device — and turning the requirement off while the feature is on is
+     * the only way to ask for a death with nothing deliberate behind it.
+     */
+    @Test
+    void aCapitalFeatureWithNoDeviceRequirementIsRefused() {
+        assertTrue(ConfigValidator.validateCapitalPunishment(true, false, 1200, true).stream()
+                .anyMatch(p -> p.contains("set enabled = false instead")));
+        assertTrue(ConfigValidator.validateCapitalPunishment(false, false, 1200, true).stream()
+                .noneMatch(p -> p.contains("requiresExecutionDevice")),
+                "with the feature off the combination is simply unused");
+    }
+
+    @Test
+    void theShippedCapitalGroupIsClean() {
+        assertEquals(List.of(), ConfigValidator.validateCapitalPunishment(true, true, 1200, true,
+                true, false, 2400, 48));
+    }
+
+    /** The ceremony window is the rescue window, so a walk that gives up sooner is reported. */
+    @Test
+    void anEscortThatGivesUpBeforeTheCeremonyCouldFinishIsReported() {
+        assertTrue(ConfigValidator.validateCapitalPunishment(true, true, 2400, true, true, false, 1200, 48)
+                .stream().anyMatch(p -> p.contains("gives up before the ceremony")));
+        assertEquals(List.of(), ConfigValidator.validateCapitalPunishment(true, true, 1200, true,
+                true, false, 1200, 48), "equal is allowed: the walk may take exactly the window");
+    }
+
+    @Test
+    void aCapitalFeatureWithNoQualifyingOffenceIsReported() {
+        assertTrue(ConfigValidator.validateCapitalPunishment(true, true, 1200, true, false, false, 2400, 48)
+                .stream().anyMatch(p -> p.contains("nothing can qualify")));
+        assertTrue(ConfigValidator.validateCapitalPunishment(true, true, 0, true, true, false, 2400, 48)
+                .stream().anyMatch(p -> p.contains("no rescue or pardon window")));
+    }
+
+    // --- compatibility and presets ---
+
+    @Test
+    void theShippedCompatibilityGroupIsClean() {
+        assertEquals(List.of(), ConfigValidator.validateCompatibility("WARN", true, true, false));
+    }
+
+    @Test
+    void anUnknownCoexistencePolicyIsReportedRatherThanGuessed() {
+        assertTrue(ConfigValidator.validateCompatibility("IGNORE", true, true, false).stream()
+                .anyMatch(p -> p.contains("must be WARN or REFUSE")));
+        assertTrue(ConfigValidator.validateCompatibility("REFUSE", true, true, true).stream()
+                .anyMatch(p -> p.contains("applies no new restraints")),
+                "refusing with the donor installed is worth saying out loud");
+        assertTrue(ConfigValidator.validateCompatibility("REFUSE", true, true, false).isEmpty(),
+                "refusing with nothing to refuse changes nothing and is not worth a line");
+    }
+
+    @Test
+    void switchingEveryOptionalAdapterOffIsReported() {
+        assertTrue(ConfigValidator.validateCompatibility("WARN", false, true, false).stream()
+                .anyMatch(p -> p.contains("optionalAdaptersEnabled")));
+        assertTrue(ConfigValidator.validateCompatibility("WARN", true, false, false).stream()
+                .anyMatch(p -> p.contains("reportAdapterVersions")));
+    }
+
+    @Test
+    void theShippedPresetPairIsClean() {
+        assertEquals(List.of(), ConfigValidator.validatePreset("CUFFED_PARITY", "CUFFED_PARITY"));
+        assertFalse(ConfigValidator.validatePreset("CUFFED_PARITY", "SOMETHING_ELSE").isEmpty());
+    }
 }

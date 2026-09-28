@@ -378,7 +378,7 @@ public final class CrimeFacilityService {
     public static Optional<CellReservation> reserve(@Nullable CrimeWorldData data,
                                                     @Nullable FacilityAssignment facility,
                                                     @Nullable UUID prisoner, long now, long leaseTicks) {
-        if (data == null || facility == null || prisoner == null || !facility.holdsPrisoners()) {
+        if (data == null || facility == null || prisoner == null || !facility.reservable()) {
             return Optional.empty();
         }
         CellReservation existing = data.cellReservationForPrisoner(prisoner, now);

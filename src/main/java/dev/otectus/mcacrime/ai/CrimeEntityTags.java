@@ -42,6 +42,27 @@ public final class CrimeEntityTags {
     public static final TagKey<EntityType<?>> SAND_IMMUNE =
             TagKey.create(Registries.ENTITY_TYPE, McaCrime.id("sand_immune"));
 
+    /**
+     * What this mod restrains, beyond players and MCA villagers (0.7.5 M2.3).
+     *
+     * <p>Ships empty and widens only: players and MCA villagers are restrainable in code, and a
+     * datapack adds whatever else a modpack wants held. Deliberately not a narrowing list — a tag that
+     * could remove players from the set would leave a restraint already worn with no route off it.
+     */
+    public static final TagKey<EntityType<?>> RESTRAINABLE =
+            TagKey.create(Registries.ENTITY_TYPE, McaCrime.id("restrainable_entities"));
+
+    /**
+     * What a chain may be tied to, beyond anything this mod already restrains (0.7.5 M4.1).
+     *
+     * <p>Ships with the source's list — the farm animals, mounts and villagers a player would expect
+     * to be able to lead — and widens the same way {@link #RESTRAINABLE} does. Players and every
+     * restrainable subject are chainable in code and are not in the file, so emptying the tag cannot
+     * leave a chained prisoner with no route off the chain.
+     */
+    public static final TagKey<EntityType<?>> CHAINABLE =
+            TagKey.create(Registries.ENTITY_TYPE, McaCrime.id("chainable_entities"));
+
     private CrimeEntityTags() {
     }
 }

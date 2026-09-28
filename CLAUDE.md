@@ -31,7 +31,11 @@ action ai dialogue economy mug relationship loot  gameplay behaviour and outcome
 job        criminal occupation system; Thief is an exclusive native MCA profession with a Mask
            Station worksite (occupation transaction, lifecycle, POI adapter), Fence stays presentation
 block recipe menu  Mask Station block/POI, mcacrime:mask_making recipes, server-authoritative station menu
-entity effect  Sand Bottle projectile and the sand_blinded effect, exposure and recovery policy
+entity effect  Sand Bottle projectile, padlock and chain-knot entities, the sand_blinded and restrained effects
+restraint tether lockpick locks frisk detention enchantment stat  the 0.7.5 physical layer: worn gear in
+           three slots, chains and escort, native lockpicking and locks, the crime-menu search, the
+           pillory/guillotine/bunk devices, five restraint enchantments, statistics
+block/prison block/entity  reinforced construction set, cell door, safe and device block entities
 bounty     warrant tracking, bounty payouts, claim ledgers, contract board
 ai/thief   autonomous thief controller, target selection, guard evasion
 mug/npc    NPC mugging sessions, theft planning, stolen-goods recovery
@@ -50,13 +54,19 @@ mixin/townstead  five plugin-gated Townstead mixins in a second, optional mixin 
 network item audio command config util  plumbing
 ```
 
-Build note: `compat/mcaquests` compiles only when `../MCAQuests/build/classes/java/main` exists
-(optional sibling checkout, like MCA: Reputation).
+Build note: `compat/reputation` and `compat/mcaquests` compile against the vendored, hash-pinned
+sibling API jars in `libs/api/` (`gradle/sibling-apis.properties`, checked by `verifySiblingApis`
+before `compileJava`; `-PmcaReputationApiPath` / `-PmcaQuestsApiPath` point at a working tree instead).
+A missing jar fails the build; nothing is excluded silently any more. `apiJar` produces this mod's own
+compile-only API artifact for the siblings (`api/**` + the `apiReadModel` closure in `build.gradle`,
+checked by `ApiJarClosureTest` and `verifyApiJar`).
 
 ## Key Dependencies
 - **MCA Reborn** - mandatory at runtime, but `runtimeOnly` in Gradle; no MCA type may appear
   anywhere in `src/main/java`.
-- **MCA: Reputation** - optional companion, resolved by name at runtime.
+- **MCA: Reputation** - optional companion, resolved by name at runtime; compiled against its api jar.
+- **MCA: Quests** - optional companion (bounty contracts), resolved by name at runtime; compiled against
+  its api jar. This mod's `api/CrimeDialogueHooks` is what MCA: Conversations voices guard lines through.
 - **Townstead** - optional settlement companion, resolved entirely by reflection through
   `compat/TownsteadBridge`; absent is the silent, normal path.
 - **Architectury** - MCA's own runtime requirement; deliberately not declared in `mods.toml`.
@@ -70,7 +80,8 @@ Build note: `compat/mcaquests` compiles only when `../MCAQuests/build/classes/ja
 - Config is hand-written `ForgeConfigSpec`, **COMMON + CLIENT only, no SERVER spec**: common is
   server-authoritative, client is presentation only. `config/ConfigValidator` runs at setup and
   on every reload.
-- Two mixin configs, both listed in the jar manifest's `MixinConfigs` (`build.gradle`).
+- Three mixin configs, all listed in the jar manifest's `MixinConfigs` (`build.gradle`).
+  `mcacrime.mca.mixins.json` is an optional descriptor-gated native justice/mail layer. MCA targets are dotted strings; its plugin instruments only verified native heart/blame/standing sites and native mailbox persistence, with exception-safe invocation scopes. Probe every supported jar when changing it. This is the explicit exception to the older vanilla-only convention.
   `mcacrime.mixins.json` is required and targets **vanilla classes only**, narrowly scoped.
   `mcacrime.townstead.mixins.json` is `required: false` with `defaultRequire 0`, gated by
   `mixin/townstead/TownsteadMixinPlugin` on Townstead being loaded *and* the target class existing;
@@ -104,3 +115,25 @@ Build note: `compat/mcaquests` compiles only when `../MCAQuests/build/classes/ja
 - `Band.BLUE / GREY / RED` are shown to players as Lawful / Neutral / Outlaw.
 - `CrimeCommunityKey` (`minecraft:overworld/0`) is never shown; `enforcement/Jurisdictions` turns
   it into a place name.
+
+## Family compatibility
+
+MCA: Reputation, MCA: Quests, MCA: Crime, MCA: Conversations and MCA: Mob Compatibility are one family of
+MCA Reborn add-ons, and Ultima Kingdoms consumes their APIs. The rules below hold in every repository;
+the verified companion tuple per release is kept once, in `MCAReputation/docs/FAMILY_COMPATIBILITY.md`.
+
+- **MCA Reborn is the only mandatory dependency** (`[7.6,8)`), bound by name across its four package
+  roots. Architectury is never declared mandatory: MCA 7.7 dropped it and this code names no Architectury type.
+- **Companion ranges carry a lower bound only** (`[x.y,)`). Forge enforces an optional range whenever
+  the mod is present, and every companion binding already probes the other mod and degrades, so an
+  upper bound would only ever refuse a launch. The one exception is Townstead, which is third-party
+  and read-only for us: `[0.7.5,0.9)` by decision, so its 0.8 line (the one that adds `api.v1`) can
+  launch beside us while the binding stubs whatever it cannot resolve.
+- **Sibling APIs are consumed through vendored, hash-pinned compile-only jars** (`libs/api/`,
+  `gradle/sibling-apis.properties`, `verifySiblingApis`), never a sibling checkout's class output, so a
+  clean clone builds the integrations a release ships. Each sibling has one adapter package, loaded by
+  name after `ModList.isLoaded`, and a static-link test keeps its types out of everything else.
+- **One MCA probe fleet** in every `gradle.properties`: `7.6.20`, `7.6.26`, `7.7.0-beta.2`,
+  `7.7.1-alpha.2`, `7.7.1-beta.1`, `7.7.1-beta.2` (all `+1.20.1`), replayed by the binding probe test.
+- **MCA: Reputation's capability strings are drift-checked** by every consumer at startup, and the
+  `1.21.1 Ports/` NeoForge trees mirror every change made here.

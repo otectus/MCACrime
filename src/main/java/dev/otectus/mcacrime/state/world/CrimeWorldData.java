@@ -4,6 +4,11 @@ import dev.otectus.mcacrime.McaCrime;
 import dev.otectus.mcacrime.api.model.CrimeCommunityKey;
 import dev.otectus.mcacrime.captivity.CustodyRecord;
 import dev.otectus.mcacrime.civic.ServiceContract;
+import dev.otectus.mcacrime.detention.DetentionRecord;
+import dev.otectus.mcacrime.locks.LockRecord;
+import dev.otectus.mcacrime.restraint.PhysicalRestraintState;
+import dev.otectus.mcacrime.restraint.RestraintMigrationReconciler;
+import dev.otectus.mcacrime.tether.TetherRecord;
 import dev.otectus.mcacrime.economy.account.TransactionReceipt;
 import dev.otectus.mcacrime.economy.account.ReconciliationDecision;
 import dev.otectus.mcacrime.economy.fence.FenceStockRecord;
@@ -97,6 +102,8 @@ public final class CrimeWorldData extends SavedData {
      * store that has to be walked every time anybody looks at them.
      */
     private static final int MAX_PENDING_OBSERVATIONS_PER_OBSERVER = 8;
+    /** Player accounts are selected in a bounded UI and retain more history without enlarging NPC AI memory. */
+    private static final int MAX_PENDING_PLAYER_OBSERVATIONS = 32;
     /** Global ceiling on stored observations, oldest-resolved-first evicted. */
     private static final int MAX_OBSERVATIONS = 4096;
     /** Global ceiling on stored reports. */
@@ -117,6 +124,21 @@ public final class CrimeWorldData extends SavedData {
     private static final int MAX_TRANSACTIONS = 4096;
     private static final int MAX_PROPERTY_ESCROW = 4096;
     private static final int MAX_RECONCILIATION_DECISIONS = 4096;
+    /**
+     * Ceilings on the 0.7.5 (schema 15) physical-restraint collections.
+     *
+     * <p>Sized like {@code MAX_CUSTODY} and {@code MAX_STOLEN_GOODS}: one row per restrained subject,
+     * per hold, per occupied device, per lock and per named subject. Locks get the larger ceiling
+     * because a lock outlives the prisoner who was behind it -- a settlement accumulates doors.
+     */
+    private static final int MAX_PHYSICAL_RESTRAINTS = 4096;
+    private static final int MAX_TETHERS = 4096;
+    private static final int MAX_DETENTIONS = 1024;
+    private static final int MAX_LOCKS = 8192;
+    /** One row per capital sentence ever handed down. Custodial sentences write no row at all. */
+    private static final int MAX_SENTENCE_KINDS = 4096;
+    /** Rows kept in one archive section. Bounded: the archive is written by migration, not gameplay. */
+    private static final int MAX_ARCHIVE_ENTRIES = 4096;
     private final Map<UUID, ReconciliationDecision> reconciliationDecisions = new LinkedHashMap<>();
     /**
      * How many unreadable rows are kept for an operator to look at. Small on purpose: quarantine is a
@@ -270,6 +292,43 @@ public final class CrimeWorldData extends SavedData {
      * a fact about a case's history and cannot be re-derived from anything else in the store.
      */
     private final Map<UUID, ServiceContract> serviceContracts = new LinkedHashMap<>();
+    // --- 0.7.5 (schema 15): the physical-restraint half of the model (§1.5) -----------------------
+
+    /**
+     * What is physically on each subject, keyed by subject UUID, for players and villagers alike.
+     *
+     * <p>Here rather than on a capability or in entity persistent data because exactly one durable
+     * owner per fact is the rule (§3.2): MCA villagers are not ours and may be unloaded or despawned
+     * by MCA, world data survives that, and a {@code Player} capability would be player-only and
+     * copied on death -- which would duplicate every restraint the player was wearing.
+     */
+    private final Map<UUID, PhysicalRestraintState> physicalRestraints = new LinkedHashMap<>();
+    /** Every physical hold, keyed by tether id: escorts, chains, anchors and migrated legacy holds. */
+    private final Map<UUID, TetherRecord> tethers = new LinkedHashMap<>();
+    /** Device occupancy, keyed by detention id. The block entity keeps only enough to draw itself. */
+    private final Map<UUID, DetentionRecord> detentions = new LinkedHashMap<>();
+    /** Lock identities, keyed by lock id. A block or padlock stores the id and nothing else (§3.7). */
+    private final Map<UUID, LockRecord> locks = new LinkedHashMap<>();
+    /**
+     * What each sentence <em>is</em>, keyed by sentence id (0.7.5 §3.19).
+     *
+     * <p>Beside the binding rather than on it, because a sentence binding is a field on each charged
+     * {@code CrimeRecord} and the kind belongs to the sentence as a whole -- one answer, not one per
+     * case. Absent means {@link dev.otectus.mcacrime.ledger.SentenceKind#CUSTODIAL}, which is what
+     * every sentence in a world written before this release was.
+     */
+    private final Map<UUID, dev.otectus.mcacrime.ledger.SentenceKind> sentenceKinds =
+            new LinkedHashMap<>();
+    /**
+     * The schema whose one-time reconciliation has already run against this store.
+     *
+     * <p>Separate from {@code schema} because the two answer different questions: the schema says what
+     * shape the file is in, this says whether the impure first-load pass that reads old custody rows
+     * and writes physical gear has happened. Without it that pass would run on every load, and the
+     * failure mode is the one §3.18 names -- a free extra pair of cuffs every login.
+     */
+    private int reconciledSchema;
+
     /**
      * Rows that could not be read, kept verbatim beside the reason (0.6.0).
      *
@@ -282,6 +341,9 @@ public final class CrimeWorldData extends SavedData {
     private int quarantineDropped;
     /** Verbatim copy of any reserved later-phase tags found on disk, re-emitted untouched on save. */
     private final CompoundTag reserved = new CompoundTag();
+    private dev.otectus.mcacrime.news.CrimeNewsData news = new dev.otectus.mcacrime.news.CrimeNewsData();
+    public dev.otectus.mcacrime.news.CrimeNewsData news() { return news; }
+
 
     /** True when the file came from a newer jar and nothing was parsed. */
     private boolean fromTheFuture;
@@ -295,12 +357,59 @@ public final class CrimeWorldData extends SavedData {
      */
     private boolean loadFailed;
 
+    /**
+     * True once {@link #reconcileOnce} has been attempted in this session.
+     *
+     * <p>Transient and never saved: the durable answer is {@code reconciledSchema}, and a flag that
+     * survived a reload would be a second source of truth for the same fact.
+     */
+    private transient boolean reconciliationAttempted;
+
     public CrimeWorldData() {
     }
 
     public static CrimeWorldData get(MinecraftServer server) {
         ServerLevel overworld = server.overworld();
-        return overworld.getDataStorage().computeIfAbsent(CrimeWorldData::load, CrimeWorldData::new, DATA_NAME);
+        CrimeWorldData data = overworld.getDataStorage()
+                .computeIfAbsent(CrimeWorldData::load, CrimeWorldData::new, DATA_NAME);
+        data.reconcilePhysicalState(overworld.getGameTime());
+        return data;
+    }
+
+    /**
+     * Runs the schema 14 to 15 physical reconciliation the first time this store is handed out
+     * (0.7.5 §3.18 part 2).
+     *
+     * <p>Called from {@link #get(MinecraftServer)} rather than from {@link #load(CompoundTag)},
+     * because the impure half needs a game clock and the pure migration deliberately has none, and
+     * because {@code load} also runs for a store this build refused to read. The reconciler's own
+     * {@code reconciledSchema} marker is what makes a second call a no-op, so this costs one integer
+     * comparison per lookup; the local flag only avoids re-entering the loop over every custody row
+     * in the same session.
+
+     * <p>Public and instance-scoped so the once-only property can be asserted without a server: a
+     * reconciliation that ran twice would put a second set of cuffs on every converted prisoner, which
+     * is the specific failure the specification names.
+     *
+     * <p>A frozen or future-schema store never reaches the conversion: {@code ServerMutationGate}
+     * refuses it inside the reconciler, which then does not stamp the marker either, so the work is
+     * still pending if a later build can do it.
+     */
+    public void reconcilePhysicalState(long gameTime) {
+        if (reconciliationAttempted || reconciledSchema >= CrimeDataMigrations.SCHEMA_CUFFED_PHYSICAL) {
+            return;
+        }
+        reconciliationAttempted = true;
+        RestraintMigrationReconciler.Result result =
+                RestraintMigrationReconciler.reconcile(this, gameTime);
+        if (result.ran() && (result.restraintsConverted() > 0 || result.tethersCreated() > 0
+                || result.combinationsArchived() > 0 || result.escapesCancelled() > 0)) {
+            McaCrime.LOGGER.info("MCA: Crime converted legacy restraint state to the 0.7.5 physical "
+                            + "engine: {} restraints, {} legacy holds, {} cuff combinations archived, "
+                            + "{} escape attempts cancelled.",
+                    result.restraintsConverted(), result.tethersCreated(),
+                    result.combinationsArchived(), result.escapesCancelled());
+        }
     }
 
     /**
@@ -791,11 +900,20 @@ public final class CrimeWorldData extends SavedData {
      *         villager may still be walking to a guard about.
      */
     public boolean addObservation(CrimeObservation observation) {
+        return addObservation(observation, MAX_PENDING_OBSERVATIONS_PER_OBSERVER);
+    }
+
+    /** Player-aware observation insertion with its own retention ceiling (§8). */
+    public boolean addPlayerObservation(CrimeObservation observation) {
+        return addObservation(observation, MAX_PENDING_PLAYER_OBSERVATIONS);
+    }
+
+    private boolean addObservation(CrimeObservation observation, int pendingLimit) {
         if (observation == null || frozen() || observations.containsKey(observation.observationId())) {
             return false;
         }
         if (observation.pending() && pendingObservationCount(observation.observerId())
-                >= MAX_PENDING_OBSERVATIONS_PER_OBSERVER) {
+                >= pendingLimit) {
             return false;
         }
         observations.put(observation.observationId(), observation);
@@ -2046,6 +2164,284 @@ public final class CrimeWorldData extends SavedData {
         return quarantine.size();
     }
 
+    // --- 0.7.5 (schema 15): physical restraints, tethers, detentions, locks ------------------------
+
+    /**
+     * Records or replaces what is physically on one subject.
+     *
+     * <p>Replacing by subject is the whole contract: a subject has exactly one physical state, the
+     * state carries its own revision, and an application that lost a race simply loses -- it never
+     * lays a second row beside the first.
+     *
+     * @return false when the store is read-only or the table is full; an existing subject may always
+     *         be replaced
+     */
+    public boolean putPhysicalRestraint(PhysicalRestraintState state) {
+        if (state == null || state.subject() == null || frozen()
+                || atCapacity(physicalRestraints, state.subject(), MAX_PHYSICAL_RESTRAINTS,
+                        "physical restraint")) {
+            return false;
+        }
+        physicalRestraints.put(state.subject(), state);
+        setDirty();
+        return true;
+    }
+
+    /** What is physically on {@code subject}, or null when nothing is. */
+    @Nullable
+    public PhysicalRestraintState physicalRestraint(@Nullable UUID subject) {
+        return subject == null ? null : physicalRestraints.get(subject);
+    }
+
+    /** Every restrained subject. A copy. */
+    public List<PhysicalRestraintState> physicalRestraints() {
+        return new ArrayList<>(physicalRestraints.values());
+    }
+
+    /** Forgets one subject's physical state entirely. Not a release: the caller decides that. */
+    public boolean removePhysicalRestraint(@Nullable UUID subject) {
+        if (subject == null || frozen()) {
+            return false;
+        }
+        if (physicalRestraints.remove(subject) != null) {
+            setDirty();
+            return true;
+        }
+        return false;
+    }
+
+    /** Records or replaces one tether. */
+    public boolean putTether(TetherRecord tether) {
+        if (tether == null || tether.id() == null || frozen()
+                || atCapacity(tethers, tether.id(), MAX_TETHERS, "tether")) {
+            return false;
+        }
+        tethers.put(tether.id(), tether);
+        setDirty();
+        return true;
+    }
+
+    @Nullable
+    public TetherRecord tether(@Nullable UUID id) {
+        return id == null ? null : tethers.get(id);
+    }
+
+    public List<TetherRecord> tethers() {
+        return new ArrayList<>(tethers.values());
+    }
+
+    /** Every hold on one subject. A subject may be chained and escorted at once (§3.6 arbitrates). */
+    public List<TetherRecord> tethersForSubject(@Nullable UUID subject) {
+        List<TetherRecord> out = new ArrayList<>();
+        if (subject == null) {
+            return out;
+        }
+        for (TetherRecord tether : tethers.values()) {
+            if (subject.equals(tether.subject())) {
+                out.add(tether);
+            }
+        }
+        return out;
+    }
+
+    public boolean removeTether(@Nullable UUID id) {
+        if (id == null || frozen()) {
+            return false;
+        }
+        if (tethers.remove(id) != null) {
+            setDirty();
+            return true;
+        }
+        return false;
+    }
+
+    /** Records or replaces one device occupancy. */
+    public boolean putDetention(DetentionRecord detention) {
+        if (detention == null || detention.id() == null || frozen()
+                || atCapacity(detentions, detention.id(), MAX_DETENTIONS, "detention")) {
+            return false;
+        }
+        detentions.put(detention.id(), detention);
+        setDirty();
+        return true;
+    }
+
+    @Nullable
+    public DetentionRecord detention(@Nullable UUID id) {
+        return id == null ? null : detentions.get(id);
+    }
+
+    public List<DetentionRecord> detentions() {
+        return new ArrayList<>(detentions.values());
+    }
+
+    /** The device holding {@code subject}, or null. One device at a time, by arbitration. */
+    @Nullable
+    public DetentionRecord detentionForSubject(@Nullable UUID subject) {
+        if (subject == null) {
+            return null;
+        }
+        for (DetentionRecord detention : detentions.values()) {
+            if (subject.equals(detention.subject())) {
+                return detention;
+            }
+        }
+        return null;
+    }
+
+    public boolean removeDetention(@Nullable UUID id) {
+        if (id == null || frozen()) {
+            return false;
+        }
+        if (detentions.remove(id) != null) {
+            setDirty();
+            return true;
+        }
+        return false;
+    }
+
+    /** Records or replaces one lock identity. */
+    public boolean putLock(LockRecord lock) {
+        if (lock == null || lock.lockId() == null || frozen()
+                || atCapacity(locks, lock.lockId(), MAX_LOCKS, "lock")) {
+            return false;
+        }
+        locks.put(lock.lockId(), lock);
+        setDirty();
+        return true;
+    }
+
+    @Nullable
+    public LockRecord lock(@Nullable UUID lockId) {
+        return lockId == null ? null : locks.get(lockId);
+    }
+
+    public List<LockRecord> locks() {
+        return new ArrayList<>(locks.values());
+    }
+
+    /**
+     * Forgets a lock.
+     *
+     * <p>Rare and deliberate: a lock whose block is gone keeps its row, because keys are still bound
+     * to it and an operator has to be able to see what they open.
+     */
+    public boolean removeLock(@Nullable UUID lockId) {
+        if (lockId == null || frozen()) {
+            return false;
+        }
+        if (locks.remove(lockId) != null) {
+            setDirty();
+            return true;
+        }
+        return false;
+    }
+
+    // --- sentence kinds (0.7.5 §3.19) --------------------------------------------------------------
+
+    /**
+     * What one sentence is. {@code CUSTODIAL} for anything that has never been marked, which is every
+     * sentence handed down before this release and nearly every one since.
+     */
+    public dev.otectus.mcacrime.ledger.SentenceKind sentenceKind(@Nullable UUID sentenceId) {
+        dev.otectus.mcacrime.ledger.SentenceKind kind =
+                sentenceId == null ? null : sentenceKinds.get(sentenceId);
+        return kind == null ? dev.otectus.mcacrime.ledger.SentenceKind.CUSTODIAL : kind;
+    }
+
+    /**
+     * Records what a sentence is.
+     *
+     * <p>Only a capital sentence stores a row: {@code CUSTODIAL} removes one instead of writing the
+     * default, so a commutation genuinely clears the fact rather than leaving a row that says
+     * "custodial" beside one that used to say otherwise.
+     *
+     * @return false when the store is read-only or the table is full
+     */
+    public boolean setSentenceKind(@Nullable UUID sentenceId,
+                                   @Nullable dev.otectus.mcacrime.ledger.SentenceKind kind) {
+        if (sentenceId == null || frozen()) {
+            return false;
+        }
+        if (kind == null || kind == dev.otectus.mcacrime.ledger.SentenceKind.CUSTODIAL) {
+            if (sentenceKinds.remove(sentenceId) != null) {
+                setDirty();
+            }
+            return true;
+        }
+        if (atCapacity(sentenceKinds, sentenceId, MAX_SENTENCE_KINDS, "sentence kind")) {
+            return false;
+        }
+        sentenceKinds.put(sentenceId, kind);
+        setDirty();
+        return true;
+    }
+
+    /** Every sentence with a kind other than custodial. Diagnostics and the capital commands. */
+    public Map<UUID, dev.otectus.mcacrime.ledger.SentenceKind> sentenceKinds() {
+        return Map.copyOf(sentenceKinds);
+    }
+
+    /**
+     * The schema whose one-time reconciliation has already run here. 0 means none has.
+     *
+     * @see #markReconciled(int)
+     */
+    public int reconciledSchema() {
+        return reconciledSchema;
+    }
+
+    /** Stamps that the reconciliation for {@code schema} has run. Never goes backwards. */
+    public boolean markReconciled(int schema) {
+        if (frozen() || schema <= reconciledSchema) {
+            return false;
+        }
+        reconciledSchema = schema;
+        setDirty();
+        return true;
+    }
+
+    /**
+     * Files one row under the existing {@code archives} reserved slot.
+     *
+     * <p>{@code archives} is already carried verbatim across save and load, which is exactly what an
+     * archive needs: the data is kept because somebody may need to look at it, not because this build
+     * knows what to do with it. The schema 15 reconciliation uses it for retired cuff combinations --
+     * they are preserved, and they unlock nothing (§3.18).
+     *
+     * @return false when the store is read-only or that section is full
+     */
+    public boolean archive(String section, String key, @Nullable Tag value) {
+        if (section == null || section.isBlank() || key == null || key.isBlank() || value == null
+                || frozen()) {
+            return false;
+        }
+        CompoundTag archives = reserved.contains("archives", Tag.TAG_COMPOUND)
+                ? reserved.getCompound("archives")
+                : new CompoundTag();
+        CompoundTag bucket = archives.contains(section, Tag.TAG_COMPOUND)
+                ? archives.getCompound(section)
+                : new CompoundTag();
+        if (!bucket.contains(key) && bucket.size() >= MAX_ARCHIVE_ENTRIES) {
+            return false;
+        }
+        bucket.put(key, value.copy());
+        archives.put(section, bucket);
+        reserved.put("archives", archives);
+        setDirty();
+        return true;
+    }
+
+    /** One archive section, as a copy. Empty when nothing was ever filed there. */
+    public CompoundTag archived(String section) {
+        if (section == null || !reserved.contains("archives", Tag.TAG_COMPOUND)) {
+            return new CompoundTag();
+        }
+        CompoundTag archives = reserved.getCompound("archives");
+        return archives.contains(section, Tag.TAG_COMPOUND) ? archives.getCompound(section).copy()
+                : new CompoundTag();
+    }
+
     // --- persistence ---
 
     @Override
@@ -2099,6 +2495,14 @@ public final class CrimeWorldData extends SavedData {
         CompoundTag cooldownTag = new CompoundTag();
         ransomCooldowns.forEach(cooldownTag::putLong);
         tag.put("ransomCooldowns", cooldownTag);
+
+        // Capital sentences only (§3.19): a custodial sentence is the default and writes nothing, so
+        // an ordinary world's file is byte-for-byte what it was before this feature existed.
+        CompoundTag kindTag = new CompoundTag();
+        sentenceKinds.forEach((sentenceId, kind) -> kindTag.putString(sentenceId.toString(), kind.name()));
+        if (!kindTag.isEmpty()) {
+            tag.put("sentenceKinds", kindTag);
+        }
 
         CompoundTag profileTag = new CompoundTag();
         villagerProfiles.forEach((uuid, profile) -> profileTag.put(uuid.toString(), profile.save()));
@@ -2204,12 +2608,42 @@ public final class CrimeWorldData extends SavedData {
         ListTag serviceContractList = new ListTag();
         serviceContracts.values().forEach(contract -> serviceContractList.add(contract.save()));
         tag.put("serviceContracts", serviceContractList);
+
+        // 0.7.5 (schema 15) physical state. Each list is skipped when a newer jar's unrecognised shape
+        // for it was stashed into `reserved` on load -- that copy is re-emitted verbatim below instead,
+        // exactly as the custody table has done since 0.6.0.
+        if (!reserved.contains("physicalRestraints")) {
+            ListTag physicalList = new ListTag();
+            physicalRestraints.values().forEach(state -> physicalList.add(state.save()));
+            tag.put("physicalRestraints", physicalList);
+        }
+        if (!reserved.contains("tethers")) {
+            ListTag tetherList = new ListTag();
+            tethers.values().forEach(tether -> tetherList.add(tether.save()));
+            tag.put("tethers", tetherList);
+        }
+        if (!reserved.contains("detentions")) {
+            ListTag detentionList = new ListTag();
+            detentions.values().forEach(detention -> detentionList.add(detention.save()));
+            tag.put("detentions", detentionList);
+        }
+        if (!reserved.contains("locks")) {
+            ListTag lockList = new ListTag();
+            locks.values().forEach(lock -> lockList.add(lock.save()));
+            tag.put("locks", lockList);
+        }
+        // Written only once it has happened: absent reads as "the reconciliation has not run", which
+        // is the truth for every world written before 0.7.5.
+        if (reconciledSchema > 0) {
+            tag.putInt("reconciledSchema", reconciledSchema);
+        }
         // Written back exactly as it was read. A row nobody can parse is still a row somebody's
         // history is in, and the one thing worse than not loading it is losing it.
         ListTag quarantineList = new ListTag();
         quarantine.forEach(entry -> quarantineList.add(entry.copy()));
         tag.put("quarantine", quarantineList);
 
+        tag.put("crimeNews", news.save());
         // Re-emit reserved later-phase slots untouched (bounties, plus any stashed-for-forward-compat tag).
         for (String key : reserved.getAllKeys()) {
             tag.put(key, reserved.get(key).copy());
@@ -2339,6 +2773,19 @@ public final class CrimeWorldData extends SavedData {
         CompoundTag cooldownTag = tag.getCompound("ransomCooldowns");
         for (String key : cooldownTag.getAllKeys()) {
             data.ransomCooldowns.put(key, cooldownTag.getLong(key));
+        }
+        CompoundTag kindTag = tag.getCompound("sentenceKinds");
+        for (String key : kindTag.getAllKeys()) {
+            try {
+                dev.otectus.mcacrime.ledger.SentenceKind kind =
+                        dev.otectus.mcacrime.ledger.SentenceKind.parseOr(kindTag.getString(key),
+                                dev.otectus.mcacrime.ledger.SentenceKind.CUSTODIAL);
+                if (kind != dev.otectus.mcacrime.ledger.SentenceKind.CUSTODIAL) {
+                    data.sentenceKinds.put(UUID.fromString(key), kind);
+                }
+            } catch (RuntimeException e) {
+                data.quarantine("sentence kind: " + e.getMessage(), kindTag);
+            }
         }
 
         CompoundTag profileTag = tag.getCompound("villagerProfiles");
@@ -2631,12 +3078,28 @@ public final class CrimeWorldData extends SavedData {
         }
         warnOverflow("service contract", data.serviceContracts.size(), MAX_SERVICE_CONTRACTS);
 
+        // 0.7.5 (schema 15). Absent reads as empty in every world written before this release.
+        readPhysicalTable(data, tag, "physicalRestraints", PhysicalRestraintState::load,
+                state -> data.physicalRestraints.put(state.subject(), state));
+        readPhysicalTable(data, tag, "tethers", TetherRecord::load,
+                tether -> data.tethers.put(tether.id(), tether));
+        readPhysicalTable(data, tag, "detentions", DetentionRecord::load,
+                detention -> data.detentions.put(detention.id(), detention));
+        readPhysicalTable(data, tag, "locks", LockRecord::load,
+                lock -> data.locks.put(lock.lockId(), lock));
+        warnOverflow("physical restraint", data.physicalRestraints.size(), MAX_PHYSICAL_RESTRAINTS);
+        warnOverflow("tether", data.tethers.size(), MAX_TETHERS);
+        warnOverflow("detention", data.detentions.size(), MAX_DETENTIONS);
+        warnOverflow("lock", data.locks.size(), MAX_LOCKS);
+        data.reconciledSchema = Math.max(0, tag.getInt("reconciledSchema"));
+
         // Read straight back in, unexamined. Parsing a quarantined row is exactly what failed.
         ListTag quarantineList = tag.getList("quarantine", Tag.TAG_COMPOUND);
         for (int i = 0; i < quarantineList.size() && data.quarantine.size() < MAX_QUARANTINE; i++) {
             data.quarantine.add(quarantineList.getCompound(i).copy());
         }
 
+        data.news = dev.otectus.mcacrime.news.CrimeNewsData.load(tag.getCompound("crimeNews"));
         // Capture reserved later-phase slots verbatim for forward compatibility.
         for (String key : RESERVED_KEYS) {
             if (tag.contains(key)) {
@@ -2647,6 +3110,43 @@ public final class CrimeWorldData extends SavedData {
             McaCrime.LOGGER.warn("MCA: Crime quarantined the first {} unreadable row(s) and dropped {} "
                     + "further one(s); the file is systematically damaged.", MAX_QUARANTINE,
                     data.quarantineDropped);
+        }
+    }
+
+    /**
+     * Reads one of the schema 15 physical tables, row by row.
+     *
+     * <p>Three outcomes, and each is a rule this store already follows elsewhere: a list is parsed
+     * row by row and an unreadable row is quarantined rather than dropped; a tag that is present but
+     * is <em>not</em> a list was written by something this build does not understand, so it is parked
+     * in {@code reserved} and re-emitted verbatim rather than guessed at; and an absent tag is simply
+     * an empty table.
+     */
+    private static <T> void readPhysicalTable(CrimeWorldData data, CompoundTag tag, String key,
+                                              java.util.function.Function<CompoundTag, Optional<T>> reader,
+                                              java.util.function.Consumer<T> sink) {
+        if (!tag.contains(key)) {
+            return;
+        }
+        if (!tag.contains(key, Tag.TAG_LIST)) {
+            data.reserved.put(key, tag.get(key).copy());
+            return;
+        }
+        ListTag rows = tag.getList(key, Tag.TAG_COMPOUND);
+        for (int i = 0; i < rows.size(); i++) {
+            CompoundTag row = rows.getCompound(i);
+            Optional<T> parsed;
+            try {
+                parsed = reader.apply(row);
+            } catch (RuntimeException e) {
+                data.quarantine(key + ": " + e.getMessage(), row);
+                continue;
+            }
+            if (parsed.isPresent()) {
+                sink.accept(parsed.get());
+            } else {
+                data.quarantine(key, row);
+            }
         }
     }
 

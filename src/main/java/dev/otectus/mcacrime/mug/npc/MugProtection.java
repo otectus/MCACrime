@@ -36,10 +36,11 @@ public final class MugProtection {
         }
         long now = now(server);
         McaCrimeConfig.Common c = McaCrimeConfig.COMMON;
+        var worldSettings = dev.otectus.mcacrime.config.CrimeWorldSettings.resolve(server);
         double multiplier = c.muggingFrequencyMultiplier.get();
         CrimeCapabilities.get(victim).ifPresent(data -> {
             data.setMugProtectionUntilTick(MugProtectionRules.grant(data.getMugProtectionUntilTick(), now,
-                    c.playerMugProtectionTicks.get(), multiplier));
+                    worldSettings.playerMugProtectionTicks(), multiplier));
             long pair = MugProtectionRules.scale(c.thiefVictimRepeatCooldownTicks.get(), multiplier);
             if (thiefId != null && pair > 0L) {
                 data.recordMugger(thiefId, now + pair, now);
@@ -82,7 +83,7 @@ public final class MugProtection {
         data.pruneRecentMuggers(now);
         return new Window(data.getMugProtectionUntilTick(), data.pairCooldownUntil(thief),
                 data.muggingsOn(MugProtectionRules.day(now)),
-                McaCrimeConfig.COMMON.maxMuggingsPerPlayerPerDay.get());
+                dev.otectus.mcacrime.config.CrimeWorldSettings.resolve(victim.getServer()).maxMuggingsPerDay());
     }
 
     /** Whether this thief may rob this player right now, by all three victim-scoped rules. */

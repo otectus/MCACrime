@@ -34,4 +34,20 @@ class RecoveryCommandTest {
         assertFalse(complete.getReader().canRead());
         assertNull(dispatcher.parse(command + " Bank confirmed the transfer", source(2)).getContext().getCommand());
     }
+
+    /**
+     * The physical-state recovery tool sits in the same tree at the same level (0.7.5 M6.5).
+     *
+     * <p>Level three like everything else here, because it reaches into somebody's body state; and
+     * inside {@code recovery} rather than beside {@code release}, because it is a repair and not a
+     * disposition — it frees nobody from a sentence.
+     */
+    @Test void physicalRecoveryIsInTheSameTreeAtTheSameLevel() {
+        var dispatcher = new CommandDispatcher<CommandSourceStack>();
+        dispatcher.register(Commands.literal("crime").then(RecoveryCommand.tree()));
+        String command = "crime recovery restraints TestPlayer";
+        assertNotNull(dispatcher.parse(command, source(3)).getContext().getCommand());
+        assertNull(dispatcher.parse(command, source(2)).getContext().getCommand());
+        assertNull(dispatcher.parse("crime recovery restraints", source(3)).getContext().getCommand());
+    }
 }

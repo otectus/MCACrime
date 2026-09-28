@@ -153,6 +153,28 @@ public final class ContrabandSearchService {
     }
 
     /**
+     * The discovery gate a frisking screen opens behind (0.7.5 M5.3, spec §11.3).
+     *
+     * <p>Separate from {@link #onArrest} because the two are different moments with the same rule:
+     * a lawful search discovers contraband only through this gate, and opening a screen must not by
+     * itself expose every hidden property fact to every guard. Gated on {@code allowsArrest}, since a
+     * frisk is a hands-on search of somebody already in custody rather than a patrol stop.
+     *
+     * @param searcher the guard or custodian doing the searching, for the message and the charge
+     */
+    public static void onFrisk(ServerLevel level, @Nullable LivingEntity searcher, ServerPlayer player) {
+        if (level == null || player == null || !ContrabandPolicy.enabled()
+                || !ContrabandPolicy.mode().allowsArrest()) {
+            return;
+        }
+        try {
+            search(level, searcher, player);
+        } catch (Throwable t) {
+            McaCrime.LOGGER.debug("MCA: Crime contraband frisk search failed; continuing", t);
+        }
+    }
+
+    /**
      * One search: walk what the player is carrying, charge for what is listed, and say what happened.
      *
      * <p>"Never announce what a guard did not find" is the rule the two messages encode: the

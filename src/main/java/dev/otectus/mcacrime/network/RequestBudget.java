@@ -36,7 +36,9 @@ public final class RequestBudget {
         /** Rebuilding the dossier: one per ten ticks, and no burst — it is a screen, not an input. */
         DOSSIER(0.1D, 1),
         /** Answering a guard: 8/s. */
-        CHALLENGE(0.4D, 8);
+        CHALLENGE(0.4D, 8),
+        /** Reading or submitting a report: burst four, refill two per second. */
+        REPORT(0.1D, 4);
 
         private final double tokensPerTick;
         private final int burst;

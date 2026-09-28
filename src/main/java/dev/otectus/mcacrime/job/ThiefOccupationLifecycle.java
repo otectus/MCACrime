@@ -1,7 +1,6 @@
 package dev.otectus.mcacrime.job;
 
 import dev.otectus.mcacrime.McaCrime;
-import dev.otectus.mcacrime.McaCrimeConfig;
 import dev.otectus.mcacrime.captivity.CustodyRegistry;
 import dev.otectus.mcacrime.compat.McaCompat;
 import dev.otectus.mcacrime.compat.OccupationCompat;
@@ -111,7 +110,7 @@ public final class ThiefOccupationLifecycle {
     private static void reconcile(MinecraftServer server) {
         CrimeWorldData world = CrimeWorldData.get(server);
         WorldCriminalJobService jobs = WorldCriminalJobService.of(server);
-        boolean enabled = McaCrimeConfig.COMMON.enableThieves.get();
+        boolean enabled = dev.otectus.mcacrime.config.CrimeWorldSettings.resolve(server).thieves();
         for (CriminalVillagerRecord record : world.criminalVillagers()) {
             if (record.job() != CriminalJob.THIEF && record.status() != OccupationStatus.PENDING) {
                 continue;

@@ -61,18 +61,48 @@ class MixinConfigTest {
      * <p>The exact list matters more than its length: a mixin that drifted from {@code mixins} to
      * {@code client} would apply on a single-player world and be absent from the dedicated server that
      * actually owns the decision, which is the failure mode this file was written for.
+     *
+     * <p>The three 0.7.5 restraint mixins are in the same list for the same reason, and it matters
+     * more for them than for anything else here: each one is the server-side answer to an action a
+     * modified client can send whatever its own screen says, so listed under {@code client} they would
+     * enforce nothing on the only side that counts.
      */
     @Test
     void everyOccupationMixinIsCommonAndOnlyRenderingIsClient() {
         assertEquals(List.of(
+                "GameRuleTypeAccessor",
+                "HopperLockMixin",
                 "MaskStationAcquisitionMixin",
                 "MerchantOffersAccessor",
                 "MobDeathEquipmentMixin",
                 "NativeJobAssignmentMixin",
+                "RestraintContainerClickMixin",
+                "RestraintJumpMixin",
+                "RestraintPlayerActionMixin",
                 "SandSensingMixin",
                 "ThiefBrainMixin",
-                "ThiefPoiValidationMixin"), mixins(CONFIG, "mixins"));
+                "ThiefPoiValidationMixin",
+                "ThiefGossipMixin"), mixins(CONFIG, "mixins"));
         assertEquals(List.of("client.RestraintPoseMixin"), mixins(CONFIG, "client"));
+    }
+
+    /**
+     * The three restraint mixins are common, and each one is there because no Forge event is.
+     *
+     * <p>Named individually rather than counted, because each covers a different hole and losing any
+     * one of them turns a server-enforced restriction back into a client-side suggestion: the jump
+     * (no cancellable jump event exists), the inventory click (handled below every Forge event) and
+     * the off-hand swap (a player-action packet with no event at all).
+     */
+    @Test
+    void theThreeRestraintMixinsAreCommon() {
+        List<String> common = mixins(CONFIG, "mixins");
+        List<String> client = mixins(CONFIG, "client");
+        for (String mixin : List.of("RestraintJumpMixin", "RestraintContainerClickMixin",
+                "RestraintPlayerActionMixin")) {
+            assertTrue(common.contains(mixin), mixin + " must enforce on the dedicated server");
+            assertFalse(client.contains(mixin), mixin + " is not a rendering mixin");
+        }
     }
 
     /**
@@ -154,6 +184,10 @@ class MixinConfigTest {
                         name + " is a config plugin, not a mixin, and must not be listed");
                 continue;
             }
+            if (name.startsWith("mca.")) {
+                assertTrue(allMixins(Path.of("src/main/resources/mcacrime.mca.mixins.json")).contains(name.substring(4)));
+                continue;
+            }
             if (name.startsWith(TOWNSTEAD_PREFIX)) {
                 String relative = name.substring(TOWNSTEAD_PREFIX.length());
                 assertTrue(townstead.contains(relative),
@@ -233,7 +267,7 @@ class MixinConfigTest {
         List<String> offenders = new ArrayList<>();
         for (Path source : sourceFiles()) {
             String relative = MIXIN_SOURCE_ROOT.relativize(source).toString().replace('\\', '/');
-            if (relative.startsWith("townstead/")) {
+            if (relative.startsWith("townstead/") || relative.startsWith("mca/")) {
                 continue;
             }
             String text = read(source);
@@ -244,7 +278,7 @@ class MixinConfigTest {
             Matcher matcher = CLASS_TARGET.matcher(text);
             assertTrue(matcher.find(), relative + " declares no @Mixin target");
             String simple = matcher.group(1);
-            if (!text.contains("import net.minecraft." ) || !importsVanilla(text, simple)) {
+            if (!text.contains("import net.minecraft." ) || !importsVanilla(text, simple.contains(".") ? simple.substring(0, simple.indexOf('.')) : simple)) {
                 offenders.add(relative + " -> " + simple + " is not imported from net.minecraft");
             }
         }

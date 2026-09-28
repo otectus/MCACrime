@@ -26,10 +26,28 @@ public final class CrimeClassifier {
         return McaCompat.isGuard(victim) ? CrimeIds.ASSAULT_GUARD : CrimeIds.HARM_VILLAGER;
     }
 
-    /** Killing any MCA villager (guards included) is kill_villager; killing a player is murder_player. */
+    /**
+     * Killing a guard is kill_guard, any other villager is kill_villager, and a player is
+     * murder_player.
+     *
+     * <p>The guard branch is 0.7.5 §3.19's "offence seam", and it is deliberately the only change the
+     * capital feature makes to detection. Until it existed, killing a guard was indistinguishable
+     * from killing a farmer even though the <em>harm</em> branch above already asked the same
+     * question — so the ledger, the dossier, every witness rule and every companion mod read one
+     * sentence where there were two crimes.
+     *
+     * <p>What it does <b>not</b> do is decide a sentence. A capital sentence is produced at arrest by
+     * {@code ledger/CapitalSentenceService}, from an unresolved case of this id and a configuration
+     * that permits it; a crime id on its own has never sentenced anybody.
+     *
+     * <p>Precedence is elsewhere on purpose: a mugging that turns lethal is classified by
+     * {@code detect/DamageIncidentService} as {@code mcacrime:mugging_murder} and never reaches here,
+     * so robbing a guard to death is a mugging murder and is not capital.
+     */
     public static ResourceLocation classifyKill(LivingEntity victim) {
-        return victim instanceof net.minecraft.server.level.ServerPlayer
-                ? CrimeIds.MURDER_PLAYER
-                : CrimeIds.KILL_VILLAGER;
+        if (victim instanceof net.minecraft.server.level.ServerPlayer) {
+            return CrimeIds.MURDER_PLAYER;
+        }
+        return McaCompat.isGuard(victim) ? CrimeIds.KILL_GUARD : CrimeIds.KILL_VILLAGER;
     }
 }

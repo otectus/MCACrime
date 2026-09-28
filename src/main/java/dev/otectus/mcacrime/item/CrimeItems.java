@@ -2,14 +2,25 @@ package dev.otectus.mcacrime.item;
 
 import dev.otectus.mcacrime.McaCrime;
 import dev.otectus.mcacrime.block.CrimeBlocks;
-import dev.otectus.mcacrime.captivity.RestraintReservation;
-import dev.otectus.mcacrime.captivity.RestraintType;
+import dev.otectus.mcacrime.item.creative.BindBreakerItem;
+import dev.otectus.mcacrime.item.creative.CreativeKeyItem;
+import dev.otectus.mcacrime.item.creative.CreativeRestraintCutter;
+import dev.otectus.mcacrime.item.lock.BakedKeyMoldItem;
+import dev.otectus.mcacrime.item.lock.KeyItem;
+import dev.otectus.mcacrime.item.lock.KeyMoldItem;
+import dev.otectus.mcacrime.item.lock.KeyRingItem;
+import dev.otectus.mcacrime.item.lock.LockpickItem;
+import dev.otectus.mcacrime.item.lock.PadlockItem;
+import dev.otectus.mcacrime.item.restraint.RestraintKeyItem;
+import dev.otectus.mcacrime.item.tool.DuckTapeItem;
+import dev.otectus.mcacrime.restraint.RestraintFamily;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.CreativeModeTab;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Rarity;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraftforge.eventbus.api.IEventBus;
 import net.minecraftforge.registries.DeferredRegister;
@@ -24,10 +35,19 @@ import java.util.Map;
 import java.util.Optional;
 
 /**
- * The mod's item registrations (spec §8.3) — its first items: the three restraints plus a creative tab.
- * Rope also accepts any {@code forge:rope}-tagged item for broad mod compatibility (see {@link
- * #restraintFor}); cuffs and locked cuffs are custom items (vanilla has no equivalent). The Locks Reforged
- * key/removal path for locked cuffs is a Phase 7 seam.
+ * The mod's item registrations.
+ *
+ * <p>Two things live here that are easy to get wrong separately: the id scheme, and the direction
+ * between items and restraint definitions. {@code restraint_cuffs} and {@code restraint_locked_cuffs}
+ * keep the ids and the protected textures they have always had, and now mean the Shackles and
+ * Handcuffs families respectively (§3.1); no {@code mcacrime:handcuffs} or {@code mcacrime:shackles}
+ * item exists, because registering one would orphan every saved stack and break the fence price
+ * table. A definition names its item; an item never names a definition, since one pair of cuffs is
+ * the arm definition or the leg definition depending only on where the server decided it went.
+ *
+ * <p>{@code restraint_rope} stays registered as a legacy conversion carrier and is out of the
+ * creative tab. Any {@code forge:rope}-tagged item still reads as that carrier, which is what keeps
+ * pre-0.7.5 worlds and other mods' rope working (see {@link #familyFor}).
  */
 public final class CrimeItems {
 
@@ -35,12 +55,66 @@ public final class CrimeItems {
     public static final DeferredRegister<CreativeModeTab> TABS =
             DeferredRegister.create(Registries.CREATIVE_MODE_TAB, McaCrime.MOD_ID);
 
+    /**
+     * The pre-0.7.5 rope, kept registered as a legacy conversion carrier (§3.18).
+     *
+     * <p>Still in the registry so every saved stack, recipe reference and fence price that names it
+     * resolves, and deliberately out of the creative tab: it is not part of the 0.7.5 restraint set,
+     * and a {@code rope_to_duck_tape} recipe is the supported way to spend one.
+     */
     public static final RegistryObject<Item> RESTRAINT_ROPE = ITEMS.register("restraint_rope",
-            () -> new RestraintItem(RestraintType.ROPE, new Item.Properties()));
+            () -> new RestraintItem(RestraintFamily.LEGACY_ROPE, new Item.Properties()));
+
+    /**
+     * The Shackles family's item, keeping MCA: Crime's own protected cuff icon (§3.1).
+     *
+     * <p>The id and the texture are unchanged; what the item <em>means</em> is now the lighter
+     * restraint. The alternative — registering fresh {@code handcuffs}/{@code shackles} items — would
+     * orphan every existing stack and break the fence price table that names these two ids.
+     */
     public static final RegistryObject<Item> RESTRAINT_CUFFS = ITEMS.register("restraint_cuffs",
-            () -> new RestraintItem(RestraintType.CUFFS, new Item.Properties().stacksTo(1)));
+            () -> new RestraintItem(RestraintFamily.SHACKLES, new Item.Properties().stacksTo(1)));
+
+    /** The Handcuffs family's item, keeping MCA: Crime's protected locked-cuff icon (§3.1). */
     public static final RegistryObject<Item> RESTRAINT_LOCKED_CUFFS = ITEMS.register("restraint_locked_cuffs",
-            () -> new RestraintItem(RestraintType.LOCKED_CUFFS, new Item.Properties().stacksTo(1)));
+            () -> new RestraintItem(RestraintFamily.HANDCUFFS, new Item.Properties().stacksTo(1)));
+
+    /** Duct tape: the only item that restrains all three slots. Path {@code duck_tape} (§3.1). */
+    public static final RegistryObject<Item> DUCK_TAPE = ITEMS.register("duck_tape",
+            () -> new DuckTapeItem(new Item.Properties()));
+
+    // --- restraint keys: one per family (§3.7) ---------------------------------------------------
+
+    public static final RegistryObject<Item> HANDCUFFS_KEY = ITEMS.register("handcuffs_key",
+            () -> new RestraintKeyItem(RestraintFamily.HANDCUFFS, new Item.Properties().stacksTo(1)));
+    public static final RegistryObject<Item> SHACKLES_KEY = ITEMS.register("shackles_key",
+            () -> new RestraintKeyItem(RestraintFamily.SHACKLES, new Item.Properties().stacksTo(1)));
+
+    // --- locks and picks: registered here, given behaviour in M3 ---------------------------------
+
+    public static final RegistryObject<Item> KEY = ITEMS.register("key",
+            () -> new KeyItem(new Item.Properties().stacksTo(1)));
+    public static final RegistryObject<Item> KEY_RING = ITEMS.register("key_ring",
+            () -> new KeyRingItem(new Item.Properties().stacksTo(1)));
+    public static final RegistryObject<Item> KEY_MOLD = ITEMS.register("key_mold",
+            () -> new KeyMoldItem(new Item.Properties().stacksTo(1)));
+    public static final RegistryObject<Item> BAKED_KEY_MOLD = ITEMS.register("baked_key_mold",
+            () -> new BakedKeyMoldItem(new Item.Properties().stacksTo(1)));
+    public static final RegistryObject<Item> PADLOCK = ITEMS.register("padlock",
+            () -> new PadlockItem(new Item.Properties().stacksTo(16)));
+    /** Three uses, as upstream: a pick is a consumable, and a free one makes every lock scenery. */
+    public static final RegistryObject<Item> LOCKPICK = ITEMS.register("lockpick",
+            () -> new LockpickItem(new Item.Properties().stacksTo(1).durability(3)));
+
+    // --- operator tools, gated by item/creative/CreativeAuthorization on the server ---------------
+
+    public static final RegistryObject<Item> CREATIVE_RESTRAINT_CUTTER =
+            ITEMS.register("creative_restraint_cutter",
+                    () -> new CreativeRestraintCutter(new Item.Properties().rarity(Rarity.EPIC)));
+    public static final RegistryObject<Item> CREATIVE_KEY = ITEMS.register("creative_key",
+            () -> new CreativeKeyItem(new Item.Properties().rarity(Rarity.EPIC)));
+    public static final RegistryObject<Item> CREATIVE_BIND_BREAKER = ITEMS.register("creative_bind_breaker",
+            () -> new BindBreakerItem(new Item.Properties().rarity(Rarity.EPIC)));
 
     /**
      * The sixteen mask styles (0.7.2 section 4.1), one registration each, keyed by the style itself.
@@ -89,17 +163,85 @@ public final class CrimeItems {
     public static final RegistryObject<Item> MASK_STATION = ITEMS.register("mask_station",
             () -> new BlockItem(CrimeBlocks.MASK_STATION.get(), new Item.Properties()));
 
+    /** The cell door's block item (0.7.5 M3.4). */
+    public static final RegistryObject<Item> CELL_DOOR = ITEMS.register("cell_door",
+            () -> new BlockItem(CrimeBlocks.CELL_DOOR.get(), new Item.Properties()));
+
+    /** The safe's block item (0.7.5 M3.5). */
+    public static final RegistryObject<Item> SAFE = ITEMS.register("safe",
+            () -> new BlockItem(CrimeBlocks.SAFE.get(), new Item.Properties()));
+
+    /** The pillory's block item (0.7.5 M4.5). */
+    public static final RegistryObject<Item> PILLORY = ITEMS.register("pillory",
+            () -> new BlockItem(CrimeBlocks.PILLORY.get(), new Item.Properties()));
+
+    /** The guillotine's block item (0.7.5 M4.6). */
+    public static final RegistryObject<Item> GUILLOTINE = ITEMS.register("guillotine",
+            () -> new BlockItem(CrimeBlocks.GUILLOTINE.get(), new Item.Properties()));
+
+    /** The prison bunk's block item (0.7.5 M4.7). */
+    public static final RegistryObject<Item> BUNK = ITEMS.register("bunk",
+            () -> new BlockItem(CrimeBlocks.BUNK.get(), new Item.Properties()));
+
+    // --- the reinforced construction set's block items (0.7.5 M5.4) -------------------------------
+
+    public static final RegistryObject<Item> REINFORCED_STONE = ITEMS.register("reinforced_stone",
+            () -> new BlockItem(CrimeBlocks.REINFORCED_STONE.get(), new Item.Properties()));
+    public static final RegistryObject<Item> REINFORCED_SMOOTH_STONE =
+            ITEMS.register("reinforced_smooth_stone",
+                    () -> new BlockItem(CrimeBlocks.REINFORCED_SMOOTH_STONE.get(), new Item.Properties()));
+    public static final RegistryObject<Item> CHISELED_REINFORCED_STONE =
+            ITEMS.register("chiseled_reinforced_stone",
+                    () -> new BlockItem(CrimeBlocks.CHISELED_REINFORCED_STONE.get(), new Item.Properties()));
+    public static final RegistryObject<Item> REINFORCED_LAMP = ITEMS.register("reinforced_lamp",
+            () -> new BlockItem(CrimeBlocks.REINFORCED_LAMP.get(), new Item.Properties()));
+    public static final RegistryObject<Item> REINFORCED_STONE_SLAB =
+            ITEMS.register("reinforced_stone_slab",
+                    () -> new BlockItem(CrimeBlocks.REINFORCED_STONE_SLAB.get(), new Item.Properties()));
+    public static final RegistryObject<Item> REINFORCED_STONE_STAIRS =
+            ITEMS.register("reinforced_stone_stairs",
+                    () -> new BlockItem(CrimeBlocks.REINFORCED_STONE_STAIRS.get(), new Item.Properties()));
+    public static final RegistryObject<Item> REINFORCED_BARS = ITEMS.register("reinforced_bars",
+            () -> new BlockItem(CrimeBlocks.REINFORCED_BARS.get(), new Item.Properties()));
+    public static final RegistryObject<Item> REINFORCED_BARS_GAP = ITEMS.register("reinforced_bars_gap",
+            () -> new BlockItem(CrimeBlocks.REINFORCED_BARS_GAP.get(), new Item.Properties()));
+
     public static final RegistryObject<CreativeModeTab> TAB = TABS.register("crime", () ->
             CreativeModeTab.builder()
                     .title(Component.translatable("itemGroup.mcacrime"))
                     .icon(() -> new ItemStack(RESTRAINT_CUFFS.get()))
                     .displayItems((params, output) -> {
-                        output.accept(RESTRAINT_ROPE.get());
+                        // restraint_rope is deliberately absent: it is a legacy carrier, not content.
                         output.accept(RESTRAINT_CUFFS.get());
                         output.accept(RESTRAINT_LOCKED_CUFFS.get());
+                        output.accept(DUCK_TAPE.get());
+                        output.accept(HANDCUFFS_KEY.get());
+                        output.accept(SHACKLES_KEY.get());
+                        output.accept(KEY.get());
+                        output.accept(KEY_RING.get());
+                        output.accept(KEY_MOLD.get());
+                        output.accept(BAKED_KEY_MOLD.get());
+                        output.accept(PADLOCK.get());
+                        output.accept(LOCKPICK.get());
                         masks().forEach(output::accept);
                         output.accept(SAND_BOTTLE.get());
                         output.accept(MASK_STATION.get());
+                        output.accept(CELL_DOOR.get());
+                        output.accept(SAFE.get());
+                        output.accept(PILLORY.get());
+                        output.accept(GUILLOTINE.get());
+                        output.accept(BUNK.get());
+                        output.accept(REINFORCED_STONE.get());
+                        output.accept(REINFORCED_SMOOTH_STONE.get());
+                        output.accept(CHISELED_REINFORCED_STONE.get());
+                        output.accept(REINFORCED_LAMP.get());
+                        output.accept(REINFORCED_STONE_SLAB.get());
+                        output.accept(REINFORCED_STONE_STAIRS.get());
+                        output.accept(REINFORCED_BARS.get());
+                        output.accept(REINFORCED_BARS_GAP.get());
+                        output.accept(CREATIVE_RESTRAINT_CUTTER.get());
+                        output.accept(CREATIVE_KEY.get());
+                        output.accept(CREATIVE_BIND_BREAKER.get());
                     })
                     .build());
 
@@ -111,57 +253,25 @@ public final class CrimeItems {
         TABS.register(modBus);
     }
 
-    /**
-     * The restraint a stack represents: this mod's {@link RestraintItem} carries its own type; any other
-     * {@code forge:rope}-tagged item counts as a {@link RestraintType#ROPE}; everything else is {@link
-     * RestraintType#NONE} (not a restraint).
-     */
-    public static RestraintType restraintFor(ItemStack stack) {
-        if (stack.getItem() instanceof RestraintItem restraint) {
-            return restraint.getRestraintType();
+    /** The restraint family a stack applies, or empty when it applies none. */
+    public static Optional<RestraintFamily> familyFor(ItemStack stack) {
+        if (stack == null || stack.isEmpty()) {
+            return Optional.empty();
         }
-        if (stack.is(RestraintTags.ROPE)) {
-            return RestraintType.ROPE;
+        RestraintFamily family = RestraintItem.familyOf(stack.getItem());
+        if (family != null) {
+            return Optional.of(family);
         }
-        return RestraintType.NONE;
+        // Any forge:rope-tagged item from another mod still counts as the legacy rope carrier.
+        return stack.is(RestraintTags.ROPE) ? Optional.of(RestraintFamily.LEGACY_ROPE) : Optional.empty();
     }
 
-    /**
-     * Sets aside the restraint a capture is about to spend, without spending it.
-     *
-     * <p>The consumption used to happen first and the capture second, so every refusal the custody
-     * table could raise — already held, over the allowance — still cost the player their rope. Finding
-     * the stack and taking it are separated here so the taking can wait until the capture stands.
-     */
-    public static Optional<RestraintReservation> reserveRestraint(ServerPlayer player, RestraintType type) {
-        for (int i = 0; i < player.getInventory().items.size(); i++) {
-            ItemStack stack = player.getInventory().items.get(i);
-            if (!stack.isEmpty() && restraintFor(stack) == type) {
-                return Optional.of(new RestraintReservation(i, stack.copy()));
-            }
+    /** The restraint family a key opens, or empty when the stack is not a restraint key. */
+    public static Optional<RestraintFamily> keyOpens(ItemStack stack) {
+        if (stack == null || stack.isEmpty()) {
+            return Optional.empty();
         }
-        return Optional.empty();
-    }
-
-    /**
-     * Spends a reservation, if the slot still holds what was reserved.
-     *
-     * <p>The identity check is not paranoia: the commit runs on the server thread but not in the same
-     * instant the reservation was taken, and a player who swapped that slot in between must not have a
-     * different stack shrunk on their behalf.
-     */
-    public static boolean consumeReserved(ServerPlayer player, RestraintReservation reservation) {
-        if (reservation == null || reservation.slot() < 0
-                || reservation.slot() >= player.getInventory().items.size()) {
-            return false;
-        }
-        ItemStack stack = player.getInventory().items.get(reservation.slot());
-        if (stack.isEmpty() || !ItemStack.isSameItemSameTags(stack, reservation.snapshot())) {
-            return false;
-        }
-        if (!player.getAbilities().instabuild) stack.shrink(1);
-        player.getInventory().setChanged();
-        return true;
+        return Optional.ofNullable(RestraintKeyItem.opensFamily(stack.getItem()));
     }
 
     /** Whether the player is carrying anything that can cut a rope. */
@@ -181,12 +291,4 @@ public final class CrimeItems {
         return !player.getOffhandItem().isEmpty() && player.getOffhandItem().is(tag);
     }
 
-    public static RestraintType bestRestraint(ServerPlayer player) {
-        RestraintType best = RestraintType.NONE;
-        for (ItemStack stack : player.getInventory().items) {
-            RestraintType type = restraintFor(stack);
-            if (type.ordinal() > best.ordinal()) best = type;
-        }
-        return best;
-    }
 }

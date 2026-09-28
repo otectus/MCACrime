@@ -11,7 +11,8 @@ public enum Resolution {
     FINED,
     PARDONED,
     ESCAPED,
-    EXPIRED;
+    EXPIRED,
+    DECEASED;
 
     public static Resolution parse(String name) {
         try {

@@ -1,0 +1,20 @@
+// Opt-in packaged client fixture; never included in the release jar.
+allprojects {
+    afterEvaluate {
+        sourceSets {
+            justiceClientRuntime {
+                java.srcDir 'tools/justice-client/java'
+                compileClasspath = sourceSets.main.compileClasspath + sourceSets.main.output
+            }
+        }
+        tasks.register('justiceClientRuntimeJar', Jar) {
+            dependsOn tasks.named('justiceClientRuntimeClasses')
+            archiveBaseName = 'crime-justice-client-checks'
+            from sourceSets.justiceClientRuntime.output
+            from('tools/justice-client/resources')
+            doFirst { manifest.attributes.remove('MixinConfigs') }
+        }
+        reobf { justiceClientRuntimeJar {} }
+        tasks.named('justiceClientRuntimeJar').configure { finalizedBy 'reobfJusticeClientRuntimeJar' }
+    }
+}

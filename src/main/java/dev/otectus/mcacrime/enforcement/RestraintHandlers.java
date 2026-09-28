@@ -4,50 +4,53 @@ import dev.otectus.mcacrime.McaCrime;
 import dev.otectus.mcacrime.McaCrimeConfig;
 import dev.otectus.mcacrime.action.ActionSessionManager;
 import dev.otectus.mcacrime.action.CancelReason;
+import dev.otectus.mcacrime.enchantment.ImbueDamage;
+import dev.otectus.mcacrime.restraint.RestraintAction;
+import dev.otectus.mcacrime.restraint.RestraintAttributes;
+import dev.otectus.mcacrime.restraint.RestraintService;
+import dev.otectus.mcacrime.restraint.RestrictionPolicy;
+import dev.otectus.mcacrime.restraint.RestrictionResolver;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.world.entity.LivingEntity;
-import net.minecraft.world.entity.ai.attributes.AttributeInstance;
-import net.minecraft.world.entity.ai.attributes.AttributeModifier;
-import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.player.Player;
-import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.event.entity.EntityMountEvent;
-import net.minecraftforge.event.entity.living.LivingEvent;
+import net.minecraftforge.event.entity.item.ItemTossEvent;
 import net.minecraftforge.event.entity.player.AttackEntityEvent;
 import net.minecraftforge.event.entity.player.PlayerEvent;
 import net.minecraftforge.event.entity.player.PlayerInteractEvent;
 import net.minecraftforge.event.level.BlockEvent;
 import net.minecraftforge.eventbus.api.Event;
+import net.minecraftforge.eventbus.api.EventPriority;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
 
+import javax.annotation.Nullable;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * What a restrained player cannot do, and how slowly they move while doing the rest.
+ * What a restrained player cannot do, decided per action type (0.7.5 M2.8).
  *
- * <p>Every handler opens with the same phase check, which short-circuits for essentially every event
- * the game fires — the same shape as {@code ContainmentHandler}'s not-jailed test. Restraint is not a
- * separate flag anybody sets; it is read through {@link RestraintPolicy}, which combines the arrest
- * phases with the custody table, so there is no way for a player to be cuffed by one system and free
- * according to another.
+ * <p>The change from the previous version is the whole point of the §7.1 matrix: this class used to
+ * ask "is this player restrained" and cancel <em>everything</em> if the answer was yes. It now asks
+ * the composed {@link RestrictionPolicy} about the specific {@link RestraintAction} the event
+ * represents. Leg shackles no longer stop somebody opening a door; arm cuffs no longer stop somebody
+ * walking. Two restraints imposing the same restriction do not compound, because the policy composes
+ * idempotently rather than being counted.
  *
- * <p>The speed penalty is an attribute modifier rather than {@code MobEffects.MOVEMENT_SLOWDOWN}: a
- * potion effect would be visible in the inventory, emit particles, and — decisively — be curable with
- * a bucket of milk, which would make the restraint a suggestion. The cost of an attribute modifier is
- * that a leaked one is permanent, so it is removed on every exit from the restraining phases, again on
- * login for a phase that no longer restrains, and again on respawn, because attributes are not copied
- * across a death.
+ * <p>Enforcement is server-first. Every handler here runs on the server, on an event the server sees
+ * happen; the client-side input suppression in {@code client/RestraintInputHandler} exists only so a
+ * denied movement feels immediate and is never what actually enforces anything.
+ *
+ * <p>What is deliberately <b>not</b> here: a blanket command cancel. The source cancels every command
+ * a restrained non-operator types ({@code event/ModServerEvents.onCommand}), which takes away
+ * {@code /help}, {@code /msg} and every server's own report command from the one player most likely
+ * to need them. Chat and the status screens are {@code ProtectedAction}s and no policy may cancel
+ * them.
  */
 @Mod.EventBusSubscriber(modid = McaCrime.MOD_ID)
 public final class RestraintHandlers {
-
-    /** Stable id so a modifier left behind by a crash is recognised and removed rather than stacked. */
-    private static final UUID SPEED_MODIFIER_ID = UUID.fromString("6f2b1c94-0d7a-4a1e-9c33-2a5b7e0d41c6");
-    private static final String SPEED_MODIFIER_NAME = "mcacrime.restrained";
 
     /** Last tick each player was told they cannot do something, so a denial is explained, not repeated. */
     private static final Map<UUID, Long> LAST_DENIAL = new ConcurrentHashMap<>();
@@ -58,11 +61,11 @@ public final class RestraintHandlers {
 
     // ------------------------------------------------------------------ state changes
 
-    /** Applies the restraint: speed penalty on, anything in flight cancelled. */
+    /** Applies the physical consequences: attribute penalties on, anything in flight cancelled. */
     public static void onRestrained(ServerPlayer player) {
-        applySpeedModifier(player);
+        refresh(player);
         player.stopUsingItem();
-        if (player.isPassenger()) {
+        if (player.isPassenger() && !policy(player).dismount()) {
             player.stopRiding();
         }
         // A channelled action survives nothing else about being arrested; letting one finish would let
@@ -70,10 +73,22 @@ public final class RestraintHandlers {
         ActionSessionManager.clearFor(player.getUUID(), CancelReason.TARGET_GONE);
     }
 
-    /** Removes the restraint. Safe to call for a player who was never restrained. */
+    /** Removes the physical consequences. Safe to call for a player who was never restrained. */
     public static void onReleased(ServerPlayer player) {
-        removeSpeedModifier(player);
+        RestraintAttributes.clear(player);
         LAST_DENIAL.remove(player.getUUID());
+    }
+
+    /**
+     * Recomputes the attribute penalties from whatever is on the player right now.
+     *
+     * <p>One entry point rather than an apply and a remove, because "removing one restraint must not
+     * restore what another still forbids" is only true if the answer is re-derived.
+     */
+    public static void refresh(@Nullable ServerPlayer player) {
+        if (player != null) {
+            RestraintAttributes.apply(player, policy(player));
+        }
     }
 
     /** Drops a player's denial stamp on logout, so the map cannot grow for the life of the server. */
@@ -85,103 +100,209 @@ public final class RestraintHandlers {
 
     @SubscribeEvent
     public static void onAttack(AttackEntityEvent event) {
-        deny(event, event.getEntity());
+        deny(event, event.getEntity(), RestraintAction.ATTACK);
     }
 
     @SubscribeEvent
     public static void onRightClickItem(PlayerInteractEvent.RightClickItem event) {
-        deny(event, event.getEntity());
+        deny(event, event.getEntity(), RestraintAction.USE_ITEM);
     }
 
+    /**
+     * The combat backstop (0.7.5 M6.2, specification §15.1).
+     *
+     * <p>{@code AttackEntityEvent} is raised by the vanilla attack path. A combat mod that swings
+     * through its own code — Better Combat's sweeping attacks, Epic Fight's battle-mode skills — may
+     * never raise it, and the restriction would hold for a bare fist and not for the thing the mod
+     * exists to add. Every one of them still deals damage, so the damage itself is where the
+     * restriction is finally enforced: an attack by a subject whose arms are restrained is cancelled
+     * here whatever raised it.
+     *
+     * <p>This is what "covered by server-side enforcement" means in {@code compat/OptionalMods}, and
+     * it is the honest reason those rows need no adapter. Nothing mod-specific is named, no client
+     * setting is touched, and the rule is identical whether any of them is installed.
+     */
     @SubscribeEvent
-    public static void onRightClickBlock(PlayerInteractEvent.RightClickBlock event) {
-        deny(event, event.getEntity());
-    }
-
-    @SubscribeEvent
-    public static void onLeftClickBlock(PlayerInteractEvent.LeftClickBlock event) {
-        deny(event, event.getEntity());
-    }
-
-    @SubscribeEvent
-    public static void onEntityInteract(PlayerInteractEvent.EntityInteract event) {
-        deny(event, event.getEntity());
-    }
-
-    @SubscribeEvent
-    public static void onEntityInteractSpecific(PlayerInteractEvent.EntityInteractSpecific event) {
-        deny(event, event.getEntity());
-    }
-
-    @SubscribeEvent
-    public static void onBreak(BlockEvent.BreakEvent event) {
-        deny(event, event.getPlayer());
-    }
-
-    @SubscribeEvent
-    public static void onMount(EntityMountEvent event) {
-        if (event.isMounting() && event.getEntityMounting() instanceof ServerPlayer player
-                && restricted(player)) {
+    public static void onLivingAttack(net.minecraftforge.event.entity.living.LivingAttackEvent event) {
+        if (!restrictionsEnabled()) {
+            return;
+        }
+        // Imbue is passive damage redirected by a restraint, not an attack the captor chose to make.
+        // Treating it as a hand action lets the captor's own cuffs cancel the transfer after the
+        // damage handler has already budgeted it.
+        if (ImbueDamage.isImbue(event.getSource())) {
+            return;
+        }
+        if (!(event.getSource().getEntity() instanceof ServerPlayer attacker)) {
+            return;
+        }
+        if (!policy(attacker).permits(RestraintAction.ATTACK)) {
             event.setCanceled(true);
+            explain(attacker);
         }
     }
 
     /**
-     * Jumping.
+     * The magic backstop, and the same argument.
      *
-     * <p>{@code LivingJumpEvent} is not cancellable, so the impulse is undone rather than prevented:
-     * the event fires after the upward velocity has been written, and zeroing it there is the only
-     * hook available without a mixin. A restrained player can still walk off a ledge; they simply
-     * cannot hop a fence away from their escort.
+     * <p>A spell cast through a held item raises {@code RightClickItem} and is already denied; one
+     * cast through a channelled use is a {@code LivingEntityUseItemEvent.Start}, which is a different
+     * event and was not. "Restricted hand actions cannot bypass through spell input" is the
+     * specification's wording, and this is the line that makes it true for every spell mod at once.
      */
     @SubscribeEvent
-    public static void onJump(LivingEvent.LivingJumpEvent event) {
-        LivingEntity entity = event.getEntity();
-        if (entity instanceof ServerPlayer player && restricted(player)) {
-            Vec3 motion = player.getDeltaMovement();
-            if (motion.y > 0.0) {
-                player.setDeltaMovement(motion.x, 0.0, motion.z);
-                player.hurtMarked = true;
-            }
+    public static void onUseItemStart(
+            net.minecraftforge.event.entity.living.LivingEntityUseItemEvent.Start event) {
+        if (!restrictionsEnabled() || !(event.getEntity() instanceof ServerPlayer user)) {
+            return;
+        }
+        if (!policy(user).permits(RestraintAction.USE_ITEM)) {
+            event.setCanceled(true);
+            explain(user);
         }
     }
 
-    /** Attributes are not copied across a respawn, so the modifier is re-derived from the phase. */
     @SubscribeEvent
-    public static void onRespawn(PlayerEvent.PlayerRespawnEvent event) {
-        if (!(event.getEntity() instanceof ServerPlayer player)) {
+    public static void onRightClickBlock(PlayerInteractEvent.RightClickBlock event) {
+        deny(event, event.getEntity(), RestraintAction.INTERACT_BLOCK);
+    }
+
+    @SubscribeEvent
+    public static void onLeftClickBlock(PlayerInteractEvent.LeftClickBlock event) {
+        deny(event, event.getEntity(), RestraintAction.MINE_BLOCKS);
+    }
+
+    /**
+     * Interacting with an entity.
+     *
+     * <p>{@link EventPriority#LOW} so {@code restraint/RestraintInteractHandler} has already had its
+     * say: a restrained subject reaching for the person holding their key must not have that
+     * interaction cancelled before the removal path sees it. Self-escape is a protected action.
+     */
+    @SubscribeEvent(priority = EventPriority.LOW)
+    public static void onEntityInteract(PlayerInteractEvent.EntityInteract event) {
+        deny(event, event.getEntity(), RestraintAction.INTERACT_ENTITY);
+    }
+
+    @SubscribeEvent(priority = EventPriority.LOW)
+    public static void onEntityInteractSpecific(PlayerInteractEvent.EntityInteractSpecific event) {
+        deny(event, event.getEntity(), RestraintAction.INTERACT_ENTITY);
+    }
+
+    @SubscribeEvent
+    public static void onBreak(BlockEvent.BreakEvent event) {
+        deny(event, event.getPlayer(), RestraintAction.MINE_BLOCKS);
+    }
+
+    /**
+     * Dropping an item.
+     *
+     * <p>Cancelling this event alone would <em>destroy</em> the stack: Forge's own documentation says
+     * cancelling stops the item entering the world but does not stop it having already left the
+     * inventory. So the stack is put back, and only then is the event cancelled.
+     */
+    @SubscribeEvent
+    public static void onItemToss(ItemTossEvent event) {
+        if (!(event.getPlayer() instanceof ServerPlayer player) || !restrictionsEnabled()) {
             return;
         }
-        if (RestraintPolicy.effective(player).isPresent()) {
-            applySpeedModifier(player);
-        } else {
-            removeSpeedModifier(player);
+        if (policy(player).permits(RestraintAction.DROP_ITEM)) {
+            return;
+        }
+        event.setCanceled(true);
+        player.getInventory().placeItemBackInInventory(event.getEntity().getItem());
+        explain(player);
+    }
+
+    /** Mounting and dismounting are two different permissions, and the event carries which. */
+    @SubscribeEvent
+    public static void onMount(EntityMountEvent event) {
+        if (!(event.getEntityMounting() instanceof ServerPlayer player) || !restrictionsEnabled()) {
+            return;
+        }
+        if (dev.otectus.mcacrime.tether.MountTransfer.trustedTransfer(player)) {
+            return;
+        }
+        RestrictionPolicy policy = policy(player);
+        boolean denied = event.isMounting()
+                ? !policy.permits(RestraintAction.STEER_VEHICLE)
+                : !policy.permits(RestraintAction.DISMOUNT);
+        if (denied) {
+            event.setCanceled(true);
+            explain(player);
+        }
+    }
+
+    /**
+     * Attributes are not copied across a respawn, so the penalties are re-derived from what is worn.
+     *
+     * <p>Physical state survives a death by design: a subject does not stop being in handcuffs because
+     * they died, and the custody question is a separate one that {@code CustodyService} answers.
+     */
+    @SubscribeEvent
+    public static void onRespawn(PlayerEvent.PlayerRespawnEvent event) {
+        if (event.getEntity() instanceof ServerPlayer player) {
+            refresh(player);
         }
     }
 
     // ------------------------------------------------------------------ internals
 
-    /** True when this player is restrained and the server has restrictions switched on. */
-    private static boolean restricted(Player player) {
-        return player instanceof ServerPlayer server
-                && McaCrimeConfig.COMMON.restrainedPlayerRestrictions.get()
-                && RestraintPolicy.effective(server).isPresent();
+    /**
+     * The composed policy for this player: what is physically worn, folded with the lawful-arrest
+     * phase.
+     *
+     * <p>Two sources, not three. Until M2.11 there was an interim third — the custody table, whose
+     * pre-0.7.5 {@code RestraintType} was projected through the migration mapping so that a captive
+     * taken by the legacy engine stayed as restricted as one wearing the new kind. Both engines were
+     * live at once and a player restrained by either had to be restrained by both. The legacy engine
+     * is gone, that projection with it, and the only route from an old custody row to physical state
+     * is now {@code RestraintMigrationReconciler}, once, at world load.
+     *
+     * <p>The arrest fold stays, and stays here rather than in the gear: an arrest phase says
+     * "restrained" without naming an item, and {@link RestrictionResolver} is what turns that into
+     * the same action-typed answer worn gear gives.
+     */
+    public static RestrictionPolicy policy(@Nullable Player player) {
+        if (!(player instanceof ServerPlayer server)) {
+            return RestrictionPolicy.unrestricted();
+        }
+        RestrictionPolicy physical = RestraintService.policy(server);
+        return ArrestStates.isRestrained(server)
+                ? physical.and(RestrictionResolver.of(
+                        dev.otectus.mcacrime.restraint.RestraintDefinitions.HANDCUFFS_ARMS))
+                : physical;
     }
 
-    private static void deny(Event event, Player player) {
-        if (!restricted(player)) {
+    /** The config-aware answer used by handlers that run before this class's LOW backstop. */
+    public static boolean permits(@Nullable Player player, RestraintAction action) {
+        return !restrictionsEnabled() || policy(player).permits(action);
+    }
+
+    private static boolean restrictionsEnabled() {
+        try {
+            return McaCrimeConfig.COMMON.restrainedPlayerRestrictions.get();
+        } catch (IllegalStateException e) {
+            return true;
+        }
+    }
+
+    private static void deny(Event event, @Nullable Player player, RestraintAction action) {
+        if (!(player instanceof ServerPlayer server) || !restrictionsEnabled()) {
+            return;
+        }
+        if (permits(server, action)) {
             return;
         }
         event.setCanceled(true);
-        explain((ServerPlayer) player);
+        explain(server);
     }
 
     /**
      * Says why, at most once every couple of seconds.
      *
      * <p>A cancelled interaction with no explanation is indistinguishable from a broken one, and a
-     * cancelled interaction that explains itself on every click is worse. The same lesson the HUD
-     * outcome line already records.
+     * cancelled interaction that explains itself on every click is worse.
      */
     private static void explain(ServerPlayer player) {
         long now = player.level().getGameTime();
@@ -191,26 +312,5 @@ public final class RestraintHandlers {
         }
         LAST_DENIAL.put(player.getUUID(), now);
         player.sendSystemMessage(Component.translatable("mcacrime.arrest.restrained_denied"));
-    }
-
-    private static void applySpeedModifier(ServerPlayer player) {
-        AttributeInstance speed = player.getAttribute(Attributes.MOVEMENT_SPEED);
-        if (speed == null) {
-            return;
-        }
-        double penalty = McaCrimeConfig.COMMON.escortSpeedPenalty.get();
-        speed.removeModifier(SPEED_MODIFIER_ID);
-        if (penalty <= 0.0) {
-            return;
-        }
-        speed.addTransientModifier(new AttributeModifier(SPEED_MODIFIER_ID, SPEED_MODIFIER_NAME,
-                -penalty, AttributeModifier.Operation.MULTIPLY_TOTAL));
-    }
-
-    private static void removeSpeedModifier(ServerPlayer player) {
-        AttributeInstance speed = player.getAttribute(Attributes.MOVEMENT_SPEED);
-        if (speed != null) {
-            speed.removeModifier(SPEED_MODIFIER_ID);
-        }
     }
 }

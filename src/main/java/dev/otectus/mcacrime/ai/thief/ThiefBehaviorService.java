@@ -1,6 +1,5 @@
 package dev.otectus.mcacrime.ai.thief;
 
-import dev.otectus.mcacrime.McaCrimeConfig;
 import dev.otectus.mcacrime.api.event.CrimeIntentEvent;
 import dev.otectus.mcacrime.compat.McaCompat;
 import dev.otectus.mcacrime.crime.type.CrimeIds;
@@ -77,14 +76,15 @@ public final class ThiefBehaviorService {
 
     /** Starts driving this villager, if it is a thief and thieves are enabled. */
     public static void track(LivingEntity thief) {
-        if (thief == null || !McaCrimeConfig.COMMON.enableThieves.get()) {
+        if (thief == null) {
             return;
         }
         if (!(thief.level() instanceof ServerLevel level) || !McaCompat.isMcaVillager(thief)) {
             return;
         }
         MinecraftServer server = level.getServer();
-        if (server == null || WorldCriminalJobService.of(server).get(thief.getUUID()) != CriminalJob.THIEF) {
+        if (server == null || !dev.otectus.mcacrime.config.CrimeWorldSettings.resolve(server).thieves()
+                || WorldCriminalJobService.of(server).get(thief.getUUID()) != CriminalJob.THIEF) {
             return;
         }
         // Re-decided here rather than remembered, which is what makes a config or selector reload take
@@ -98,7 +98,7 @@ public final class ThiefBehaviorService {
         ThiefBehaviorController controller = ACTIVE.computeIfAbsent(thief.getUUID(), id ->
                 new ThiefBehaviorController(id, level.dimension().location(), level.getGameTime()));
         reconcileCustody(controller, CrimeWorldData.get(server).isCaptive(thief.getUUID()),
-                level.getGameTime(), ThiefPolicy.fromConfig().mugCooldownTicks());
+                level.getGameTime(), ThiefPolicy.resolve(server).mugCooldownTicks());
     }
 
     /** Stops driving this villager and hands it back to MCA if it is still loaded. */
@@ -180,14 +180,14 @@ public final class ThiefBehaviorService {
      * ends it, and it lands in COOLDOWN rather than SCOUTING so a released thief does not walk out of
      * the cell and rob the first person standing outside it.
      */
-    public static void markReleased(UUID thief) {
+    public static void markReleased(MinecraftServer server, UUID thief) {
         ThiefBehaviorController controller = thief == null ? null : ACTIVE.get(thief);
-        if (controller == null || controller.state() != ThiefState.ARRESTED) {
+        if (server == null || controller == null || controller.state() != ThiefState.ARRESTED) {
             return;
         }
         long now = gameTime(controller);
         controller.enter(ThiefState.COOLDOWN, now);
-        controller.setCooldownUntil(now + ThiefPolicy.fromConfig().mugCooldownTicks());
+        controller.setCooldownUntil(now + ThiefPolicy.resolve(server).mugCooldownTicks());
         controller.thinkAsSoonAsPossible();
     }
 
@@ -278,8 +278,9 @@ public final class ThiefBehaviorService {
         if (server == null || ACTIVE.isEmpty()) {
             return;
         }
-        boolean enabled = McaCrimeConfig.COMMON.enableThieves.get();
-        ThiefPolicy policy = ThiefPolicy.fromConfig();
+        var worldSettings = dev.otectus.mcacrime.config.CrimeWorldSettings.resolve(server);
+        boolean enabled = worldSettings.thieves();
+        ThiefPolicy policy = ThiefPolicy.resolve(server);
         List<UUID> finished = new ArrayList<>();
 
         for (ThiefBehaviorController controller : ACTIVE.values()) {
@@ -521,7 +522,7 @@ public final class ThiefBehaviorService {
      */
     private static void scan(ServerLevel level, ThiefBehaviorController controller, LivingEntity thief,
                              ThiefPolicy policy) {
-        if (!dev.otectus.mcacrime.McaCrimeConfig.COMMON.enableNpcMugging.get()) {
+        if (!dev.otectus.mcacrime.config.CrimeWorldSettings.resolve(level).npcMugging()) {
             // Thieves and fences stay: a criminal job is an occupation, and only the robbing is off.
             return;
         }

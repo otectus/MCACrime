@@ -2,7 +2,6 @@ package dev.otectus.mcacrime;
 
 import dev.otectus.mcacrime.captivity.CustodyOwner;
 import dev.otectus.mcacrime.captivity.CustodyRecord;
-import dev.otectus.mcacrime.captivity.RestraintType;
 import dev.otectus.mcacrime.jail.HoldingCell;
 import dev.otectus.mcacrime.jail.HoldingCellService;
 import dev.otectus.mcacrime.state.world.CrimeWorldData;
@@ -135,7 +134,7 @@ class HoldingCellJournalTest {
     void anOfflinePrisonerStillInCustodyCountsAsOccupying() {
         CrimeWorldData data = new CrimeWorldData();
         data.putCustody(new CustodyRecord(PRISONER, true, true, CustodyOwner.guard(UUID.randomUUID()),
-                RestraintType.NONE, 0L, ANCHOR, new ResourceLocation("minecraft", "overworld")));
+                0L, ANCHOR, new ResourceLocation("minecraft", "overworld")));
 
         assertTrue(HoldingCellService.occupied(data, cell(), null),
                 "an offline prisoner has no sentence to read, so custody is what says they are in there");

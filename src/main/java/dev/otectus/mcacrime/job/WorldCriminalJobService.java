@@ -281,7 +281,8 @@ public final class WorldCriminalJobService implements CriminalJobService {
         } else {
             ThiefWorkRegistry.clearEmployed(villager);
         }
-        if (job == CriminalJob.THIEF && McaCrimeConfig.COMMON.enableThieves.get()) {
+        if (job == CriminalJob.THIEF
+                && dev.otectus.mcacrime.config.CrimeWorldSettings.resolve(server).thieves()) {
             if (findLoaded(villager) instanceof net.minecraft.world.entity.LivingEntity living)
                 dev.otectus.mcacrime.ai.thief.ThiefBehaviorService.track(living);
         } else {
@@ -470,7 +471,8 @@ public final class WorldCriminalJobService implements CriminalJobService {
             return OccupationTransitionResult.rejected(OccupationTransitionReason.NOT_MUTABLE);
         }
         UUID villager = request.villager();
-        if (!McaCrimeConfig.COMMON.enableThieves.get() && request.source() != OccupationSource.MIGRATION) {
+        if (!dev.otectus.mcacrime.config.CrimeWorldSettings.resolve(server).thieves()
+                && request.source() != OccupationSource.MIGRATION) {
             // Disabling thieves blocks new requests; it does not strip the profession off the ones
             // that already exist (spec §"Disabling thieves"), which is why this is a rejection here
             // and an inert controller in refreshBehavior.

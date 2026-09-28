@@ -1,0 +1,8 @@
+{
+  "parent": "minecraft:block/door_top_right",
+  "textures": {
+    "bottom": "mcacrime:block/cell_door_bottom",
+    "top": "mcacrime:block/cell_door_top"
+  },
+  "render_type": "cutout"
+}

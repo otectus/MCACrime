@@ -1,0 +1,22 @@
+{
+  "replace": false,
+  "values": [
+    "mcacrime:safe",
+    "mcacrime:cell_door",
+    "#forge:chests",
+    "#forge:barrels",
+    "#forge:fence_gates",
+    "#minecraft:doors",
+    "#minecraft:trapdoors",
+    "#minecraft:anvil",
+    "#forge:storage_blocks",
+    "minecraft:furnace",
+    "minecraft:blast_furnace",
+    "minecraft:smoker",
+    "minecraft:crafting_table",
+    "minecraft:enchanting_table",
+    "minecraft:hopper",
+    "minecraft:dispenser",
+    "minecraft:dropper"
+  ]
+}

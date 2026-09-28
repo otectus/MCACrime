@@ -8,6 +8,7 @@ import dev.otectus.mcacrime.audio.CrimeSounds;
 import dev.otectus.mcacrime.compat.McaCompat;
 import dev.otectus.mcacrime.crime.type.CrimeIds;
 import dev.otectus.mcacrime.detect.EntitySelectors;
+import dev.otectus.mcacrime.detect.CrimeCommunityResolver;
 import dev.otectus.mcacrime.dialogue.CrimeDialogueService;
 import dev.otectus.mcacrime.dialogue.DialogueEvents;
 import dev.otectus.mcacrime.economy.Currencies;
@@ -18,6 +19,9 @@ import dev.otectus.mcacrime.job.WorldCriminalJobService;
 import dev.otectus.mcacrime.ledger.CrimeFlag;
 import dev.otectus.mcacrime.network.ActionProgressS2CPacket;
 import dev.otectus.mcacrime.network.CrimeNetwork;
+import dev.otectus.mcacrime.memory.ObservationService;
+import dev.otectus.mcacrime.report.PlayerReportData;
+import dev.otectus.mcacrime.report.ThreatReceipt;
 import dev.otectus.mcacrime.util.CrimeDebug;
 import dev.otectus.mcacrime.jail.JailService;
 import dev.otectus.mcacrime.state.world.CrimeWorldData;
@@ -41,6 +45,7 @@ import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -151,6 +156,28 @@ public final class NpcMuggingService {
                 EnumSet.of(CrimeFlag.NPC_OFFENDER),
                 ActiveIncidentRegistry.Phase.THREAT));
 
+        // The threat exists only after the session and active incident have both been claimed. Capture
+        // the victim's perception now; an abort later must not rescan and reveal a face they did not see.
+        var awareness = dev.otectus.mcacrime.crime.type.CrimeTypeRegistry
+                .getOrBuiltin(CrimeIds.ATTEMPTED_MUGGING)
+                .map(dev.otectus.mcacrime.crime.type.CrimeType::awareness)
+                .orElse(dev.otectus.mcacrime.crime.type.CrimeAwareness.robbery());
+        ObservationService.recordPlayerEyewitnesses(level, thief, victim, CrimeIds.ATTEMPTED_MUGGING,
+                transactionId, awareness, now);
+        ObservationService.recordPlayerVictim(level, thief, victim, CrimeIds.ATTEMPTED_MUGGING,
+                transactionId, now).ifPresent(observation -> {
+            ThreatReceipt receipt = new ThreatReceipt(transactionId, victim.getUUID(), thief.getUUID(),
+                    observation.suspectedActorId(), observation.suspectedActorId() == null ? ""
+                    : McaCompat.getVillagerDisplayName(thief).getString(), observation.observationId(),
+                    level.dimension().location(),
+                    observation.location(), CrimeCommunityResolver.resolve(thief, level).orElse(null),
+                    now, observation.expiresAt(), ThreatReceipt.Outcome.ACTIVE);
+            if (PlayerReportData.get(level.getServer()).putThreat(level.getServer(), receipt)
+                    && dev.otectus.mcacrime.config.CrimeWorldSettings.resolve(level.getServer()).playerReports()) {
+                victim.sendSystemMessage(Component.translatable("mcacrime.report.hint"));
+            }
+        });
+
         CrimeDialogueService.speak(thief, victim, DialogueEvents.NPC_MUG_START,
                 CrimeDialogueService.context(level, thief, victim, transactionId, DialogueEvents.NPC_MUG_START));
         CrimeSounds.mugStart(thief);
@@ -226,7 +253,17 @@ public final class NpcMuggingService {
         if (session == null) {
             return;
         }
-        closeAborted(ServerLifecycleHooks.getCurrentServer(), session, reason);
+        closeAborted(ServerLifecycleHooks.getCurrentServer(), session, reason,
+                EnumSet.of(CrimeFlag.NPC_OFFENDER), Set.of(), "npc_attempt");
+    }
+
+    /** Guard-sighted interruption: the actual guard witness is added to the captured threat fact. */
+    public static void abortObserved(UUID victimId, NpcMugAbortReason reason, UUID guardId) {
+        NpcMugSession session = victimId == null ? null : SESSIONS.remove(victimId);
+        if (session == null) return;
+        closeAborted(ServerLifecycleHooks.getCurrentServer(), session, reason,
+                EnumSet.of(CrimeFlag.NPC_OFFENDER, CrimeFlag.CAUGHT_IN_ACT, CrimeFlag.MANDATORY_CUSTODY),
+                guardId == null ? Set.of() : Set.of(guardId), "guard");
     }
 
     /** Shared by selection, approach and the debug command; reach is checked when the threat starts. */
@@ -268,8 +305,9 @@ public final class NpcMuggingService {
                     : NpcMugAbortReason.CANCELLED;
         }
         CrimeWorldData data = CrimeWorldData.get(level.getServer());
-        if (!McaCrimeConfig.COMMON.enableNpcMugging.get()
-                || !McaCrimeConfig.COMMON.enableThieves.get()
+        dev.otectus.mcacrime.config.CrimeWorldSettings settings =
+                dev.otectus.mcacrime.config.CrimeWorldSettings.resolve(level.getServer());
+        if (!settings.npcMugging() || !settings.thieves()
                 || data.isCaptive(thief.getUUID()) || data.isCaptive(victim.getUUID()))
             return NpcMugAbortReason.CANCELLED;
         return null;
@@ -293,6 +331,12 @@ public final class NpcMuggingService {
     /** Close the HUD, incident and attempt on every abort, including a failed final eligibility check. */
     private static void closeAborted(@Nullable MinecraftServer server, NpcMugSession session,
                                      NpcMugAbortReason reason) {
+        closeAborted(server, session, reason, EnumSet.of(CrimeFlag.NPC_OFFENDER), Set.of(), "npc_attempt");
+    }
+
+    private static void closeAborted(@Nullable MinecraftServer server, NpcMugSession session,
+                                     NpcMugAbortReason reason, Set<CrimeFlag> flags,
+                                     Set<UUID> capturedWitnesses, String detection) {
         session.markAborted();
         ServerPlayer victim = server == null ? null : server.getPlayerList().getPlayer(session.victimId());
         if (victim != null) {
@@ -304,6 +348,27 @@ public final class NpcMuggingService {
                 CrimeDialogueService.speak(thief, victim, DialogueEvents.NPC_MUG_ABORT_ARMED,
                         CrimeDialogueService.context(level, thief, victim, session.transactionId(),
                                 DialogueEvents.NPC_MUG_ABORT_ARMED));
+            }
+        }
+        if (server != null && ServerMutationGate.allows(server)) {
+            ServerLevel receiptLevel = levelOf(server, session.dimension());
+            ThreatReceipt captured = PlayerReportData.get(server).threat(session.transactionId()).orElse(null);
+            if (receiptLevel != null && CrimeWorldData.get(server).recordById(session.transactionId()).isEmpty()) {
+                if (captured != null) {
+                    dev.otectus.mcacrime.incident.IncidentService.commitNpcSnapshot(receiptLevel,
+                            captured.transactionId(), captured.offenderId(), captured.victimId(),
+                            CrimeIds.ATTEMPTED_MUGGING, captured.dimension(), captured.location(),
+                            captured.observedAt(), captured.caseAuthority(), capturedWitnesses, detection, flags);
+                } else {
+                    LivingEntity receiptThief = thiefOf(receiptLevel, session);
+                    if (receiptThief != null) dev.otectus.mcacrime.incident.IncidentService.commitNpc(
+                            session.transactionId(), receiptThief, CrimeIds.ATTEMPTED_MUGGING, victim,
+                            receiptLevel, detection, flags);
+                }
+            }
+            if (CrimeWorldData.get(server).recordById(session.transactionId()).isPresent()) {
+                PlayerReportData.get(server).finishThreat(server, session.transactionId(),
+                        ThreatReceipt.Outcome.ATTEMPTED);
             }
         }
         ActiveIncidentRegistry.close(session.thiefId());
@@ -348,7 +413,7 @@ public final class NpcMuggingService {
 
         // PREPARE -- one roll, against a snapshot, before anything moves.
         Currency currency = Currencies.active();
-        TheftPolicy policy = TheftPolicy.fromConfig();
+        TheftPolicy policy = TheftPolicy.resolve(server);
         TheftPlanner.TheftPlan plan = TheftPlanner.plan(currency.balance(victim),
                 TheftExecutor.snapshot(victim, policy), policy, level.random::nextInt);
 
@@ -374,6 +439,8 @@ public final class NpcMuggingService {
                 .orElseGet(() -> EnumSet.of(CrimeFlag.NPC_OFFENDER));
         Optional<CrimeRecordView> view = dev.otectus.mcacrime.incident.IncidentService.commitNpc(
                 session.transactionId(), thief, CrimeIds.MUGGING, victim, level, "npc", flags);
+        PlayerReportData.get(server).finishThreat(server, session.transactionId(),
+                ThreatReceipt.Outcome.COMPLETED);
 
         tellVictim(victim, session, result, currency);
         CrimeDialogueService.speak(thief, victim, DialogueEvents.NPC_MUG_SUCCESS,

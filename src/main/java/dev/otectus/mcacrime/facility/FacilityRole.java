@@ -41,7 +41,21 @@ public enum FacilityRole {
     CARE_ROOM("care_room", "Care room", 1),
 
     /** Where public cases, bounties and approved civic work are displayed. */
-    PUBLIC_NOTICE("public_notice", "Public notice location", 0);
+    PUBLIC_NOTICE("public_notice", "Public notice location", 0),
+
+    /**
+     * Where a capital sentence may be carried out (0.7.5 §3.19, M6.7).
+     *
+     * <p>Capacity one, and an explicit operator assignment exactly like {@link #JAIL_CELL}: a
+     * guillotine somebody placed in a field is a block, and only a site an operator named is a place
+     * the law will walk a condemned prisoner to. That is the whole difference between a device and an
+     * execution site, and it is deliberately an assignment rather than an inference — no village
+     * acquires one by accident.
+     *
+     * <p>It is not a cell. {@link #holdsPrisoners()} stays false for it, so an arrest can never be
+     * routed here: the only thing that walks somebody to an execution site is a capital sentence.
+     */
+    EXECUTION_SITE("execution_site", "Execution site", 1);
 
     private final String id;
     private final String label;
@@ -70,6 +84,17 @@ public enum FacilityRole {
     /** Whether an arrest may be routed to this role. */
     public boolean holdsPrisoners() {
         return this == JAIL_CELL;
+    }
+
+    /**
+     * Whether one subject at a time may be reserved into this role.
+     *
+     * <p>Wider than {@link #holdsPrisoners()} by exactly one value, and the two must not be collapsed:
+     * a reservation is "this slot is spoken for", while holding prisoners is "an arrest may send
+     * somebody here". An execution site is the first and never the second.
+     */
+    public boolean reservable() {
+        return this == JAIL_CELL || this == EXECUTION_SITE;
     }
 
     /** Whether a prisoner who has become unfit may be recovered here. */

@@ -20,6 +20,7 @@ import dev.otectus.mcacrime.jail.HoldingCellService;
 import dev.otectus.mcacrime.jail.JailAnchor;
 import dev.otectus.mcacrime.jail.JailRegistry;
 import dev.otectus.mcacrime.jail.JailService;
+import dev.otectus.mcacrime.jail.JailState;
 import dev.otectus.mcacrime.state.CrimeCapabilities;
 import dev.otectus.mcacrime.state.PlayerCrimeData;
 import dev.otectus.mcacrime.state.world.CrimeWorldData;
@@ -163,14 +164,26 @@ public final class ArrestService {
             // The waiver belongs in the number, not in an edit applied to a sentence afterwards.
             sentence = SentenceCalculator.afterSurrender(sentence, c.surrenderSentenceReductionPct.get());
         }
+        // A sentence already running is resumed, never re-priced. Recapture puts the prisoner back in
+        // the jail they left; when that jail was a built cell, it came down with the escape, so there
+        // is nothing to put them back in and the arrest raises a fresh cell for the same term instead:
+        // same id, so the cell is built for the sentence it will hold; remaining time, so the escape
+        // itself adds nothing to the clock. The jailbreak it filed is a case, and joins the term.
+        JailState resuming = null;
         if (JailService.isJailed(player)) {
-            // Recapture resumes the assessed sentence. Repeated arrest never re-prices or expands it.
-            if (!JailService.recapture(player)) {
+            if (JailService.recapture(player)) {
+                return Outcome.ALREADY_SERVING;
+            }
+            JailState running = CrimeCapabilities.get(player).map(PlayerCrimeData::getJail).orElse(null);
+            if (running == null || !running.isEscaped() || !running.isTemporaryCell()) {
                 return abort(player, Outcome.NO_CELL, "mcacrime.arrest.no_cell");
             }
-            return Outcome.ALREADY_SERVING;
+            resuming = running;
+            sentence = Math.max(1L, running.getRemainingOnlineTicks());
+            // JAILED leads nowhere but out. The arrest record starts over for the walk to the new cell.
+            ArrestStates.clear(player);
         }
-        if (charges <= 0 && heat <= 0L) {
+        if (resuming == null && charges <= 0 && heat <= 0L) {
             return abort(player, Outcome.NO_SENTENCE, null);
         }
 
@@ -179,7 +192,12 @@ public final class ArrestService {
         ArrestStates.surrendered(player, arrestingResponder == null ? null : arrestingResponder.getUUID(),
                 null);
         ArrestState state = ArrestStates.of(player);
-        if (state != null) state.setSurrenderCredited(voluntary);
+        if (state != null) {
+            state.setSurrenderCredited(voluntary);
+            if (resuming != null) {
+                state.setSentenceId(resuming.getSentenceId());
+            }
+        }
         UUID sentenceId = state == null ? UUID.randomUUID() : state.getSentenceId();
 
         JailAnchor destination = resolveDestination(server, level, player, arrestingResponder, sentenceId);
@@ -189,9 +207,10 @@ public final class ArrestService {
 
         UUID custodian = arrestingResponder == null ? player.getUUID() : arrestingResponder.getUUID();
         boolean inCustody;
-        if (hunter != null) {
+        if (hunter != null || (resuming != null && held != null && held.isLawful())) {
             // Already in lawful custody, so captureLawful would refuse. Custody passes from the hunter
-            // to the law in place, exactly as it does at the end of an escort.
+            // -- or from the jail an escaped prisoner is still on the books of -- to the law in place,
+            // exactly as it does at the end of an escort.
             inCustody = CustodyService.transferLawfulCustody(server, player.getUUID(),
                     CustodyOwner.guard(custodian));
         } else {
@@ -206,8 +225,21 @@ public final class ArrestService {
             return abort(player, Outcome.NO_CUSTODY, "mcacrime.arrest.no_custody");
         }
 
-        if (!SentenceAssignmentService.assign(CrimeWorldData.get(server), player.getUUID(),
+        // The sentence kind, decided once, from the cases this arrest assessed (§3.19, M6.6). After
+        // the binding and never before it: a capital mark on a sentence that failed to bind would
+        // condemn somebody nobody is holding.
+        if (SentenceAssignmentService.assign(CrimeWorldData.get(server), player.getUUID(),
                 sentenceId, assessedCaseIds, level.getGameTime())) {
+            if (resuming != null) {
+                // The assignment is frozen from the first intake and only confirms the id here. What is
+                // new since -- the jailbreak, anything done on the run -- is bound now; cases the term
+                // already covers are skipped by the binding itself.
+                CrimeWorldData.get(server).bindSentence(player.getUUID(), sentenceId, level.getGameTime(),
+                        assessedCaseIds);
+            }
+            dev.otectus.mcacrime.ledger.CapitalSentenceService.mark(CrimeWorldData.get(server),
+                    player.getUUID(), sentenceId, false);
+        } else {
             CustodyService.release(server, player.getUUID(),
                     dev.otectus.mcacrime.captivity.CustodyReleaseReason.ADMIN);
             HoldingCellService.releaseAndDismantle(server, player.getUUID());

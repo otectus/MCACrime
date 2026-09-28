@@ -14,8 +14,11 @@ public final class StolenGoodsRecovery {
         var server = level.getServer();
         if (!ServerMutationGate.allows(server)) return;
         var data = CrimeWorldData.get(server);
-        var owners = data.stolenGoodsByThief(thief.getUUID()).stream().map(record -> record.owner()).distinct().toList();
+        var held = data.stolenGoodsByThief(thief.getUUID());
+        var owners = held.stream().map(record -> record.owner()).distinct().toList();
         StolenGoodsLedger.escrowAll(data, thief.getUUID(), level.getGameTime());
+        for (var entry : held) if (data.stolenGoods(entry.transactionId()) == null)
+            dev.otectus.mcacrime.news.CrimeNewsService.recovered(server, entry.transactionId(), thief.getUUID(), entry.owner());
         for (var owner : owners) {
             var player = server.getPlayerList().getPlayer(owner);
             if (player != null && player.isAlive()) CrimeReconciler.deliverEscrow(player, server);

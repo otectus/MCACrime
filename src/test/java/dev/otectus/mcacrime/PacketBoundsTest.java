@@ -5,8 +5,17 @@ import dev.otectus.mcacrime.enforcement.ChallengeResponse;
 import dev.otectus.mcacrime.ledger.Resolution;
 import dev.otectus.mcacrime.network.BandBulkSyncS2CPacket;
 import dev.otectus.mcacrime.network.CaseLedgerS2CPacket;
+import dev.otectus.mcacrime.lockpick.LockpickOutcome;
 import dev.otectus.mcacrime.network.GuardChallengeResponseC2SPacket;
+import dev.otectus.mcacrime.network.LockpickAttemptC2SPacket;
+import dev.otectus.mcacrime.network.LockpickResultS2CPacket;
+import dev.otectus.mcacrime.network.RestraintStruggleC2SPacket;
 import dev.otectus.mcacrime.network.PacketBounds;
+import dev.otectus.mcacrime.network.PhysicalStateDeltaS2CPacket;
+import dev.otectus.mcacrime.network.PhysicalStateS2CPacket;
+import dev.otectus.mcacrime.network.SelfRestraintC2SPacket;
+import dev.otectus.mcacrime.restraint.RestraintSlot;
+import dev.otectus.mcacrime.restraint.PhysicalRestraintView;
 import io.netty.buffer.Unpooled;
 import io.netty.handler.codec.DecoderException;
 import net.minecraft.network.FriendlyByteBuf;
@@ -142,6 +151,70 @@ class PacketBoundsTest {
         assertEquals(PacketBounds.MAX_MAP_ENTRIES, BandBulkSyncS2CPacket.decode(buf).bands().size());
     }
 
+    // ------------------------------------------------------------------ 0.7.5 physical state
+
+    @Test
+    void aFourthRestraintSlotIsRejected() {
+        FriendlyByteBuf buf = buffer();
+        buf.writeVarInt(PacketBounds.MAX_RESTRAINT_SLOTS + 1);
+
+        assertThrows(DecoderException.class,
+                () -> PacketBounds.readCount(buf, PacketBounds.MAX_RESTRAINT_SLOTS),
+                "there are three body slots; a peer claiming four is not describing a subject this "
+                        + "build can have");
+        assertEquals(3, PacketBounds.MAX_RESTRAINT_SLOTS);
+    }
+
+    @Test
+    void anOverLimitPhysicalSnapshotIsRejected() {
+        FriendlyByteBuf buf = buffer();
+        buf.writeVarInt(PacketBounds.MAX_PHYSICAL_SUBJECTS + 1);
+
+        assertThrows(DecoderException.class, () -> PhysicalStateS2CPacket.decode(buf));
+    }
+
+    @Test
+    void anOversizedSnapshotIsTruncatedOnTheWriteSideRatherThanMadeUndecodable() {
+        List<PhysicalRestraintView> views = new java.util.ArrayList<>();
+        for (int i = 0; i < PacketBounds.MAX_PHYSICAL_SUBJECTS + 10; i++) {
+            views.add(PhysicalRestraintView.empty(UUID.randomUUID(), 1L, 1L));
+        }
+        FriendlyByteBuf buf = buffer();
+        PhysicalStateS2CPacket.encode(new PhysicalStateS2CPacket(views), buf);
+
+        assertEquals(PacketBounds.MAX_PHYSICAL_SUBJECTS, PhysicalStateS2CPacket.decode(buf).subjects().size());
+        assertEquals(0, buf.readableBytes());
+    }
+
+    @Test
+    void aDurabilityFractionOutsideZeroToOneIsRejected() {
+        for (float bad : new float[]{-0.01F, 1.01F, Float.NaN, Float.POSITIVE_INFINITY}) {
+            FriendlyByteBuf buf = buffer();
+            buf.writeFloat(bad);
+            assertThrows(DecoderException.class, () -> PacketBounds.readUnitFraction(buf),
+                    bad + " was accepted as a durability fraction");
+        }
+
+        FriendlyByteBuf good = buffer();
+        good.writeFloat(0.25F);
+        assertEquals(0.25F, PacketBounds.readUnitFraction(good));
+    }
+
+    @Test
+    void anUnknownSlotNameIsRejectedRatherThanSubstituted() {
+        FriendlyByteBuf buf = buffer();
+        buf.writeUUID(UUID.randomUUID());
+        buf.writeLong(1L);
+        buf.writeLong(1L);
+        buf.writeVarInt(-1);
+        buf.writeBoolean(false);
+        buf.writeVarInt(1);
+        buf.writeUtf("TAIL", PacketBounds.MAX_ID_LENGTH);
+
+        assertThrows(DecoderException.class, () -> PhysicalStateDeltaS2CPacket.decode(buf),
+                "a substituted slot would draw somebody's cuffs on a limb the server never named");
+    }
+
     @Test
     void aFullDossierRoundTrips() {
         List<CaseLedgerS2CPacket.Row> rows = new java.util.ArrayList<>();
@@ -153,5 +226,112 @@ class PacketBoundsTest {
         FriendlyByteBuf buf = buffer();
         CaseLedgerS2CPacket.encode(sent, buf);
         assertEquals(sent, CaseLedgerS2CPacket.decode(buf));
+    }
+
+    // ------------------------------------------------------------------ self application (R10)
+
+    /**
+     * The self-application request carries two bounded values and no identity at all.
+     *
+     * <p>Deliberately so: the subject is the connection's player, so there is no field here that could
+     * name somebody else, and the worst a forged packet can ask for is a slot the sender's own rig or
+     * held item does not support — which the server refuses.
+     */
+    @Test
+    void aSelfRestraintRequestRoundTripsEverySlotAndEitherHand() {
+        for (RestraintSlot slot : RestraintSlot.values()) {
+            for (boolean offHand : new boolean[]{false, true}) {
+                SelfRestraintC2SPacket sent = new SelfRestraintC2SPacket(slot, offHand);
+                FriendlyByteBuf buf = buffer();
+                SelfRestraintC2SPacket.encode(sent, buf);
+                assertEquals(sent, SelfRestraintC2SPacket.decode(buf));
+                assertEquals(0, buf.readableBytes());
+            }
+        }
+    }
+
+    /**
+     * An out-of-range slot byte is a decode failure, not an arms restraint (0.7.5 M3).
+     *
+     * <p>This is the rule the 1.21.1 port applies through {@code CrimeStreamCodecs.enumCodec}, and the
+     * baseline now applies it too, so a reader comparing the two lines sees one policy. Clamping was
+     * the wrong answer for exactly this packet: it chooses <em>where a restraint goes</em>, and a
+     * substituted default is a decision the player never made.
+     */
+    @Test
+    void anUnknownSelfRestraintSlotIsRefused() {
+        FriendlyByteBuf buf = buffer();
+        buf.writeByte(97);
+        buf.writeBoolean(false);
+        assertThrows(DecoderException.class, () -> SelfRestraintC2SPacket.decode(buf));
+    }
+
+    /** The same rule on the struggle packet, whose slot decides which restraint takes the damage. */
+    @Test
+    void anUnknownStruggleSlotIsRefused() {
+        FriendlyByteBuf buf = buffer();
+        buf.writeLong(1L);
+        buf.writeByte(200);
+        buf.writeByte(0);
+        buf.writeVarInt(1);
+        assertThrows(DecoderException.class, () -> RestraintStruggleC2SPacket.decode(buf));
+    }
+
+    @Test
+    void aWellFormedStruggleStillRoundTrips() {
+        for (RestraintSlot slot : RestraintSlot.values()) {
+            RestraintStruggleC2SPacket sent = new RestraintStruggleC2SPacket(7L, slot, 1, 3);
+            FriendlyByteBuf buf = buffer();
+            RestraintStruggleC2SPacket.encode(sent, buf);
+            assertEquals(sent, RestraintStruggleC2SPacket.decode(buf));
+            assertEquals(0, buf.readableBytes());
+        }
+    }
+
+    /** And on the one M3 packet that carries an enum at all. */
+    @Test
+    void anUnknownLockpickOutcomeIsRefused() {
+        FriendlyByteBuf buf = buffer();
+        buf.writeLong(4L);
+        buf.writeByte(9);
+        assertThrows(DecoderException.class, () -> LockpickResultS2CPacket.decode(buf));
+
+        for (LockpickOutcome outcome : LockpickOutcome.values()) {
+            LockpickResultS2CPacket sent = new LockpickResultS2CPacket(4L, outcome);
+            FriendlyByteBuf round = buffer();
+            LockpickResultS2CPacket.encode(sent, round);
+            assertEquals(sent, LockpickResultS2CPacket.decode(round));
+            assertEquals(0, round.readableBytes());
+        }
+    }
+
+    /** The ordinal helper itself: in range is a value, out of range is empty, never a default. */
+    @Test
+    void theOrdinalHelperRefusesRatherThanSubstituting() {
+        FriendlyByteBuf good = buffer();
+        PacketBounds.writeEnumOrdinal(good, RestraintSlot.LEGS);
+        assertEquals(java.util.Optional.of(RestraintSlot.LEGS),
+                PacketBounds.readEnumOrdinal(good, RestraintSlot.class));
+
+        FriendlyByteBuf bad = buffer();
+        bad.writeByte(RestraintSlot.values().length);
+        assertTrue(PacketBounds.readEnumOrdinal(bad, RestraintSlot.class).isEmpty());
+    }
+
+    /** A lockpick attempt is three bounded numbers, and the phase is clamped into a sane range. */
+    @Test
+    void lockpickAttemptsAreBoundedAndCarryNoIdentity() {
+        LockpickAttemptC2SPacket huge = new LockpickAttemptC2SPacket(1L, Integer.MAX_VALUE, 400_000);
+        assertEquals(PacketBounds.MAX_LOCKPICK_PHASE, huge.phase());
+        assertEquals(40_000, huge.angleMilliDegrees(), "angles wrap into one turn");
+        assertEquals(359_000, new LockpickAttemptC2SPacket(1L, 0, -1_000).angleMilliDegrees());
+
+        FriendlyByteBuf buf = buffer();
+        LockpickAttemptC2SPacket sent = new LockpickAttemptC2SPacket(12L, 3, 180_000);
+        LockpickAttemptC2SPacket.encode(sent, buf);
+        assertEquals(sent, LockpickAttemptC2SPacket.decode(buf));
+        assertEquals(0, buf.readableBytes());
+        // Three fields and no more: no actor, no target, no outcome, no durability.
+        assertEquals(3, LockpickAttemptC2SPacket.class.getRecordComponents().length);
     }
 }

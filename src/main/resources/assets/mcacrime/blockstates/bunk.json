@@ -1,0 +1,64 @@
+{
+  "variants": {
+    "part=head,facing=north,occupied=false": {
+      "model": "mcacrime:block/bunk_left",
+      "y": 270
+    },
+    "part=head,facing=north,occupied=true": {
+      "model": "mcacrime:block/bunk_left",
+      "y": 270
+    },
+    "part=foot,facing=north,occupied=false": {
+      "model": "mcacrime:block/bunk_right",
+      "y": 270
+    },
+    "part=foot,facing=north,occupied=true": {
+      "model": "mcacrime:block/bunk_right",
+      "y": 270
+    },
+    "part=head,facing=east,occupied=false": {
+      "model": "mcacrime:block/bunk_left"
+    },
+    "part=head,facing=east,occupied=true": {
+      "model": "mcacrime:block/bunk_left"
+    },
+    "part=foot,facing=east,occupied=false": {
+      "model": "mcacrime:block/bunk_right"
+    },
+    "part=foot,facing=east,occupied=true": {
+      "model": "mcacrime:block/bunk_right"
+    },
+    "part=head,facing=south,occupied=false": {
+      "model": "mcacrime:block/bunk_left",
+      "y": 90
+    },
+    "part=head,facing=south,occupied=true": {
+      "model": "mcacrime:block/bunk_left",
+      "y": 90
+    },
+    "part=foot,facing=south,occupied=false": {
+      "model": "mcacrime:block/bunk_right",
+      "y": 90
+    },
+    "part=foot,facing=south,occupied=true": {
+      "model": "mcacrime:block/bunk_right",
+      "y": 90
+    },
+    "part=head,facing=west,occupied=false": {
+      "model": "mcacrime:block/bunk_left",
+      "y": 180
+    },
+    "part=head,facing=west,occupied=true": {
+      "model": "mcacrime:block/bunk_left",
+      "y": 180
+    },
+    "part=foot,facing=west,occupied=false": {
+      "model": "mcacrime:block/bunk_right",
+      "y": 180
+    },
+    "part=foot,facing=west,occupied=true": {
+      "model": "mcacrime:block/bunk_right",
+      "y": 180
+    }
+  }
+}

@@ -2,7 +2,6 @@ package dev.otectus.mcacrime.action;
 
 import dev.otectus.mcacrime.McaCrime;
 import dev.otectus.mcacrime.McaCrimeConfig;
-import dev.otectus.mcacrime.captivity.RestraintType;
 import dev.otectus.mcacrime.compat.McaCompat;
 import dev.otectus.mcacrime.item.CrimeItems;
 import dev.otectus.mcacrime.item.weapon.WeaponDetector;
@@ -49,7 +48,9 @@ public final class CrimeActionInteractHandler {
         if (!McaCompat.isMcaVillager(event.getTarget())) return;
 
         ItemStack stack = event.getItemStack();
-        if (CrimeItems.restraintFor(stack) != RestraintType.NONE) return;
+        // Defer to restraint/RestraintInteractHandler: a restraint item aimed at a villager is an
+        // application, never a weapon threat, and the two handlers must not both claim it.
+        if (CrimeItems.familyFor(stack).isPresent()) return;
         if (!WeaponDetector.isWeapon(stack)) return;
 
         if (event.getEntity() instanceof ServerPlayer player) {

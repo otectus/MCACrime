@@ -1,0 +1,11 @@
+{
+    "ambientocclusion": false,
+    "textures": {
+        "particle": "mcacrime:block/reinforced_bars_bottom",
+        "edge": "mcacrime:block/reinforced_bars_bottom"
+    },
+    "elements": [
+        
+    ],
+    "render_type": "cutout"
+}

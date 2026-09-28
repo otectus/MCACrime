@@ -82,14 +82,14 @@ class PublicProjectionTest {
 
         for (boolean observations : new boolean[] {false, true}) {
             for (CrimeCommunityKey observer : new CrimeCommunityKey[] {RIVERSIDE, HILLTOP}) {
-                assertFalse(CrimePublicView.isPublic(unseen, observer, observations, id -> true),
+                assertFalse(CrimePublicView.isPublic(unseen, observer, observations, NOTHING_REPORTED),
                         "an unwitnessed crime must never be public, whatever the settings say "
                                 + "(observations=" + observations + ", observer=" + observer.asString() + ")");
             }
         }
 
         CrimePublicView view = CrimePublicView.of(RIVERSIDE, OFFENDER, Band.GREY, false, 0, 0L,
-                List.of(unseen), false, id -> true);
+                List.of(unseen), false, NOTHING_REPORTED);
         assertEquals(0, view.publicIncidents());
         assertTrue(view.recent().isEmpty());
         assertFalse(view.known(), "a community that knows nothing must say so");
@@ -103,12 +103,13 @@ class PublicProjectionTest {
         assertTrue(CrimePublicView.isPublic(elsewhere, HILLTOP, false, NOTHING_REPORTED));
     }
 
-    /** A crime in the wilderness belongs to nobody. */
+    /** A wilderness case becomes known only to the authority that accepted its identified report. */
     @Test
-    void aCrimeWithNoCommunityIsNobodysBusiness() {
+    void aReportedWildernessCrimeBelongsOnlyToItsReceivingAuthority() {
         CrimeRecordView wilderness = caseOf("wilderness", null, true);
-        assertFalse(CrimePublicView.isPublic(wilderness, RIVERSIDE, false, id -> true));
-        assertFalse(CrimePublicView.isPublic(wilderness, HILLTOP, false, id -> true));
+        assertFalse(CrimePublicView.isPublic(wilderness, RIVERSIDE, true, NOTHING_REPORTED));
+        assertTrue(CrimePublicView.isPublic(wilderness, RIVERSIDE, true, id -> id.equals(wilderness.id())));
+        assertFalse(CrimePublicView.isPublic(wilderness, HILLTOP, true, NOTHING_REPORTED));
     }
 
     /**
@@ -127,6 +128,13 @@ class PublicProjectionTest {
                 "once an accepted report names it, the community knows");
         assertTrue(CrimePublicView.isPublic(seen, RIVERSIDE, false, NOTHING_REPORTED),
                 "with no reporting layer at all, witnessed is the whole rule");
+    }
+
+    @Test
+    void anAcceptedIdentifiedReportCanPublishAnUnwitnessedCase() {
+        CrimeRecordView unseen = caseOf("reported-unseen", RIVERSIDE, false);
+        assertTrue(CrimePublicView.isPublic(unseen, RIVERSIDE, true, id -> id.equals(unseen.id())));
+        assertFalse(CrimePublicView.isPublic(unseen, HILLTOP, true, id -> id.equals(unseen.id())));
     }
 
     /**

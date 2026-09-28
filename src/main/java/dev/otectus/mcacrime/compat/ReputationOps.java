@@ -93,7 +93,7 @@ public interface ReputationOps {
      * @return true when the claim was accepted. A false answer means we must not record the
      *         overlapping deeds, or the player pays twice for one swing.
      */
-    boolean claimAuthority();
+    boolean claimAuthority(MinecraftServer server);
 
     /** Withdraws the claim, handing native detection back. */
     void releaseAuthority();

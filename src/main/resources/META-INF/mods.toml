@@ -51,3 +51,28 @@ description='''${mod_description}'''
     versionRange="[0.2,)"
     ordering="AFTER"
     side="BOTH"
+
+# MCA: Quests, Townstead and Ultima Kingdoms are OPTIONAL companions reached by name at runtime
+# (compat/McaQuestsBridge, compat/TownsteadBridge, api/InstitutionalServiceApi and
+# api/JurisdictionPolicyApi). Declared for load ordering only: "[0,)" rather than a floor because
+# Forge enforces an optional range when the mod IS present, and each bridge already handles an
+# incompatible companion with one log line and a disabled integration (the convention MCA: Mob
+# Compatibility's mods.toml documents). AFTER so their registries exist before our setup reads them.
+[[dependencies.${mod_id}]]
+    modId="mcaquests"
+    mandatory=false
+    versionRange="[0,)"
+    ordering="AFTER"
+    side="BOTH"
+[[dependencies.${mod_id}]]
+    modId="townstead"
+    mandatory=false
+    versionRange="[0,)"
+    ordering="AFTER"
+    side="BOTH"
+[[dependencies.${mod_id}]]
+    modId="ultima_kingdoms"
+    mandatory=false
+    versionRange="[0,)"
+    ordering="AFTER"
+    side="BOTH"
