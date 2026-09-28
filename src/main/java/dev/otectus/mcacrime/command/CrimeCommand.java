@@ -417,6 +417,8 @@ public final class CrimeCommand {
         source.sendSuccess(() -> Component.literal("  bridge available=" + ReputationBridge.isAvailable()
                 + " holds detection authority=" + ReputationBridge.holdsAuthority()), false);
         if (ReputationBridge.isAvailable()) {
+            // Asked afresh: an operator running this is usually checking what just changed.
+            ReputationBridge.negotiate(source.getServer());
             source.sendSuccess(() -> Component.literal("  " + ReputationBridge.capabilities().describe()), false);
         }
         if (ReputationBridge.isAvailable() && !ReputationBridge.holdsAuthority()) {

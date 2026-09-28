@@ -75,6 +75,13 @@ repositories {
         url = 'https://maven.conczin.net/Artifacts'
         content { includeGroup 'net.conczin.mca' }
     }
+    // The probe fleet's oldest builds, which the Conczin Maven does not carry (it starts at 7.7.13).
+    // Probe-only; nothing here reaches a runtime or compile classpath.
+    maven {
+        name = 'Modrinth'
+        url = 'https://api.modrinth.com/maven'
+        content { includeGroup 'maven.modrinth' }
+    }
 }
 
 // Every MCA build McaBindingProbeTest verifies the manifest against, one configuration each. Two
@@ -156,8 +163,10 @@ dependencies {
     // ext.mcaProbeVersions). These are production mojmap jars, so MCA's own declarations already read
     // as e.g. `getMemoriesForPlayer(net.minecraft.world.entity.player.Player)` -- exactly what the
     // manifest compares against.
+    // A plain version is a Conczin Maven build; a Modrinth version id (no dots) is a build only Modrinth has.
     mcaProbeVersions.eachWithIndex { version, i ->
-        add("mcaProbe${i}", "net.conczin.mca:mca-neoforge:${version}")
+        add("mcaProbe${i}", version.contains('.') ? "net.conczin.mca:mca-neoforge:${version}"
+                : "maven.modrinth:minecraft-comes-alive-reborn:${version}")
     }
 
     // MCA: Reputation - OPTIONAL integration, compile-only. The sibling mod is not published to a
@@ -236,7 +245,7 @@ test {
         systemProperty 'mcacrime.probe.jars', mcaProbeVersions.indices
                 .collect { i -> configurations.getByName("mcaProbe${i}").files }
                 .flatten()
-                .findAll { it.name.contains('mca-neoforge') }
+                .findAll { it.name.contains('mca-neoforge') || it.name.contains('minecraft-comes-alive') }
                 .join(File.pathSeparator)
     }
 }

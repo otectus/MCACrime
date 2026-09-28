@@ -7,6 +7,8 @@ import net.neoforged.fml.ModList;
 
 import org.jetbrains.annotations.Nullable;
 import java.util.Optional;
+import java.util.concurrent.TimeUnit;
+import java.util.function.LongSupplier;
 
 /**
  * The optional-classloading seam for MCA: Reputation, built to the same discipline MCA: Quests' and
@@ -72,6 +74,23 @@ public final class ReputationBridge {
     private static volatile String status = "not initialised";
     private static volatile boolean degraded;
     private static volatile ReputationCapabilitySnapshot capabilities = ReputationCapabilitySnapshot.absent();
+
+    /**
+     * How old the cached handshake may get before the outbox pump asks again ahead of a delivery.
+     *
+     * <p>MCA: Reputation's profile features go live or dark with its config and with its published
+     * content. A {@code /reload} is heard directly (the pump's datapack-sync hook re-negotiates), but a
+     * config reload fires {@code ModConfigEvent.Reloading} on MCA: Reputation's own mod bus, which this
+     * mod cannot subscribe to. So a stale answer is refreshed where it is used, before a batch of
+     * deliveries, at most this often.
+     */
+    static final long REFRESH_INTERVAL_NANOS = TimeUnit.SECONDS.toNanos(10);
+
+    /** The clock staleness is measured on; tests replace it. */
+    static volatile LongSupplier clock = System::nanoTime;
+
+    private static volatile boolean negotiated;
+    private static volatile long negotiatedAtNanos;
 
     private ReputationBridge() {
     }
@@ -156,37 +175,64 @@ public final class ReputationBridge {
     }
 
     /**
-     * Asks the companion what it can do, once per server, and caches the answer.
+     * Asks the companion what it can do and caches the answer.
      *
      * <p>Separate from {@link #init()} and deliberately later: {@code init} runs during mod loading,
      * where there is no server, no datapack, and therefore no answer to give about anything that
      * depends on loaded content — which in 0.6.0 includes the whole public-profile layer. The
      * handshake belongs where the features are about to be used.
      *
-     * <p>Once per server rather than per delivery because the answer is a property of the installed
-     * jar and its config, and the pump asks the question for every operation it drains. Re-negotiated
-     * on the next server start, so a config change between worlds is picked up.
+     * <p>Cached rather than asked per delivery, because the pump would otherwise ask it for every
+     * operation it drains. But the answer is not fixed for the life of a server: the profile features
+     * are advertised only while MCA: Reputation's profiles are switched on and a pack has published
+     * content, and both can change mid-session. So it is asked at server start, again after every
+     * {@code /reload} (the pump's datapack-sync hook), before a batch of deliveries once the cached
+     * answer is {@link #REFRESH_INTERVAL_NANOS} old ({@link #refreshIfStale}), and whenever an operator
+     * runs {@code /crime debug integrations}. Asking again is idempotent, and only a changed answer is
+     * logged at INFO, so the repeats stay out of the log.
      */
     public static synchronized void negotiate(@Nullable MinecraftServer server) {
+        negotiated = true;
+        negotiatedAtNanos = clock.getAsLong();
         ReputationOps current = ops().orElse(null);
         if (current == null) {
             capabilities = ReputationCapabilitySnapshot.absent();
             return;
         }
+        ReputationCapabilitySnapshot previous = capabilities;
+        ReputationCapabilitySnapshot next;
         try {
             ReputationCapabilitySnapshot snapshot = current.capabilities(server);
-            capabilities = snapshot == null ? ReputationCapabilitySnapshot.absent() : snapshot;
-            McaCrime.LOGGER.info("MCA: Crime — MCA: Reputation capabilities: {}", capabilities.describe());
-            if (!capabilities.supportsDelivery()) {
-                McaCrime.LOGGER.info("MCA: Crime — this MCA: Reputation does not advertise keyed delivery, "
-                        + "so civic writes use the older record path. They stay correct; they are simply "
-                        + "not receipted, so a crash between its commit and our link write can leave one "
-                        + "queued operation to retry.");
-            }
+            next = snapshot == null ? ReputationCapabilitySnapshot.absent() : snapshot;
         } catch (Throwable t) {
             capabilities = ReputationCapabilitySnapshot.absent();
             McaCrime.LOGGER.warn("MCA: Crime — negotiating MCA: Reputation capabilities threw; using the "
                     + "oldest supported surface.", t);
+            return;
+        }
+        capabilities = next;
+        if (next.equals(previous)) {
+            McaCrime.LOGGER.debug("MCA: Crime — MCA: Reputation capabilities unchanged: {}", next.describe());
+            return;
+        }
+        McaCrime.LOGGER.info("MCA: Crime — MCA: Reputation capabilities: {}", next.describe());
+        if (!next.supportsDelivery()) {
+            McaCrime.LOGGER.info("MCA: Crime — this MCA: Reputation does not advertise keyed delivery, "
+                    + "so civic writes use the older record path. They stay correct; they are simply "
+                    + "not receipted, so a crash between its commit and our link write can leave one "
+                    + "queued operation to retry.");
+        }
+    }
+
+    /**
+     * Re-negotiates when the cached answer is older than {@link #REFRESH_INTERVAL_NANOS}, or was never
+     * asked. The pump calls this before a batch of deliveries, which is where a stale answer would
+     * cost something: a profiled delivery attempted against profiles that went dark, or skipped after
+     * they went live.
+     */
+    public static void refreshIfStale(@Nullable MinecraftServer server) {
+        if (!negotiated || clock.getAsLong() - negotiatedAtNanos >= REFRESH_INTERVAL_NANOS) {
+            negotiate(server);
         }
     }
 
@@ -300,6 +346,8 @@ public final class ReputationBridge {
         initialised = false;
         degraded = false;
         capabilities = ReputationCapabilitySnapshot.absent();
+        negotiated = false;
+        negotiatedAtNanos = 0L;
         status = "not initialised";
     }
 }

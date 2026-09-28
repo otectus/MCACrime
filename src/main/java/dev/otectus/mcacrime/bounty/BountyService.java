@@ -380,6 +380,39 @@ public final class BountyService {
     }
 
     /**
+     * Whether a bounty this player earned is reserved on the ledger but not yet in their hands: the
+     * state {@link #collect} finishes on their next login or {@code /crime collectbounty}.
+     *
+     * <p>The MCA: Quests contract adapter keeps the player's contract copy alive while this holds,
+     * because finishing the payment is what sends the signal that satisfies the copy; failing it first
+     * would take away a quest reward the ledger has already granted (0.7.5).
+     */
+    public static boolean hasUndeliveredPayment(MinecraftServer server, UUID player) {
+        return server != null && hasUndeliveredPayment(CrimeWorldData.get(server), player);
+    }
+
+    /**
+     * {@link #hasUndeliveredPayment(MinecraftServer, UUID)} against a ledger rather than a server. A
+     * payment whose delivery outcome is ambiguous ({@code NEEDS_RECONCILIATION}) counts as undelivered:
+     * it is a debt an operator still has to settle, and settling it may yet deliver.
+     */
+    public static boolean hasUndeliveredPayment(CrimeWorldData data, UUID player) {
+        if (data == null || player == null) {
+            return false;
+        }
+        for (var claim : data.bountyClaims().values()) {
+            if (!player.equals(claim.claimant())) {
+                continue;
+            }
+            var queued = data.transaction(BountyPayments.id(BountyPayments.key(claim)));
+            if (queued != null && !queued.state().terminal()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
      * Pays a bounty into the inventory without ever dropping it, and reports what did not fit.
      *
      * <p>The bounded walk used to be inlined here for emeralds only; it now belongs to the currency,

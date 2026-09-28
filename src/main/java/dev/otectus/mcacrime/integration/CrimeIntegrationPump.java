@@ -15,6 +15,7 @@ import dev.otectus.mcacrime.state.world.CrimeWorldData;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.MinecraftServer;
+import net.neoforged.neoforge.event.OnDatapackSyncEvent;
 import net.neoforged.neoforge.event.tick.ServerTickEvent;
 import net.neoforged.neoforge.event.entity.player.PlayerEvent;
 import net.neoforged.neoforge.event.server.ServerStartedEvent;
@@ -45,6 +46,10 @@ import java.util.UUID;
  *   <li><b>Every {@code pumpIntervalTicks}</b> — a small budgeted pass. An idle server with an empty
  *       queue does one map lookup and returns.</li>
  * </ul>
+ *
+ * <p>The MCA: Reputation capability handshake is kept current alongside: asked at server start, again
+ * when a {@code /reload} finishes, and refreshed before a batch of deliveries once it is stale
+ * ({@link ReputationBridge#refreshIfStale}).
  *
  * <p>Delivery is never attempted while loading saved data. That rule exists because calling into an
  * optional mod during deserialisation is how a missing class turns a world load into a crash.
@@ -91,6 +96,19 @@ public final class CrimeIntegrationPump {
             McaCrime.LOGGER.info("MCA: Crime has {} queued cross-mod write(s) from a previous session; "
                     + "replaying them now.", pending);
             drain(event.getServer(), McaCrimeConfig.COMMON.pumpBudgetPerTick.get() * STARTUP_BUDGET_MULTIPLIER);
+        }
+    }
+
+    /**
+     * A {@code /reload} can publish or withdraw MCA: Reputation's profile content, and with it the
+     * profile features its handshake advertises, so the handshake is asked again once every reload
+     * listener has applied. A null player is the reload's server-wide sync; a login's per-player sync
+     * changes nothing and is ignored.
+     */
+    @SubscribeEvent
+    public static void onDatapackSync(OnDatapackSyncEvent event) {
+        if (event.getPlayer() == null) {
+            ReputationBridge.negotiate(event.getPlayerList().getServer());
         }
     }
 
@@ -143,6 +161,11 @@ public final class CrimeIntegrationPump {
         CrimeWorldData data = CrimeWorldData.get(server);
         long now = server.overworld().getGameTime();
         List<CrimeIntegrationOperation> due = data.dueOperations(now, budget);
+        if (!due.isEmpty()) {
+            // A config reload on MCA: Reputation's side is invisible from here, so the handshake is
+            // refreshed where it is used: before a batch of deliveries, once it is stale.
+            ReputationBridge.refreshIfStale(server);
+        }
         for (CrimeIntegrationOperation operation : due) {
             DeliveryOutcome outcome = deliver(server, operation);
             record(server, data, operation, outcome, now);

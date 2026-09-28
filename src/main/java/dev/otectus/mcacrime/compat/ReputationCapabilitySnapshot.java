@@ -7,7 +7,8 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * What the installed MCA: Reputation can actually do, read once per server and then asked about.
+ * What the installed MCA: Reputation can actually do, as of the last handshake
+ * ({@link ReputationBridge#negotiate}), which is then asked about.
  *
  * <p>Until 0.7.3 this mod negotiated by comparing one integer: MCA: Reputation's API version had to be
  * exactly 1 or the integration switched itself off. That check is still here and still necessary — it

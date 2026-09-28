@@ -4,16 +4,16 @@ import dev.otectus.mcacrime.McaCrime;
 import dev.otectus.mcacrime.bounty.BountyContract;
 import dev.otectus.mcacrime.bounty.BountyContractBoard;
 import dev.otectus.mcacrime.bounty.BountyResolution;
+import dev.otectus.mcacrime.bounty.BountyService;
+import dev.otectus.mcacrime.compat.BountyCopyReconciler;
 import dev.otectus.mcacrime.compat.BountyQuestBridge;
 import dev.otectus.mcacrime.compat.McaQuestsBridge;
 import dev.otectus.mcacrime.util.CrimeDebug;
 import dev.otectus.mcaquests.api.McaQuestsApi;
-import dev.otectus.mcaquests.api.event.QuestAbandonedEvent;
-import dev.otectus.mcaquests.api.event.QuestAcceptedEvent;
-import dev.otectus.mcaquests.api.event.QuestCompletedEvent;
 import dev.otectus.mcaquests.api.event.QuestFailedEvent;
 import dev.otectus.mcaquests.quest.QuestDefinition;
 import dev.otectus.mcaquests.quest.QuestManager;
+import dev.otectus.mcaquests.quest.objective.QuestObjective;
 import dev.otectus.mcaquests.quest.situation.QuestDefinitions;
 import dev.otectus.mcaquests.state.ActiveQuest;
 import dev.otectus.mcaquests.state.PlayerQuestData;
@@ -21,15 +21,15 @@ import dev.otectus.mcaquests.state.QuestCapabilities;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
+import net.neoforged.bus.api.EventPriority;
 import net.neoforged.neoforge.common.NeoForge;
+import net.neoforged.neoforge.event.entity.player.PlayerEvent;
 import net.neoforged.neoforge.server.ServerLifecycleHooks;
 
 import org.jetbrains.annotations.Nullable;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Set;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * The MCA: Quests half of the bounty bridge — the only class in this mod that names an MCA: Quests
@@ -38,7 +38,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * <p>Loaded by name from {@code McaQuestsBridge} after {@code ModList} confirms the mod is installed,
  * and never referenced from anywhere else, so a server without MCA: Quests never asks a classloader
  * for any of the imports above. {@code OptionalClassloadTest} enforces that by scanning the compiled
- * output, and the Gradle build drops this package entirely when the sibling project is not present.
+ * output, and the build compiles this package against the vendored, hash-pinned MCA: Quests API jar.
  *
  * <h2>What this owns, and what it must not</h2>
  *
@@ -54,6 +54,13 @@ import java.util.concurrent.ConcurrentHashMap;
  * ledger credited is paid. So a resolution completes the credited player's copy and, once the board
  * is empty, fails everyone else's with {@code TARGET_LOST} — the reason MCA: Quests already uses for
  * "the thing this quest was about is gone", which it is.
+ *
+ * <h2>Who holds the contract</h2>
+ *
+ * <p>Read from MCA: Quests' persisted per-player data every time, through
+ * {@link BountyCopyReconciler}, never from memory. Until 0.7.5 holders lived in a static set filled by
+ * the acceptance event, which a restart emptied, so a copy accepted before a restart could never fail.
+ * A player who was offline when the board emptied is reconciled when they next log in.
  */
 public final class McaQuestsBountyCompat implements BountyQuestBridge {
 
@@ -65,15 +72,6 @@ public final class McaQuestsBountyCompat implements BountyQuestBridge {
 
     /** The objective id registered with MCA: Quests, matching {@code "type"} in the quest JSON. */
     private static final ResourceLocation OBJECTIVE_ID = McaCrime.id("bounty");
-
-    /**
-     * Players known to be holding the contract.
-     *
-     * <p>A cache, not the truth: {@code PlayerQuestData} is authoritative and is re-checked before
-     * anything is failed. It exists so the common case — a bounty paid on a server where nobody took
-     * the quest — costs one empty-set check instead of a capability lookup per online player.
-     */
-    private static final Set<UUID> HOLDERS = ConcurrentHashMap.newKeySet();
 
     private static McaQuestsBountyCompat instance;
 
@@ -95,10 +93,7 @@ public final class McaQuestsBountyCompat implements BountyQuestBridge {
         // Imperative listeners, never @EventBusSubscriber: NeoForge's annotation scan runs for every
         // class in the jar, so an annotated listener in this package would be eagerly loaded -- and
         // throw NoClassDefFoundError -- on any server that does not have MCA: Quests installed.
-        NeoForge.EVENT_BUS.addListener(instance::onQuestAccepted);
-        NeoForge.EVENT_BUS.addListener(instance::onQuestCompleted);
-        NeoForge.EVENT_BUS.addListener(instance::onQuestFailed);
-        NeoForge.EVENT_BUS.addListener(instance::onQuestAbandoned);
+        NeoForge.EVENT_BUS.addListener(EventPriority.LOW, instance::onPlayerLoggedIn);
         McaQuestsBridge.setImplementation(instance);
     }
 
@@ -152,30 +147,25 @@ public final class McaQuestsBountyCompat implements BountyQuestBridge {
         failHolders(server, null);
     }
 
-    // ------------------------------------------------------------------ holder bookkeeping
+    // ------------------------------------------------------------------ holders
 
-    public void onQuestAccepted(QuestAcceptedEvent event) {
-        if (QUEST_ID.equals(event.getQuestId())) {
-            HOLDERS.add(event.getPlayer().getUUID());
+    /**
+     * Reconciles a player who was offline when the board changed: the board may have emptied while
+     * they were away, and nothing else would ever fail their copy. LOW priority, so MCA: Crime's own
+     * login handler has already delivered any payment they were owed, and with it the signal that
+     * satisfies the copy; a payment still pending keeps the copy alive either way.
+     */
+    public void onPlayerLoggedIn(PlayerEvent.PlayerLoggedInEvent event) {
+        if (!(event.getEntity() instanceof ServerPlayer player) || player.getServer() == null) {
+            return;
         }
-    }
-
-    public void onQuestCompleted(QuestCompletedEvent event) {
-        forget(event.getQuestId(), event.getPlayer());
-    }
-
-    public void onQuestFailed(QuestFailedEvent event) {
-        forget(event.getQuestId(), event.getPlayer());
-    }
-
-    public void onQuestAbandoned(QuestAbandonedEvent event) {
-        forget(event.getQuestId(), event.getPlayer());
-    }
-
-    private void forget(ResourceLocation questId, ServerPlayer player) {
-        if (QUEST_ID.equals(questId)) {
-            HOLDERS.remove(player.getUUID());
+        QuestDefinition definition = QuestDefinitions.resolve(QUEST_ID).orElse(null);
+        PlayerQuestData data = QuestCapabilities.get(player).orElse(null);
+        if (definition == null || data == null) {
+            return;
         }
+        BountyCopyReconciler.reconcile(List.of(new QuestHolder(player, data, definition)), null,
+                board(player.getServer()));
     }
 
     /**
@@ -184,39 +174,75 @@ public final class McaQuestsBountyCompat implements BountyQuestBridge {
      * <p>Asked per holder rather than of the board as a whole, because a board that still carries one
      * posting may carry only that holder's own warrant, which they can never claim. An empty board is
      * the honest meaning of TARGET_LOST for a contract whose target is now dead, jailed or lawful, and
-     * a board holding nothing but their own name means exactly that to them. The credited player is
-     * skipped because their copy is satisfied and about to be turned in — failing it would take back
-     * what the ledger just paid for.
+     * a board holding nothing but their own name means exactly that to them. The credited player, a
+     * copy already satisfied, and a holder with a payment still pending are skipped: each is owed a
+     * turn-in, and failing it would take back what the ledger paid for ({@link BountyCopyReconciler}).
      */
     private void failHolders(MinecraftServer server, @Nullable UUID credited) {
-        if (HOLDERS.isEmpty()) {
-            return;
-        }
         QuestDefinition definition = QuestDefinitions.resolve(QUEST_ID).orElse(null);
         if (definition == null) {
             return;
         }
+        List<QuestHolder> holders = new ArrayList<>();
         for (ServerPlayer player : List.copyOf(server.getPlayerList().getPlayers())) {
-            if (player.getUUID().equals(credited) || !HOLDERS.contains(player.getUUID())) {
-                continue;
+            QuestCapabilities.get(player).ifPresent(data -> holders.add(new QuestHolder(player, data, definition)));
+        }
+        BountyCopyReconciler.reconcile(holders, credited, board(server));
+    }
+
+    private static BountyCopyReconciler.Board board(MinecraftServer server) {
+        return new BountyCopyReconciler.Board() {
+            @Override
+            public boolean hasClaimable(UUID player) {
+                return BountyContractBoard.hasOpenContracts(server, player);
             }
-            if (BountyContractBoard.hasOpenContracts(server, player.getUUID())) {
-                continue;
+
+            @Override
+            public boolean paymentPending(UUID player) {
+                return BountyService.hasUndeliveredPayment(server, player);
             }
-            PlayerQuestData data = QuestCapabilities.get(player).orElse(null);
-            if (data == null) {
-                continue;
-            }
-            for (ActiveQuest active : new ArrayList<>(data.active())) {
-                if (!QUEST_ID.equals(active.questId())) {
-                    continue;
+        };
+    }
+
+    /** One online player's contract copies, read from their persisted MCA: Quests data. */
+    private record QuestHolder(ServerPlayer player, PlayerQuestData data, QuestDefinition definition)
+            implements BountyCopyReconciler.Holder<ActiveQuest> {
+
+        @Override
+        public UUID id() {
+            return player.getUUID();
+        }
+
+        @Override
+        public List<ActiveQuest> copies() {
+            List<ActiveQuest> copies = new ArrayList<>();
+            for (ActiveQuest active : data.active()) {
+                if (QUEST_ID.equals(active.questId())) {
+                    copies.add(active);
                 }
-                try {
-                    QuestManager.failQuest(player, active, active.resolve(definition),
-                            QuestFailedEvent.Reason.TARGET_LOST, null, data);
-                } catch (Throwable t) {
-                    McaCrime.LOGGER.debug("MCA: Crime - failing a bounty contract copy threw; ignoring", t);
+            }
+            return copies;
+        }
+
+        @Override
+        public boolean satisfied(ActiveQuest copy) {
+            List<QuestObjective> objectives = copy.resolve(definition).objectives();
+            for (int i = 0; i < objectives.size(); i++) {
+                if (objectives.get(i) instanceof BountyObjective bounty
+                        && bounty.isSatisfied(player, copy.progress(i))) {
+                    return true;
                 }
+            }
+            return false;
+        }
+
+        @Override
+        public void fail(ActiveQuest copy) {
+            try {
+                QuestManager.failQuest(player, copy, copy.resolve(definition),
+                        QuestFailedEvent.Reason.TARGET_LOST, null, data);
+            } catch (Throwable t) {
+                McaCrime.LOGGER.debug("MCA: Crime - failing a bounty contract copy threw; ignoring", t);
             }
         }
     }

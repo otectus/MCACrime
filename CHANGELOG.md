@@ -26,6 +26,20 @@ client fails its handshake cleanly instead of decoding a multi-slot payload as t
 protocol number is shared with the Forge line by design and still does not imply cross-loader
 compatibility: a Forge 1.20.1 client cannot join this port.
 
+### Family audit remediation (2026-09-28)
+
+- **Launches beside any MCA 7.7 build.** The MCA range was an exact pin to `7.7.36-beta.3+1.21.1`,
+  which refused to launch with every other MCA release. `mca_probe_versions` now spans the 1.21.1 line
+  (7.7.0, 7.7.13, 7.7.22, 7.7.33 and 7.7.36-beta.3; the oldest comes from Modrinth, the rest from the
+  Conczin Maven), the binding probe passes on all five, and the range is `[7.7,8)` like the other ports.
+- **Bounty contracts fail again after a restart** (mirrored from Forge). Holders of the MCA: Quests
+  "Bounty" contract are read from each player's saved quest data instead of a set that a restart
+  emptied, a player who logs in to an empty board has their copy failed, and a copy owed a turn-in
+  (credited, already satisfied, or with a bounty payment still pending) is never failed.
+- **The MCA: Reputation handshake follows the companion** (mirrored from Forge): asked again after a
+  `/reload`, before a batch of deliveries once it is stale, and by `/crime debug integrations`.
+- `docs/PORT_PARITY.md` lists every Forge 0.7.5 feature this port does not have yet, and why.
+
 ### Family integration pass (2026-09-27, mirrored from Forge)
 
 - **A missing sibling compile surface is a build failure** (`-PskipReputationCompat` / `-PskipQuestsCompat` keep a
