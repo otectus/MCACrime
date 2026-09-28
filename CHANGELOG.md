@@ -15,6 +15,37 @@ install that does not have it.
 
 ## [0.7.5] — unreleased
 
+Family audit remediation (2026-09-28):
+
+- **Bounty contracts fail again after a restart.** The MCA: Quests adapter kept the players holding the
+  "Bounty" contract in a set filled only when a contract was accepted, so a restart emptied it and a
+  copy accepted before the restart never failed: once the board emptied (target dead, jailed or
+  pardoned, or the holder now wanted themselves) it sat in the journal until abandoned by hand. Holders
+  are now read from each player's saved MCA: Quests data whenever the board changes, and a player who
+  logs in to an empty board has their copy failed then. A copy is never failed while it is owed a
+  turn-in: the credited claimant's, one the bounty signal already satisfied, or one whose bounty
+  payment is reserved but not yet delivered (`compat/BountyCopyReconciler`,
+  `BountyService.hasUndeliveredPayment`). The satisfied-copy rule also fixes a copy being failed by a
+  later board change after its objective was already met, before the player turned it in.
+- **The MCA: Reputation handshake follows the companion.** Its profile features are advertised only
+  while Reputation's profiles are on and published, and both can change mid-session, but the answer was
+  cached from server start until the next restart. It is now asked again when a `/reload` finishes,
+  before a batch of deliveries once it is ten seconds old (Reputation's own config reload is not
+  observable from here), and whenever `/crime debug integrations` runs; only a changed answer is logged.
+- **World settings resolve once per tick.** MCA: Reputation asks the detection authority about every
+  core incident it evaluates, and each question resolved the whole `CrimeWorldSettings` record. The
+  answer is now kept for the rest of the server tick, cleared at once by `/crime rules`, `/gamerule` or
+  any code-side rule change, and only the source in force (config or game rules) is read.
+- The schema 16 step is explicit: `CrimeDataMigrations.v15to16` stamps the version and writes nothing
+  else, with its reasoning on `SCHEMA_VILLAGE_JUSTICE` (`CrimeDataMigrationsV15toV16Test`).
+- The MCA probe fleet is the family's six builds: `mca_probe_versions` adds 7.6.26, 7.7.1-beta.1 and
+  7.7.1-beta.2, and the binding probe passes on all six.
+- **Starts beside Ultima Kingdoms.** Both mods declared the other `AFTER`, a cycle Forge's mod sorter
+  refuses, so a server with both installed stopped at "Mod Sorting failed. Detected Cycles" before
+  loading anything. Ultima Kingdoms consumes this mod's institutional-service and jurisdiction APIs, so
+  this side now declares it `BEFORE`; `ModsTomlOrderingTest` pins every companion's ordering. Found by
+  booting all five family add-ons and Ultima Kingdoms together on one dedicated server.
+
 Family integration pass (2026-09-27):
 
 - **Builds against vendored, hash-pinned sibling API jars** (`libs/api/`, `gradle/sibling-apis.properties`,
@@ -37,8 +68,9 @@ Family integration pass (2026-09-27):
   line now names that version instead of a generic "requires the capability".
 - The refused-authority log no longer tells operators to look for a Reputation switch that did not
   exist; it names `coreAuthorityUndeclaredKinds`, and Reputation's new `enableCrimeIntegration`.
-- `mods.toml` declares `mcaquests`, `townstead` and `ultima_kingdoms` as optional `AFTER` companions with
-  range `[0,)` (ordering only, never a launch blocker), the convention MCA: Mob Compatibility documents.
+- `mods.toml` declares `mcaquests` and `townstead` as optional `AFTER` companions and `ultima_kingdoms` as
+  an optional `BEFORE` one, each with range `[0,)` (ordering only, never a launch blocker), the
+  convention MCA: Mob Compatibility documents.
 - The MCA probe fleet is the family-wide list (`7.6.20`, `7.6.26`, `7.7.0-beta.2`, `7.7.1-alpha.2`,
   `7.7.1-beta.1`, `7.7.1-beta.2`).
 

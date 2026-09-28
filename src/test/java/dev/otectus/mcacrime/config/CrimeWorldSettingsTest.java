@@ -66,4 +66,39 @@ class CrimeWorldSettingsTest {
         assertEquals(36_000, rules.getInt(CrimeGameRules.PLAYER_MUG_PROTECTION_TICKS));
         assertEquals(12_000, rules.getInt(CrimeGameRules.THIEF_JAIL_TICKS));
     }
+
+    /**
+     * The per-tick memo behind {@code resolve(MinecraftServer)} (0.7.5). MCA: Reputation's detection
+     * authority asks for the settings on every core incident it evaluates; one resolution per tick is
+     * the most that path pays now. The rule-change listeners that call {@code invalidate()} fire only
+     * with a live server, so they are exercised in game, not here.
+     */
+    @Test
+    void oneServerTickResolvesOnceAndAnyChangeResolvesAgain() {
+        CrimeWorldSettings.invalidate();
+        Object server = new Object();
+        Object other = new Object();
+        int[] computed = {0};
+        java.util.function.Supplier<CrimeWorldSettings> compute = () -> {
+            computed[0]++;
+            return CrimeWorldSettings.defaults();
+        };
+        try {
+            CrimeWorldSettings first = CrimeWorldSettings.memoized(server, 10, compute);
+            assertSame(first, CrimeWorldSettings.memoized(server, 10, compute));
+            assertEquals(1, computed[0], "the same server in the same tick resolves once");
+
+            CrimeWorldSettings.memoized(server, 11, compute);
+            assertEquals(2, computed[0], "the next tick resolves again");
+
+            CrimeWorldSettings.memoized(other, 11, compute);
+            assertEquals(3, computed[0], "another server never reuses this one's answer");
+
+            CrimeWorldSettings.invalidate();
+            CrimeWorldSettings.memoized(other, 11, compute);
+            assertEquals(4, computed[0], "a rule change clears the answer within the tick");
+        } finally {
+            CrimeWorldSettings.invalidate();
+        }
+    }
 }

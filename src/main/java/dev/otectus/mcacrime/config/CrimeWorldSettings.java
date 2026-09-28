@@ -6,8 +6,10 @@ import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.GameRules;
 
+import java.lang.ref.WeakReference;
 import java.util.List;
 import java.util.Objects;
+import java.util.function.Supplier;
 
 /**
  * One coherent, immutable read of the gameplay settings that may be owned by a world's game rules.
@@ -35,6 +37,13 @@ public record CrimeWorldSettings(
 
     public static final int OVERRIDABLE_VALUE_COUNT = 17;
 
+    /** The last resolution, reused for the rest of the same server tick; see {@link #resolve(MinecraftServer)}. */
+    private static volatile Memo memo;
+
+    /** Holds the server weakly, so a stopped integrated server is not kept alive by its last answer. */
+    private record Memo(WeakReference<Object> server, int tick, CrimeWorldSettings settings) {
+    }
+
     public CrimeWorldSettings {
         Objects.requireNonNull(thiefCombatPolicy, "thiefCombatPolicy");
     }
@@ -44,14 +53,45 @@ public record CrimeWorldSettings(
         return resolve(level.getServer());
     }
 
+    /**
+     * The settings in force, resolved at most once per server tick.
+     *
+     * <p>This is asked from every crime event, and MCA: Reputation asks it again through the detection
+     * authority for every core incident it evaluates, from its damage and death handlers. Resolving the
+     * whole record on each call (up to seventeen config or game-rule reads, plus the selector) cost that
+     * path far more than the one flag it needed, so the answer is kept for the rest of the tick. A
+     * change made through {@link #apply}, through {@code /gamerule}, or by code setting one of
+     * {@link CrimeGameRules}' rules clears it at once (every rule carries a change listener that calls
+     * {@link #invalidate}); a config file reload is seen from the next tick.
+     */
     public static CrimeWorldSettings resolve(MinecraftServer server) {
         Objects.requireNonNull(server, "server");
+        return memoized(server, server.getTickCount(), () -> compute(server));
+    }
+
+    /** Reads only the source in force; the config values used to be read and then discarded. */
+    private static CrimeWorldSettings compute(MinecraftServer server) {
         GameRules rules = server.getGameRules();
-        CrimeWorldSettings config = fromConfig();
-        if (!rules.getBoolean(CrimeGameRules.USE_WORLD_RULES)) {
-            return config;
+        return rules.getBoolean(CrimeGameRules.USE_WORLD_RULES) ? fromRules(rules, server) : fromConfig();
+    }
+
+    /**
+     * The memo itself, with the server and its tick passed in so the rules run in a plain unit test:
+     * the same server in the same tick reuses the answer, and anything else computes afresh.
+     */
+    static CrimeWorldSettings memoized(Object server, int tick, Supplier<CrimeWorldSettings> compute) {
+        Memo current = memo;
+        if (current != null && current.tick() == tick && current.server().get() == server) {
+            return current.settings();
         }
-        return fromRules(rules, server);
+        CrimeWorldSettings settings = compute.get();
+        memo = new Memo(new WeakReference<>(server), tick, settings);
+        return settings;
+    }
+
+    /** Forgets the memoized answer, so the next {@link #resolve} reads the live values. */
+    public static void invalidate() {
+        memo = null;
     }
 
     /** Validated COMMON values, used while the selector is off and by {@code /crime rules import}. */
@@ -125,6 +165,9 @@ public record CrimeWorldSettings(
         rules.getRule(CrimeGameRules.THIEF_JAIL_TICKS).set(settings.thiefJailTicks(), server);
         rules.getRule(CrimeGameRules.THIEF_PROTECT_HOTBAR).set(settings.thiefProtectHotbar(), server);
         rules.getRule(CrimeGameRules.USE_WORLD_RULES).set(true, server);
+        // Every set above already cleared the memo through its rule's change listener; said once more
+        // here so the command's next read cannot depend on that wiring.
+        invalidate();
     }
 
     public String sourceName() {

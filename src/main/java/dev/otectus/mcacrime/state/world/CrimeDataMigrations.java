@@ -111,6 +111,24 @@ public final class CrimeDataMigrations {
      * cuff on every login".
      */
     public static final int SCHEMA_CUFFED_PHYSICAL = 15;
+    /**
+     * The 0.7.5 village-justice schema: the bounded village-news projection {@code crimeNews}
+     * ({@code news/CrimeNewsData}), holding published case facts, per-player mailbox subscriptions and
+     * the letters waiting to be delivered.
+     *
+     * <p>Additive only, so {@link #v15to16} writes nothing but the version. {@code crimeNews} is absent
+     * in every world written before this release, and absent reads as an empty projection (a fresh
+     * world id, sequence zero, no facts, no subscribers, no letters), which is the right starting state:
+     * news is published from what happens after the upgrade, and a migration that turned the existing
+     * case ledger into back-dated news would be inventing reports nobody made. Player reports and threat
+     * receipts are not part of this schema; they live in their own {@code mcacrime_player_reports} saved
+     * data, versioned on its own.
+     *
+     * <p>A world stamped 16 and then opened by a schema-15 build (the NeoForge port before it adopts
+     * this schema) takes the from-the-future path: the whole store is held unparsed, every write is
+     * refused, and the file is written back byte for byte, as {@code QuarantineAndFutureSchemaTest}
+     * pins for any schema newer than the build's own.
+     */
     public static final int SCHEMA_VILLAGE_JUSTICE = 16;
     public static final int CURRENT_SCHEMA = SCHEMA_VILLAGE_JUSTICE;
 
@@ -180,6 +198,9 @@ public final class CrimeDataMigrations {
         }
         if (schema < 15) {
             working = v14to15(working);
+        }
+        if (schema < 16) {
+            working = v15to16(working);
         }
         working.putInt(TAG_SCHEMA, CURRENT_SCHEMA);
         return working;
@@ -604,6 +625,19 @@ public final class CrimeDataMigrations {
         }
 
         out.putInt(TAG_SCHEMA, SCHEMA_CUFFED_PHYSICAL);
+        return out;
+    }
+
+    // ------------------------------------------------------------------ 15 -> 16
+
+    /**
+     * Village justice: stamps the version and nothing else. {@link #SCHEMA_VILLAGE_JUSTICE} says why an
+     * absent {@code crimeNews} is the correct starting state and seeding it from existing cases would be
+     * a fabrication.
+     */
+    public static CompoundTag v15to16(CompoundTag tag) {
+        CompoundTag out = tag.copy();
+        out.putInt(TAG_SCHEMA, SCHEMA_VILLAGE_JUSTICE);
         return out;
     }
 

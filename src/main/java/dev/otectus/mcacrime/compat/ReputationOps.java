@@ -35,10 +35,12 @@ public interface ReputationOps {
     /**
      * What the installed companion can actually do.
      *
-     * <p>Asked once per server and cached by {@link ReputationBridge}, because the answer is a
-     * property of the installed jar and its config rather than of the deed being delivered. A build
-     * too old to answer gets {@link ReputationCapabilitySnapshot#unsupported}, and every feature this
-     * mod would otherwise use is then simply not used.
+     * <p>Cached by {@link ReputationBridge} rather than asked per deed, because the answer is a
+     * property of the installed jar, its config and its published content rather than of the deed
+     * being delivered; the bridge asks again at server start, after a {@code /reload}, and when the
+     * cached answer is stale. A build too old to answer gets
+     * {@link ReputationCapabilitySnapshot#unsupported}, and every feature this mod would otherwise use
+     * is then simply not used.
      */
     ReputationCapabilitySnapshot capabilities(@Nullable MinecraftServer server);
 

@@ -51,13 +51,21 @@ public final class CrimeGameRules {
         // Static field initialization performs vanilla's global registration exactly once.
     }
 
+    /**
+     * Every rule carries a change listener that clears {@link CrimeWorldSettings}' per-tick memo, so a
+     * {@code /gamerule} or a code-side set is seen by the very next read, in the same tick.
+     */
     private static GameRules.Key<GameRules.BooleanValue> bool(String name, boolean defaultValue) {
-        return GameRules.register(name, GameRules.Category.MISC, GameRules.BooleanValue.create(defaultValue));
+        return GameRules.register(name, GameRules.Category.MISC, GameRules.BooleanValue.create(defaultValue,
+                (server, value) -> CrimeWorldSettings.invalidate()));
     }
 
     private static GameRules.Key<GameRules.IntegerValue> integer(String name, int defaultValue, int min, int max) {
         GameRules.Type<GameRules.IntegerValue> type = GameRules.IntegerValue.create(defaultValue,
-                (server, value) -> normalize(value, server, min, max));
+                (server, value) -> {
+                    normalize(value, server, min, max);
+                    CrimeWorldSettings.invalidate();
+                });
         // Vanilla 1.20.1 exposes only an unbounded integer argument. Keep its value implementation and
         // visitor contract, changing only the argument supplier used by /gamerule.
         if ((Object) type instanceof GameRuleTypeAccessor accessor) {

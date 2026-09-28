@@ -57,7 +57,8 @@ description='''${mod_description}'''
 # api/JurisdictionPolicyApi). Declared for load ordering only: "[0,)" rather than a floor because
 # Forge enforces an optional range when the mod IS present, and each bridge already handles an
 # incompatible companion with one log line and a disabled integration (the convention MCA: Mob
-# Compatibility's mods.toml documents). AFTER so their registries exist before our setup reads them.
+# Compatibility's mods.toml documents). MCA: Quests and Townstead are AFTER so their registries exist
+# before our setup reads them.
 [[dependencies.${mod_id}]]
     modId="mcaquests"
     mandatory=false
@@ -70,9 +71,13 @@ description='''${mod_description}'''
     versionRange="[0,)"
     ordering="AFTER"
     side="BOTH"
+# Ultima Kingdoms is the other way round, BEFORE: it consumes this mod (it registers its providers into
+# api/InstitutionalServiceApi and api/JurisdictionPolicyApi) and declares mcacrime AFTER itself. Two
+# mods that each declare the other AFTER form a cycle Forge's mod sorter refuses, so with both
+# installed the game would not start ("Mod Sorting failed. Detected Cycles"). ModsTomlOrderingTest.
 [[dependencies.${mod_id}]]
     modId="ultima_kingdoms"
     mandatory=false
     versionRange="[0,)"
-    ordering="AFTER"
+    ordering="BEFORE"
     side="BOTH"
