@@ -68,6 +68,22 @@ class JailTickTest {
     }
 
     @Test
+    void anEscapedSentenceNeverResyncs() {
+        // The clock is frozen while escaped. A frozen value on the interval used to resync every tick
+        // for the whole escape; any other frozen value never resynced at all.
+        assertFalse(JailService.resyncDue(true, 40L, 40));
+        assertFalse(JailService.resyncDue(true, 41L, 40));
+        assertTrue(JailService.resyncDue(false, 40L, 40));
+        JailState j = jail(80);
+        j.escapeCuffs();
+        for (int tick = 0; tick < 200; tick++) {
+            assertNull(JailService.advanceTick(j, 0L));
+            assertFalse(JailService.resyncDue(j.isEscaped(), j.getRemainingOnlineTicks(), 40));
+        }
+        assertEquals(80L, j.getRemainingOnlineTicks(), "an escaped sentence does not run");
+    }
+
+    @Test
     void aThousandTickSentenceCostsTwentyFiveResyncs() {
         int resyncs = 0;
         for (long remaining = 999L; remaining >= 0L; remaining--) {

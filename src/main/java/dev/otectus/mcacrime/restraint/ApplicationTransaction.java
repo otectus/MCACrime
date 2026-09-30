@@ -67,7 +67,14 @@ public final class ApplicationTransaction {
          * <p>Application only. Removal, recovery and loading an existing restraint are unaffected,
          * because a disabled mechanic must still let an operator get equipment off somebody.
          */
-        COEXISTENCE_REFUSED
+        COEXISTENCE_REFUSED,
+        /**
+         * The applier is further away than {@code restraints.application.maxRangeBlocks}, or cannot
+         * see the subject while {@code restraints.application.requireLineOfSight} is on.
+         *
+         * <p>Never produced for a self-application or a device, which have no distance to cover.
+         */
+        OUT_OF_REACH
     }
 
     /**

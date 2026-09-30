@@ -36,8 +36,9 @@ import java.util.function.Supplier;
 public final class CrimeNetwork {
 
     // 17 added bounded player-report menus, submission and private receipt status; 18 drops the
-    // warden-guide and identity-projection packets, which shifts every later message index.
-    private static final String PROTOCOL_VERSION = "18";
+    // warden-guide and identity-projection packets, which shifts every later message index; 19 adds
+    // the paused-sentence flag to the self status.
+    private static final String PROTOCOL_VERSION = "19";
 
     public static final SimpleChannel CHANNEL = NetworkRegistry.newSimpleChannel(
             new ResourceLocation(McaCrime.MOD_ID, "main"),
@@ -352,6 +353,7 @@ public final class CrimeNetwork {
                 CrimeState.getBand(player),
                 CrimeState.isWanted(player),
                 JailService.remainingTicks(player),
+                JailService.sentencePaused(player),
                 OutlawResolver.resolve(player).lawfulCombatTarget()));
     }
 

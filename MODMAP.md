@@ -27,7 +27,7 @@ dev.otectus.mcacrime.action.handler                  20 files
 dev.otectus.mcacrime.activity                        4 files
 dev.otectus.mcacrime.ai                              16 files
 dev.otectus.mcacrime.ai.thief                        10 files
-dev.otectus.mcacrime.api                             4 files
+dev.otectus.mcacrime.api                             6 files
 dev.otectus.mcacrime.api.event                       31 files
 dev.otectus.mcacrime.api.jurisdiction                3 files
 dev.otectus.mcacrime.api.model                       19 files
@@ -47,7 +47,7 @@ dev.otectus.mcacrime.client.render.restraint         3 files
 dev.otectus.mcacrime.client.screen                   16 files
 dev.otectus.mcacrime.client.screen.widget            3 files
 dev.otectus.mcacrime.command                         3 files
-dev.otectus.mcacrime.compat                          45 files
+dev.otectus.mcacrime.compat                          46 files
 dev.otectus.mcacrime.compat.inventory                1 file
 dev.otectus.mcacrime.compat.locksreforged            1 file
 dev.otectus.mcacrime.compat.mana                     1 file
@@ -110,7 +110,7 @@ dev.otectus.mcacrime.recipe                          8 files
 dev.otectus.mcacrime.recipe.lock                     8 files
 dev.otectus.mcacrime.relationship                    5 files
 dev.otectus.mcacrime.report                          6 files
-dev.otectus.mcacrime.restraint                       41 files
+dev.otectus.mcacrime.restraint                       42 files
 dev.otectus.mcacrime.stat                            2 files
 dev.otectus.mcacrime.state                           5 files
 dev.otectus.mcacrime.state.world                     13 files
@@ -287,6 +287,8 @@ Run `check_mod.py` for a full consistency check (missing models, lang keys, text
 
 
 
+
+
 ## Current focus
 
 _What you are working on right now. One or two lines._
@@ -300,9 +302,63 @@ _What you are working on right now. One or two lines._
 _Choices that should not be re-litigated every session (why a system was built a
 certain way, APIs deliberately avoided, balance rules, naming rules)._
 
+- **Dev runtime MCA is a 7.7 build** (`mca_version` in `gradle.properties`). MCA 7.6.x ships its Forge
+  mixins with SRG names in the annotations and no refmap, so `runClient`/`runServer` die in
+  `MixinTranslatableText` before mod loading. 7.7.0-beta.2+ ships `forge-mca.refmap.json` and loads. The
+  7.6 package root stays covered by `McaBindingProbeTest` (`mca_probe_versions`), not by dev runs.
+- **Restraint application reach is enforced in `RestraintService.evaluate`** for every non-self,
+  non-device application (`restraints.application.maxRangeBlocks`, `requireLineOfSight`), refusing
+  with `ApplicationTransaction.Refusal.OUT_OF_REACH`. The crime menu validates reach only when it opens,
+  so the check has to live at the commit, not the menu.
+- **`restraints.application.channelTicks > 0` opens an `ActionSession` channel** owned by
+  `action/handler/RestrainActionHandler` (menu route) and started from `restraint/RestraintInteractHandler`
+  (right-click route), so both doors take the same time. The channel re-checks reach, sight and the held
+  item every tick and commits through the same `RestraintService.apply`. 0 (shipped) stays instant.
+  Self-application and devices never channel.
+- **The hood is an empty vanilla bundle, recognised in `CrimeItems.familyFor`**, the one method every
+  application route asks. A filled bundle is not a restraint.
+- **Inert config keys are documented, not removed** (`karma.rewardWeights`, `antifarm`,
+  `npccrime.maxActiveNpcCrimesPerVillage`/`minTimeBetweenNpcCrimes`, `detection.observations.hearingWitnessRadius`,
+  `integrations.dedupeRetentionTicks`, `criminalJobs.presentThiefAsMcaProfession`): their comments say
+  RESERVED/DEPRECATED so existing files keep parsing. Trade/gift/quest Karma and NPC-initiated crime are
+  out of product scope (docs/REMAINING_WORK_REVIEW_2026-09-07.md P3); do not wire them to make a key active.
+- **`headTapeMufflesTextChat` muffles, never cancels** (`restraint/RestraintChatMuffle`): chat is a
+  `ProtectedAction`, so a gagged player's line is still sent with its words replaced by "mmph". It keys
+  off the resolved policy's `voiceGag`, and runs at HIGH so `ChatNameColor`'s band marker still prefixes it.
+- **`guardThiefResponseRadius` must not exceed `guardAggroRadius`**; the default is 16 to match the
+  chase leash. `ConfigSweepTest.theShippedGuardDefaultsValidateClean` pins it.
+- **Rescue village standing (`villageRepRise`) is local only** and skipped while MCA: Reputation keeps
+  standing, because its mirror overwrites this store after every commit.
+- **Network protocol is `"19"`**: the self status carries `jailPaused`, and the client sentence clock
+  holds while it is set. An escaped sentence never resyncs on the jail cadence (`JailService.resyncDue`).
+
 ## Known issues
 
 _Bugs you know about but have not fixed, with the symptom and any lead._
+
+- **Rescues never reach MCA: Reputation.** `CrimeIncidentMapping.CAPTIVE_RESCUED` and its datapack
+  incident/profile/credit policy ship, but nothing enqueues it: `CrimeIntegrationPump.deliverCreate` is
+  built around a crime case, and a rescuer has none. Needs a non-case positive-deed delivery shape.
+- **The bundle hood needs the Bundle experiment in 1.20.1.** Vanilla refuses to craft
+  (`CraftingMenu`) or interact with (`ServerGamePacketListenerImpl`) an item whose feature flag is off,
+  so `recipes/bundle.json` yields nothing and right-click hooding is impossible in a default world.
+  `DispenserBlock` has no such check, so a bundle obtained another way still hoods from a dispenser.
+  `restraint/BundleHoodFamilyTest` skips in this unit env (no bootstrap); the port's copy runs and passes.
+- **The dedupe store is dead**: `CrimeWorldData.rememberDedupe`/`dedupe` have no caller, so
+  `integrations.dedupeRetentionTicks` governs an always-empty table. Left in place because it is persisted.
+- **Unused lang keys**: `mcacrime.mask_station.reason.*` (the screen explains via cost/hint lines, not
+  `MaskCraftRejection`), `mcacrime.capital.executed`, `mcacrime.capital.escort.returned`,
+  `mcacrime.npc_mug.returned`, `mcacrime.mug.channeling`, `mcacrime.mug.progress`,
+  `mcacrime.msg.accomplice.declined`, `mcacrime.hud.restraint.durability`/`keyless`.
+- **The NeoForge 1.21.1 port lags this tree by 41 source files** (44 baseline-only files, less the three
+  Forge capability classes the port replaces with data attachments): player reports, crime news, world
+  game rules (`config/CrimeGameRules`, `CrimeWorldSettings`), thief-combat justice, the native MCA
+  justice mixins, the jurisdiction API and the GeckoLib mask renderer. The 2026-09-30 audit fixes were
+  ported where the files exist, together with `RestraintHandlers.permits` and the interaction router's
+  `actorMayUseHands` guard, which the port had also been missing.
+- **CLAUDE.md drift**: its mixin list omits `HopperLockMixin`, `RestraintContainerClickMixin`,
+  `RestraintJumpMixin`, `RestraintPlayerActionMixin`, `GameRuleTypeAccessor` and `ThiefGossipMixin`, and
+  Key Dependencies omits the mandatory GeckoLib.
 
 ## 0.7.2 notes (hand-maintained)
 
@@ -392,7 +448,7 @@ _Bugs you know about but have not fixed, with the symptom and any lead._
 - A common-config reload cancels every live restraint, lockpicking and frisking session
   (`restraint/SessionReloadPolicy`, `SessionCancelCause.CONFIG_RELOADED`). Tethers are persistent
   state rather than sessions and read their numbers live, so they are not touched.
-- World data is schema 16 and the network protocol is `"18"`.
+- World data is schema 16 and the network protocol is `"19"` (was `"18"` until the 2026-09-30 audit).
 - Trimmed before release: bandage, knife, fork, spoon, prisoner tag, possessions box, fuzzy handcuffs,
   meal tray, poster, warden's guide, weighted anchor and toilet, together with the wound, excavation,
   identity/consent and Buoyant systems that existed only for them. Frisking stays and opens from the

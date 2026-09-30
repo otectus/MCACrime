@@ -70,6 +70,20 @@ public final class CrimeClientSetup {
                             .toArray(new net.minecraft.world.item.Item[0]));
         }
 
+        /**
+         * Tells the client recipe book where Mask Station recipes go: nowhere.
+         *
+         * <p>They are made at the station's own screen, never through a recipe book. Without a finder
+         * the client recipe book cannot place a custom recipe type and logs one "Unknown recipe
+         * category" warning per mask recipe every time a player joins a world.
+         */
+        @SubscribeEvent
+        public static void onRegisterRecipeBookCategories(
+                net.minecraftforge.client.event.RegisterRecipeBookCategoriesEvent event) {
+            event.registerRecipeCategoryFinder(dev.otectus.mcacrime.recipe.CrimeRecipes.MASK_MAKING.get(),
+                    recipe -> net.minecraft.client.RecipeBookCategories.UNKNOWN);
+        }
+
         @SubscribeEvent
         public static void onClientSetup(FMLClientSetupEvent event) {
             // A key ring shows how many keys are on it (0.7.5 M3.2). The four count textures shipped

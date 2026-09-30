@@ -211,7 +211,8 @@ public final class CrimeHudOverlays {
 
         Component line;
         if (jailTicks > 0) {
-            line = Component.translatable("gui.mcacrime.hud.jail", TickFormat.compact(jailTicks));
+            line = Component.translatable(ClientSelfData.jailPaused()
+                    ? "gui.mcacrime.hud.jail_paused" : "gui.mcacrime.hud.jail", TickFormat.compact(jailTicks));
         } else if (ClientCaptiveData.capRemainingTicks() > 0) {
             line = Component.translatable("gui.mcacrime.hud.captive_timed",
                     TickFormat.clock(ClientCaptiveData.capRemainingTicks()));

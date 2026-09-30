@@ -178,6 +178,30 @@ class PrisonResourceCoverageTest {
 
     /** The mining tags, so a reinforced wall is qualified rather than merely slow. */
     @Test
+    void aDoubleReinforcedSlabDropsTwoSlabs() {
+        // The table used to drop one slab whatever the state, so breaking a double slab deleted half
+        // of what was placed. Vanilla's shape: set_count 2 when the block state's type is double.
+        JsonObject table = JsonParser.parseString(read(DATA.resolve("loot_tables/blocks/reinforced_stone_slab.json")))
+                .getAsJsonObject();
+        JsonObject entry = table.getAsJsonArray("pools").get(0).getAsJsonObject()
+                .getAsJsonArray("entries").get(0).getAsJsonObject();
+        boolean doubles = false;
+        for (JsonElement element : entry.getAsJsonArray("functions")) {
+            JsonObject function = element.getAsJsonObject();
+            if (!"minecraft:set_count".equals(function.get("function").getAsString())
+                    || function.get("count").getAsInt() != 2) {
+                continue;
+            }
+            for (JsonElement condition : function.getAsJsonArray("conditions")) {
+                JsonObject properties = condition.getAsJsonObject().getAsJsonObject("properties");
+                doubles |= properties != null && properties.has("type")
+                        && "double".equals(properties.get("type").getAsString());
+            }
+        }
+        assertTrue(doubles, "a double slab must drop two");
+    }
+
+    @Test
     void theReinforcedSetIsPickaxeQualifiedInTheVanillaTags() {
         String pickaxe = read(VANILLA_TAGS.resolve("mineable/pickaxe.json"));
         String needsIron = read(VANILLA_TAGS.resolve("needs_iron_tool.json"));

@@ -67,20 +67,6 @@ public final class CrimeKeybinds {
     private CrimeKeybinds() {
     }
 
-    @Mod.EventBusSubscriber(modid = McaCrime.MOD_ID, value = Dist.CLIENT, bus = Mod.EventBusSubscriber.Bus.MOD)
-    public static final class Registration {
-        private Registration() {
-        }
-
-        @SubscribeEvent
-        public static void onRegisterKeyMappings(RegisterKeyMappingsEvent event) {
-            event.register(OPEN_DOSSIER);
-            event.register(OPEN_SELF_PANEL);
-            event.register(REOPEN_CHALLENGE);
-            event.register(OPEN_CRIME_MENU);
-        }
-    }
-
     /**
      * Drains the click queues once per client tick, and runs the challenge countdown.
      *
@@ -140,5 +126,19 @@ public final class CrimeKeybinds {
             pressed = true;
         }
         return pressed;
+    }
+
+    @Mod.EventBusSubscriber(modid = McaCrime.MOD_ID, value = Dist.CLIENT, bus = Mod.EventBusSubscriber.Bus.MOD)
+    public static final class Registration {
+        private Registration() {
+        }
+
+        @SubscribeEvent
+        public static void onRegisterKeyMappings(RegisterKeyMappingsEvent event) {
+            event.register(OPEN_DOSSIER);
+            event.register(OPEN_SELF_PANEL);
+            event.register(REOPEN_CHALLENGE);
+            event.register(OPEN_CRIME_MENU);
+        }
     }
 }

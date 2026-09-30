@@ -8,9 +8,9 @@ import org.junit.jupiter.api.Test;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Criminality is a persisted record, never an inference from a villager's appearance (0.7.0, plan §4.7).
@@ -48,10 +48,11 @@ class OrdinaryVillagerNotCriminalTest {
     }
 
     @Test
-    void theProfessionIsPresentationOnlyAndOffByDefaultForThieves() {
-        // The registry object itself cannot be built without a bootstrap, so what is pinned here is the
-        // fact that decides whether anybody ever sees the label: it is off, and the record is not.
-        assertFalse(McaCrimeConfig.COMMON.presentThiefAsMcaProfession.getDefault(),
-                "a thief wearing a label would be identifiable without any record being read");
+    void theDeprecatedThiefPresentationKeyDefaultsToTheOnlySupportedState() {
+        // Since 0.7.2 a thief is always the visible profession and the key changes nothing. Its default
+        // is the value that matches that, so a freshly written config does not trip the one-time
+        // deprecation notice about a setting nobody touched; only a file still saying false does.
+        assertTrue(McaCrimeConfig.COMMON.presentThiefAsMcaProfession.getDefault(),
+                "a fresh config must not ask for the hidden thief that no longer exists");
     }
 }

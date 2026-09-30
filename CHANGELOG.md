@@ -15,6 +15,55 @@ install that does not have it.
 
 ## [0.7.5] — unreleased
 
+Audit remediation (2026-09-30):
+
+- **Restraints respect reach and sight.** `restraints.application.maxRangeBlocks` and
+  `requireLineOfSight` were read by the validator and the preset writer and by nothing else, and the
+  crime menu checks reach only when it opens, so a Restrain click could cuff somebody across the
+  village for as long as the menu stayed open. `RestraintService.evaluate` now refuses an application
+  by somebody else beyond the range or out of sight (`ApplicationTransaction.Refusal.OUT_OF_REACH`).
+- **`restraints.application.channelTicks` works.** It was the documented replacement for the old
+  capture channel and the `BALANCED_VILLAGE` preset sets it to 60, but nothing read it. Above 0,
+  restraining somebody else -- from the crime menu or by right-click -- is now a channel with a progress
+  bar that breaks off if the applier gets out of reach, loses sight or stops holding the restraint, and
+  the item is spent only when it completes. 0, the shipped default, stays instant; self-application
+  and dispensers never channel.
+- **The bundle hood can be put on.** Every application route asks `CrimeItems.familyFor`, which only
+  recognised this mod's own restraint items, so the hood definition, worn model, recipe and dispenser
+  registration shipped with no way to use them. An empty vanilla bundle is now the hood; a filled one is
+  refused. The bundle is experimental in 1.20.1: without the Bundle experiment vanilla neither crafts it
+  nor lets it be used on an entity, so a default world can only hood from a dispenser.
+- **Rescues and witnesses move relationships as specified** (spec §10.1). Family gratitude on a rescue
+  reads `relationship.familyHeartGain` instead of half of `rescueHeartGain`; a rescue raises the
+  rescuer's standing with the villager's community by `villageRepRise` (local store only, skipped while
+  MCA: Reputation keeps standing); and every villager who watched an assault, other than the victim and
+  their family, loses `witnessTrustLoss` hearts toward the offender. All three keys had been in the
+  config since 0.1.0 with nothing reading them.
+- **Guards finish the chases they start.** `guardThiefResponseRadius` shipped at 24 against the 16-block
+  chase leash (`guardAggroRadius`), so a guard who noticed a mugging from 17 to 24 blocks away stopped
+  it, began a pursuit and gave up on the next tick, and every fresh server warned about its own
+  defaults. The default is now 16; an existing file keeps its value and the validator names the problem.
+- **An escaped prisoner's sentence stops on screen too.** The server freezes an escaped sentence, but
+  the client kept counting its copy down to zero. The self status now carries `jailPaused`, and the HUD
+  and player card say the sentence is paused. The jail resync also rests while escaped: a frozen value
+  on the 40-tick cadence used to resend the status every tick for the whole escape. **Network protocol
+  19**: update client and server together.
+- **`restraints.definitions.headTapeMufflesTextChat` does something.** Turned on, a gagged player's
+  typed chat arrives as "mmph" (`restraint/RestraintChatMuffle`). It is still sent, because chat is a
+  protected action.
+- A double reinforced stone slab drops two slabs instead of one.
+- The client recipe book is told Mask Station recipes have no category, which removes 32 "Unknown
+  recipe category" warnings from every world join.
+- Config: `criminalJobs.presentThiefAsMcaProfession` defaults to `true`, so a fresh config no longer
+  trips the deprecation notice about a setting nobody touched; `detection.observations.hearingWitnessRadius`
+  is marked deprecated (each crime's `soundRadius` has decided hearing since 0.6.0) and its incorrect
+  validator rule is gone; `karma.rewardWeights`, `antifarm`, the two `npccrime` throttles and
+  `integrations.dedupeRetentionTicks` say in their comments that they have no effect; the
+  `mcaCrimeSeriousNpcCrime` game-rule description says it is reserved.
+- Development: `runClient` and `runServer` launch again. MCA 7.6.x ships SRG-named Forge mixins with no
+  refmap and died in `MixinTranslatableText` before mod loading, so the dev runtime (`mca_version`) is
+  now 7.7.1-beta.2, which ships a refmap. The 7.6 package root stays covered by `McaBindingProbeTest`.
+
 Family audit remediation (2026-09-28):
 
 - **Bounty contracts fail again after a restart.** The MCA: Quests adapter kept the players holding the

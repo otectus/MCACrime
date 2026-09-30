@@ -177,9 +177,7 @@ public final class RestraintInteractHandler {
 
         return switch (route) {
             case OPERATOR_TOOL -> operatorTool(actor, subject, slot);
-            case APPLY_RESTRAINT -> RestraintService
-                    .apply(actor, subject, hand, slot, AppliedRestraint.ApplicationContext.UNLAWFUL)
-                    .applied();
+            case APPLY_RESTRAINT -> applyOrChannel(actor, subject, hand, slot, stack);
             case KEY_REMOVAL, KEYLESS_REMOVAL -> remove(actor, subject, slot, stack, route);
             // The pick opens a server-owned session against this exact worn instance (M3.3). It never
             // removes anything here: winning the session is what does that, on the server.
@@ -207,6 +205,30 @@ public final class RestraintInteractHandler {
                     RestraintHandlers.permits(actor, RestraintAction.USE_ITEM);
             case KEYLESS_REMOVAL, ESCORT_START, PASS -> true;
         };
+    }
+
+    /**
+     * Puts the held restraint on, at once or through the application channel.
+     *
+     * <p>A channel is opened only when {@code restraints.application.channelTicks} asks for one and
+     * somebody else is being restrained; putting a restraint on yourself is consent, not a struggle. A
+     * channel is opened only for an application that would stand right now, so a right-click that
+     * cannot succeed still falls through to MCA rather than starting a bar that is bound to fail.
+     */
+    private static boolean applyOrChannel(ServerPlayer actor, LivingEntity subject,
+                                          net.minecraft.world.InteractionHand hand,
+                                          @Nullable RestraintSlot slot, ItemStack stack) {
+        boolean self = actor.getUUID().equals(subject.getUUID());
+        if (self || dev.otectus.mcacrime.action.handler.RestrainActionHandler.channelTicks() <= 0) {
+            return RestraintService.apply(actor, subject, hand, slot,
+                    AppliedRestraint.ApplicationContext.UNLAWFUL).applied();
+        }
+        if (slot == null
+                || RestraintService.evaluate(actor, subject, stack, slot) != ApplicationTransaction.Refusal.NONE) {
+            return false;
+        }
+        return dev.otectus.mcacrime.action.handler.RestrainActionHandler.beginChannel(actor, subject, hand,
+                slot, AppliedRestraint.ApplicationContext.UNLAWFUL, UUID.randomUUID());
     }
 
     /**

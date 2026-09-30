@@ -89,7 +89,7 @@ that is the single most important thing the validator checks.
 | `protectVillagerKarma` | `10` | `-1000 … 1000` |
 | `failQuestKarma` | `-2` | `-1000 … 1000` |
 
-**No source writes positive karma yet.** The per-villager, per-village, and per-player daily counters
+**Nothing awards these weights yet.** Positive karma comes only from decay and `bounty.karmaReward`. The per-villager, per-village, and per-player daily counters
 that would cap it are persisted and reset on the MC-day epoch, but nothing increments them. These
 weights exist so the shape is fixed before the sources arrive; changing them today does nothing.
 
@@ -123,7 +123,7 @@ re-derived.
 | Option | Default | Range | What it does |
 |---|---|---|---|
 | `enableObservations` | `true` | — | Record who saw a crime, in what role, and how sure they are. Off falls back to the count-only witness scan: no reports, no reaction triggers, and guards that know only what Heat says. |
-| `hearingWitnessRadius` | `16` | `0 … 64` | Radius in which a struggle can be heard without being seen. Deliberately larger than the sight radius, and halved when something solid is in the way. `0` disables hearing witnesses. |
+| `hearingWitnessRadius` | `16` | `0 … 64` | Deprecated, no effect. Since 0.6.0 how far a crime carries is each crime type's `soundRadius`, scaled by `crimeAwareness.auditoryWitnessRadiusMultiplier`; kept so an existing file still parses. |
 | `reportRadius` | `24` | `1 … 128` | How far a frightened witness will search for a guard to report to. Below `witnessRadius` most reports never get filed, and the validator says so. |
 | `observationStatuteTicks` | `168000` | `1200 … 10000000` | How long an undelivered observation stays reportable. Past it the observation is marked **expired**, not deleted — "they saw it and never told anyone in time" is a different fact from "nobody saw it". |
 | `reportConfidenceThreshold` | `0.6` | `0.0 … 1.0` | Report confidence at or above which an arrest is justified. Below it a guard investigates instead, which is what a heard-but-unseen crime should produce. A responder who saw it themselves always clears this. |
@@ -188,7 +188,7 @@ is speaking.
 | `perPlayerDailyKarmaCap` | `100` | `0 … 1000000` |
 | `diminishingReturnsFactor` | `0.5` | `0.0 … 1.0` |
 
-These cap *positive* karma, and no positive karma source exists yet. See `[karma.rewardWeights]`.
+These cap the reward sources in `[karma.rewardWeights]`, none of which exists yet. The only positive karma sources are decay and `bounty.karmaReward`, which these caps do not apply to.
 
 ## `[enforcement]`
 
@@ -235,7 +235,7 @@ default.** Takes effect on the next scan; no restart is required.
 | `guardPopulationMaxPerPass` | `1` | `1 … 16` | How many villagers may be converted in one pass, so a village grows its guard force gradually rather than a third of the population changing clothes at once. |
 | `guardPopulationScanIntervalTicks` | `1200` | `200 … 72000` | Game ticks between passes. One village in one dimension is examined per pass, and only dimensions that have players in them are considered at all. |
 | `guardPopulationCooldownTicks` | `6000` | `1200 … 1728000` | Game ticks before the same village is examined again. Should be comfortably longer than the scan interval, and `/crime validate` says so if it is not. |
-| `guardThiefResponseRadius` | `24.0` | `4.0 … 64.0` | How far a guard will notice a mugging in progress. Line of sight is required as well, so this is the range at which a guard who can already see the threat reacts to it. |
+| `guardThiefResponseRadius` | `16.0` | `4.0 … 64.0` | How far a guard will notice a mugging in progress. Line of sight is required as well, so this is the range at which a guard who can already see the threat reacts to it. Keep it no larger than `guardAggroRadius`: the chase ends as soon as the thief is further away than that. |
 | `guardThiefPursuitTimeoutTicks` | `600` | `40 … 24000` | How long a guard chases a thief before giving up. The chase also ends when the thief gets further away than `guardAggroRadius`. |
 | `guardsUseForceOnArmedThieves` | `true` | — | An armed thief is fought rather than merely chased. Off makes every arrest a non-lethal capture. |
 | `returnStolenGoodsOnArrest` | `true` | — | A guard hands back what the thief took, to any victim standing nearby. |
@@ -302,7 +302,7 @@ with dynamic pricing.
 | `wildThiefChance` | `0.0025` | `0.0 … 1.0` | Chance for a villager with no home village. Independent criminals should be rare. |
 | `minVillagePopulationForFence` | `5` | `1 … 200` | A village smaller than this never produces a fence. |
 | `presentFenceAsMcaProfession` | `true` | — | Show a fence as the `mcacrime:fence` villager profession. The previous profession is remembered and restored if this is turned off again. |
-| `presentThiefAsMcaProfession` | `false` | — | Show a thief as the `mcacrime:thief` villager profession. Off by default: a thief wearing a label has no cover. |
+| `presentThiefAsMcaProfession` | `true` | — | Deprecated, no effect: since 0.7.2 a thief is always the visible `mcacrime:thief` profession. A file that still says `false` gets one startup notice. |
 | `staleRecordGraceDays` | `14` | `1 … 365` | Days a criminal record is kept after the villager was last seen loaded. |
 
 ### `[criminalJobs.thief]`
@@ -924,7 +924,7 @@ Every setting here is a no-op when the companion mod is absent.
 | `maxDeliveryAttempts` | `6` | `1 … 20` | Attempts before a write is set aside as a dead letter for `/crime debug outbox dead`. |
 | `retryBaseDelayTicks` | `200` | `20 … 24000` | First retry delay; doubles on each failure. Must not exceed the maximum. |
 | `retryMaxDelayTicks` | `24000` | `20 … 1728000` | Ceiling on the retry delay. |
-| `dedupeRetentionTicks` | `168000` | `1200 … 1728000` | How long a completed transaction is remembered so a replay of it changes nothing. Long-lived case-to-incident links live on the record itself and never expire; this only covers the replay window for one-off mutations. |
+| `dedupeRetentionTicks` | `168000` | `1200 … 1728000` | Reserved, no effect in this release: replays are recognised by transaction receipts and record revisions, which do not expire, and nothing writes to the table this would age out. |
 | `currencyId` | `mcacrime:emerald` | string | Which registered currency fines, bail, ransom, theft and bounties are paid in. Built in: `mcacrime:emerald`, `mcacrime:item` (the item named by `currencyItem`, one item to one unit) and `mcacrime:numismatic` (the Numismatic Overhaul purse, in bronze, offered only when that mod is installed). Economy mods register their own ids through `McaCrimeApi.registerCurrency`; an unregistered id falls back to emeralds with one warning rather than taking the economy offline. |
 | `currencyItem` | `minecraft:emerald` | string | The item `mcacrime:item` pays in, as a registry id. Only paid in when `currencyId` is `mcacrime:item`; validated regardless. An unknown or absent item falls back to emeralds with one warning. |
 | `mcaQuestsBounties` | `true` | — | Publish open bounties as MCA: Quests contracts when that mod is installed. A bounty is paid once whichever route claims it. |
@@ -1053,7 +1053,7 @@ damage: it lives on the worn instance, so two prisoners never share one counter.
 | `durabilityDuckTapeLegs` | `5` | `1 … 4096` | Work leg tape withstands; configured independently of the arm value. |
 | `durabilityDuckTapeHead` | `5` | `1 … 4096` | Work head tape withstands. |
 | `durabilityBundleHood` | `5` | `1 … 4096` | Work a bundle hood withstands. |
-| `headTapeMufflesTextChat` | `false` | — | Whether a head restraint also silences typed chat. Off by default: a gag is about voice, and taking away a player's ability to say "let me out" is a moderation problem, not a mechanic. |
+| `headTapeMufflesTextChat` | `false` | — | Whether a gag (head tape) also muffles typed chat: the message is still sent, but its words arrive as "mmph". Off by default: a gag is about voice, and taking away a player's ability to say "let me out" is a moderation problem, not a mechanic. |
 
 ## `[restraints.application]`
 

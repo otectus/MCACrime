@@ -32,7 +32,7 @@ public final class CrimeClientHandlers {
 
     public static void onSelfStatus(SelfStatusS2CPacket msg) {
         ClientSelfData.update(msg.karma(), msg.heat(), msg.band(), msg.wanted(),
-                msg.jailRemainingTicks(), msg.legalTarget());
+                msg.jailRemainingTicks(), msg.jailPaused(), msg.legalTarget());
     }
 
     public static void onBandSync(BandSyncS2CPacket msg) {

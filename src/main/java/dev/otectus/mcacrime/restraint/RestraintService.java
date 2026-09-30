@@ -104,6 +104,13 @@ public final class RestraintService {
         if (!dev.otectus.mcacrime.compat.CuffedCoexistence.mayApplyRestraints()) {
             return ApplicationTransaction.Refusal.COEXISTENCE_REFUSED;
         }
+        // Reach and sight (§3.12 restraints.application). Checked here rather than at the interaction
+        // because the crime menu is a second door: it validates distance when it opens and then accepts
+        // a Restrain click for as long as it stays open, so without this a player could walk away from
+        // the menu and still cuff somebody across the village.
+        if (!self && !withinApplicationReach(actor, subject)) {
+            return ApplicationTransaction.Refusal.OUT_OF_REACH;
+        }
         CrimeWorldData data = data(subject);
         if (!self && !VulnerabilityGates.permits(VulnerabilityGates.configured(),
                 vulnerability(subject, data))) {
@@ -111,6 +118,41 @@ public final class RestraintService {
         }
         return ApplicationTransaction.check(data, request(actor, subject, slot, definitionId.get(),
                 null, self), rig(subject));
+    }
+
+    /**
+     * Whether {@code actor} is close enough to {@code subject}, and can see them, to put a restraint on.
+     *
+     * <p>Reads {@code restraints.application.maxRangeBlocks} and {@code requireLineOfSight} live, so a
+     * reload applies to the next attempt. A different level is never in reach.
+     */
+    public static boolean withinApplicationReach(@Nullable LivingEntity actor, @Nullable LivingEntity subject) {
+        if (actor == null || subject == null || actor.level() != subject.level()) {
+            return false;
+        }
+        double maxRange;
+        boolean requireSight;
+        try {
+            maxRange = McaCrimeConfig.COMMON.applicationMaxRangeBlocks.get();
+            requireSight = McaCrimeConfig.COMMON.applicationRequireLineOfSight.get();
+        } catch (IllegalStateException e) {
+            maxRange = 4.0D;
+            requireSight = true;
+        }
+        return reachAllows(actor.distanceToSqr(subject), !requireSight || actor.hasLineOfSight(subject),
+                maxRange, requireSight);
+    }
+
+    /** The reach rule as a pure function of what the server observed, so it is testable without a level. */
+    public static boolean reachAllows(double distanceSqr, boolean lineOfSight, double maxRangeBlocks,
+                                      boolean requireLineOfSight) {
+        if (!(distanceSqr >= 0.0D) || maxRangeBlocks <= 0.0D) {
+            return false;
+        }
+        if (distanceSqr > maxRangeBlocks * maxRangeBlocks) {
+            return false;
+        }
+        return !requireLineOfSight || lineOfSight;
     }
 
     /**

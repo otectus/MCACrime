@@ -19,14 +19,15 @@ path, kidnapping teleport tether and NPC leash with one native physical-restrain
 cp -r world world-backup-pre-0.7.5
 ```
 
-### Network protocol 18
+### Network protocol 19
 
-`network/CrimeNetwork.PROTOCOL_VERSION` is `"18"`. Update the client and the server together. The
+`network/CrimeNetwork.PROTOCOL_VERSION` is `"19"`. Update the client and the server together. The
 bump is deliberate rather than cosmetic: the old restraint packets are gone, and an old client that
 was allowed to connect would decode a multi-slot physical snapshot as the old single-enum packet.
-With the bump it fails the handshake cleanly instead. Protocols 16 and 17 were unreleased previews
-of this same release; 18 is what ships, after the player-report menus were added and the warden-guide
-and identity-projection packets were dropped, so a client from any preview build must update.
+With the bump it fails the handshake cleanly instead. Protocols 16 to 18 were unreleased previews
+of this same release; 19 is what ships, after the player-report menus were added, the warden-guide
+and identity-projection packets were dropped, and the self status gained its paused-sentence flag,
+so a client from any preview build must update.
 
 ### Schema 15 — the physical tables
 

@@ -371,10 +371,11 @@ mod needs has been renamed or removed. Because no class names an MCA type, the c
 longer catch that; this is what replaces it. Add a version to `mca_probe_versions` in
 `gradle.properties` whenever MCA moves again.
 
-**MCA Reborn does not load under a ForgeGradle dev runtime** — its bundled mixins only resolve
-against SRG names, so `runClient` is not a valid test of anything that touches MCA. Everything
-MCA-facing has to be verified in a production-style instance; the `PHASE_N_VERIFICATION.md` files
-are those checklists.
+**MCA Reborn 7.6.x does not load under a ForgeGradle dev runtime** — its bundled mixins only
+resolve against SRG names and it ships no refmap. The dev runs therefore launch a 7.7 build
+(`mca_version` in `gradle.properties`), which ships a refmap and loads. Behaviour specific to the 7.6
+package root still has to be verified in a production-style instance; the `PHASE_N_VERIFICATION.md`
+files are those checklists.
 
 ## Licence
 

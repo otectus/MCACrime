@@ -154,9 +154,12 @@ public final class RescueActionHandler implements CrimeActionHandler {
             // The gratitude payout. rescueHeartGain has been in the config since 0.1.0 with nothing
             // reading it; this is the action it was always describing.
             int hearts = McaCrimeConfig.COMMON.rescueHeartGain.get();
-            if (hearts > 0 && McaCompat.isMcaVillager(target)) {
-                McaCompat.addHearts(rescuer, target, hearts);
-                grantFamilyGratitude(server, rescuer, target, hearts);
+            if (McaCompat.isMcaVillager(target)) {
+                if (hearts > 0) {
+                    McaCompat.addHearts(rescuer, target, hearts);
+                }
+                grantFamilyGratitude(server, rescuer, target, McaCrimeConfig.COMMON.familyHeartGain.get());
+                dev.otectus.mcacrime.relationship.RelationshipConsequences.applyRescueStanding(rescuer, target);
             }
             rescuer.sendSystemMessage(Component.translatable("mcacrime.rescue.done",
                     McaCompat.getVillagerDisplayName(target)));
@@ -171,18 +174,19 @@ public final class RescueActionHandler implements CrimeActionHandler {
     }
 
     /**
-     * The freed villager's family thinks well of the rescuer too, at a reduced rate.
+     * The freed villager's family thinks well of the rescuer too, by {@code familyHeartGain}.
      *
      * <p>This mirrors the {@code familyHeartLoss} that kidnapping already applies in the other
      * direction. Taking somebody's spouse costs you with the spouse; giving them back should be worth
-     * something to the same person, or the relationship graph only ever moves one way.
+     * something to the same person, or the relationship graph only ever moves one way. The amount is
+     * its own key rather than a fraction of {@code rescueHeartGain}: the two have sat side by side in
+     * the config since 0.1.0, and until now the family one was never read.
      */
     private static void grantFamilyGratitude(MinecraftServer server, ServerPlayer rescuer,
-                                             LivingEntity rescued, int hearts) {
-        if (!McaCompat.isRelationshipApiAvailable()) {
+                                             LivingEntity rescued, int familyHearts) {
+        if (familyHearts <= 0 || !McaCompat.isRelationshipApiAvailable()) {
             return;
         }
-        int familyHearts = Math.max(1, hearts / 2);
         for (UUID relative : McaCompat.getCloseRelativeUuids(rescued, 1)) {
             for (ServerLevel level : server.getAllLevels()) {
                 var entity = level.getEntity(relative);
