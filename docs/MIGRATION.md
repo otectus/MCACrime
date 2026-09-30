@@ -132,14 +132,15 @@ A missing `schema` key means the original, unversioned format, which is treated 
 
 0.7.5 replaces the single-slot restraint enum, the capture channel, the cuff-escape path, the
 kidnapping teleport tether and the NPC leash with one native physical-restraint engine. It uses
-**world schema 15** (`SCHEMA_CUFFED_PHYSICAL`) and **network protocol 16**. Back up your world
+**world schema 15** (`SCHEMA_CUFFED_PHYSICAL`) and **network protocol 17**. Back up your world
 before upgrading.
 
-**Network protocol 16.** `network/CrimeNetwork.PROTOCOL_VERSION` is `"16"`. Update client and server
+**Network protocol 17.** `network/CrimeNetwork.PROTOCOL_VERSION` is `"17"`. Update client and server
 together. The bump is deliberate: the old restraint payloads are gone, and an old client that was
 allowed to connect would decode a multi-slot physical snapshot as the old single-enum payload. With
-the bump it fails the handshake cleanly. As always, the number is shared with the Forge 1.20.1 line
-and still does not make the two loaders compatible.
+the bump it fails the handshake cleanly. 16 was an unreleased preview; 17 adds the paused-sentence
+flag to the self status. The number is this line's own: the Forge 1.20.1 line carries a different
+packet set and numbers its protocol separately, and the two loaders are not compatible either way.
 
 **Four root tables** are added to `<world>/data/mcacrime.dat`: `physicalRestraints` (what is worn per
 subject in the head, arms and legs slots, each entry with its own item snapshot, durability, applier

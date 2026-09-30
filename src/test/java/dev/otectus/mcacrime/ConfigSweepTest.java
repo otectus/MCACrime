@@ -161,9 +161,24 @@ class ConfigSweepTest {
     }
 
     @Test
-    void aHearingRadiusInsideTheSightRadiusIsFlagged() {
-        assertEquals(1, validate(true, true, true, 20, 8, 24, false, 4, false, true, true).size(),
-                "anyone close enough to hear it can already see it, so the role becomes unreachable");
+    void theShippedGuardDefaultsValidateClean() {
+        // guardThiefResponseRadius shipped at 24 against a 16-block chase leash, so every fresh server
+        // warned about its own defaults and a guard that noticed a mugging from 17 to 24 blocks away
+        // abandoned the chase on the next tick. The defaults are read from the spec, not restated.
+        var c = dev.otectus.mcacrime.McaCrimeConfig.COMMON;
+        assertEquals(java.util.List.of(), dev.otectus.mcacrime.config.ConfigValidator.validateGuardIntervention(
+                c.guardThiefResponseRadius.getDefault(), c.guardThiefPursuitTimeoutTicks.getDefault(),
+                c.guardAggroRadius.getDefault(), c.returnStolenGoodsOnArrest.getDefault(),
+                c.stolenGoodsReturnRadius.getDefault(), c.arrestEscortTimeoutTicks.getDefault(),
+                c.npcEscortOrphanTicks.getDefault()));
+    }
+
+    @Test
+    void theDeprecatedHearingRadiusIsNotJudged() {
+        // hearingWitnessRadius has decided nothing since 0.6.0, and a wall stops sight but not sound, so
+        // a hearing range inside the sight range was never actually unreachable.
+        assertTrue(validate(true, true, true, 20, 8, 24, false, 4, false, true, true).isEmpty(),
+                "a key with no effect must not produce a warning about its effect");
     }
 
     @Test

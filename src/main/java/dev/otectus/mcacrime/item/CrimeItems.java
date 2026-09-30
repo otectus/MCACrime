@@ -20,6 +20,8 @@ import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.CreativeModeTab;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.item.BundleItem;
 import net.minecraft.world.item.Rarity;
 import net.minecraft.server.level.ServerPlayer;
 import net.neoforged.bus.api.IEventBus;
@@ -262,6 +264,14 @@ public final class CrimeItems {
         RestraintFamily family = RestraintItem.familyOf(stack.getItem());
         if (family != null) {
             return Optional.of(family);
+        }
+        // The hood is vanilla's bundle, and only an empty one (§3.1, R07): putting a full bundle over
+        // somebody's head would consume whatever was in it. Every route that applies a restraint --
+        // right-click, dispenser, self panel -- asks this method, so without this line the hood
+        // definition existed and nothing could ever put it on.
+        if (stack.is(Items.BUNDLE)) {
+            return BundleItem.getFullnessDisplay(stack) <= 0.0F
+                    ? Optional.of(RestraintFamily.HOOD) : Optional.empty();
         }
         // Any c:ropes-tagged item from another mod still counts as the legacy rope carrier.
         return stack.is(RestraintTags.ROPE) ? Optional.of(RestraintFamily.LEGACY_ROPE) : Optional.empty();

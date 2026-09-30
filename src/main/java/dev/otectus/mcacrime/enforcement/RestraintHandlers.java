@@ -291,6 +291,11 @@ public final class RestraintHandlers {
         return RestrictionResolver.resolve(state, null, ArrestStates.isRestrained(server));
     }
 
+    /** The config-aware answer used by handlers that run before this class's LOW backstop. */
+    public static boolean permits(@Nullable Player player, RestraintAction action) {
+        return !restrictionsEnabled() || policy(player).permits(action);
+    }
+
     private static boolean restrictionsEnabled() {
         try {
             return McaCrimeConfig.COMMON.restrainedPlayerRestrictions.get();

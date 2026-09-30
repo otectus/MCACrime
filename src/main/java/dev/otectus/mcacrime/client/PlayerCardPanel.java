@@ -85,7 +85,8 @@ public final class PlayerCardPanel {
         // of reading "Jail: -- remaining".
         Component jail = jailTicks > 0
                 ? Component.translatable("mcacrime.card.jail", Component.translatable(
-                        "mcacrime.card.jail.remaining", TickFormat.compact(jailTicks)))
+                        ClientSelfData.jailPaused() ? "mcacrime.card.jail.paused" : "mcacrime.card.jail.remaining",
+                        TickFormat.compact(jailTicks)))
                 : Component.translatable("mcacrime.card.jail", Component.translatable("mcacrime.card.jail.free"));
         g.drawString(font, jail, tx, ty,
                 jailTicks > 0 ? PanelColours.onPanel(JAIL) : PanelColours.TEXT_DISABLED, false);

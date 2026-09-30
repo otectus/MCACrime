@@ -116,9 +116,11 @@ class PayloadCodecTest {
     @Test
     void selfStatusRoundTripsEveryBand() {
         for (Band band : Band.values()) {
-            SelfStatusS2CPacket packet =
-                    new SelfStatusS2CPacket(-4_000L, 12_345L, band, true, 6_000L, false);
-            assertEquals(packet, roundTrip(SelfStatusS2CPacket.STREAM_CODEC, packet));
+            for (boolean paused : new boolean[]{false, true}) {
+                SelfStatusS2CPacket packet =
+                        new SelfStatusS2CPacket(-4_000L, 12_345L, band, true, 6_000L, paused, false);
+                assertEquals(packet, roundTrip(SelfStatusS2CPacket.STREAM_CODEC, packet));
+            }
         }
     }
 

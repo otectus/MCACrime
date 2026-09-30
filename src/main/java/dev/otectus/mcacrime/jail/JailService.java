@@ -62,6 +62,12 @@ public final class JailService {
         return jail == null ? 0L : jail.getRemainingOnlineTicks();
     }
 
+    /** Whether this player's sentence clock is stopped, which is exactly when they have escaped it. */
+    public static boolean sentencePaused(ServerPlayer player) {
+        JailState jail = CrimeAttachments.get(player).getJail();
+        return jail != null && jail.isEscaped();
+    }
+
     // ------------------------------------------------------------------ jail
 
     /**
@@ -353,7 +359,7 @@ public final class JailService {
         // HUD therefore froze on the value captured at jailing and stayed there for the whole term.
         // Pushing on a slow cadence and letting the client tick between pushes keeps the server the
         // authority without spending a packet per tick per prisoner.
-        if (shouldResync(jail.getRemainingOnlineTicks(), RESYNC_TICKS)) {
+        if (resyncDue(jail.isEscaped(), jail.getRemainingOnlineTicks(), RESYNC_TICKS)) {
             CrimeNetwork.sendSelfStatus(player);
         }
     }
@@ -365,6 +371,18 @@ public final class JailService {
      */
     public static boolean shouldResync(long remainingTicks, int intervalTicks) {
         return intervalTicks > 0 && remainingTicks >= 0L && remainingTicks % intervalTicks == 0L;
+    }
+
+    /**
+     * {@link #shouldResync}, except never while the prisoner has escaped.
+     *
+     * <p>An escaped sentence's clock is frozen, so the cadence test would answer the same way every tick:
+     * never, or -- whenever the frozen value happened to be a multiple of the interval -- on every
+     * single tick for as long as the escape lasted. The client already knows the clock is paused from
+     * the status the escape itself sent, and is told again when it resumes.
+     */
+    public static boolean resyncDue(boolean escaped, long remainingTicks, int intervalTicks) {
+        return !escaped && shouldResync(remainingTicks, intervalTicks);
     }
 
     /**

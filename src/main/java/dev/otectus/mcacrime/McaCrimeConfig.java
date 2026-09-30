@@ -634,7 +634,10 @@ public final class McaCrimeConfig {
                     .defineInRange("karmaDecayPerDay", 1, 0, 1_000_000);
             unwitnessedKarmaFactor = b.comment("Fraction of Karma penalty applied for unwitnessed crime (1.0 = full).")
                     .defineInRange("unwitnessedKarmaFactor", 1.0, 0.0, 1.0);
-            b.push("rewardWeights");
+            b.comment("RESERVED, no effect in this release. Nothing in MCA: Crime awards Karma for trading,",
+                    "gifts, quests or defending a village; those rewards belong to the mod that owns the",
+                    "deed. The only positive Karma sources are decay and bounty.karmaReward.")
+                    .push("rewardWeights");
             tradeKarma = b.defineInRange("tradeKarma", 1, -1000, 1000);
             giftKarma = b.defineInRange("giftKarma", 1, -1000, 1000);
             questCompleteKarma = b.defineInRange("questCompleteKarma", 5, -1000, 1000);
@@ -771,8 +774,9 @@ public final class McaCrimeConfig {
                     "which means no reports, no reaction triggers, and guards that only know what Heat says.")
                     .define("enableObservations", true);
             hearingWitnessRadius = b.comment(
-                    "Block radius in which a struggle can be heard without being seen. Larger than the sight",
-                    "radius on purpose, and halved through each solid block between the two.")
+                    "DEPRECATED, no effect. Since 0.6.0 how far a crime carries is each crime type's own",
+                    "soundRadius (crime datapack), scaled by crimeAwareness.auditoryWitnessRadiusMultiplier.",
+                    "Kept only so an existing file still parses.")
                     .defineInRange("hearingWitnessRadius", 16, 0, 64);
             reportRadius = b.comment("How far a witness will search for a guard or authority to report to.")
                     .defineInRange("reportRadius", 24, 1, 128);
@@ -892,7 +896,9 @@ public final class McaCrimeConfig {
                     .define("dialogueNameBold", true);
             b.pop();
 
-            b.push("antifarm");
+            b.comment("RESERVED, no effect in this release. These cap the reward sources in",
+                    "karma.rewardWeights, none of which exists yet, so there is nothing to cap.")
+                    .push("antifarm");
             perVillagerDailyKarmaCap = b.defineInRange("perVillagerDailyKarmaCap", 20, 0, 1_000_000);
             perVillageDailyKarmaCap = b.defineInRange("perVillageDailyKarmaCap", 50, 0, 1_000_000);
             perPlayerDailyKarmaCap = b.defineInRange("perPlayerDailyKarmaCap", 100, 0, 1_000_000);
@@ -972,8 +978,10 @@ public final class McaCrimeConfig {
             guardThiefResponseRadius = b.comment(
                     "How far a guard will notice a mugging in progress. Line of sight is required as",
                     "well, so this is the range at which a guard who can already see the threat reacts",
-                    "to it -- not a radius within which guards become psychic.")
-                    .defineInRange("guardThiefResponseRadius", 24.0, 4.0, 64.0);
+                    "to it -- not a radius within which guards become psychic. Keep it no larger than",
+                    "guardAggroRadius: the chase that follows ends as soon as the thief is further away",
+                    "than that, so a guard who notices from beyond it gives up on the next tick.")
+                    .defineInRange("guardThiefResponseRadius", 16.0, 4.0, 64.0);
             guardThiefPursuitTimeoutTicks = b.comment(
                     "How long a guard chases a thief before giving up. The chase also ends when the",
                     "thief gets further away than guardAggroRadius.")
@@ -1059,9 +1067,10 @@ public final class McaCrimeConfig {
             durabilityDuckTapeHead = b.defineInRange("durabilityDuckTapeHead", 5, 1, 4096);
             durabilityBundleHood = b.defineInRange("durabilityBundleHood", 5, 1, 4096);
             headTapeMufflesTextChat = b.comment(
-                    "Whether a head restraint also silences typed chat. Off by default: a gag is about",
-                    "voice, and taking away a player's ability to say 'let me out' is a moderation problem,",
-                    "not a mechanic. Turn it on only with a server that wants it.")
+                    "Whether a gag (head tape) also muffles typed chat: the message is still sent, but its",
+                    "words arrive as 'mmph'. Off by default: a gag is about voice, and taking away a",
+                    "player's ability to say 'let me out' is a moderation problem, not a mechanic. Turn it",
+                    "on only with a server that wants it.")
                     .define("headTapeMufflesTextChat", false);
             b.pop();
 
@@ -1449,8 +1458,12 @@ public final class McaCrimeConfig {
             b.push("npccrime");
             enableNpcCrime = b.comment("Master switch for serious NPC crime (petty stays low even when false).")
                     .define("enableNpcCrime", false);
-            maxActiveNpcCrimesPerVillage = b.defineInRange("maxActiveNpcCrimesPerVillage", 2, 0, 1000);
-            minTimeBetweenNpcCrimes = b.defineInRange("minTimeBetweenNpcCrimes", 6000, 0, 1_000_000);
+            maxActiveNpcCrimesPerVillage = b.comment(
+                    "RESERVED, no effect: a limit for the serious NPC crime that enableNpcCrime would switch on,",
+                    "which is not implemented in this release.")
+                    .defineInRange("maxActiveNpcCrimesPerVillage", 2, 0, 1000);
+            minTimeBetweenNpcCrimes = b.comment("RESERVED, no effect, for the same reason as maxActiveNpcCrimesPerVillage.")
+                    .defineInRange("minTimeBetweenNpcCrimes", 6000, 0, 1_000_000);
             npcMugHudUpdateIntervalTicks = b.comment(
                     "Ticks between progress packets for a thief's mugging bar. The client interpolates",
                     "between them, so this is packet volume rather than smoothness.")
@@ -1531,9 +1544,11 @@ public final class McaCrimeConfig {
                     "restored if this is turned off again.")
                     .define("presentFenceAsMcaProfession", true);
             presentThiefAsMcaProfession = b.comment(
-                    "Show a thief as the 'mcacrime:thief' villager profession. Off by default: a thief",
-                    "wearing a label has no cover. Turn it on for a pack that wants criminals legible.")
-                    .define("presentThiefAsMcaProfession", false);
+                    "DEPRECATED, no effect. Since 0.7.2 a thief is always the visible 'mcacrime:thief'",
+                    "villager profession with its own Mask Station workplace; a hidden thief is no longer a",
+                    "supported state. Kept only so an existing file still parses. Setting it to false logs",
+                    "one notice at startup saying exactly that.")
+                    .define("presentThiefAsMcaProfession", true);
             staleRecordGraceDays = b.comment("Days a criminal record is kept after the villager was last seen loaded.")
                     .defineInRange("staleRecordGraceDays", 14, 1, 365);
 
@@ -2153,9 +2168,8 @@ public final class McaCrimeConfig {
             retryMaxDelayTicks = b.comment("Ceiling on the retry delay. Must be >= retryBaseDelayTicks.")
                     .defineInRange("retryMaxDelayTicks", 24000, 20, 1_728_000);
             dedupeRetentionTicks = b.comment(
-                    "How long a completed transaction is remembered so a replay of it changes nothing.",
-                    "Long-lived links live on the crime record itself and never expire; this only covers",
-                    "the replay window for one-off mutations.")
+                    "RESERVED, no effect in this release. Replays are recognised by transaction receipts and",
+                    "record revisions, which do not expire; nothing writes to the table this would age out.")
                     .defineInRange("dedupeRetentionTicks", 168_000, 1200, 1_728_000);
             b.push("reputation");
             fineResolutionStatus = b.comment(

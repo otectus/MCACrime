@@ -13,17 +13,20 @@ public final class ClientSelfData {
     private static volatile Band band = Band.GREY;
     private static volatile boolean wanted;
     private static volatile long jailRemainingTicks;
+    private static volatile boolean jailPaused;
     private static volatile boolean legalTarget;
 
     private ClientSelfData() {
     }
 
-    public static void update(long karma, long heat, Band band, boolean wanted, long jailRemainingTicks, boolean legalTarget) {
+    public static void update(long karma, long heat, Band band, boolean wanted, long jailRemainingTicks,
+                              boolean jailPaused, boolean legalTarget) {
         ClientSelfData.karma = karma;
         ClientSelfData.heat = heat;
         ClientSelfData.band = band;
         ClientSelfData.wanted = wanted;
         ClientSelfData.jailRemainingTicks = jailRemainingTicks;
+        ClientSelfData.jailPaused = jailPaused;
         ClientSelfData.legalTarget = legalTarget;
     }
 
@@ -33,6 +36,7 @@ public final class ClientSelfData {
         band = Band.GREY;
         wanted = false;
         jailRemainingTicks = 0L;
+        jailPaused = false;
         legalTarget = false;
     }
 
@@ -56,6 +60,11 @@ public final class ClientSelfData {
         return jailRemainingTicks;
     }
 
+    /** Whether the sentence clock is stopped because its prisoner has escaped. */
+    public static boolean jailPaused() {
+        return jailPaused;
+    }
+
     /**
      * Runs the local sentence countdown one client tick. Stops at zero and never goes negative.
      *
@@ -66,7 +75,8 @@ public final class ClientSelfData {
      * zero early is not released early, and one whose counter lags is not held longer.
      */
     public static void tick() {
-        if (jailRemainingTicks > 0L) {
+        // An escaped prisoner's sentence is frozen on the server, so the local copy holds still too.
+        if (jailRemainingTicks > 0L && !jailPaused) {
             jailRemainingTicks--;
         }
     }

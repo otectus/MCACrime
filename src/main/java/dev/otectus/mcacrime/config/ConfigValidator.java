@@ -323,11 +323,10 @@ public final class ConfigValidator {
             problems.add("enableVillagerReactions is on but enableObservations is off. Reactions are started "
                     + "by observations, so no villager will ever react to anything.");
         }
-        if (hearingRadius > 0 && hearingRadius < sightRadius) {
-            problems.add("hearingWitnessRadius (" + hearingRadius + ") is smaller than witnessRadius ("
-                    + sightRadius + "). Anyone close enough to hear it can already see it, so the hearing "
-                    + "witness role can never be produced.");
-        }
+        // hearingRadius is deliberately not judged. hearingWitnessRadius stopped deciding anything in
+        // 0.6.0 (each crime type's soundRadius does), and the rule it used to be held to was wrong in
+        // any case: a wall stops sight and not sound, so a hearing range inside the sight range still
+        // produces hearing witnesses.
         if (reportRadius < sightRadius) {
             problems.add("reportRadius (" + reportRadius + ") is smaller than witnessRadius (" + sightRadius
                     + "). A witness will often be unable to reach any guard, so reports will rarely be filed.");
@@ -984,8 +983,8 @@ public final class ConfigValidator {
                                                            int hood, boolean headTapeMufflesTextChat) {
         List<String> problems = new ArrayList<>();
         if (headTapeMufflesTextChat) {
-            problems.add("restraints.definitions.headTapeMufflesTextChat is true, so a head restraint "
-                    + "is configured to take away a restrained player's typed chat. That is a "
+            problems.add("restraints.definitions.headTapeMufflesTextChat is true, so a gagged player's "
+                    + "typed chat arrives muffled to 'mmph'. That is a "
                     + "moderation decision rather than a mechanic -- a gagged player cannot ask to be "
                     + "let out -- and it is off by default for that reason (§10.6).");
         }

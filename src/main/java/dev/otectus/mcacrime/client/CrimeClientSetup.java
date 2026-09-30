@@ -60,6 +60,20 @@ public final class CrimeClientSetup {
          * is where the ring's four count textures are selected: the predicate reads the same data
          * component the server writes, and a ring with more than four keys keeps the four-key art.
          */
+        /**
+         * Tells the client recipe book where Mask Station recipes go: nowhere.
+         *
+         * <p>They are made at the station's own screen, never through a recipe book. Without a finder
+         * the client recipe book cannot place a custom recipe type and logs one "Unknown recipe
+         * category" warning per mask recipe every time a player joins a world.
+         */
+        @SubscribeEvent
+        public static void onRegisterRecipeBookCategories(
+                net.neoforged.neoforge.client.event.RegisterRecipeBookCategoriesEvent event) {
+            event.registerRecipeCategoryFinder(dev.otectus.mcacrime.recipe.CrimeRecipes.MASK_MAKING.get(),
+                    recipe -> net.minecraft.client.RecipeBookCategories.UNKNOWN);
+        }
+
         @SubscribeEvent
         public static void onClientSetup(net.neoforged.fml.event.lifecycle.FMLClientSetupEvent event) {
             event.enqueueWork(() -> net.minecraft.client.renderer.item.ItemProperties.register(

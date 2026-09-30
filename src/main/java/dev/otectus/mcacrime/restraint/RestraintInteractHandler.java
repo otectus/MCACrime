@@ -166,11 +166,17 @@ public final class RestraintInteractHandler {
         RigProfile rig = RestraintService.rig(subject);
         RestraintSlot slot = aimedSlot(aimHeight, subject, rig, state, route);
 
+        // This handler runs before the generic LOW-priority restriction backstop, so it must not
+        // commit a hand action and only then let that backstop cancel the event. Self-removal and
+        // self-lockpicking remain protected escape actions; care from another actor is routed by its
+        // own service and never reaches one of these restraint routes.
+        if (!actorMayUseHands(actor, subject, route)) {
+            return false;
+        }
+
         return switch (route) {
             case OPERATOR_TOOL -> operatorTool(actor, subject, slot);
-            case APPLY_RESTRAINT -> RestraintService
-                    .apply(actor, subject, hand, slot, AppliedRestraint.ApplicationContext.UNLAWFUL)
-                    .applied();
+            case APPLY_RESTRAINT -> applyOrChannel(actor, subject, hand, slot, stack);
             case KEY_REMOVAL, KEYLESS_REMOVAL -> remove(actor, subject, slot, stack, route);
             // The pick opens a server-owned session against this exact worn instance (M3.3). It never
             // removes anything here: winning the session is what does that, on the server.
@@ -208,6 +214,48 @@ public final class RestraintInteractHandler {
             dev.otectus.mcacrime.audio.CrimeSounds.chainAttached(subject, true);
         }
         return took;
+    }
+
+    /** Whether the chosen route is a permitted hand action for this actor. */
+    static boolean actorMayUseHands(ServerPlayer actor, LivingEntity subject, Route route) {
+        if (actor.getUUID().equals(subject.getUUID())
+                && (route == Route.KEY_REMOVAL || route == Route.KEYLESS_REMOVAL
+                || route == Route.LOCKPICK || route == Route.OPERATOR_TOOL)) {
+            return RestrictionResolver.allows(dev.otectus.mcacrime.enforcement.RestraintHandlers.policy(actor),
+                    ProtectedAction.SELF_ESCAPE);
+        }
+        if (!dev.otectus.mcacrime.enforcement.RestraintHandlers.permits(actor, RestraintAction.INTERACT_ENTITY)) {
+            return false;
+        }
+        return switch (route) {
+            case OPERATOR_TOOL, APPLY_RESTRAINT, KEY_REMOVAL, LOCKPICK ->
+                    dev.otectus.mcacrime.enforcement.RestraintHandlers.permits(actor, RestraintAction.USE_ITEM);
+            case KEYLESS_REMOVAL, ESCORT_START, PASS -> true;
+        };
+    }
+
+    /**
+     * Puts the held restraint on, at once or through the application channel.
+     *
+     * <p>A channel is opened only when {@code restraints.application.channelTicks} asks for one and
+     * somebody else is being restrained; putting a restraint on yourself is consent, not a struggle. A
+     * channel is opened only for an application that would stand right now, so a right-click that
+     * cannot succeed still falls through to MCA rather than starting a bar that is bound to fail.
+     */
+    private static boolean applyOrChannel(ServerPlayer actor, LivingEntity subject,
+                                          net.minecraft.world.InteractionHand hand,
+                                          @Nullable RestraintSlot slot, ItemStack stack) {
+        boolean self = actor.getUUID().equals(subject.getUUID());
+        if (self || dev.otectus.mcacrime.action.handler.RestrainActionHandler.channelTicks() <= 0) {
+            return RestraintService.apply(actor, subject, hand, slot,
+                    AppliedRestraint.ApplicationContext.UNLAWFUL).applied();
+        }
+        if (slot == null
+                || RestraintService.evaluate(actor, subject, stack, slot) != ApplicationTransaction.Refusal.NONE) {
+            return false;
+        }
+        return dev.otectus.mcacrime.action.handler.RestrainActionHandler.beginChannel(actor, subject, hand,
+                slot, AppliedRestraint.ApplicationContext.UNLAWFUL, UUID.randomUUID());
     }
 
     /**

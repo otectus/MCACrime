@@ -17,14 +17,52 @@ by the user and behind its own config group.
 
 Compatibility: Minecraft 1.21.1 · NeoForge `[21.1.248,21.2)` (see `gradle.properties`; the version
 ranges live there and nowhere else) · MCA Reborn mandatory at runtime · world schema **15** ·
-network protocol **16**. Neither Cuffed nor Locks Reforged is required for anything in this release:
+network protocol **17**. Neither Cuffed nor Locks Reforged is required for anything in this release:
 restraints, locks and lockpicking are all native. Cuffed installed alongside is detected by mod id
 and handled by `compatibility.cuffedCoexistence` (`WARN` by default). Locks Reforged remains an
 optional companion for its own locks and for fence stock; on a block it already owns, MCA: Crime
 refuses to be the second lock (`locks.foreignLockPolicy = REFUSE`). The protocol bump means an old
 client fails its handshake cleanly instead of decoding a multi-slot payload as the old one. The
-protocol number is shared with the Forge line by design and still does not imply cross-loader
-compatibility: a Forge 1.20.1 client cannot join this port.
+protocol number is this line's own -- the Forge line carries a different packet set and numbers its
+protocol separately -- and a Forge 1.20.1 client cannot join this port either way.
+
+### Audit remediation (2026-09-30)
+
+Mirrored from the Forge 1.20.1 audit of the same date, where the files exist on this line.
+
+- **Restraints respect reach and sight.** `restraints.application.maxRangeBlocks` and
+  `requireLineOfSight` were read by nothing but the validator and the preset writer, and the crime menu
+  checks reach only when it opens, so a Restrain click could cuff somebody across the village while the
+  menu stayed open. `RestraintService.evaluate` now refuses an application by somebody else beyond the
+  range or out of sight (`ApplicationTransaction.Refusal.OUT_OF_REACH`).
+- **`restraints.application.channelTicks` works.** Above 0, restraining somebody else -- from the menu
+  or by right-click -- is a channel with a progress bar that breaks off if the applier gets out of
+  reach, loses sight or stops holding the restraint; the item is spent only when it completes. 0, the
+  shipped default, stays instant; self-application and dispensers never channel.
+- **A restrained player cannot restrain somebody else.** The interaction router committed a restraint
+  application before the LOW-priority restriction backstop cancelled the interaction, so a player in
+  handcuffs could still cuff another. The router now asks `RestraintHandlers.permits` first
+  (`actorMayUseHands`), the guard the Forge 0.7.5 line already has.
+- **The bundle hood can be put on.** `CrimeItems.familyFor`, which every application route asks, now
+  recognises an empty vanilla bundle as the hood and refuses a filled one. The bundle is experimental
+  in 1.21.1: without the Bundle experiment vanilla neither crafts it nor lets it be used on an entity.
+- **Rescues and witnesses move relationships as specified** (spec §10.1): family gratitude reads
+  `familyHeartGain`, a rescue raises local village standing by `villageRepRise` (skipped while MCA:
+  Reputation keeps standing), and villagers who watched an assault lose `witnessTrustLoss` hearts.
+- **Guards finish the chases they start.** `guardThiefResponseRadius` defaults to 16 to match the
+  16-block chase leash; at 24 a guard noticing a mugging from beyond the leash gave up on the next tick.
+- **An escaped prisoner's sentence stops on screen too.** The self status carries `jailPaused` (seven
+  fields, so `NeoForgeStreamCodecs.composite`), the HUD and player card say the sentence is paused, and
+  the jail resync rests while escaped. **Network protocol 17**: update client and server together.
+- **`restraints.definitions.headTapeMufflesTextChat` does something**: a gagged player's typed chat
+  arrives as "mmph" (`restraint/RestraintChatMuffle`).
+- A double reinforced stone slab drops two slabs; the Mask Station recipe type registers a recipe-book
+  category finder, removing an "Unknown recipe category" warning per mask recipe on every world join.
+- The five restraint enchantments no longer name the missing `#mcacrime:exclusive_set/anchor` tag,
+  which logged a warning at every datapack load; they stay mutually compatible, as on Forge.
+- Config: `presentThiefAsMcaProfession` defaults to `true`; `hearingWitnessRadius` is marked deprecated
+  and its incorrect validator rule is gone; the reserved karma reward, anti-farm, NPC-crime throttle
+  and dedupe keys say in their comments that they have no effect.
 
 ### Family audit remediation (2026-09-28)
 

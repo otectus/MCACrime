@@ -4,6 +4,7 @@ import dev.otectus.mcacrime.McaCrime;
 import dev.otectus.mcacrime.McaCrimeConfig;
 import dev.otectus.mcacrime.api.event.CrimeCommittedEvent;
 import dev.otectus.mcacrime.api.model.CrimeCommunityKey;
+import dev.otectus.mcacrime.api.model.CrimeRecordView;
 import dev.otectus.mcacrime.compat.McaCompat;
 import dev.otectus.mcacrime.integration.CrimeIntegrationHooks;
 import dev.otectus.mcacrime.state.world.CrimeWorldData;
@@ -20,6 +21,7 @@ import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -50,13 +52,28 @@ public final class RelationshipConsequences {
         if (living.isAlive() && c.directVictimHeartLoss.get() > 0) {
             McaCompat.addHearts(offender, living, -c.directVictimHeartLoss.get());
         }
+        List<UUID> family = familyOf(victim);
         int familyLoss = c.familyHeartLoss.get();
         if (familyLoss > 0) {
-            for (UUID rel : familyOf(victim)) {
+            for (UUID rel : family) {
                 Entity relEntity = level.getEntity(rel);
                 if (relEntity instanceof LivingEntity relative && event.getRecordView().map(v -> v.witnessIds().contains(rel)).orElse(false)
                         && relative.hasLineOfSight(offender) && !offender.isInvisible()) {
                     McaCompat.addHearts(offender, relEntity, -familyLoss);
+                }
+            }
+        }
+        // Everybody else who watched trusts the offender a little less (spec §10.1, "nearby witnesses
+        // lose trust"). The victim and the family are charged above and are not charged twice here.
+        int witnessLoss = c.witnessTrustLoss.get();
+        if (witnessLoss > 0) {
+            for (UUID witnessId : event.getRecordView().map(CrimeRecordView::witnessIds).orElse(Set.of())) {
+                if (witnessId.equals(victimId) || family.contains(witnessId)) {
+                    continue;
+                }
+                Entity witness = level.getEntity(witnessId);
+                if (witness instanceof LivingEntity watcher && watcher.isAlive() && McaCompat.isMcaVillager(watcher)) {
+                    McaCompat.addHearts(offender, watcher, -witnessLoss);
                 }
             }
         }
@@ -112,6 +129,28 @@ public final class RelationshipConsequences {
             McaCrime.LOGGER.info("MCA: Crime applied its own village standing penalty for crime {} after the "
                     + "cross-mod record could not be delivered.", recordId);
         }));
+    }
+
+    /**
+     * A rescue raises the rescuer's standing with the rescued villager's community by
+     * {@code villageRepRise} (spec §10.1, "Rescue a villager -> village reputation rises").
+     *
+     * <p>Local store only. While MCA: Reputation keeps the canonical score it mirrors that score into
+     * this store after every commit, so a local write would be overwritten at the next mirror and
+     * counted twice until then; with the companion present the rise is skipped.
+     */
+    public static void applyRescueStanding(ServerPlayer rescuer, LivingEntity rescued) {
+        int rise = McaCrimeConfig.COMMON.villageRepRise.get();
+        if (rise <= 0 || rescuer == null || rescued == null
+                || !(rescued.level() instanceof ServerLevel level) || level.getServer() == null) {
+            return;
+        }
+        if (McaCrimeConfig.COMMON.enableReputation.get()
+                && dev.otectus.mcacrime.compat.ReputationBridge.isAvailable()) {
+            return;
+        }
+        dev.otectus.mcacrime.detect.CrimeCommunityResolver.resolve(rescued, level).ifPresent(community ->
+                CrimeWorldData.get(level.getServer()).addReputation(community, rescuer.getUUID(), rise));
     }
 
     /**

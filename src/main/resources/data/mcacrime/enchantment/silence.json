@@ -3,7 +3,6 @@
     "translate": "enchantment.mcacrime.silence"
   },
   "supported_items": "#mcacrime:enchantable/restraint",
-  "exclusive_set": "#mcacrime:exclusive_set/anchor",
   "weight": 2,
   "max_level": 1,
   "min_cost": {

@@ -40,8 +40,9 @@ import java.util.UUID;
 public final class CrimeNetwork {
 
     // 15 added the 0.7.5 physical-restraint messages: a full snapshot, a per-subject delta and an
-    // explicit removal; 16 drops the warden-guide payload. Update clients and server together.
-    private static final String PROTOCOL_VERSION = "16";
+    // explicit removal; 16 drops the warden-guide payload; 17 adds the paused-sentence flag to the self
+    // status. Update clients and server together.
+    private static final String PROTOCOL_VERSION = "17";
 
     private CrimeNetwork() {
     }
@@ -345,6 +346,7 @@ public final class CrimeNetwork {
                 CrimeState.getBand(player),
                 CrimeState.isWanted(player),
                 JailService.remainingTicks(player),
+                JailService.sentencePaused(player),
                 OutlawResolver.resolve(player).lawfulCombatTarget()));
     }
 
