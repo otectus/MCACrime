@@ -78,6 +78,17 @@ public class CellDoorBlock extends DoorBlock implements EntityBlock {
     private static final VoxelShape BARS_NS = Block.box(0.0D, 0.0D, 7.0D, 16.0D, 16.0D, 9.0D);
     private static final VoxelShape BARS_EW = Block.box(7.0D, 0.0D, 0.0D, 9.0D, 16.0D, 16.0D);
 
+    /** The open barred door, by facing and hinge: see {@link #openInBars}. */
+    private static final VoxelShape[] OPEN_IN_BARS = new VoxelShape[8];
+
+    static {
+        for (Direction facing : Direction.Plane.HORIZONTAL) {
+            for (DoorHingeSide hinge : DoorHingeSide.values()) {
+                OPEN_IN_BARS[facing.get2DDataValue() * 2 + hinge.ordinal()] = openInBars(facing, hinge);
+            }
+        }
+    }
+
     public CellDoorBlock(Properties properties, BlockSetType setType) {
         super(setType, properties);
         registerDefaultState(stateDefinition.any()
@@ -101,11 +112,20 @@ public class CellDoorBlock extends DoorBlock implements EntityBlock {
 
     @Override
     protected VoxelShape getShape(BlockState state, BlockGetter getter, BlockPos pos, CollisionContext ctx) {
-        if (state.getValue(IN_BARS) && !state.getValue(OPEN)) {
+        if (state.getValue(IN_BARS)) {
             Direction facing = state.getValue(FACING);
+            if (state.getValue(OPEN)) {
+                return OPEN_IN_BARS[facing.get2DDataValue() * 2 + state.getValue(HINGE).ordinal()];
+            }
             return facing.getAxis() == Direction.Axis.Z ? BARS_NS : BARS_EW;
         }
         return super.getShape(state, getter, pos, ctx);
+    }
+
+    /** Where an open barred door actually is: see {@link CellDoorShapes#openInBars}. */
+    static VoxelShape openInBars(Direction facing, DoorHingeSide hinge) {
+        double[] box = CellDoorShapes.openInBars(facing, hinge == DoorHingeSide.LEFT);
+        return Block.box(box[0], box[1], box[2], box[3], box[4], box[5]);
     }
 
     @Nullable
@@ -116,7 +136,7 @@ public class CellDoorBlock extends DoorBlock implements EntityBlock {
             return null;
         }
         return placed.setValue(IN_BARS,
-                inBars(ctx.getLevel(), ctx.getClickedPos(), placed.getValue(FACING)));
+                inBars(ctx.getLevel(), ctx.getClickedPos(), placed.getValue(FACING), DoubleBlockHalf.LOWER));
     }
 
     @Override
@@ -124,7 +144,7 @@ public class CellDoorBlock extends DoorBlock implements EntityBlock {
                                      LevelAccessor level, BlockPos pos, BlockPos otherPos) {
         BlockState updated = super.updateShape(state, direction, otherState, level, pos, otherPos);
         if (updated.is(this) && updated.hasProperty(IN_BARS)) {
-            boolean bars = inBars(level, pos, updated.getValue(FACING));
+            boolean bars = inBars(level, pos, updated.getValue(FACING), updated.getValue(HALF));
             if (bars != updated.getValue(IN_BARS)) {
                 return updated.setValue(IN_BARS, bars);
             }
@@ -132,17 +152,45 @@ public class CellDoorBlock extends DoorBlock implements EntityBlock {
         return updated;
     }
 
-    /** Whether both sides of this door are walls, bars or another cell door. */
-    private static boolean inBars(LevelAccessor level, BlockPos pos, Direction facing) {
+    /**
+     * Whether this door stands in a run of bars, and so is drawn centred in its block where the bars are.
+     *
+     * <p>Asked of both halves and true when either half qualifies, so the two halves of one door are
+     * always drawn the same way: judged separately, a door whose bars reached only one half drew that
+     * half centred and the other at the block's edge, out of line with it and with the bars. A half
+     * qualifies with bars on at least one side and, on the other, bars again or a solid face -- the
+     * pillar a cell door is so often hung against, which used to drop it back to a plain door standing
+     * behind the line of bars it was meant to close. Solid on both sides is an ordinary doorway in a
+     * wall and keeps the plain door.
+     */
+    private static boolean inBars(LevelAccessor level, BlockPos pos, Direction facing, DoubleBlockHalf half) {
+        BlockPos otherHalf = half == DoubleBlockHalf.LOWER ? pos.above() : pos.below();
+        return halfInBars(level, pos, facing) || halfInBars(level, otherHalf, facing);
+    }
+
+    private static boolean halfInBars(LevelAccessor level, BlockPos pos, Direction facing) {
         Direction left = facing.getAxis() == Direction.Axis.Z ? Direction.WEST : Direction.NORTH;
         Direction right = left.getOpposite();
-        return barLike(level, pos.relative(left)) && barLike(level, pos.relative(right));
+        boolean barsLeft = barLike(level, pos.relative(left));
+        boolean barsRight = barLike(level, pos.relative(right));
+        return barsLeft && (barsRight || solidToward(level, pos.relative(right), left))
+                || barsRight && solidToward(level, pos.relative(left), right);
+    }
+
+    /** Whether the block at {@code pos} presents a full face toward a door lying {@code towardDoor} of it. */
+    private static boolean solidToward(LevelAccessor level, BlockPos pos, Direction towardDoor) {
+        try {
+            return level.getBlockState(pos).isFaceSturdy(level, pos, towardDoor);
+        } catch (RuntimeException unloaded) {
+            return false;
+        }
     }
 
     private static boolean barLike(LevelAccessor level, BlockPos pos) {
         try {
             BlockState state = level.getBlockState(pos);
             return state.is(BlockTags.WALLS) || state.getBlock() instanceof IronBarsBlock
+                    || state.getBlock() instanceof dev.otectus.mcacrime.block.prison.ReinforcedBarsGappedBlock
                     || state.getBlock() instanceof CellDoorBlock;
         } catch (RuntimeException unloaded) {
             return false;

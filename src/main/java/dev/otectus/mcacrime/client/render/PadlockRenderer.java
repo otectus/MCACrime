@@ -24,10 +24,17 @@ import net.minecraft.world.item.ItemStack;
  *
  * <p>Every entity type must have a renderer or the client refuses to start, so this class is not
  * optional decoration — it is the registration that makes the padlock exist on a client at all.
+ *
+ * <p>Where it is drawn is the entity's decision ({@code PadlockPlacement}): the entity keeps its own
+ * position inside the locked block and hands this renderer the offset to the surface. This line's icon
+ * is already drawn upright, shackle on top, so unlike the Forge 1.20.1 line's diagonal icon it is not
+ * turned.
  */
 public class PadlockRenderer extends EntityRenderer<PadlockEntity> {
 
     private static final ResourceLocation TEXTURE = McaCrime.id("textures/item/padlock.png");
+    /** About seven pixels tall: the size of the lock plate it hangs from. */
+    private static final float SCALE = 0.75F;
 
     public PadlockRenderer(EntityRendererProvider.Context context) {
         super(context);
@@ -37,9 +44,10 @@ public class PadlockRenderer extends EntityRenderer<PadlockEntity> {
     public void render(PadlockEntity padlock, float yaw, float partialTick, PoseStack pose,
                        MultiBufferSource buffers, int light) {
         pose.pushPose();
+        net.minecraft.world.phys.Vec3 offset = padlock.renderOffset();
+        pose.translate(offset.x, offset.y, offset.z);
         pose.mulPose(Axis.YP.rotationDegrees(180.0F - padlock.getDirection().toYRot()));
-        pose.translate(0.0D, 0.0D, 0.30D);
-        pose.scale(0.75F, 0.75F, 0.75F);
+        pose.scale(SCALE, SCALE, SCALE);
         ItemStack stack = new ItemStack(CrimeItems.PADLOCK.get());
         Minecraft.getInstance().getItemRenderer().renderStatic(stack, ItemDisplayContext.FIXED, light,
                 OverlayTexture.NO_OVERLAY, pose, buffers, padlock.level(), padlock.getId());

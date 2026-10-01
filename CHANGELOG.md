@@ -26,6 +26,31 @@ client fails its handshake cleanly instead of decoding a multi-slot payload as t
 protocol number is this line's own -- the Forge line carries a different packet set and numbers its
 protocol separately -- and a Forge 1.20.1 client cannot join this port either way.
 
+### Cell doors, bars and padlocks (2026-09-30)
+
+Mirrored from the Forge 1.20.1 line.
+
+- **Bars join the cell door.** Reinforced bars now reach into a barred cell door and the gapped window
+  along their plane (`ReinforcedBarsBlock.joinsPanel`); vanilla's final connection rule joins neither,
+  so each stood in its run with a bare post and a half-block gap on either side.
+- **The cell door lines up with its bars**: barred with bars on one side and bars or a solid face on the
+  other, both halves always agreeing, the gapped window counting as bars. A door against a pillar used to
+  stand behind the bar line as a plain door.
+- **An open barred door is solid where it is drawn** (`CellDoorShapes.openInBars`): vanilla's open shape
+  blocked the other side of the doorway.
+- **The padlock hangs on what it locks.** `calculateBoundingBox` took the entity's block to be the air in
+  front of the support, as an item frame's is, so every padlock hung half a block back from the block it
+  locks. It now hangs just in front of the block's closed surface (`entity/PadlockPlacement`): on a door,
+  on the lock plate across the seam and on the broad face the player stood before; on a chest, on the
+  chest's own face rather than the block's edge. The box stays centred inside the locked block, because `setPos` turns a position back into a
+  block, and is grown to hold the padlock where it is drawn. This line's icon is already upright, so it is
+  not turned. A placed padlock rechecks its place every second, so one already in a world moves on its
+  own; bars and doors already built take the new joins at their next neighbour update.
+- **Padlocks keep their facing**: saved now, and recovered from the stored yaw for an older save, where a
+  reload used to turn every padlock south.
+- The prison lamp (`reinforced_lamp`) is redrawn in a medieval style: a dark, riveted iron frame around
+  four warm amber panes.
+
 ### Audit remediation (2026-09-30)
 
 Mirrored from the Forge 1.20.1 audit of the same date, where the files exist on this line.

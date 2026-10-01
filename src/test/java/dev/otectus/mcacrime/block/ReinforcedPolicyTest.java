@@ -108,6 +108,20 @@ class ReinforcedPolicyTest {
         assertEquals(2, ReinforcedBarsShape.column(false, true), "with something below, it is a bottom");
     }
 
+    @Test
+    void barsJoinAFlatPanelAlongItsPlaneAndNeverThroughItsFace() {
+        // A cell door facing north is a panel spanning west to east: bars beside it reach in from the
+        // west and east, and bars in front of or behind it must not grow an arm into its face.
+        net.minecraft.core.Direction.Axis northSouth = net.minecraft.core.Direction.Axis.Z;
+        assertTrue(ReinforcedBarsShape.joinsPanel(northSouth, net.minecraft.core.Direction.EAST));
+        assertTrue(ReinforcedBarsShape.joinsPanel(northSouth, net.minecraft.core.Direction.WEST));
+        assertFalse(ReinforcedBarsShape.joinsPanel(northSouth, net.minecraft.core.Direction.NORTH));
+        assertFalse(ReinforcedBarsShape.joinsPanel(northSouth, net.minecraft.core.Direction.SOUTH));
+        assertFalse(ReinforcedBarsShape.joinsPanel(northSouth, net.minecraft.core.Direction.UP),
+                "bars never join upward through a panel");
+        assertFalse(ReinforcedBarsShape.joinsPanel(null, net.minecraft.core.Direction.EAST));
+    }
+
     private static String read(Path path) {
         try {
             return Files.readString(path, StandardCharsets.UTF_8);

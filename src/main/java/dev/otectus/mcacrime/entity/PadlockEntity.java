@@ -38,9 +38,14 @@ import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.DoorBlock;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.properties.BlockStateProperties;
+import net.minecraft.world.level.block.state.properties.DoorHingeSide;
+import net.minecraft.world.level.block.state.properties.DoubleBlockHalf;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
+import net.minecraft.world.phys.shapes.VoxelShape;
 import net.neoforged.neoforge.entity.IEntityWithComplexSpawn;
 
 import org.jetbrains.annotations.Nullable;
@@ -78,10 +83,13 @@ public class PadlockEntity extends HangingEntity implements LockHolder, IEntityW
     private static final String TAG_REINFORCE_ITEM = "ReinforceItem";
     private static final String TAG_GENERATED = "Generated";
 
-    /** Eight pixels square, a hair proud of the block it hangs on. */
-    private static final double SIZE = 0.5D;
-    private static final double DEPTH = 0.0625D;
-    private static final double OFFSET = 0.46875D;
+    /** Which way the padlock faces. {@code BlockAttachedEntity} saves only the block; each kind saves its own. */
+    private static final String TAG_FACING = "Facing";
+    /** How often the drawn position is re-read from the block, in ticks: a door can change form. */
+    private static final int RECHECK_INTERVAL_TICKS = 20;
+
+    /** From the entity's own position to where the padlock is drawn. Client presentation only. */
+    private Vec3 renderOffset = Vec3.ZERO;
 
     @Nullable
     private UUID lockId;
@@ -195,11 +203,85 @@ public class PadlockEntity extends HangingEntity implements LockHolder, IEntityW
 
     @Override
     protected AABB calculateBoundingBox(BlockPos pos, Direction direction) {
-        Vec3 centre = Vec3.atCenterOf(pos).relative(direction, -OFFSET);
-        Direction.Axis axis = direction.getAxis();
-        double x = axis == Direction.Axis.X ? DEPTH : SIZE;
-        double z = axis == Direction.Axis.Z ? DEPTH : SIZE;
-        return AABB.ofSize(centre, x, SIZE, z);
+        // Puts the padlock on the surface of the block it locks (see PadlockPlacement). The old box was
+        // vanilla's item-frame arithmetic, which assumes the entity's block is the air in front of the
+        // support and so hung every padlock on the far side of the block this one locks. The block's
+        // closed shape is used, so a padlock on an unlocked door that swings open stays where the door
+        // shuts; on a door it hangs at the lock plate.
+        BlockState host = hostState(pos);
+        PadlockPlacement.Door door = null;
+        if (host.getBlock() instanceof DoorBlock) {
+            Direction facing = host.getValue(DoorBlock.FACING);
+            door = new PadlockPlacement.Door(host.getValue(DoorBlock.HALF) == DoubleBlockHalf.UPPER,
+                    PadlockPlacement.plateSide(facing, host.getValue(DoorBlock.HINGE) == DoorHingeSide.LEFT,
+                            host.getBlock() instanceof CellDoorBlock));
+        }
+        Vec3 visual = PadlockPlacement.visual(pos, direction, closedBounds(host, pos), door);
+        Vec3 anchor = PadlockPlacement.anchor(pos, visual);
+        renderOffset = visual.subtract(anchor);
+        // HangingEntity puts the entity at this box's centre, and that centre has to stay inside the
+        // locked block, because setPos turns a position back into a block. So the box is centred on the
+        // anchor and grown until it holds the padlock where it is drawn.
+        AABB drawn = PadlockPlacement.box(visual, direction);
+        return AABB.ofSize(anchor,
+                2.0D * Math.max(Math.abs(drawn.minX - anchor.x), Math.abs(drawn.maxX - anchor.x)),
+                2.0D * Math.max(Math.abs(drawn.minY - anchor.y), Math.abs(drawn.maxY - anchor.y)),
+                2.0D * Math.max(Math.abs(drawn.minZ - anchor.z), Math.abs(drawn.maxZ - anchor.z)));
+    }
+
+    /** On a door, always one of its two broad faces: a padlock hung on the edge by an older build moves to the front. */
+    @Override
+    protected void setDirection(Direction facing) {
+        BlockState host = pos == null ? null : hostState(pos);
+        if (host != null && facing != null && host.getBlock() instanceof DoorBlock
+                && facing.getAxis() != host.getValue(DoorBlock.FACING).getAxis()) {
+            facing = host.getValue(DoorBlock.FACING);
+        }
+        super.setDirection(facing);
+    }
+
+    /** From this entity's position to where it is drawn; the renderer translates by it. */
+    public Vec3 renderOffset() {
+        return renderOffset;
+    }
+
+    @Override
+    public void tick() {
+        super.tick();
+        if (!isRemoved() && tickCount % RECHECK_INTERVAL_TICKS == 0) {
+            // A cell door turns barred or plain as bars come and go beside it, and moves its face by
+            // seven pixels when it does.
+            recalculateBoundingBox();
+        }
+    }
+
+    /** The block a padlock at {@code at} hangs on, or air while it is not loaded. Never loads a chunk. */
+    private BlockState hostState(BlockPos at) {
+        try {
+            Level level = level();
+            if (level != null && level.isLoaded(at)) {
+                return level.getBlockState(at);
+            }
+        } catch (RuntimeException unavailable) {
+            // fall through: hang as if on a full block until the next recalculation
+        }
+        return net.minecraft.world.level.block.Blocks.AIR.defaultBlockState();
+    }
+
+    /** The host's shape with any door, gate or trapdoor shut, in block-local coordinates. */
+    @Nullable
+    private AABB closedBounds(BlockState host, BlockPos at) {
+        if (host.isAir()) {
+            return null;
+        }
+        try {
+            BlockState closed = host.hasProperty(BlockStateProperties.OPEN)
+                    ? host.setValue(BlockStateProperties.OPEN, Boolean.FALSE) : host;
+            VoxelShape shape = closed.getShape(level(), at);
+            return shape.isEmpty() ? null : shape.bounds();
+        } catch (RuntimeException unavailable) {
+            return null;
+        }
     }
 
     @Override
@@ -393,6 +475,7 @@ public class PadlockEntity extends HangingEntity implements LockHolder, IEntityW
     @Override
     public void addAdditionalSaveData(CompoundTag tag) {
         super.addAdditionalSaveData(tag);
+        tag.putByte(TAG_FACING, (byte) getDirection().get2DDataValue());
         if (lockId != null) {
             tag.putUUID(TAG_LOCK_ID, lockId);
         }
@@ -412,6 +495,12 @@ public class PadlockEntity extends HangingEntity implements LockHolder, IEntityW
                 ? ResourceLocation.tryParse(tag.getString(TAG_REINFORCE_ITEM))
                 : null;
         generated = tag != null && tag.getBoolean(TAG_GENERATED);
+        // The facing was never saved before, so a reload turned every padlock to face south and hung it
+        // on that side of its block. A save from then still carries the yaw the facing set, which is
+        // exactly the facing back again.
+        setDirection(tag != null && tag.contains(TAG_FACING)
+                ? Direction.from2DDataValue(tag.getByte(TAG_FACING))
+                : Direction.fromYRot(getYRot()));
         onLockChanged();
     }
 

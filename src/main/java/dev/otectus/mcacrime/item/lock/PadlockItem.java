@@ -2,6 +2,7 @@ package dev.otectus.mcacrime.item.lock;
 
 import dev.otectus.mcacrime.compat.LocksReforgedBridge;
 import dev.otectus.mcacrime.entity.PadlockEntity;
+import dev.otectus.mcacrime.entity.PadlockPlacement;
 import dev.otectus.mcacrime.locks.ForeignLockPolicy;
 import dev.otectus.mcacrime.locks.LockRecord;
 import dev.otectus.mcacrime.locks.LockService;
@@ -18,6 +19,10 @@ import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.context.UseOnContext;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.DoorBlock;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.properties.DoubleBlockHalf;
+import net.minecraft.world.phys.Vec3;
 
 import java.util.Optional;
 
@@ -66,8 +71,19 @@ public class PadlockItem extends Item {
             return InteractionResult.FAIL;
         }
         Direction face = context.getClickedFace();
-        PadlockEntity padlock = new PadlockEntity(level, clicked,
-                face.getAxis().isVertical() ? player.getDirection().getOpposite() : face);
+        BlockState clickedState = level.getBlockState(clicked);
+        BlockPos hangOn = clicked;
+        Direction hangs = face.getAxis().isVertical() ? player.getDirection().getOpposite() : face;
+        if (clickedState.getBlock() instanceof DoorBlock) {
+            // A door's padlock hangs on the lock plate across its seam, from the lower half, on the broad
+            // face the player is in front of -- never on the edge, where it would sit in the doorway.
+            if (clickedState.getValue(DoorBlock.HALF) == DoubleBlockHalf.UPPER) {
+                hangOn = clicked.below();
+            }
+            hangs = PadlockPlacement.doorSide(face, clickedState.getValue(DoorBlock.FACING),
+                    player.position().subtract(Vec3.atCenterOf(clicked)));
+        }
+        PadlockEntity padlock = new PadlockEntity(level, hangOn, hangs);
         if (!padlock.survives() || !padlock.bindLock(lock.get().lockId())) {
             LockService.forget(data, lock.get().lockId());
             return InteractionResult.FAIL;

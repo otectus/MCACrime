@@ -24,6 +24,16 @@ public final class ReinforcedBarsShape {
     private ReinforcedBarsShape() {
     }
 
+    /**
+     * Whether an arm going {@code toward} joins a flat panel whose face points along
+     * {@code panelNormal}: along the panel's plane, yes; into its face, no.
+     */
+    public static boolean joinsPanel(net.minecraft.core.Direction.Axis panelNormal,
+                                     net.minecraft.core.Direction toward) {
+        return toward != null && panelNormal != null && toward.getAxis().isHorizontal()
+                && panelNormal.isHorizontal() && toward.getAxis() != panelNormal;
+    }
+
     /** The column value for a section with these neighbours. */
     public static int column(boolean above, boolean below) {
         if (above && below) {
