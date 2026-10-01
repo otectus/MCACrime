@@ -31,7 +31,14 @@ import net.minecraft.world.entity.decoration.HangingEntity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.DoorBlock;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.properties.BlockStateProperties;
+import net.minecraft.world.level.block.state.properties.DoorHingeSide;
+import net.minecraft.world.level.block.state.properties.DoubleBlockHalf;
+import net.minecraft.world.phys.AABB;
+import net.minecraft.world.phys.Vec3;
+import net.minecraft.world.phys.shapes.VoxelShape;
 import net.minecraftforge.network.NetworkHooks;
 import net.minecraftforge.registries.ForgeRegistries;
 
@@ -66,6 +73,8 @@ public class PadlockEntity extends HangingEntity
     private static final String TAG_LOCK_ID = "LockId";
     private static final String TAG_REINFORCE_ITEM = "ReinforceItem";
     private static final String TAG_GENERATED = "Generated";
+    /** Which way the padlock faces. {@code HangingEntity} saves only the block; each kind saves its own. */
+    private static final String TAG_FACING = "Facing";
 
     @Nullable
     private UUID lockId;
@@ -163,6 +172,91 @@ public class PadlockEntity extends HangingEntity
     }
 
     // --- placement and survival ----------------------------------------------------------------------
+
+    /** How often the drawn position is re-read from the block, in ticks: a door can change form. */
+    private static final int RECHECK_INTERVAL_TICKS = 20;
+
+    /** From the entity's own position to where the padlock is drawn. Client presentation only. */
+    private Vec3 renderOffset = Vec3.ZERO;
+
+    /**
+     * Puts the padlock on the surface of the block it locks (see {@link PadlockPlacement}).
+     *
+     * <p>Replaces vanilla's item-frame arithmetic, which assumes {@code pos} is the air block in front
+     * of the support and so hung every padlock on the far side of the block this one locks. The block's
+     * <em>closed</em> shape is used, so a padlock on an unlocked door that swings open stays where the
+     * door shuts rather than chasing the leaf. On a door the padlock always hangs on one of its two
+     * broad faces, at the lock plate.
+     */
+    @Override
+    protected void recalculateBoundingBox() {
+        if (direction == null || pos == null) {
+            return;
+        }
+        BlockState host = hostState();
+        PadlockPlacement.Door door = null;
+        if (host.getBlock() instanceof DoorBlock) {
+            Direction facing = host.getValue(DoorBlock.FACING);
+            if (direction.getAxis() != facing.getAxis()) {
+                // Hung on the door's edge by an older build: move it onto the front face.
+                direction = facing;
+                setYRot(direction.get2DDataValue() * 90.0F);
+                yRotO = getYRot();
+            }
+            door = new PadlockPlacement.Door(host.getValue(DoorBlock.HALF) == DoubleBlockHalf.UPPER,
+                    PadlockPlacement.plateSide(facing, host.getValue(DoorBlock.HINGE) == DoorHingeSide.LEFT,
+                            host.getBlock() instanceof CellDoorBlock));
+        }
+        Vec3 visual = PadlockPlacement.visual(pos, direction, closedBounds(host), door);
+        Vec3 anchor = PadlockPlacement.anchor(pos, visual);
+        setPosRaw(anchor.x, anchor.y, anchor.z);
+        renderOffset = visual.subtract(anchor);
+        setBoundingBox(PadlockPlacement.box(visual, direction));
+    }
+
+    /** From this entity's position to where it is drawn; the renderer translates by it. */
+    public Vec3 renderOffset() {
+        return renderOffset;
+    }
+
+    @Override
+    public void tick() {
+        super.tick();
+        if (!isRemoved() && tickCount % RECHECK_INTERVAL_TICKS == 0) {
+            // A cell door turns barred or plain as bars come and go beside it, and moves its face by
+            // seven pixels when it does.
+            recalculateBoundingBox();
+        }
+    }
+
+    /** The block this padlock hangs on, or air while it is not loaded. Never loads a chunk. */
+    private BlockState hostState() {
+        try {
+            Level level = level();
+            if (level != null && level.isLoaded(pos)) {
+                return level.getBlockState(pos);
+            }
+        } catch (RuntimeException unavailable) {
+            // fall through: hang as if on a full block until the next recalculation
+        }
+        return net.minecraft.world.level.block.Blocks.AIR.defaultBlockState();
+    }
+
+    /** The host's shape with any door, gate or trapdoor shut, in block-local coordinates. */
+    @Nullable
+    private AABB closedBounds(BlockState host) {
+        if (host.isAir()) {
+            return null;
+        }
+        try {
+            BlockState closed = host.hasProperty(BlockStateProperties.OPEN)
+                    ? host.setValue(BlockStateProperties.OPEN, Boolean.FALSE) : host;
+            VoxelShape shape = closed.getShape(level(), pos);
+            return shape.isEmpty() ? null : shape.bounds();
+        } catch (RuntimeException unavailable) {
+            return null;
+        }
+    }
 
     /** A padlock only hangs on a block the {@code mcacrime:lockable_blocks} tag names. */
     public boolean onSuitableBlock() {
@@ -379,6 +473,7 @@ public class PadlockEntity extends HangingEntity
     @Override
     public void addAdditionalSaveData(CompoundTag tag) {
         super.addAdditionalSaveData(tag);
+        tag.putByte(TAG_FACING, (byte) getDirection().get2DDataValue());
         if (lockId != null) {
             tag.putUUID(TAG_LOCK_ID, lockId);
         }
@@ -398,6 +493,12 @@ public class PadlockEntity extends HangingEntity
                 ? ResourceLocation.tryParse(tag.getString(TAG_REINFORCE_ITEM))
                 : null;
         generated = tag != null && tag.getBoolean(TAG_GENERATED);
+        // The facing was never saved before, so a reload turned every padlock to face south and hung it
+        // on that side of its block. A save from then still carries the yaw the facing set, which is
+        // exactly the facing back again.
+        setDirection(tag != null && tag.contains(TAG_FACING)
+                ? Direction.from2DDataValue(tag.getByte(TAG_FACING))
+                : Direction.fromYRot(getYRot()));
         onLockChanged();
     }
 

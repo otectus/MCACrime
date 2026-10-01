@@ -15,6 +15,35 @@ install that does not have it.
 
 ## [0.7.5] — unreleased
 
+Cell doors, bars and padlocks (2026-09-30):
+
+- **Bars join the cell door.** `IronBarsBlock`'s connection rule is final and joins only bars, walls
+  and sturdy faces, so reinforced bars never reached a barred cell door (thin, centred, never sturdy)
+  or the gapped window: each stood in its run with a bare post on either side and a half-block gap.
+  Reinforced bars now reach into either along its plane (`ReinforcedBarsBlock.joinsPanel`), never into
+  its face, and into a cell door only while it is drawn in its barred, centred form.
+- **The cell door lines up with its bars.** It switched to the barred form only with bars on both
+  sides, judged separately for each half, so a door against a pillar -- or one whose bars reached only
+  one half -- stood behind the bar line as a plain door, with its two halves possibly drawn differently.
+  A door is now in the bars with bars on one side and bars or a solid face on the other, and both halves
+  always agree. The gapped window counts as bars.
+- **An open barred door is solid where it is drawn.** The barred models swing the door on the other end
+  of the doorway from vanilla's open shape, so the open door blocked the side it was not on
+  (`CellDoorShapes.openInBars`).
+- **The padlock hangs on what it locks.** It used vanilla's item-frame placement, which takes the entity's
+  block to be the air in front of the support; a padlock's block is the locked block itself, so every
+  padlock hung half a block back, on the far side of a chest and clear of a cell door altogether. It now
+  hangs just in front of the block's closed surface (`entity/PadlockPlacement`): on a door, on the lock
+  plate across the seam and on the broad face the player stood before; on a chest, on the chest's own
+  face rather than the block's edge. The diagonal icon is drawn upright, shackle on top, at the size of
+  the plate. A placed padlock rechecks its place every second, so one already in a world moves on its own;
+  bars and doors already built take the new joins at their next neighbour update.
+- **Padlocks keep their facing.** The facing was never saved, so a reload turned every padlock to face
+  south and moved it to that side of its block. It is saved now, and an older save recovers it from the
+  yaw it already carries.
+- The prison lamp (`reinforced_lamp`) is redrawn in a medieval style: a dark, riveted iron frame around
+  four warm amber panes.
+
 Audit remediation (2026-09-30):
 
 - **Restraints respect reach and sight.** `restraints.application.maxRangeBlocks` and
