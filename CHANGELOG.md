@@ -13,6 +13,27 @@ companion degrades to the surface it does have rather than failing the load. Als
 Townstead, reached only by reflection and a plugin-gated mixin config, and silently absent on an
 install that does not have it.
 
+## [0.7.6] — 2026-10-03
+
+- Refresh the client crime status after respawn from the copied server state.
+- Preserve player crime data across death by replacing the invalidated Forge capability handle
+  when the original player is temporarily revived for cloning. Repeated deaths previously
+  erased karma, heat and custody state while the client could still display stale values.
+
+- Fix overflow when calculating currency stack counts near `Long.MAX_VALUE`; extreme balances
+  now retain a positive, accurate count for both item currencies and the shared currency API.
+  Add boundary regression coverage.
+- Allow jail intake when the prisoner is already standing at the assigned jail anchor;
+  keep other players blocking occupied destinations. Reproduced through a real multiplayer client.
+- Restore the Townstead dedicated-server fixtures after the custody constructor changed.
+- Add opt-in real-client gameplay checks for commands, fine refusal/payment/retry, death and
+  respawn, jail/release synchronization and expiry, witnessed assault, masked crime/unmasking,
+  guard confrontation/surrender, forged response rejection, thief recruitment/retirement,
+  multiplayer permissions, and save/restart/reconnect.
+- Include the existing MCA: Kingdoms load-order compatibility declaration for `mcakingdoms`,
+  while retaining the legacy `ultima_kingdoms` ordering.
+- Supply GeckoLib to the review and Townstead production-server runners.
+
 ## [0.7.5] — unreleased
 
 Cell doors, bars and padlocks (2026-09-30):
@@ -123,6 +144,10 @@ Family audit remediation (2026-09-28):
   loading anything. Ultima Kingdoms consumes this mod's institutional-service and jurisdiction APIs, so
   this side now declares it `BEFORE`; `ModsTomlOrderingTest` pins every companion's ordering. Found by
   booting all five family add-ons and Ultima Kingdoms together on one dedicated server.
+- **MCA: Kingdoms rename (2026-10-01).** Ultima Kingdoms is now MCA: Kingdoms, mod id `mcakingdoms`.
+  `mods.toml` declares `mcakingdoms` `BEFORE` and keeps the `ultima_kingdoms` entry, also `BEFORE`, for one
+  release; `ModsTomlOrderingTest` asserts both. No Crime code names the id: Kingdoms binds this mod's
+  `InstitutionalServiceApi` and `JurisdictionPolicyApi` by their unchanged class names.
 
 Family integration pass (2026-09-27):
 

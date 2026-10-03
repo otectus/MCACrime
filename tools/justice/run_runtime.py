@@ -9,7 +9,7 @@ jars=[pathlib.Path(f'build/libs/mcacrime-{version}.jar'),pathlib.Path(f'build/li
 if a.reputation:jars.append(a.reputation)
 for jar in jars:shutil.copy2(jar.resolve(strict=True),w/'mods'/jar.name)
 eula=pathlib.Path('run/eula.txt');assert 'eula=true' in eula.read_text().lower();shutil.copy2(eula,w/'eula.txt')
-(w/'server.properties').write_text('online-mode=false\nserver-ip=127.0.0.1\nserver-port=0\nlevel-type=minecraft:flat\ngenerate-structures=false\nview-distance=2\nsimulation-distance=2\nspawn-protection=0\n')
+(w/'server.properties').write_text('online-mode=false\nserver-ip=127.0.0.1\nserver-port=0\nlevel-type=minecraft:flat\ngenerate-structures=false\nview-distance=2\nsimulation-distance=2\nspawn-protection=0\ngenerator-settings={"layers":[{"block":"minecraft:bedrock","height":1},{"block":"minecraft:dirt","height":2},{"block":"minecraft:grass_block","height":1}],"biome":"minecraft:plains"}\n' )
 launch=list(libs.glob('net/minecraftforge/forge/1.20.1-*/unix_args.txt'));assert len(launch)==1
 cmd=['/usr/lib/jvm/java-17-openjdk/bin/java','-Xmx2G','@libraries/'+str(launch[0].relative_to(libs)),'nogui']
 print('Runtime artifacts:',w,flush=True)

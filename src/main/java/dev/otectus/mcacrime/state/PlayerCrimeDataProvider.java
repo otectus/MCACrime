@@ -13,11 +13,17 @@ import javax.annotation.Nullable;
 public final class PlayerCrimeDataProvider implements ICapabilitySerializable<CompoundTag> {
 
     private final PlayerCrimeData data = new PlayerCrimeData();
-    private final LazyOptional<PlayerCrimeData> holder = LazyOptional.of(() -> data);
+    private LazyOptional<PlayerCrimeData> holder = LazyOptional.of(() -> data);
 
     @Nonnull
     @Override
     public <T> LazyOptional<T> getCapability(@Nonnull Capability<T> cap, @Nullable Direction side) {
+        // Entity invalidation blocks lookups at Forge's outer CapabilityProvider. When Clone
+        // temporarily revives that entity, its listener-invalidated handle is still dead. Supply
+        // a new handle over the same data, without reviving any handle a consumer already cached.
+        if (!holder.isPresent()) {
+            holder = LazyOptional.of(() -> data);
+        }
         return CrimeCapabilities.PLAYER_CRIME.orEmpty(cap, holder);
     }
 

@@ -1,0 +1,20 @@
+// Opt-in packaged client fixture; never included in the release jar.
+allprojects {
+    afterEvaluate {
+        sourceSets {
+            gameplayRuntime {
+                java.srcDir 'tools/gameplay/java'
+                compileClasspath = sourceSets.main.compileClasspath + sourceSets.main.output
+            }
+        }
+        tasks.register('gameplayRuntimeJar', Jar) {
+            dependsOn tasks.named('gameplayRuntimeClasses')
+            archiveBaseName = 'crime-gameplay-checks'
+            from sourceSets.gameplayRuntime.output
+            from('tools/gameplay/resources')
+            doFirst { manifest.attributes.remove('MixinConfigs') }
+        }
+        reobf { gameplayRuntimeJar {} }
+        tasks.named('gameplayRuntimeJar').configure { finalizedBy 'reobfGameplayRuntimeJar' }
+    }
+}

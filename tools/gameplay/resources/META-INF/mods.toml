@@ -1,0 +1,19 @@
+modLoader="javafml"
+loaderVersion="[47,)"
+license="GPL-3.0-only"
+[[mods]]
+modId="crime_gameplay_checks"
+version="1"
+displayName="MCA Crime gameplay client checks"
+[[dependencies.crime_gameplay_checks]]
+modId="mcacrime"
+mandatory=true
+versionRange="[0,)"
+ordering="AFTER"
+side="CLIENT"
+[[dependencies.crime_gameplay_checks]]
+modId="mca"
+mandatory=true
+versionRange="[0,)"
+ordering="AFTER"
+side="CLIENT"

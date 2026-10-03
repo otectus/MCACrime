@@ -13,6 +13,7 @@ def main():
     parser.add_argument('--crime', type=pathlib.Path, required=True)
     parser.add_argument('--harness', type=pathlib.Path, required=True)
     parser.add_argument('--mca', type=pathlib.Path, required=True)
+    parser.add_argument('--geckolib', type=pathlib.Path, required=True)
     parser.add_argument('--architectury', type=pathlib.Path, required=True)
     parser.add_argument('--java', default='/usr/lib/jvm/java-17-openjdk/bin/java')
     parser.add_argument('--timeout', type=int, default=180)
@@ -24,7 +25,7 @@ def main():
     eula = pathlib.Path('run/eula.txt')
     if not eula.is_file() or 'eula=true' not in eula.read_text().lower():
         parser.error('Existing run/eula.txt acceptance is required')
-    jars = [p.resolve(strict=True) for p in (args.crime, args.harness, args.mca, args.architectury)]
+    jars = [p.resolve(strict=True) for p in (args.crime, args.harness, args.mca, args.architectury, args.geckolib)]
     base = pathlib.Path('build/review-runtime').resolve()
     base.mkdir(parents=True, exist_ok=True)
     work = pathlib.Path(tempfile.mkdtemp(prefix='check-', dir=base))

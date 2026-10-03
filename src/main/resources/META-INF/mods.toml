@@ -52,7 +52,7 @@ description='''${mod_description}'''
     ordering="AFTER"
     side="BOTH"
 
-# MCA: Quests, Townstead and Ultima Kingdoms are OPTIONAL companions reached by name at runtime
+# MCA: Quests, Townstead and MCA: Kingdoms are OPTIONAL companions reached by name at runtime
 # (compat/McaQuestsBridge, compat/TownsteadBridge, api/InstitutionalServiceApi and
 # api/JurisdictionPolicyApi). Declared for load ordering only: "[0,)" rather than a floor because
 # Forge enforces an optional range when the mod IS present, and each bridge already handles an
@@ -71,10 +71,17 @@ description='''${mod_description}'''
     versionRange="[0,)"
     ordering="AFTER"
     side="BOTH"
-# Ultima Kingdoms is the other way round, BEFORE: it consumes this mod (it registers its providers into
+# MCA: Kingdoms is the other way round, BEFORE: it consumes this mod (it registers its providers into
 # api/InstitutionalServiceApi and api/JurisdictionPolicyApi) and declares mcacrime AFTER itself. Two
 # mods that each declare the other AFTER form a cycle Forge's mod sorter refuses, so with both
 # installed the game would not start ("Mod Sorting failed. Detected Cycles"). ModsTomlOrderingTest.
+[[dependencies.${mod_id}]]
+    modId="mcakingdoms"
+    mandatory=false
+    versionRange="[0,)"
+    ordering="BEFORE"
+    side="BOTH"
+# The same mod under its loader id before its 0.1.1 rename (Ultima Kingdoms), kept for one release.
 [[dependencies.${mod_id}]]
     modId="ultima_kingdoms"
     mandatory=false

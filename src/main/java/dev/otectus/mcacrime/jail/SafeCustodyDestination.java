@@ -113,6 +113,12 @@ public final class SafeCustodyDestination {
         return level == null ? Optional.empty() : validate(probe(level), anchor, searchRadius);
     }
 
+    /** The arriving prisoner may already occupy the anchor; other players still block it. */
+    public static Optional<BlockPos> validate(ServerLevel level, BlockPos anchor, int searchRadius,
+                                              Player arriving) {
+        return level == null ? Optional.empty() : validate(probe(level, arriving), anchor, searchRadius);
+    }
+
     /** Whether one position in a live level is safe to stand in. */
     public static boolean isSafeStand(ServerLevel level, BlockPos feet) {
         return level != null && isSafeStand(probe(level), feet);
@@ -127,6 +133,10 @@ public final class SafeCustodyDestination {
      * cannot inspect is not a destination it may use.
      */
     private static BlockProbe probe(ServerLevel level) {
+        return probe(level, null);
+    }
+
+    private static BlockProbe probe(ServerLevel level, Player arriving) {
         return (check, pos) -> {
             try {
                 if (level.isOutsideBuildHeight(pos)) {
@@ -140,7 +150,8 @@ public final class SafeCustodyDestination {
                             .getCollisionShape(level, pos.below()).isEmpty()
                             && !hazardous(level.getBlockState(pos.below()));
                     case SAFE -> !hazardous(level.getBlockState(pos)) && level.getFluidState(pos).isEmpty();
-                    case UNOCCUPIED -> level.getEntitiesOfClass(Player.class, new AABB(pos)).isEmpty();
+                    case UNOCCUPIED -> level.getEntitiesOfClass(Player.class, new AABB(pos),
+                            occupant -> occupant != arriving && !occupant.isSpectator()).isEmpty();
                 };
             } catch (Throwable t) {
                 McaCrime.LOGGER.debug("MCA: Crime could not probe {} for {}; treating it as unsafe", pos, check, t);

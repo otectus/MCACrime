@@ -95,6 +95,8 @@ public final class ReviewRuntimeChecks {
     }
 
     private void runChecks() {
+        check("death clone preserves crime data through capability invalidation", this::deathClone);
+        check("jail arrival ignores only the arriving prisoner's occupancy", this::jailArrival);
         check("padlock owner initializes exactly one working key", this::padlockKey);
         check("chest joins preserve opening and automation protection", this::chestJoins);
         check("detained player cannot attack or break device", this::detentionActions);
@@ -112,6 +114,45 @@ public final class ReviewRuntimeChecks {
         check("offline release restores persisted bunk snapshot on login", () -> bunkRelease(true));
         check("bunk release preserves a newer chosen home", this::bunkNewHome);
         check("bunk release leaves another dimension's chosen spawn intact", this::bunkNewDimension);
+    }
+
+    private void deathClone() {
+        TestPlayer original = player();
+        CrimeCapabilities.get(original).orElseThrow().setKarma(-2345);
+        CrimeCapabilities.get(original).orElseThrow().setHeat(73);
+        CrimeCapabilities.get(original).orElseThrow().setJail(new dev.otectus.mcacrime.jail.JailState(
+                1200L, original.blockPosition(), level.dimension().location(), 6,
+                dev.otectus.mcacrime.jail.JailContainmentMode.CONTAINMENT));
+        for (int cycle = 0; cycle < 3; cycle++) {
+            var oldHandle = original.getCapability(CrimeCapabilities.PLAYER_CRIME);
+            original.invalidateCaps();
+            require(!oldHandle.isPresent() && CrimeCapabilities.get(original).isEmpty(), "removed player still exposes a capability");
+            TestPlayer fresh = player();
+            MinecraftForge.EVENT_BUS.post(new PlayerEvent.Clone(fresh, original, true));
+            var copied = CrimeCapabilities.get(fresh).orElseThrow();
+            require(copied.getKarma() == -2345 && copied.getHeat() == 73, "death clone erased karma or heat");
+            require(copied.isJailed() && copied.getJail().getRemainingOnlineTicks() == 1200L,
+                    "death clone erased the jail sentence");
+            require(!oldHandle.isPresent() && CrimeCapabilities.get(original).isEmpty(), "clone revived an old handle or entity");
+            original = fresh;
+        }
+    }
+
+    private void jailArrival() {
+        TestPlayer arriving = player(), other = player();
+        BlockPos anchor = arriving.blockPosition();
+        try {
+            require(dev.otectus.mcacrime.jail.SafeCustodyDestination.validate(level, anchor, 0).isEmpty(),
+                    "fixture must begin with an occupied anchor");
+            require(dev.otectus.mcacrime.jail.SafeCustodyDestination.validate(level, anchor, 0, arriving).isPresent(),
+                    "arriving prisoner blocked their own destination");
+            other.setPos(arriving.position());
+            require(dev.otectus.mcacrime.jail.SafeCustodyDestination.validate(level, anchor, 0, arriving).isEmpty(),
+                    "another player was ignored as well");
+            other.setGameMode(net.minecraft.world.level.GameType.SPECTATOR);
+            require(dev.otectus.mcacrime.jail.SafeCustodyDestination.validate(level, anchor, 0, arriving).isPresent(),
+                    "spectator blocked intake");
+        } finally { arriving.discard(); other.discard(); }
     }
 
     private void padlockKey() {

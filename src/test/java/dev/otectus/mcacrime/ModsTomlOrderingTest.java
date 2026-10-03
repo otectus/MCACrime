@@ -18,11 +18,12 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
  *
  * <p>Forge sorts every installed mod by the {@code ordering} its dependencies declare, optional ones
  * included, and refuses to start at all when two mods each declare the other {@code AFTER}
- * ("Mod Sorting failed. Detected Cycles"). 0.7.5 briefly declared Ultima Kingdoms {@code AFTER} while
- * Ultima Kingdoms, which consumes this mod's institutional-service and jurisdiction APIs, declares
- * {@code mcacrime} {@code AFTER} itself: no server with both could launch. The family's order runs
- * from providers to consumers (MCA, then MCA: Reputation, then this mod and its other companions, then
- * Ultima Kingdoms), so a companion that consumes this mod is {@code BEFORE} here, never {@code AFTER}.
+ * ("Mod Sorting failed. Detected Cycles"). 0.7.5 briefly declared MCA: Kingdoms (then Ultima Kingdoms)
+ * {@code AFTER} while Kingdoms, which consumes this mod's institutional-service and jurisdiction APIs,
+ * declares {@code mcacrime} {@code AFTER} itself: no server with both could launch. The family's order
+ * runs from providers to consumers (MCA, then MCA: Reputation, then this mod and its other companions,
+ * then MCA: Kingdoms), so a companion that consumes this mod is {@code BEFORE} here, never {@code AFTER}.
+ * Kingdoms answers to {@code mcakingdoms} and, for one release, to its pre-rename {@code ultima_kingdoms}.
  */
 class ModsTomlOrderingTest {
 
@@ -54,7 +55,9 @@ class ModsTomlOrderingTest {
         assertEquals("AFTER", ordering.get("mcaquests"));
         assertEquals("AFTER", ordering.get("townstead"));
         // A consumer of this mod loads after it; AFTER here would be a cycle with its own declaration.
+        assertEquals("BEFORE", ordering.get("mcakingdoms"),
+                "MCA: Kingdoms declares mcacrime AFTER; declaring it AFTER here stops Forge sorting mods");
         assertEquals("BEFORE", ordering.get("ultima_kingdoms"),
-                "Ultima Kingdoms declares mcacrime AFTER; declaring it AFTER here stops Forge sorting mods");
+                "the pre-rename id of the same mod is ordered the same way while it is still recognised");
     }
 }

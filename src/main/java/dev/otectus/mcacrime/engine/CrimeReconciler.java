@@ -41,6 +41,15 @@ public final class CrimeReconciler {
         }
     }
 
+    /** Respawn replaces the player entity; refresh the display from the copied server state. */
+    @SubscribeEvent
+    public static void onPlayerRespawn(PlayerEvent.PlayerRespawnEvent event) {
+        if (event.getEntity() instanceof ServerPlayer player) {
+            CrimeState.recomputeDerived(player);
+            CrimeNetwork.sendSelfStatus(player);
+        }
+    }
+
     public static void onLogin(ServerPlayer player) {
         MinecraftServer server = player.getServer();
         if (server != null) {

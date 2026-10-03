@@ -16,6 +16,7 @@ def main():
     parser.add_argument('--crime', type=pathlib.Path, required=True)
     parser.add_argument('--harness', type=pathlib.Path, required=True)
     parser.add_argument('--mca', type=pathlib.Path, required=True)
+    parser.add_argument('--geckolib', type=pathlib.Path, required=True)
     parser.add_argument('--townstead', type=pathlib.Path)
     parser.add_argument('--patchouli', type=pathlib.Path)
     parser.add_argument('--architectury', type=pathlib.Path)
@@ -31,7 +32,7 @@ def main():
         parser.error('Expected exactly one Forge 1.20.1 unix_args.txt')
     inputs = [args.mca, args.townstead, args.patchouli, args.architectury]
     if not args.control:
-        inputs.extend([args.crime, args.harness])
+        inputs.extend([args.crime, args.harness, args.geckolib])
     jars = [p.resolve(strict=True) for p in inputs if p]
     for jar in jars:
         if not zipfile.is_zipfile(jar):
