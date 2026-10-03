@@ -83,6 +83,14 @@ class CurrencyContractTest {
     }
 
     @Test
+    void defaultStackCountDoesNotOverflowAtMaximumBalance() {
+        FakeCurrency currency = new FakeCurrency(0L);
+        assertEquals(144115188075855872L, currency.stacksNeeded(Long.MAX_VALUE));
+        assertEquals(2L, currency.stacksNeeded(65L));
+        assertEquals(0L, currency.stacksNeeded(-1L));
+    }
+
+    @Test
     void debitTakesWhatIsThereAndSaysHowMuch() {
         FakeCurrency currency = new FakeCurrency(4L);
         assertEquals(4L, currency.debit(null, 10L, TransactionReason.THEFT));

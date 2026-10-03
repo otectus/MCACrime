@@ -23,7 +23,8 @@ public final class ItemCurrencyMath {
         if (amount <= 0L || maxStack < 1) {
             return 0L;
         }
-        return (amount + maxStack - 1L) / maxStack;
+        // Subtract first: adding the rounding offset can overflow a valid positive balance.
+        return 1L + (amount - 1L) / maxStack;
     }
 
     /**

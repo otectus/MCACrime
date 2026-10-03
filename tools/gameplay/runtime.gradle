@@ -1,0 +1,17 @@
+// Test-only mod compiled against the NeoForge/Mojang production namespace.
+allprojects {
+    afterEvaluate {
+        sourceSets {
+            gameplayRuntime {
+                java.srcDir 'tools/gameplay/java'
+                compileClasspath = sourceSets.main.compileClasspath + sourceSets.main.output
+            }
+        }
+        tasks.register('gameplayRuntimeJar', Jar) {
+            dependsOn tasks.named('gameplayRuntimeClasses')
+            archiveBaseName = 'crime-gameplay-checks'
+            from sourceSets.gameplayRuntime.output
+            from('tools/gameplay/resources')
+        }
+    }
+}

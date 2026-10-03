@@ -72,7 +72,7 @@ description='''${mod_description}'''
     side="BOTH"
 
 # Sibling add-ons this mod binds by name at common setup (MCA: Quests for the bounty board, Townstead
-# and Ultima Kingdoms through their probes). OPTIONAL and ordered AFTER so their registries exist
+# through its probes). OPTIONAL and ordered AFTER so their registries exist
 # first; no upper bound, because every binding probes and degrades instead of stopping the game.
 [[dependencies.${mod_id}]]
     modId="mcaquests"
@@ -86,9 +86,18 @@ description='''${mod_description}'''
     versionRange="[0,)"
     ordering="AFTER"
     side="BOTH"
+# MCA: Kingdoms (Forge only today) consumes this mod's institutional-service and jurisdiction APIs, so it is
+# ordered BEFORE, as on Forge: a consumer that each side declared AFTER would be a sorting cycle.
+[[dependencies.${mod_id}]]
+    modId="mcakingdoms"
+    type="optional"
+    versionRange="[0,)"
+    ordering="BEFORE"
+    side="BOTH"
+# The same mod under its loader id before its 0.1.1 rename (Ultima Kingdoms), kept for one release.
 [[dependencies.${mod_id}]]
     modId="ultima_kingdoms"
     type="optional"
     versionRange="[0,)"
-    ordering="AFTER"
+    ordering="BEFORE"
     side="BOTH"

@@ -32,6 +32,38 @@ public final class CellParityGameTests {
     }
 
     @GameTest(template = "cell_parity")
+    public static void jailArrivalIgnoresOnlyThePrisoner(GameTestHelper helper) {
+        var level = helper.getLevel();
+        var anchor = helper.absolutePos(new BlockPos(3, 1, 3));
+        level.getChunkAt(anchor);
+        level.setBlockAndUpdate(anchor.below(), net.minecraft.world.level.block.Blocks.STONE.defaultBlockState());
+        level.setBlockAndUpdate(anchor, net.minecraft.world.level.block.Blocks.AIR.defaultBlockState());
+        level.setBlockAndUpdate(anchor.above(), net.minecraft.world.level.block.Blocks.AIR.defaultBlockState());
+        helper.assertTrue(dev.otectus.mcacrime.jail.SafeCustodyDestination.validate(level, anchor, 0).isPresent(),
+                "fixture must have safe footing before adding players");
+        var arriving = new net.neoforged.neoforge.common.util.FakePlayer(level,
+                new com.mojang.authlib.GameProfile(UUID.randomUUID(), "Arriving"));
+        var other = new net.neoforged.neoforge.common.util.FakePlayer(level,
+                new com.mojang.authlib.GameProfile(UUID.randomUUID(), "Bystander"));
+        arriving.setPos(anchor.getX() + .5, anchor.getY(), anchor.getZ() + .5);
+        other.setPos(arriving.position());
+        level.addNewPlayer(arriving);
+        try {
+            helper.assertTrue(dev.otectus.mcacrime.jail.SafeCustodyDestination.validate(level, anchor, 0).isEmpty(),
+                    "fixture must begin with an occupied anchor");
+            helper.assertTrue(dev.otectus.mcacrime.jail.SafeCustodyDestination.validate(level, anchor, 0, arriving).isPresent(),
+                    "arriving prisoner blocked their own destination");
+            level.addNewPlayer(other);
+            helper.assertTrue(dev.otectus.mcacrime.jail.SafeCustodyDestination.validate(level, anchor, 0, arriving).isEmpty(),
+                    "another player was ignored as well");
+            other.setGameMode(net.minecraft.world.level.GameType.SPECTATOR);
+            helper.assertTrue(dev.otectus.mcacrime.jail.SafeCustodyDestination.validate(level, anchor, 0, arriving).isPresent(),
+                    "spectator blocked intake");
+        } finally { arriving.discard(); other.discard(); }
+        helper.succeed();
+    }
+
+    @GameTest(template = "cell_parity")
     public static void generatedCellAvoidsLivingBystanders(GameTestHelper helper) {
         var level = helper.getLevel();
         var bystander = villager(helper, new BlockPos(4, 1, 4));

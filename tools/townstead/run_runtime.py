@@ -46,9 +46,9 @@ def main():
     for jar in jars:
         shutil.copy2(jar, work / 'mods' / jar.name)
     # Reuse the developer's existing EULA acceptance, never accept one on their behalf.
-    eula = pathlib.Path('run/eula.txt')
+    eula = pathlib.Path('run-server/eula.txt')
     if not eula.is_file() or 'eula=true' not in eula.read_text().lower():
-        parser.error('run/eula.txt must contain an existing eula=true acceptance')
+        parser.error('run-server/eula.txt must contain an existing eula=true acceptance')
     shutil.copy2(eula, work / 'eula.txt')
     (work / 'server.properties').write_text(
         'online-mode=false\nserver-ip=127.0.0.1\nserver-port=0\n'

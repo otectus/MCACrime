@@ -25,6 +25,14 @@ class ItemCurrencyMathTest {
     }
 
     @Test
+    void maximumAmountsKeepTheirStackCountWithoutOverflow() {
+        assertEquals(144115188075855872L, ItemCurrencyMath.stacksNeeded(Long.MAX_VALUE, 64));
+        assertEquals(144115188075855871L, ItemCurrencyMath.stacksNeeded(Long.MAX_VALUE - 63, 64));
+        assertEquals(Long.MAX_VALUE, ItemCurrencyMath.stacksNeeded(Long.MAX_VALUE, 1));
+        assertArrayEquals(new int[0], ItemCurrencyMath.splitCounts(Long.MAX_VALUE, 64));
+    }
+
+    @Test
     void nothingToPayNeedsNoStacks() {
         assertEquals(0L, ItemCurrencyMath.stacksNeeded(0L, 64));
         assertEquals(0L, ItemCurrencyMath.stacksNeeded(-5L, 64));

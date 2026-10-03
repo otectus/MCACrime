@@ -481,7 +481,7 @@ public final class JailService {
         // loaded -- when the server knew least about what was there -- and put prisoners inside walls,
         // in lava and in the void. An unknown destination is now a refusal.
         BlockPos target = SafeCustodyDestination.validate(level, jail.getJailAnchor(),
-                Math.max(2, jail.getJailRadius())).orElse(null);
+                Math.max(2, jail.getJailRadius()), player).orElse(null);
         if (target == null) {
             return false;
         }

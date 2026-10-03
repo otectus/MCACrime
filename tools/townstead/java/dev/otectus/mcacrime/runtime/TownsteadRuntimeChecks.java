@@ -225,7 +225,7 @@ public final class TownsteadRuntimeChecks {
             call(needs, "setHunger", 0);
             call(needs, "setThirst", 20);
             CustodyRecord record = new CustodyRecord(villager.getUUID(), false, true,
-                    CustodyOwner.guard(UUID.randomUUID()), RestraintType.CUFFS, 0, hold, level.dimension().location());
+                    CustodyOwner.guard(UUID.randomUUID()), 0, hold, level.dimension().location());
             record.setRemainingJailTicks(1200);
             CustodyCareService.clearAll();
             var data = CrimeWorldData.get(server);
@@ -242,7 +242,7 @@ public final class TownsteadRuntimeChecks {
             BlockPos hold = new BlockPos(100, 80, 100);
             level.getChunkAt(hold);
             CustodyRecord record = new CustodyRecord(villager.getUUID(), false, true,
-                    CustodyOwner.guard(UUID.randomUUID()), RestraintType.CUFFS, 0, hold, level.dimension().location());
+                    CustodyOwner.guard(UUID.randomUUID()), 0, hold, level.dimension().location());
             record.setRemainingJailTicks(1200);
             CustodyCareService.clearAll();
             require(CustodyCareService.tick(level, CrimeWorldData.get(server), record, villager)

@@ -61,7 +61,7 @@ public interface Currency {
      * always has; anything that stacks differently, or does not stack at all, should say so here.
      */
     default long stacksNeeded(long amount) {
-        return amount <= 0L ? 0L : (amount + 63L) / 64L;
+        return ItemCurrencyMath.stacksNeeded(amount, 64);
     }
 
     /**
