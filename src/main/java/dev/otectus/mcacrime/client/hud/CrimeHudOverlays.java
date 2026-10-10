@@ -93,6 +93,7 @@ public final class CrimeHudOverlays {
         return mc.options.hideGui
                 || mc.player == null
                 || mc.player.isSpectator()
+                || !McaCrimeConfig.clientLoaded()
                 || !McaCrimeConfig.CLIENT.hudEnabled.get();
     }
 

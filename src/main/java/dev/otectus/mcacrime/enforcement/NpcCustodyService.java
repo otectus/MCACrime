@@ -428,7 +428,7 @@ public final class NpcCustodyService {
             return Confinement.HELD;
         }
         if (dev.otectus.mcacrime.jail.JailConfine.exitIsEscape(
-                McaCrimeConfig.COMMON.jailContainmentMode.get(), cell.breached(data))) {
+                dev.otectus.mcacrime.jail.JailConfine.mode(null), cell.breached(data))) {
             escape(server, data, level, record, held);
             return Confinement.ESCAPED;
         }

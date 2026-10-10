@@ -50,7 +50,8 @@ public final class OutlawResolver {
                 CrimeState.getKarma(target),
                 warrant,
                 McaCrimeConfig.COMMON.bountyEnabled.get(),
-                McaCrimeConfig.COMMON.redBandBountyEligible.get());
+                McaCrimeConfig.COMMON.redBandBountyEligible.get(),
+                McaCrimeConfig.COMMON.outlawCombatLegal.get() && !LegalTarget.redBandHiddenByMask(target));
     }
 
     /**
@@ -82,6 +83,30 @@ public final class OutlawResolver {
                                         boolean maskedPursuit, boolean maskedOffenderLethalForce,
                                         long heat, long karma, @Nullable Warrant warrant,
                                         boolean bountyEnabled, boolean redBandBountyEligible) {
+        return evaluate(wanted, band, redIsLegalTarget, allowKillingRed, escapedPrisoner, holdingCaptive,
+                resistingArrest, maskedPursuit, maskedOffenderLethalForce, heat, karma, warrant, bountyEnabled,
+                redBandBountyEligible, false);
+    }
+
+    /**
+     * The same picture with the private-combat term (0.7.7).
+     *
+     * <p>{@code outlawCombatLegal} makes force against an outlaw uncharged, whoever uses it, and is
+     * deliberately kept out of the first three answers. Folding it into {@code lawfulCombatTarget} would
+     * send the guards after every Red player, which is {@code redIsLegalTarget}'s decision; folding it
+     * into the bounty would put a price on a reputation, which is {@code redBandEligible}'s. So it widens
+     * only {@code attackLawful} and {@code killLawful}, and widens them both: an outlaw anybody may fight
+     * is an outlaw anybody may kill, whatever {@code allowKillingRed} says about the law's own force.
+     *
+     * @param outlawCombatLegal the setting, already false when a mask hides the player's band
+     */
+    public static OutlawStatus evaluate(boolean wanted, Band band, boolean redIsLegalTarget,
+                                        boolean allowKillingRed, boolean escapedPrisoner,
+                                        boolean holdingCaptive, boolean resistingArrest,
+                                        boolean maskedPursuit, boolean maskedOffenderLethalForce,
+                                        long heat, long karma, @Nullable Warrant warrant,
+                                        boolean bountyEnabled, boolean redBandBountyEligible,
+                                        boolean outlawCombatLegal) {
         boolean lawfulCombatTarget = LegalTarget.isLegalTarget(
                 wanted, band, redIsLegalTarget, escapedPrisoner, holdingCaptive, resistingArrest,
                 maskedPursuit);
@@ -103,7 +128,9 @@ public final class OutlawResolver {
         boolean warrantOpen = warrant != null && warrant.open();
         boolean bountyEligible = bountyEnabled && warrantOpen && qualifyingBasis;
 
+        boolean outlaw = outlawCombatLegal && band == Band.RED;
         return new OutlawStatus(lawfulCombatTarget, lethalForceLawful, bountyEligible, basis, heat, karma,
-                band, warrant == null ? null : warrant.id(), warrant == null ? 0L : warrant.revision());
+                band, warrant == null ? null : warrant.id(), warrant == null ? 0L : warrant.revision(),
+                lawfulCombatTarget || outlaw, lethalForceLawful || outlaw);
     }
 }

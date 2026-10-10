@@ -35,18 +35,24 @@ public class ReinforcedBarsBlock extends IronBarsBlock implements ReinforcedBloc
 
     public ReinforcedBarsBlock(Properties properties) {
         super(properties);
-        this.registerDefaultState(this.stateDefinition.any()
-                .setValue(NORTH, Boolean.FALSE)
-                .setValue(EAST, Boolean.FALSE)
-                .setValue(SOUTH, Boolean.FALSE)
-                .setValue(WEST, Boolean.FALSE)
-                .setValue(WATERLOGGED, Boolean.FALSE)
-                .setValue(COLUMN, 0));
+        // On top of IronBarsBlock's own default, not stateDefinition.any(), so a default set there --
+        // or by a mod that injects a property into every pane -- survives (0.7.7, see CellDoorBlock).
+        this.registerDefaultState(this.defaultBlockState().setValue(COLUMN, 0));
     }
 
+    /** IronBarsBlock's own definition (four arms and waterlogged), then the column. */
     @Override
     protected void createBlockStateDefinition(@Nonnull StateDefinition.Builder<Block, BlockState> builder) {
-        builder.add(NORTH, EAST, WEST, SOUTH, WATERLOGGED, COLUMN);
+        super.createBlockStateDefinition(builder);
+        builder.add(COLUMN);
+    }
+
+    /** Bars the mod put up for a holding cell are never loot (0.7.7); everything else drops as usual. */
+    @Override
+    @SuppressWarnings("deprecation")
+    public java.util.List<net.minecraft.world.item.ItemStack> getDrops(@Nonnull BlockState state,
+            @Nonnull net.minecraft.world.level.storage.loot.LootParams.Builder params) {
+        return ReinforcedPolicy.generatedCellBlock(params) ? java.util.List.of() : super.getDrops(state, params);
     }
 
     /** Whether the block at {@code pos} continues a run of bars. */

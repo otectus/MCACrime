@@ -56,4 +56,17 @@ public enum OccupationSource {
     public boolean requiresStation() {
         return this == SETTLEMENT_SWEEP || this == STATION_RECRUITMENT;
     }
+
+    /**
+     * Whether nobody asked for this change: the ambient sweep, the station walk it starts, and the wild
+     * exception (0.7.7).
+     *
+     * <p>These are the routes that must leave an established villager alone, which is a different
+     * question from {@link #requiresStation()}: the wild route needs no station and was therefore
+     * never asked whether its candidate already had a job or a trade history. Operator, API, rebind and
+     * migration requests are deliberate or repairing, and keep their own rules.
+     */
+    public boolean automatic() {
+        return this == SETTLEMENT_SWEEP || this == STATION_RECRUITMENT || this == WILD;
+    }
 }

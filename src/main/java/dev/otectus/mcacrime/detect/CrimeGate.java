@@ -72,12 +72,10 @@ public final class CrimeGate {
         // 6. PvP: force against a Legal Target is lawful, so attacking a Wanted player is not itself a
         //    crime. Killing one is a separate permission, because "you may stop them" and "you may end
         //    them" are different grants and a server should be able to give the first without the second.
-        if (playerVictim) {
-            ServerPlayer victimPlayer = (ServerPlayer) victim;
-            OutlawStatus status = OutlawResolver.resolve(victimPlayer);
-            if (status.lawfulCombatTarget() && (!lethal || status.lethalForceLawful())) {
-                return Optional.empty();
-            }
+        //    With outlawCombatLegal (0.7.7) an outlaw may be fought and killed by anybody: both answers
+        //    already include that, and neither makes the guards hunt the outlaw.
+        if (playerVictim && forceLawful(OutlawResolver.resolve((ServerPlayer) victim), lethal)) {
+            return Optional.empty();
         }
         // Combat provenance and limited raid grace are evaluated after damage finality.
         // An AI attack target is never evidence that its opponent did not provoke it.
@@ -109,15 +107,23 @@ public final class CrimeGate {
         if (!(actor instanceof ServerPlayer player) || player instanceof FakePlayer || victim == player) {
             return Optional.empty();
         }
-        if (playerVictim) {
-            OutlawStatus status = OutlawResolver.resolve((ServerPlayer) victim);
-            // Never lethal: nothing on this path can kill, so the separate lethal-force grant is not
-            // consulted and a Wanted victim is simply a lawful target.
-            if (status.lawfulCombatTarget()) {
-                return Optional.empty();
-            }
+        // Never lethal: nothing on this path can kill, so the separate lethal-force grant is not
+        // consulted and a Wanted victim, or an outlaw, is simply somebody this may be done to.
+        if (playerVictim && forceLawful(OutlawResolver.resolve((ServerPlayer) victim), false)) {
+            return Optional.empty();
         }
         return Optional.of(player);
+    }
+
+    /**
+     * Whether force against a player with this legal picture files no charge.
+     *
+     * <p>Pure, and the whole of the player-victim rule: harming somebody asks {@code attackLawful},
+     * killing them asks {@code killLawful}. Both already include every legal target and, with
+     * {@code outlawCombatLegal}, every outlaw (0.7.7).
+     */
+    public static boolean forceLawful(@javax.annotation.Nullable OutlawStatus status, boolean lethal) {
+        return status != null && (lethal ? status.killLawful() : status.attackLawful());
     }
 
     /** Projectile owners are supplied by DamageSource; a loaded tame animal can name its owner. */

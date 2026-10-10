@@ -1,0 +1,22 @@
+{
+  "event": "mcacrime:memory_apologized",
+  "fallback": "dialogue.mcacrime.memory_apologized.generic",
+  "variants": [
+    {
+      "priority": 0,
+      "when": {},
+      "lines": [
+        "dialogue.mcacrime.memory_apologized.generic"
+      ]
+    },
+    {
+      "priority": 1,
+      "when": {
+        "crime_family": true
+      },
+      "lines": [
+        "dialogue.mcacrime.memory_apologized.family"
+      ]
+    }
+  ]
+}

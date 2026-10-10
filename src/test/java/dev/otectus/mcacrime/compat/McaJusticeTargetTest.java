@@ -31,6 +31,14 @@ class McaJusticeTargetTest {
                         tragedy.desc = "(Ljava/lang/String;Lnet/minecraft/core/BlockPos;Ljava/lang/Object;Lnet/minecraft/world/entity/Entity;)V";
                         assertFalse(McaJusticeMixinPlugin.supported(node), "changed argument layout must degrade before injection");
                         tragedy.desc = original;
+                        // 0.7.7: the mourner is read from the relationship's own Mob field, so a build
+                        // without it must degrade rather than load a field that is not there.
+                        FieldNode mourner = node.fields.stream().filter(f -> f.name.equals("entity")
+                                && f.desc.equals("Lnet/minecraft/world/entity/Mob;")).findFirst().orElseThrow(
+                                () -> new AssertionError(path + ": Relationship has no Mob entity field"));
+                        node.fields.remove(mourner);
+                        assertFalse(McaJusticeMixinPlugin.supported(node), "a missing mourner field must degrade");
+                        node.fields.add(mourner);
                     }
                     if (name.endsWith("/PlayerSaveData.class")) {
                         MethodNode load = node.methods.stream().filter(m -> m.name.equals("<init>") && m.desc.endsWith("Lnet/minecraft/nbt/CompoundTag;)V")).findFirst().orElseThrow();
@@ -39,6 +47,9 @@ class McaJusticeTargetTest {
                         assertFalse(McaJusticeMixinPlugin.supported(node), "missing exact same-object load path must degrade");
                         load.desc = original;
                     }
+                    boolean villager = name.endsWith("/VillagerEntityMCA.class");
+                    if (villager) assertTrue(McaJusticeMixinPlugin.guardAlertSite(node),
+                            path + ": no single friend test in hurt for the guard-alert hook (0.7.7)");
                     McaJusticeMixinPlugin.transform(node);
                     int mailSaves = 0;
                     for (MethodNode method : node.methods) {
@@ -51,6 +62,9 @@ class McaJusticeTargetTest {
                         catch (AnalyzerException failure) { fail(path + ": " + method.name + method.desc, failure); }
                     }
                     if (name.endsWith("/PlayerSaveData.class")) assertEquals(1, mailSaves, "exactly one native save hook");
+                    if (name.endsWith("/Relationship.class")) assertMournerPassed(path, node);
+                    if (villager) assertRawAmountPassed(path, node);
+                    if (villager) assertGuardAlertHooked(path, node);
                     ClassWriter writer = new ClassWriter(0); node.accept(writer);
                     assertTrue(writer.toByteArray().length > 0); targets++;
                 }
@@ -58,5 +72,63 @@ class McaJusticeTargetTest {
             }
         }
         assertTrue(jars >= 3, "All three required supported MCA builds must be verified");
+    }
+
+    /** The killing hook receives delta, source, deceased and this relationship's own villager (0.7.7). */
+    private static void assertMournerPassed(String path, ClassNode node) {
+        int hooks = 0;
+        for (MethodNode method : node.methods) {
+            for (var insn : method.instructions.toArray()) {
+                if (insn instanceof MethodInsnNode call && call.name.equals("tragedyDelta")) {
+                    assertEquals("(ILnet/minecraft/world/damagesource/DamageSource;Lnet/minecraft/world/entity/Entity;Ljava/lang/Object;)I",
+                            call.desc, path);
+                    AbstractInsnNode previous = call.getPrevious();
+                    assertTrue(previous instanceof FieldInsnNode field && field.getOpcode() == Opcodes.GETFIELD
+                            && field.owner.equals(node.name) && field.name.equals("entity")
+                            && field.desc.equals("Lnet/minecraft/world/entity/Mob;"), path + ": mourner not loaded from entity");
+                    assertTrue(call.getNext() instanceof MethodInsnNode next && next.name.equals("modHearts"),
+                            path + ": killing hook must sit directly before modHearts");
+                    hooks++;
+                }
+            }
+        }
+        assertEquals(1, hooks, path + ": exactly one killing heart hook");
+    }
+
+    /** The friend test inside hurt is passed through friendlyToMca, exactly once (0.7.7). */
+    private static void assertGuardAlertHooked(String path, ClassNode node) {
+        int hooks = 0;
+        for (MethodNode method : node.methods) {
+            for (var insn : method.instructions.toArray()) {
+                if (insn instanceof MethodInsnNode call && call.name.equals("friendlyToMca")) {
+                    assertEquals("(Z)Z", call.desc, path);
+                    assertTrue(call.getPrevious() instanceof MethodInsnNode friend && friend.name.equals("isFriend")
+                            && friend.desc.equals("(Lnet/minecraft/world/entity/EntityType;)Z"),
+                            path + ": the guard-alert hook must sit directly after MCA's friend test");
+                    hooks++;
+                }
+            }
+        }
+        assertEquals(1, hooks, path + ": exactly one guard-alert hook");
+    }
+
+    /** The native wrappers hand the raw damage to the scope, and a death hands none (0.7.7). */
+    private static void assertRawAmountPassed(String path, ClassNode node) {
+        int wrappers = 0;
+        for (MethodNode method : node.methods) {
+            for (var insn : method.instructions.toArray()) {
+                if (insn instanceof MethodInsnNode call && call.name.equals("enter")) {
+                    assertTrue(call.desc.startsWith("(Lnet/minecraft/world/entity/LivingEntity;Lnet/minecraft/world/damagesource/DamageSource;FZ)"),
+                            path + ": " + call.desc);
+                    AbstractInsnNode amount = call.getPrevious().getPrevious();
+                    boolean death = method.desc.endsWith(")V");
+                    assertTrue(death ? amount.getOpcode() == Opcodes.FCONST_0
+                                    : amount instanceof VarInsnNode load && load.getOpcode() == Opcodes.FLOAD && load.var == 2,
+                            path + ": " + method.name + " passes the wrong amount");
+                    wrappers++;
+                }
+            }
+        }
+        assertEquals(2, wrappers, path + ": one hurt and one death wrapper");
     }
 }

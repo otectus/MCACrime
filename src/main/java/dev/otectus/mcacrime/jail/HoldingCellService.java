@@ -6,6 +6,7 @@ import dev.otectus.mcacrime.captivity.CustodyRecord;
 import dev.otectus.mcacrime.state.world.CrimeWorldData;
 import dev.otectus.mcacrime.state.world.ServerMutationGate;
 import net.minecraft.core.BlockPos;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
@@ -35,6 +36,32 @@ public final class HoldingCellService {
 
     /** The cell currently standing for this prisoner, if any. */
     @Nullable
+    /**
+     * Whether a block at {@code pos} stands where this mod put one for a cell (0.7.7): a cell that is up
+     * now, or what is left of one whose demolition is waiting for its chunk.
+     *
+     * <p>Such a block is never loot. The mod made it out of nothing for an arrest, so a prisoner digging
+     * out of a {@code PHYSICAL} cell, or a rescuer digging in, must not walk away with reinforced stone
+     * the server minted -- the same rule the cell's generated padlock has always followed.
+     */
+    public static boolean generatedBlockAt(@Nullable CrimeWorldData data, @Nullable ResourceLocation dim,
+                                           @Nullable BlockPos pos) {
+        if (data == null || dim == null || pos == null) {
+            return false;
+        }
+        for (HoldingCell cell : data.holdingCells()) {
+            if (dim.equals(cell.dim()) && cell.generated(pos)) {
+                return true;
+            }
+        }
+        for (HoldingCell remains : data.pendingCellRestorations()) {
+            if (dim.equals(remains.dim()) && remains.generated(pos)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     public static HoldingCell existingFor(MinecraftServer server, UUID prisoner) {
         return server == null ? null : CrimeWorldData.get(server).holdingCellFor(prisoner);
     }
@@ -219,24 +246,83 @@ public final class HoldingCellService {
         }
         ServerLevel level = JailService.resolveLevel(server, cell.dim());
         if (level != null) {
-            // Outside the door, not an arbitrary side: a prisoner let out of a cell walks out of it.
-            BlockPos outside = SafeCustodyDestination.validate(level, cell.outsideStand(), 8).orElse(null);
-            if (outside == null) {
-                McaCrime.LOGGER.debug("MCA: Crime found nowhere safe outside a cell; leaving it standing");
+            ServerPlayer player = server.getPlayerList().getPlayer(prisoner);
+            Entity npc = player == null ? level.getEntity(prisoner) : null;
+            Entity inside = player != null ? player : npc;
+            boolean occupant = inside != null && JailRegion.contains(cell.anchor(), cell.radius(), cell.dim(),
+                    inside.blockPosition(), inside.level().dimension().location());
+            // Outside the door, not an arbitrary side: a prisoner let out of a cell walks out of it. When
+            // that spot is unusable the search widens (0.7.7) rather than giving up: a prisoner the law
+            // has released must never be left standing in a cell that will not come down.
+            Exit exit = occupant ? exitFor(server, level, cell, player != null) : null;
+            if (occupant && exit == null) {
+                // Nowhere safe anywhere -- not beside the cell, not at the world's spawn. The cell stays up
+                // rather than burying them, the prisoner is told, and the sweep and /crime repair retry.
+                McaCrime.LOGGER.error("MCA: Crime found nowhere safe to let {} out of the holding cell at {} in {}; "
+                        + "the cell is left standing until a safe exit exists (/crime repair retries)",
+                        prisoner, cell.anchor(), cell.dim());
+                if (player != null) {
+                    player.sendSystemMessage(net.minecraft.network.chat.Component.translatable(
+                            "mcacrime.jail.release_blocked"));
+                }
                 return;
             }
-            ServerPlayer player = server.getPlayerList().getPlayer(prisoner);
-            if (player != null) {
-                player.teleportTo(level, outside.getX() + 0.5, outside.getY(), outside.getZ() + 0.5,
-                        player.getYRot(), player.getXRot());
-            } else {
-                Entity npc = level.getEntity(prisoner);
-                if (npc != null) {
-                    npc.teleportTo(outside.getX() + 0.5, outside.getY(), outside.getZ() + 0.5);
+            if (exit != null) {
+                if (player != null) {
+                    player.teleportTo(exit.level(), exit.pos().getX() + 0.5, exit.pos().getY(), exit.pos().getZ() + 0.5,
+                            player.getYRot(), player.getXRot());
+                } else if (npc != null && exit.level() == level) {
+                    npc.teleportTo(exit.pos().getX() + 0.5, exit.pos().getY(), exit.pos().getZ() + 0.5);
+                }
+            }
+            // Nobody inside means nobody to move: the cell comes down where it stands.
+        }
+        dismantle(server, prisoner);
+    }
+
+    /** Where a released prisoner is put, in which level. */
+    public record Exit(ServerLevel level, BlockPos pos) {
+    }
+
+    /** How far, in blocks, the search for a way out of a cell reaches around its door side. */
+    static final int EXIT_RING_RADIUS = 6;
+
+    /**
+     * The way out of a cell, widest-last (0.7.7): the door-side stand; then a ring around the cell, so a
+     * wall, a tree or a building against the door is walked around rather than given up on; then, for a
+     * player, the overworld's spawn, which is always loaded and is where the game itself puts somebody it
+     * has nowhere better for. Every candidate is loaded, inside the world and checked for footing and
+     * headroom by the same rule as a cell's own anchor; an unloaded or unsafe place is never used.
+     */
+    @javax.annotation.Nullable
+    public static Exit exitFor(MinecraftServer server, ServerLevel level, HoldingCell cell, boolean player) {
+        BlockPos door = SafeCustodyDestination.validate(level, cell.outsideStand(), 8).orElse(null);
+        if (door != null) {
+            return new Exit(level, door);
+        }
+        BlockPos anchor = cell.anchor();
+        int clear = cell.radius() + 2;
+        for (int r = clear; r <= clear + EXIT_RING_RADIUS; r++) {
+            for (int dx = -r; dx <= r; dx++) {
+                for (int dz = -r; dz <= r; dz++) {
+                    if (Math.max(Math.abs(dx), Math.abs(dz)) != r) {
+                        continue; // only the ring at this distance: the cell's own footprint is never a way out
+                    }
+                    BlockPos found = SafeCustodyDestination.validate(level, anchor.offset(dx, 0, dz), 4).orElse(null);
+                    if (found != null) {
+                        return new Exit(level, found);
+                    }
                 }
             }
         }
-        dismantle(server, prisoner);
+        if (player) {
+            ServerLevel overworld = server.overworld();
+            BlockPos spawn = SafeCustodyDestination.validate(overworld, overworld.getSharedSpawnPos(), 16).orElse(null);
+            if (spawn != null) {
+                return new Exit(overworld, spawn);
+            }
+        }
+        return null;
     }
 
     /**

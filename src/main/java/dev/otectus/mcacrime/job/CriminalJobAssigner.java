@@ -31,14 +31,18 @@ public final class CriminalJobAssigner {
      *                                replaced this record's old {@code guardOrArcher} flag in 0.7.2. A
      *                                flag could only say "not a guard", including when MCA could not be
      *                                asked; the result distinguishes that from an actual answer.
+     * @param established             the villager already has a profession, trading XP, a level or a used
+     *                                offer, or none of that could be read (0.7.7). An established villager
+     *                                is somebody a player invested in, and no roll may convert them: not
+     *                                into a wild thief, not into a station recruit, and not into a fence.
      * @param lastAssignDayForVillage the day this villager's village last produced a criminal, or
      *                                {@link Long#MIN_VALUE} when it never has. A sentinel rather than
      *                                zero, because day zero is a real day on a fresh world and would
      *                                otherwise put every village on cooldown for its first three days.
      */
     public record Candidate(UUID id, boolean adult, NpcMuggerEligibility.Result role, boolean alreadyCriminal,
-                            boolean jailed, boolean protectedNpc, boolean hasVillage, int villagePopulation,
-                            long lastAssignDayForVillage) {
+                            boolean jailed, boolean protectedNpc, boolean established, boolean hasVillage,
+                            int villagePopulation, long lastAssignDayForVillage) {
     }
 
     /** The {@code criminalJobs} config block, snapshotted so the roll is reproducible. */
@@ -78,7 +82,9 @@ public final class CriminalJobAssigner {
             return Optional.empty();
         }
         if (!candidate.adult() || candidate.alreadyCriminal()
-                || candidate.jailed() || candidate.protectedNpc()) {
+                || candidate.jailed() || candidate.protectedNpc() || candidate.established()) {
+            // An established villager is excluded here, before any roll, so it costs no randomness and
+            // is never walked to a Mask Station only to be refused on arrival.
             return Optional.empty();
         }
         if (!candidate.hasVillage()) {

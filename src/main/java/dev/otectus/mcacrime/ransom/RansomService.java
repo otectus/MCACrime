@@ -135,22 +135,29 @@ public final class RansomService {
             return refuse(payer, "mcacrime.ransom.none");
         }
         CustodyRecord record = world.getCustody(state.getVictim());
-        if (record == null) {
-            return failDemand(world, state, RansomStatus.FAILED_RESCUED, payer);
-        }
-        if (record.isLawful()) {
-            return failDemand(world, state, RansomStatus.FAILED_JAILED, payer);
-        }
-        LivingEntity victim = resolveVictim(server, record);
-        if (victim == null || !victim.isAlive()) {
-            return failDemand(world, state, RansomStatus.FAILED_VICTIM_GONE, payer);
-        }
-        ServerPlayer captor = server.getPlayerList().getPlayer(state.getCaptor());
-        if (captor == null) {
-            return refuse(payer, "mcacrime.ransom.captoraway"); // hold the demand until the captor returns
-        }
-        if (Currencies.active().balance(payer) < state.getAmount()) {
-            return refuse(payer, "mcacrime.ransom.need");
+        LivingEntity victim = record == null || record.isLawful() ? null : resolveVictim(server, record);
+        ServerPlayer captor = state.getCaptor() == null ? null
+                : server.getPlayerList().getPlayer(state.getCaptor());
+        switch (checkPayment(state, record, victim != null && victim.isAlive(), captor != null,
+                Currencies.active().balance(payer))) {
+            case RESCUED, CAPTOR_CHANGED -> {
+                return failDemand(world, state, RansomStatus.FAILED_RESCUED, payer);
+            }
+            case JAILED -> {
+                return failDemand(world, state, RansomStatus.FAILED_JAILED, payer);
+            }
+            case VICTIM_GONE -> {
+                return failDemand(world, state, RansomStatus.FAILED_VICTIM_GONE, payer);
+            }
+            case CAPTOR_AWAY -> {
+                return refuse(payer, "mcacrime.ransom.captoraway"); // hold the demand until the captor returns
+            }
+            case INSUFFICIENT -> {
+                return refuse(payer, "mcacrime.ransom.need");
+            }
+            case PAYABLE -> {
+                // Every condition holds; the transfer below is the last gate.
+            }
         }
         if (!EconomicTransactionService.transferPlayerToPlayer(world, state.getDemandId(),
                 TransactionReason.RANSOM, payer, captor, state.getAmount(),
@@ -194,12 +201,82 @@ public final class RansomService {
 
     // ------------------------------------------------------------------ internals
 
-    /** Frees the victim and writes the ransom audit record. Karma/Heat were already applied at capture time. */
+    /** Why a payment against an open demand may or may not go through, in the order it is asked (0.7.7). */
+    enum PaymentCheck {
+        /** Every condition holds: the money may move, and the captive goes free once it has. */
+        PAYABLE,
+        /** Nobody holds the victim any more. The demand fails as a rescue. */
+        RESCUED,
+        /** The law holds the victim now. The demand fails. */
+        JAILED,
+        /**
+         * Somebody other than the captor who made the demand holds the victim. Paying the original captor
+         * would buy nothing, so the demand fails as a rescue; the one holding them now has to ask.
+         */
+        CAPTOR_CHANGED,
+        /** The victim is dead or cannot be found. The demand fails. */
+        VICTIM_GONE,
+        /** The captor is offline. The demand is held until they return. */
+        CAPTOR_AWAY,
+        /** The payer cannot cover it. The demand is held. */
+        INSUFFICIENT
+    }
+
+    /**
+     * The checks a payment passes before any money moves (0.7.7). Pure, so the order is assertable: a
+     * failed or held payment frees nobody, because nothing past this point runs unless it says
+     * {@link PaymentCheck#PAYABLE}.
+     */
+    static PaymentCheck checkPayment(RansomState demand, @Nullable CustodyRecord custody, boolean victimAlive,
+                                     boolean captorOnline, long balance) {
+        if (custody == null) {
+            return PaymentCheck.RESCUED;
+        }
+        if (custody.isLawful()) {
+            return PaymentCheck.JAILED;
+        }
+        if (demand.getCaptor() == null || !custody.getOwner().isKidnapper(demand.getCaptor())) {
+            return PaymentCheck.CAPTOR_CHANGED;
+        }
+        if (!victimAlive) {
+            return PaymentCheck.VICTIM_GONE;
+        }
+        if (!captorOnline) {
+            return PaymentCheck.CAPTOR_AWAY;
+        }
+        return balance < demand.getAmount() ? PaymentCheck.INSUFFICIENT : PaymentCheck.PAYABLE;
+    }
+
+    /**
+     * Frees the victim, then writes the ransom audit record. Karma/Heat were already applied at capture
+     * time.
+     *
+     * <p>Called only once the money has moved, so the release may not depend on anything after it. It
+     * used to run as the evidence step of the audit record, which swallowed an exception thrown inside
+     * it and skipped it entirely when the insert was refused: a ransom paid and a captive still held.
+     * The release is idempotent through the custody record and the payment through its receipt, so a
+     * repeated settlement moves nothing twice. Releasing the custody takes off the gear it owns, cuts
+     * a villager's chains, opens its device and ends any escort, which is the whole of being let go.
+     */
     private static void settle(MinecraftServer server, CustodyRecord record, ServerPlayer captor,
                                LivingEntity victim, UUID demandId, long amount) {
-        dev.otectus.mcacrime.incident.IncidentService.commitRansom(demandId, captor, victim,
-                (ServerLevel) victim.level(), amount,
-                () -> CustodyService.release(server, record.getCaptive(), CustodyReleaseReason.RANSOM_PAID));
+        settleInOrder(
+                () -> CustodyService.release(server, record.getCaptive(), CustodyReleaseReason.RANSOM_PAID),
+                () -> dev.otectus.mcacrime.incident.IncidentService.commitRansom(demandId, captor, victim,
+                        (ServerLevel) victim.level(), amount),
+                demandId);
+    }
+
+    /** The settlement order on its own: the release first, and the audit whatever the release did. */
+    static void settleInOrder(Runnable release, Runnable audit, UUID demandId) {
+        try {
+            release.run();
+        } catch (RuntimeException failure) {
+            dev.otectus.mcacrime.McaCrime.LOGGER.error(
+                    "Ransom {} was paid but releasing the captive failed; /crime release frees them",
+                    demandId, failure);
+        }
+        audit.run();
     }
 
     private static int failDemand(CrimeWorldData world, RansomState state, RansomStatus status, ServerPlayer payer) {

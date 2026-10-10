@@ -15,7 +15,9 @@ import java.util.UUID;
  * <p>The sentence is measured in <b>online ticks</b> ({@link #remainingOnlineTicks}) decremented only while
  * the player is online and loaded — so logout pauses it and it can't be waited out offline. {@link #realOnlineTicksServed}
  * is the independent real-online-time accumulator for the §7.2 captivity-cap failsafe. {@link #modeSnapshot}
- * captures the containment mode at jail time so a mid-sentence config flip can't surprise a prisoner.
+ * records the containment mode at jail time. Since 0.7.7 it no longer governs anything while a config is
+ * loaded: the live {@code jailContainmentMode} does ({@code JailConfine.mode}), and the confinement never
+ * pulls an escaped prisoner back whatever the mode becomes.
  *
  * <p>Pure data + NBT (no config/server deps) so it round-trips in unit tests; {@link #load} of an empty tag
  * never throws (nulls/defaults), which keeps a hand-edited or partial save from softlocking or crashing.
@@ -68,6 +70,21 @@ public final class JailState {
      * apart once the cell is gone.
      */
     private boolean temporaryCell;
+    /**
+     * The Heat this sentence answers for (0.7.7), or {@link #UNKNOWN_HEAT} for a sentence handed down
+     * before it was recorded.
+     *
+     * <p>Serving a sentence used to close its cases and leave its Heat standing, so a prisoner whose Heat
+     * was still above the Wanted line walked out a legal target and was arrested again on the doorstep.
+     * The obligation is the Heat the prisoner carried in when the sentence began. Heat that leaves while
+     * it runs -- decay, a fine paid from the cell -- comes off it first, oldest first, so the release
+     * never subtracts the same Heat twice; Heat that arrives while it runs is a new offence and is never
+     * part of it. Persisted, so a restart settles exactly what it would have settled without one.
+     */
+    private long sentenceHeat = UNKNOWN_HEAT;
+
+    /** No obligation recorded: a sentence older than 0.7.7, resolved from its cases at release. */
+    public static final long UNKNOWN_HEAT = -1L;
 
     public JailState() {
     }
@@ -175,6 +192,21 @@ public final class JailState {
         this.temporaryCell = temporaryCell;
     }
 
+    public long getSentenceHeat() {
+        return sentenceHeat;
+    }
+
+    public void setSentenceHeat(long sentenceHeat) {
+        this.sentenceHeat = sentenceHeat < 0L ? UNKNOWN_HEAT : sentenceHeat;
+    }
+
+    /** Heat that left the prisoner while this sentence ran comes off the obligation first. */
+    public void consumeSentenceHeat(long decrease) {
+        if (sentenceHeat > 0L && decrease > 0L) {
+            sentenceHeat = Math.max(0L, sentenceHeat - decrease);
+        }
+    }
+
     public boolean isEscaped() {
         return escaped;
     }
@@ -210,6 +242,7 @@ public final class JailState {
         c.surrenderCredited = surrenderCredited;
         c.legacyBound = legacyBound;
         c.temporaryCell = temporaryCell;
+        c.sentenceHeat = sentenceHeat;
         return c;
     }
 
@@ -239,6 +272,9 @@ public final class JailState {
         if (temporaryCell) {
             tag.putBoolean("temporaryCell", true);
         }
+        if (sentenceHeat >= 0L) {
+            tag.putLong("sentenceHeat", sentenceHeat);
+        }
         return tag;
     }
 
@@ -267,6 +303,8 @@ public final class JailState {
         // Absent on every sentence saved before built cells came down on escape. False keeps the old
         // rule for them: their cell, if any, is still standing, and walking back in still resumes.
         s.temporaryCell = tag.getBoolean("temporaryCell");
+        // Absent on every sentence saved before 0.7.7: unknown, and resolved from its cases at release.
+        s.sentenceHeat = tag.contains("sentenceHeat") ? Math.max(0L, tag.getLong("sentenceHeat")) : UNKNOWN_HEAT;
         return s;
     }
 }

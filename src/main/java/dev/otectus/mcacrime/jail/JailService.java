@@ -112,6 +112,9 @@ public final class JailService {
             }
             existing.setRemainingOnlineTicks(
                     mergeSentence(existing.getRemainingOnlineTicks(), clamped, allowReduce));
+            // The extended term answers for everything standing when it was extended (0.7.7), exactly as
+            // its charges join it: Heat that is part of the term is settled with it.
+            existing.setSentenceHeat(dev.otectus.mcacrime.engine.CrimeState.getHeat(player));
             // An extension is time added for charges that were not part of the original term, so those
             // charges join it. Without this they would be served alongside it and settled by nothing.
             dev.otectus.mcacrime.engine.CrimeState.flushDeferredHeat(player);
@@ -130,6 +133,9 @@ public final class JailService {
         if (intakeId == null) return false;
         JailState jail = new JailState(clamped, anchor.pos(), anchor.dim(), anchor.radius(), mode);
         jail.setSentenceId(intakeId);
+        // What this sentence answers for (0.7.7): the Heat the prisoner carries in, after any surrender
+        // reduction and before a mask's deferred Heat comes due below, which was never priced into it.
+        jail.setSentenceHeat(dev.otectus.mcacrime.engine.CrimeState.getHeat(player));
         jail.setTemporaryCell(isTemporaryCellAnchor(player.getServer(), player.getUUID(), anchor));
         var arrestAtIntake = dev.otectus.mcacrime.enforcement.ArrestStates.of(player);
         if (arrestAtIntake != null) jail.setSurrenderCredited(arrestAtIntake.isSurrenderCredited());
@@ -156,6 +162,9 @@ public final class JailService {
         MinecraftForge.EVENT_BUS.post(new PlayerJailedEvent(player, clamped, anchor.pos()));
         CrimeNetwork.sendSelfStatus(player);
         player.sendSystemMessage(Component.translatable("mcacrime.jail.jailed", TickFormat.compact(clamped)));
+        // Where to read why, and how to get out (0.7.7): /crime status lists the charges, the time left,
+        // any pause and the ways out.
+        player.sendSystemMessage(Component.translatable("mcacrime.jail.status_hint"));
         return true;
     }
 
@@ -259,22 +268,101 @@ public final class JailService {
             return; // the single guard that makes double-release a no-op
         }
         JailState finished = data.getJail();
+        MinecraftServer server = player.getServer();
+        // Read before anything below resolves the cases it is partly computed from.
+        long obligation = obligation(server, player, finished);
         data.setJail(null);
-        // Serving the sentence is what closes the cases. Without this a player could be jailed, serve
-        // the whole term, walk out, and still have every charge open and actionable against them --
-        // which made a sentence cost time and change nothing. Only an actually-served sentence counts:
-        // an administrative release, a pardon, or a broken jail anchor settle nothing.
-        if (reason == ReleaseReason.SENTENCE_SERVED && player.getServer() != null && finished != null) {
-            SentenceResolutionService.markServed(player.getServer(), player.getUUID(), finished.getSentenceId());
+        // 0.7.7: ending a sentence is one disposition, applied here exactly once (the guard above), to
+        // the cases and the Heat this sentence was for and to nothing else. See SentenceDisposition.
+        switch (SentenceDisposition.effectOf(reason)) {
+            case SERVE -> {
+                // Serving the sentence is what closes the cases -- and the captivity cap counts as
+                // serving it, or the same cases would put the same player straight back into it.
+                if (server != null && finished != null) {
+                    SentenceResolutionService.markServed(server, player.getUUID(), finished.getSentenceId());
+                }
+                settleHeat(player, finished, obligation);
+            }
+            case SETTLE -> settleHeat(player, finished, obligation);
+            case UNBIND -> {
+                // Nothing is forgiven and nothing is served: the charges leave this sentence so a later,
+                // valid arrest assesses them again, and they keep every bit of their Heat.
+                if (server != null && finished != null) {
+                    SentenceAssignmentService.cancel(CrimeWorldData.get(server), player.getUUID(),
+                            finished.getSentenceId());
+                }
+            }
+            case NONE -> { }
         }
+        // The custody instance ends here, not in a listener (0.7.7): a listener that throws stops the event
+        // for every listener after it, which used to be able to leave a prisoner in a standing cell with
+        // an open custody record. Each step is guarded on its own.
+        CellReleaseHandler.cleanUp(server, player, reason);
         // Walking out of a cell into a mugging is the version of NPC crime that reads as the mod
         // punishing a player twice for the same sentence (0.7.0).
         dev.otectus.mcacrime.mug.npc.MugProtection.grant(player,
                 McaCrimeConfig.COMMON.releaseMugProtectionTicks.get());
         dev.otectus.mcacrime.audio.CrimeSounds.released(player);
-        MinecraftForge.EVENT_BUS.post(new PlayerReleasedFromJailEvent(player, reason));
+        try {
+            MinecraftForge.EVENT_BUS.post(new PlayerReleasedFromJailEvent(player, reason));
+        } catch (RuntimeException failure) {
+            McaCrime.LOGGER.error("A listener failed on the release of {} ({}); the release itself is complete",
+                    player.getGameProfile().getName(), reason, failure);
+        }
         CrimeNetwork.sendSelfStatus(player);
         player.sendSystemMessage(Component.translatable(releaseKey(reason)));
+    }
+
+    /**
+     * The Heat a sentence answers for (0.7.7). A sentence that predates the recorded obligation answers
+     * for the Heat its still-open cases generated, or for all of it when it binds no case.
+     */
+    static long obligation(@Nullable MinecraftServer server, ServerPlayer player, @Nullable JailState jail) {
+        if (jail == null) {
+            return 0L;
+        }
+        if (jail.getSentenceHeat() >= 0L) {
+            return jail.getSentenceHeat();
+        }
+        List<Long> bound = server == null ? List.of()
+                : CrimeWorldData.get(server).casesForSentence(player.getUUID(), jail.getSentenceId()).stream()
+                        .map(dev.otectus.mcacrime.ledger.CrimeRecord::heatGenerated).toList();
+        return SentenceDisposition.legacyObligation(dev.otectus.mcacrime.engine.CrimeState.getHeat(player), bound);
+    }
+
+    /** The Heat the running sentence answers for, as release would settle it now; 0 when not jailed. */
+    public static long sentenceHeat(ServerPlayer player) {
+        JailState jail = CrimeCapabilities.get(player).map(PlayerCrimeData::getJail).orElse(null);
+        return jail == null ? 0L : SentenceDisposition.settlement(obligation(player.getServer(), player, jail),
+                dev.otectus.mcacrime.engine.CrimeState.getHeat(player));
+    }
+
+    /** Takes exactly the sentence's obligation off, recomputing Wanted (and with it the warrant). */
+    private static void settleHeat(ServerPlayer player, @Nullable JailState finished, long obligation) {
+        long settle = SentenceDisposition.settlement(obligation, dev.otectus.mcacrime.engine.CrimeState.getHeat(player));
+        if (settle > 0L && finished != null) {
+            dev.otectus.mcacrime.engine.CrimeState.addHeat(player, -settle, McaCrime.id("sentence"),
+                    "sentence:" + finished.getSentenceId());
+        }
+    }
+
+    /**
+     * Whether every case this sentence was handed down for has been closed some other way -- a pardon,
+     * or fines covering all of them -- and so the sentence has nothing left to hold the prisoner for
+     * (0.7.7). A pardon used to close the cases and leave the prisoner serving them.
+     */
+    @Nullable
+    static ReleaseReason resolvedElsewhere(@Nullable MinecraftServer server, ServerPlayer player, JailState jail) {
+        if (server == null || jail == null || !jail.isLegacyBound()) {
+            return null;
+        }
+        List<dev.otectus.mcacrime.ledger.Resolution> bound = new java.util.ArrayList<>();
+        for (dev.otectus.mcacrime.ledger.CrimeRecord record : CrimeWorldData.get(server).recordsForOffender(player.getUUID())) {
+            if (jail.getSentenceId().equals(record.sentenceId())) {
+                bound.add(record.resolution());
+            }
+        }
+        return SentenceDisposition.resolvedBy(bound);
     }
 
     private static String releaseKey(ReleaseReason reason) {
@@ -352,9 +440,16 @@ public final class JailService {
         if (jail == null) {
             return;
         }
-        if (jail.getModeSnapshot() == JailContainmentMode.PHYSICAL) {
+        if (JailConfine.mode(jail) == JailContainmentMode.PHYSICAL) {
             // Account for a breakout before decrementing, rather than waiting for the confine scan.
             JailConfine.tick(player, data);
+        }
+        if (data.getOnlineTicksLived() % 20L == 0L) {
+            ReleaseReason settled = resolvedElsewhere(player.getServer(), player, jail);
+            if (settled != null) {
+                release(player, settled);
+                return;
+            }
         }
         long capTicks = (long) McaCrimeConfig.COMMON.maxCaptivityRealMinutes.get() * 1200L;
         ReleaseReason due = advanceTick(jail, capTicks);

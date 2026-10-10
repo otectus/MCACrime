@@ -181,6 +181,17 @@ public final class McaCompat {
     }
 
     /**
+     * True when the villager's profession is MCA's Outlaw, under the server's
+     * {@code professionMatchingMode} (0.7.7). Every supported MCA build registers {@code mca:outlaw},
+     * and it is the profession MCA itself treats as hostile. Safe default: {@code false}.
+     */
+    public static boolean isOutlaw(Entity entity) {
+        return getProfessionId(entity)
+                .map(id -> dev.otectus.mcacrime.compat.ProfessionMatcher.matches(id, "outlaw"))
+                .orElse(false);
+    }
+
+    /**
      * Reads the player's current relationship hearts with this villager. Server-authoritative; returns
      * 0 for non-MCA entities or on any error. (Hearts are MCA's relationship currency, distinct from
      * this mod's Karma.)
@@ -270,6 +281,13 @@ public final class McaCompat {
      * predicate is satisfied by the same fallback that produced it. No MCA symbol is involved, which is
      * why this can live outside {@link McaHandles} without breaking the no-static-linkage rule.
      *
+     * <p>Verified against MCA 7.7.36-beta.3 for 0.7.7: its guard package keeps a valid current
+     * {@code ATTACK_TARGET} before it consults {@code NEAREST_GUARD_ENEMY}, so the memory written here is
+     * kept; but MCA also pardons on a timer ({@code pardonPlayerTicks}, 1200 by default), erasing
+     * {@code ATTACK_TARGET} whenever the guard's own small bounty is at most one -- which it always is for
+     * a target this mod chose. That is why the enforcement scan re-applies a lawful target on every pass
+     * rather than once.
+     *
      * <p>{@code setTarget} is still written, because a responder added through the {@code responderEntities}
      * config may well be an ordinary goal-driven mob for which it is the only lever that works.
      *
@@ -280,6 +298,28 @@ public final class McaCompat {
      *
      * @return true when a lever actually took effect, so a caller can tell aggro from silence
      */
+    /**
+     * The targets this mod gave each villager, and the only ones its own releases may clear (0.7.7).
+     *
+     * <p>{@link #releaseVillagerControl} runs on every reaction exit, every abandoned pursuit and every
+     * sleep. It used to clear whatever the villager was attacking, which included targets MCA's own guard
+     * brain had chosen -- a zombie at the gate, a raider -- so a guard who happened to witness a crime
+     * mid-fight dropped the fight the moment the reaction ended. A release now clears a target only while
+     * it is still the one this mod assigned; MCA's own combat is MCA's to end.
+     */
+    private static final java.util.Map<java.util.UUID, java.util.UUID> ASSIGNED_TARGETS =
+            new java.util.concurrent.ConcurrentHashMap<>();
+
+    /** Forget every assignment. Server stop, beside the other enforcement caches. */
+    public static void clearAssignedTargets() {
+        ASSIGNED_TARGETS.clear();
+    }
+
+    /** The target this mod last gave {@code villager}, if it has not been cleared since. */
+    public static Optional<java.util.UUID> assignedTarget(Entity villager) {
+        return villager == null ? Optional.empty() : Optional.ofNullable(ASSIGNED_TARGETS.get(villager.getUUID()));
+    }
+
     public static boolean setGuardTarget(Entity guard, LivingEntity target) {
         if (!(guard instanceof Mob mob) || target == null || !dev.otectus.mcacrime.ai.NpcAwareness.canRespondAsGuard(guard)) {
             return false;
@@ -300,6 +340,9 @@ public final class McaCompat {
             applied = true;
         } catch (Throwable t) {
             McaCrime.LOGGER.debug("MCA setGuardTarget failed; ignoring", t);
+        }
+        if (applied) {
+            ASSIGNED_TARGETS.put(guard.getUUID(), target.getUUID());
         }
         return applied;
     }
@@ -327,6 +370,11 @@ public final class McaCompat {
     public static void clearGuardTarget(Entity guard, @Nullable LivingEntity formerTarget) {
         if (!(guard instanceof Mob mob)) {
             return;
+        }
+        if (formerTarget == null) {
+            ASSIGNED_TARGETS.remove(guard.getUUID());
+        } else {
+            ASSIGNED_TARGETS.remove(guard.getUUID(), formerTarget.getUUID());
         }
         try {
             if (mob.getBrain().checkMemory(MemoryModuleType.ATTACK_TARGET, MemoryStatus.REGISTERED)
@@ -395,13 +443,69 @@ public final class McaCompat {
     }
 
     /**
-     * Stops navigation this mod issued and clears any attack target, handing the villager back to MCA.
-     * Called on every controller exit — a reaction that ends without this leaves the villager frozen
-     * on a stale path with nothing left to update it.
+     * Stops navigation this mod issued and clears the attack target this mod assigned, handing the
+     * villager back to MCA. Called on every controller exit — a reaction that ends without this leaves
+     * the villager frozen on a stale path with nothing left to update it. A target MCA chose itself, a
+     * guard's own fight with a monster, is left alone (0.7.7).
      */
     public static void releaseVillagerControl(Entity villager) {
         stopModNavigation(villager);
-        clearGuardTarget(villager, null);
+        // Only the target this mod gave them (0.7.7); see ASSIGNED_TARGETS.
+        java.util.UUID ours = villager == null ? null : ASSIGNED_TARGETS.remove(villager.getUUID());
+        if (ours != null && villager instanceof Mob mob) {
+            clearTargetIf(mob, ours);
+        }
+    }
+
+    /**
+     * Stops navigation this mod issued and drops every combat order, whoever gave it (0.7.7).
+     *
+     * <p>For a villager who must not fight at all right now -- asleep in bed -- rather than one this mod
+     * has merely finished directing. There the origin of a target does not matter: an order MCA gave
+     * before the villager lay down, or one saved by an older version, would otherwise be acted on from
+     * the bed.
+     */
+    public static void releaseAllControl(Entity villager) {
+        stopModNavigation(villager);
+        if (villager == null) {
+            return;
+        }
+        ASSIGNED_TARGETS.remove(villager.getUUID());
+        if (!(villager instanceof Mob mob)) {
+            return;
+        }
+        try {
+            if (mob.getBrain().checkMemory(MemoryModuleType.ATTACK_TARGET, MemoryStatus.REGISTERED)) {
+                mob.getBrain().eraseMemory(MemoryModuleType.ATTACK_TARGET);
+            }
+        } catch (Throwable t) {
+            McaCrime.LOGGER.debug("MCA release brain erase failed; ignoring", t);
+        }
+        try {
+            mob.setTarget(null);
+        } catch (Throwable t) {
+            McaCrime.LOGGER.debug("MCA release target clear failed; ignoring", t);
+        }
+    }
+
+    /** Clears both levers of a mob's target, but only while they still name {@code target}. */
+    private static void clearTargetIf(Mob mob, java.util.UUID target) {
+        try {
+            if (mob.getBrain().checkMemory(MemoryModuleType.ATTACK_TARGET, MemoryStatus.REGISTERED)
+                    && mob.getBrain().getMemory(MemoryModuleType.ATTACK_TARGET)
+                            .filter(held -> target.equals(held.getUUID())).isPresent()) {
+                mob.getBrain().eraseMemory(MemoryModuleType.ATTACK_TARGET);
+            }
+        } catch (Throwable t) {
+            McaCrime.LOGGER.debug("MCA release brain erase failed; ignoring", t);
+        }
+        try {
+            if (mob.getTarget() != null && target.equals(mob.getTarget().getUUID())) {
+                mob.setTarget(null);
+            }
+        } catch (Throwable t) {
+            McaCrime.LOGGER.debug("MCA release target clear failed; ignoring", t);
+        }
     }
 
     /**
@@ -491,6 +595,9 @@ public final class McaCompat {
             dev.otectus.mcacrime.activity.CrimeActivityRegistry.touch(villager.getUUID(),
                     villager.level().getGameTime());
             mob.setTarget(offender);
+            if (offender != null) {
+                ASSIGNED_TARGETS.put(villager.getUUID(), offender.getUUID());
+            }
             return true;
         } catch (Throwable t) {
             McaCrime.LOGGER.debug("MCA makeVillagerResist failed; ignoring", t);

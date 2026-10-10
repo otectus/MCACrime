@@ -1,0 +1,22 @@
+{
+  "event": "mcacrime:minor_harm_warned",
+  "fallback": "dialogue.mcacrime.minor_harm_warned.generic",
+  "variants": [
+    {
+      "priority": 0,
+      "when": {},
+      "lines": [
+        "dialogue.mcacrime.minor_harm_warned.generic"
+      ]
+    },
+    {
+      "priority": 1,
+      "when": {
+        "relationship": "friend"
+      },
+      "lines": [
+        "dialogue.mcacrime.minor_harm_warned.friend"
+      ]
+    }
+  ]
+}

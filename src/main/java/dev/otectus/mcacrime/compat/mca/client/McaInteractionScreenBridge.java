@@ -26,6 +26,7 @@ import javax.annotation.Nullable;
 
 import java.lang.reflect.Field;
 import java.util.UUID;
+import java.util.function.BooleanSupplier;
 
 /**
  * Client-only, package-root-neutral bridge that contributes a real narrated widget to MCA's interaction
@@ -100,12 +101,34 @@ public final class McaInteractionScreenBridge {
         }
     }
 
+    /**
+     * Whether a screen gets the button, asked in an order that is safe at any point of the lifecycle
+     * (0.7.7).
+     *
+     * <p>The screen-init event fires for every screen the game opens, including the loader's error
+     * screen when mod loading has failed -- which happens before the client config is loaded. Reading
+     * the config first threw there and replaced the loader's report with a crash of our own. So: the
+     * screen is checked first and the config is never touched for any other screen; then the config's
+     * loaded state; only then its value. A false here is never remembered, so the next MCA screen after
+     * the config loads is decided afresh.
+     */
+    public static boolean shouldAttach(String screenClass, BooleanSupplier configLoaded, BooleanSupplier enabled) {
+        return isInteractScreen(screenClass) && configLoaded.getAsBoolean() && enabled.getAsBoolean();
+    }
+
+    /** MCA's interaction screen, by its class name's tail: its package root moves between releases. */
+    public static boolean isInteractScreen(String screenClass) {
+        return screenClass != null && screenClass.endsWith(".client.gui.InteractScreen");
+    }
+
     @SubscribeEvent
     public static void onScreenInit(ScreenEvent.Init.Post event) {
-        if (!McaCrimeConfig.CLIENT.showButtonOnMcaScreen.get()) return;
         Screen screen = event.getScreen();
         String name = screen.getClass().getName();
-        if (!name.endsWith(".client.gui.InteractScreen")) return;
+        if (!shouldAttach(name, McaCrimeConfig::clientLoaded,
+                () -> McaCrimeConfig.CLIENT.showButtonOnMcaScreen.get())) {
+            return;
+        }
         Entity villager = findVillager(screen);
         if (villager == null) return;
         UUID villagerId = villager.getUUID();

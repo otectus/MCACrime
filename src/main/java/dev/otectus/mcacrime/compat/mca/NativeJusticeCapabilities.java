@@ -11,7 +11,14 @@ public final class NativeJusticeCapabilities {
     public static boolean combatComplete() {
         return McaJusticeMixinPlugin.APPLIED.containsAll(Set.of("VillagerEntityMCA", "Relationship"));
     }
-    public static String status() { return combatComplete() ? "native combat hooks verified" : "DEGRADED: native combat hooks incomplete"; }
+    /** Whether MCA's guard alert is gated for exempt blows (0.7.7); optional beside the heart hooks. */
+    public static boolean guardAlertGated() {
+        return McaJusticeMixinPlugin.APPLIED.contains(McaJusticeMixinPlugin.GUARD_ALERT);
+    }
+    public static String status() {
+        return (combatComplete() ? "native combat hooks verified" : "DEGRADED: native combat hooks incomplete")
+                + (guardAlertGated() ? "; guard alert gated" : "; guard alert ungated");
+    }
     public static void initialize() {
         String root = McaHandles.resolution().root();
         if (root != null) for (String type : new String[]{"entity.VillagerEntityMCA", "entity.ai.Relationship", "server.world.data.PlayerSaveData"}) {

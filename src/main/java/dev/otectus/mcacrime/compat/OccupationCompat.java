@@ -133,6 +133,37 @@ public final class OccupationCompat {
         return villager instanceof MerchantOffersAccessor accessor ? accessor.mcacrime$rawOffers() : null;
     }
 
+    /**
+     * What {@link dev.otectus.mcacrime.job.RecruitmentEligibility} needs, read without changing anything
+     * (0.7.7).
+     *
+     * <p>Offers come from the raw field through {@link MerchantOffersAccessor}. {@code getOffers()} would
+     * build a trade list for a villager that never had one, so the question "has anybody traded with
+     * them" would itself create trades. A villager whose accessor is missing reads as unreadable, which
+     * an automatic route treats as a refusal.
+     */
+    public static dev.otectus.mcacrime.job.RecruitmentEligibility.Facts recruitmentFacts(@Nullable Entity entity) {
+        Villager villager = villager(entity);
+        if (!(villager instanceof MerchantOffersAccessor)) {
+            return dev.otectus.mcacrime.job.RecruitmentEligibility.Facts.unreadable();
+        }
+        try {
+            ResourceLocation profession = McaCompat.getProfessionId(entity).orElse(null);
+            MerchantOffers offers = rawOffers(villager);
+            boolean used = offers != null && offers.stream().anyMatch(offer -> offer.getUses() > 0);
+            return new dev.otectus.mcacrime.job.RecruitmentEligibility.Facts(
+                    profession != null,
+                    profession != null && "none".equals(profession.getPath()),
+                    McaHandles.isProfessionImportant(entity),
+                    villager.getVillagerXp(),
+                    villager.getVillagerData().getLevel(),
+                    used);
+        } catch (Throwable t) {
+            McaCrime.LOGGER.debug("MCA: Crime could not read recruitment facts; treating them as unreadable", t);
+            return dev.otectus.mcacrime.job.RecruitmentEligibility.Facts.unreadable();
+        }
+    }
+
     // --- mutation --------------------------------------------------------------------------------
 
     /**
@@ -232,6 +263,27 @@ public final class OccupationCompat {
         brain.eraseMemory(MemoryModuleType.POTENTIAL_JOB_SITE);
         brain.eraseMemory(MemoryModuleType.SECONDARY_JOB_SITE);
         brain.eraseMemory(MemoryModuleType.LAST_WORKED_AT_POI);
+    }
+
+    /**
+     * Forgets work memories that still point at {@code site}, and nothing else (0.7.7).
+     *
+     * <p>The narrow sibling of {@link #clearOccupationalMemories}, for a villager whose profession was
+     * changed by somebody else: a job site the new profession already holds is that profession's, and
+     * only a memory still naming this mod's station is this mod's to remove.
+     */
+    public static void forgetWorkSite(@Nullable Entity entity, @Nullable GlobalPos site) {
+        Villager villager = villager(entity);
+        if (villager == null || site == null) {
+            return;
+        }
+        var brain = villager.getBrain();
+        for (MemoryModuleType<GlobalPos> memory : List.of(MemoryModuleType.JOB_SITE,
+                MemoryModuleType.POTENTIAL_JOB_SITE)) {
+            if (brain.getMemory(memory).filter(site::equals).isPresent()) {
+                brain.eraseMemory(memory);
+            }
+        }
     }
 
     public static void setJobSite(@Nullable Entity entity, GlobalPos site) {

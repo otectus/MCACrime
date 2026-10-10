@@ -9,7 +9,8 @@ package dev.otectus.mcacrime.job;
  * is exactly how they drifted apart. The facts arrive as plain values, so the ordering that matters
  * can be pinned by a test without a server.
  *
- * <p>Two orderings are deliberate.
+ * <p>Two orderings are deliberate, and one rule is shared by both contexts: the actor or candidate must
+ * be strictly adult (0.7.7; before that only recruitment asked).
  *
  * <p>First, {@link Facts#responder()} is examined before every temporary condition. Responder
  * <em>identity</em> is what excludes somebody from crime; whether they are awake, armed or on shift is
@@ -93,11 +94,14 @@ public final class NpcMuggerEligibility {
         if (!facts.mcaVillager()) {
             return reject(NpcMuggerEligibilityReason.NOT_A_VILLAGER);
         }
-        if (context == Context.ASSIGNMENT) {
-            if (!facts.adult()) {
-                return reject(NpcMuggerEligibilityReason.NOT_ADULT);
-            }
-        } else if (!facts.thiefRecord()) {
+        // Age is asked of an actor as well as of a candidate (0.7.7). A record written while a villager
+        // read as an adult, carried in by a migration or an edited save, or set through the API is never
+        // a licence for a child to rob anybody; an actor who stops reading as an adult mid-session has
+        // the session aborted through the ordinary teardown rather than finished.
+        if (!facts.adult()) {
+            return reject(NpcMuggerEligibilityReason.NOT_ADULT);
+        }
+        if (context == Context.EXECUTION && !facts.thiefRecord()) {
             return reject(NpcMuggerEligibilityReason.NOT_A_THIEF);
         }
         return OK;

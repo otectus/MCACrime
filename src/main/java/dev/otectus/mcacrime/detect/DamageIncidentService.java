@@ -37,6 +37,8 @@ public final class DamageIncidentService {
         final Map<LivingEntity, Pending> latest = new java.util.IdentityHashMap<>();
         final Map<LivingEntity, Boolean> confirmedDeaths = new WeakHashMap<>();
         final Map<ResourceLocation, CombatIncidentProcessor> combat = new HashMap<>();
+        /** One grace ledger per server, across dimensions; a relog keeps it, a restart clears it. */
+        final MinorHarmPolicy minorHarm = new MinorHarmPolicy();
         boolean overflowLogged;
     }
     private static final class Pending {
@@ -47,7 +49,7 @@ public final class DamageIncidentService {
         final DamageFinality finality;
         final LivingDamageEvent damageEvent;
         final long at;
-        final boolean harmCharge, killCharge, lawfulNpc, raidSplash, mugging;
+        final boolean harmCharge, killCharge, lawfulNpc, raidSplash, mugging, ownHit, answersThreat;
         final dev.otectus.mcacrime.justice.ThiefCombatDecision thiefDecision;
         final List<LivingDeathEvent> deaths = new ArrayList<>();
         DeathConsequences deathConsequences;
@@ -60,8 +62,12 @@ public final class DamageIncidentService {
             var nativeDecision = dev.otectus.mcacrime.compat.mca.NativeCombatContext.decision(victim, source);
             thiefDecision = nativeDecision != null ? nativeDecision : dev.otectus.mcacrime.justice.ThiefCombatService.sample(victim, source, "damage");
             boolean thiefExempt = thiefDecision != null && thiefDecision.exempt();
+            // A kill is judged separately (0.7.7): fighting off a mugger is exempt under every policy,
+            // killing one is not under NORMAL_LAW, where it is excessive defensive force.
+            boolean killExempt = thiefDecision != null && thiefDecision.exemptsKill();
             harmCharge = !thiefExempt && CrimeGate.resolveOffender(victim, source, level, false).isPresent();
-            killCharge = !thiefExempt && CrimeGate.resolveOffender(victim, source, level, true).isPresent();
+            killCharge = !killExempt && CrimeGate.resolveOffender(victim, source, level, true).isPresent();
+            answersThreat = thiefDecision != null && thiefDecision.answersThreat();
             lawfulNpc = !(actor instanceof ServerPlayer) && victim instanceof ServerPlayer player
                     && (EntitySelectors.isResponder(actor) && JusticeService.forGuard(level, actor, player).mayChallenge()
                         || MuggingService.isRecentThreat(player.getUUID(), actor.getUUID(), at)
@@ -73,6 +79,9 @@ public final class DamageIncidentService {
                     && source.getDirectEntity() != actor;
             mugging = actor instanceof ServerPlayer
                     && MuggingService.isRecentThreat(actor.getUUID(), victim.getUUID(), at);
+            // The attacker's own blow or projectile; a tamed animal's bite is attributed to its owner but
+            // is never minor friendly fire on the owner's behalf.
+            ownHit = source.getEntity() == actor;
         }
     }
     private DamageIncidentService() {}
@@ -89,6 +98,12 @@ public final class DamageIncidentService {
             runtime.pending.add(hit);
             runtime.sampled.put(event, hit);
             runtime.latest.put(event.getEntity(), hit);
+        }
+        // Sampled first, so the threat this blow answers was read before the blow ends the mugging
+        // (0.7.7). The victim's own strike, arrow or pet ends the hold-up at once.
+        if (actor instanceof ServerPlayer player) {
+            dev.otectus.mcacrime.mug.npc.NpcMuggingService.interruptByVictim(player.getUUID(),
+                    event.getEntity().getUUID());
         }
     }
 
@@ -142,30 +157,108 @@ public final class DamageIncidentService {
         runtime.latest.clear();
         runtime.confirmedDeaths.keySet().removeIf(LivingEntity::isAlive);
         int cooldown = McaCrimeConfig.COMMON.harmCooldownTicks.get();
+        MinorHarmPolicy.Settings grace = minorHarmSettings();
         for (ServerLevel level : server.getAllLevels()) {
             var processor = runtime.combat.get(level.dimension().location());
             if (processor != null) processor.expire(level.getGameTime(), cooldown);
         }
-        for (Pending hit : batch) {
-            var outcome = hit.finality.resolve(hit.victim.isDeadOrDying());
-            if (outcome == DamageFinality.Outcome.NONE) continue;
-            if (outcome == DamageFinality.Outcome.KILL && runtime.confirmedDeaths.putIfAbsent(hit.victim, true) != null) continue;
-            if (dev.otectus.mcacrime.config.CrimeWorldSettings.resolve(server).crimeDetection() && ServerMutationGate.allows(server)) {
-                dev.otectus.mcacrime.incident.IncidentNotifications.safely(() -> reconcile(runtime, hit, outcome, cooldown));
+        runtime.minorHarm.expire(server.overworld().getGameTime(), grace.windowTicks());
+        try {
+            for (Pending hit : batch) {
+                var outcome = hit.finality.resolve(hit.victim.isDeadOrDying());
+                if (outcome == DamageFinality.Outcome.NONE) continue;
+                if (outcome == DamageFinality.Outcome.KILL && runtime.confirmedDeaths.putIfAbsent(hit.victim, true) != null) continue;
+                boolean[] forgiven = {false};
+                if (dev.otectus.mcacrime.config.CrimeWorldSettings.resolve(server).crimeDetection() && ServerMutationGate.allows(server)) {
+                    dev.otectus.mcacrime.incident.IncidentNotifications.safely(() ->
+                            forgiven[0] = reconcile(runtime, hit, outcome, cooldown, grace) == CombatIncidentProcessor.Completion.FORGIVEN);
+                }
+                // MCA's own hurt hearts for this hit were held back or applied when it landed; now that the
+                // hit is decided, a forgiven hit costs none and any other hit costs exactly MCA's amount.
+                dev.otectus.mcacrime.compat.mca.NativeCombatContext.settleHurtHearts(hit.victim, hit.source, forgiven[0]);
+                if (outcome == DamageFinality.Outcome.KILL) {
+                    if (hit.deathConsequences != null) hit.deathConsequences.confirm(true);
+                    runtime.combat.values().forEach(encounters -> encounters.forget(hit.victim.getUUID()));
+                }
             }
-            if (outcome == DamageFinality.Outcome.KILL) {
-                if (hit.deathConsequences != null) hit.deathConsequences.confirm(true);
-                runtime.combat.values().forEach(encounters -> encounters.forget(hit.victim.getUUID()));
-            }
+        } finally {
+            // A withheld charge whose hit never reached a damage event (cancelled, or blocked by
+            // invulnerability) was never forgiven either, so MCA's amount is applied as it always was.
+            dev.otectus.mcacrime.compat.mca.NativeCombatContext.flushHurtHearts();
         }
     }
 
-    private static void reconcile(Runtime runtime, Pending hit, DamageFinality.Outcome outcome, int cooldown) {
-        if (hit.actor == hit.victim) return;
+    /** The {@code detection.minorHarm} block, or {@link MinorHarmPolicy.Settings#OFF} without config. */
+    public static MinorHarmPolicy.Settings minorHarmSettings() {
+        try {
+            McaCrimeConfig.Common c = McaCrimeConfig.COMMON;
+            return new MinorHarmPolicy.Settings(c.enableMinorHarmForgiveness.get(), c.minorHarmMaxDamage.get(),
+                    c.minorHarmWindowTicks.get(), c.minorHarmMaxVictimsPerWindow.get());
+        } catch (Throwable t) {
+            return MinorHarmPolicy.Settings.OFF;
+        }
+    }
+
+    /**
+     * Whether a hit landing now could be forgiven as minor friendly fire, changing nothing (0.7.7).
+     *
+     * <p>Asked twice before the hit is decided at the end of the tick: by the native hurt hook, with the
+     * raw damage, to decide whether MCA's hearts are held back until then; and on Forge by MCA:
+     * Reputation's exemption query, with the final damage, so a forgiven hit is not charged there either.
+     * Either answer can be wrong only in the safe direction, because the hearts are settled against the
+     * real decision at flush.
+     */
+    public static boolean minorHarmCandidate(LivingEntity victim, DamageSource source, double amount) {
+        if (victim == null || source == null || !(victim.level() instanceof ServerLevel level)) return false;
+        MinorHarmPolicy.Settings settings = minorHarmSettings();
+        if (!settings.enabled()) return false;
+        LivingEntity actor = actor(victim, source);
+        if (!(actor instanceof ServerPlayer player)) return false;
+        Runtime runtime = SERVERS.get(level.getServer());
+        MinorHarmPolicy policy = runtime == null ? new MinorHarmPolicy() : runtime.minorHarm;
+        long at = level.getGameTime();
+        return policy.peek(settings, new MinorHarmPolicy.Facts(player.getUUID(), victim.getUUID(), at, amount, false,
+                eligibility(level, victim, player, source.getEntity() == player,
+                        MuggingService.isRecentThreat(player.getUUID(), victim.getUUID(), at)))).forgiven();
+    }
+
+    private static MinorHarmPolicy.Eligibility eligibility(ServerLevel level, LivingEntity victim, ServerPlayer attacker,
+                                                           boolean ownHit, boolean mugging) {
+        return new MinorHarmPolicy.Eligibility(
+                !(victim instanceof net.minecraft.world.entity.player.Player) && EntitySelectors.isProtected(victim),
+                ownHit, mugging,
+                !dev.otectus.mcacrime.memory.VictimMemoryService.rawMemories(level.getServer(), victim.getUUID(),
+                        attacker.getUUID()).isEmpty());
+    }
+
+    private static CombatIncidentProcessor.Completion reconcile(Runtime runtime, Pending hit, DamageFinality.Outcome outcome,
+                                                                int cooldown, MinorHarmPolicy.Settings grace) {
+        if (hit.actor == hit.victim) return CombatIncidentProcessor.Completion.NONE;
+        MinorHarmPolicy.Eligibility minorHarm = hit.actor instanceof ServerPlayer player && grace.enabled()
+                ? eligibility(hit.level, hit.victim, player, hit.ownHit, hit.mugging) : null;
         var snapshot = new CombatIncidentProcessor.Hit(hit.id, hit.actor.getUUID(), hit.victim.getUUID(),
-                hit.at, hit.actor instanceof ServerPlayer, hit.harmCharge, hit.killCharge, hit.lawfulNpc, hit.raidSplash);
-        runtime.combat.computeIfAbsent(hit.level.dimension().location(), unused -> new CombatIncidentProcessor())
-                .complete(snapshot, outcome, cooldown, assessment -> commit(hit, assessment));
+                hit.at, hit.actor instanceof ServerPlayer, hit.harmCharge, hit.killCharge, hit.lawfulNpc, hit.raidSplash,
+                hit.finality.amount(), minorHarm, hit.answersThreat);
+        var completion = runtime.combat.computeIfAbsent(hit.level.dimension().location(), unused -> new CombatIncidentProcessor())
+                .completeDetailed(snapshot, outcome, cooldown, runtime.minorHarm, grace, assessment -> commit(hit, assessment));
+        if (completion == CombatIncidentProcessor.Completion.FORGIVEN) warnForgiven(hit);
+        return completion;
+    }
+
+    /**
+     * Tells the attacker the hit was taken as an accident and the next one will not be (0.7.7). The
+     * villager's line obeys the speech radius like every other; the warning is the attacker's own
+     * feedback and always arrives.
+     */
+    private static void warnForgiven(Pending hit) {
+        if (!(hit.actor instanceof ServerPlayer player)) return;
+        var event = dev.otectus.mcacrime.dialogue.DialogueEvents.MINOR_HARM_WARNED;
+        dev.otectus.mcacrime.dialogue.CrimeDialogueService.speak(hit.victim, player, event,
+                dev.otectus.mcacrime.dialogue.CrimeDialogueService.context(hit.level, hit.victim, player, hit.id, event));
+        player.sendSystemMessage(net.minecraft.network.chat.Component.translatable("mcacrime.minor_harm.warned",
+                dev.otectus.mcacrime.compat.McaCompat.getVillagerDisplayName(hit.victim)));
+        dev.otectus.mcacrime.util.CrimeDebug.crime("Minor harm by {} on {} forgiven ({} damage)",
+                player.getUUID(), hit.victim.getUUID(), hit.finality.amount());
     }
 
     private static boolean commit(Pending hit, CombatIncidentProcessor.Assessment assessment) {
@@ -213,6 +306,9 @@ public final class DamageIncidentService {
             return false;
         }
         var thiefDecision = dev.otectus.mcacrime.justice.ThiefCombatService.sample(victim, actor, "non_damaging");
+        // Cuffs, a shove or a sack thrown by the victim of a hold-up end it too (0.7.7); the decision above
+        // was sampled first, so it already saw the threat the act answers.
+        dev.otectus.mcacrime.mug.npc.NpcMuggingService.interruptByVictim(actor.getUUID(), victim.getUUID());
         if (thiefDecision != null && thiefDecision.exempt()) return false;
         if (CrimeGate.resolveNonDamageOffender(victim, actor, level).isEmpty()) {
             return false;

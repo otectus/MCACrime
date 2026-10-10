@@ -6,6 +6,10 @@ import dev.otectus.mcacrime.api.event.CrimeCommittedEvent;
 import dev.otectus.mcacrime.api.model.CrimeCommunityKey;
 import dev.otectus.mcacrime.api.model.CrimeRecordView;
 import dev.otectus.mcacrime.compat.McaCompat;
+import dev.otectus.mcacrime.compat.mca.NativeCombatContext;
+import dev.otectus.mcacrime.compat.mca.NativeJusticeCapabilities;
+import dev.otectus.mcacrime.crime.type.CrimeIds;
+import dev.otectus.mcacrime.ledger.CrimeContext;
 import dev.otectus.mcacrime.integration.CrimeIntegrationHooks;
 import dev.otectus.mcacrime.state.world.CrimeWorldData;
 import net.minecraft.server.MinecraftServer;
@@ -49,16 +53,49 @@ public final class RelationshipConsequences {
             return;
         }
         McaCrimeConfig.Common c = McaCrimeConfig.COMMON;
+        // 0.7.7: personal hearts need somebody to feel them toward. A mask that hides identity leaves every
+        // villager facing a stranger, so nobody's hearts move; the record, Heat and standing are unchanged.
+        boolean masked = event.getRecordView().flatMap(view -> view.context(CrimeContext.MASKED))
+                .map("true"::equals).orElse(false);
+        if (NativeHeartPolicy.crimeHeartsApply(masked, c.maskHidesIdentityFromWitnesses.get())) {
+            applyPersonalHearts(level, offender, event, victimId, living, c);
+        }
+        // Personal hearts are always ours: MCA: Reputation tracks community standing, not how a
+        // particular villager feels about you, so there is nothing to double up on above this line.
+        // Community standing is the part that can be counted twice, and is handled below.
+        if (!dev.otectus.mcacrime.config.CrimeWorldSettings.resolve(level).observations()) {
+            applyVillagePenalty(level, offender, event.getCrimeType(), event.getRecordView()
+                    .flatMap(dev.otectus.mcacrime.api.model.CrimeRecordView::community).orElse(null));
+        }
+    }
+
+    /**
+     * The victim, family and witness heart loss for one recorded crime.
+     *
+     * <p>For a killing, MCA has already charged its own penalty natively by the time this runs, and the
+     * native hooks recorded exactly whom they charged. MCA: Crime adds its loss only for a mourner MCA
+     * did not charge, only while {@code murderHeartPenalty} is on, and never while the hooks are
+     * degraded: then MCA charges everybody nearby without any rule, and adding to that would stack an
+     * uninformed penalty on an unjustified one (0.7.7).
+     */
+    private static void applyPersonalHearts(ServerLevel level, ServerPlayer offender, CrimeCommittedEvent event,
+                                            UUID victimId, LivingEntity living, McaCrimeConfig.Common c) {
         if (living.isAlive() && c.directVictimHeartLoss.get() > 0) {
             McaCompat.addHearts(offender, living, -c.directVictimHeartLoss.get());
         }
-        List<UUID> family = familyOf(victim);
+        boolean killing = isKilling(event.getCrimeType());
+        boolean nativeHooks = NativeJusticeCapabilities.combatComplete();
+        if (killing && !nativeHooks) warnDegradedOnce();
+        long now = level.getGameTime();
+        List<UUID> family = familyOf(living);
         int familyLoss = c.familyHeartLoss.get();
         if (familyLoss > 0) {
             for (UUID rel : family) {
                 Entity relEntity = level.getEntity(rel);
                 if (relEntity instanceof LivingEntity relative && event.getRecordView().map(v -> v.witnessIds().contains(rel)).orElse(false)
-                        && relative.hasLineOfSight(offender) && !offender.isInvisible()) {
+                        && relative.hasLineOfSight(offender) && !offender.isInvisible()
+                        && NativeHeartPolicy.crimeKillingLossApplies(killing, c.murderHeartPenalty.get(), nativeHooks,
+                                NativeCombatContext.chargedByMca(offender.getUUID(), victimId, rel, now))) {
                     McaCompat.addHearts(offender, relEntity, -familyLoss);
                 }
             }
@@ -72,18 +109,32 @@ public final class RelationshipConsequences {
                     continue;
                 }
                 Entity witness = level.getEntity(witnessId);
-                if (witness instanceof LivingEntity watcher && watcher.isAlive() && McaCompat.isMcaVillager(watcher)) {
+                if (witness instanceof LivingEntity watcher && watcher.isAlive() && McaCompat.isMcaVillager(watcher)
+                        && NativeHeartPolicy.crimeKillingLossApplies(killing, c.murderHeartPenalty.get(), nativeHooks,
+                                NativeCombatContext.chargedByMca(offender.getUUID(), victimId, witnessId, now))) {
                     McaCompat.addHearts(offender, watcher, -witnessLoss);
                 }
             }
         }
-        // Personal hearts are always ours: MCA: Reputation tracks community standing, not how a
-        // particular villager feels about you, so there is nothing to double up on above this line.
-        // Community standing is the part that can be counted twice, and is handled below.
-        if (!dev.otectus.mcacrime.config.CrimeWorldSettings.resolve(level).observations()) {
-            applyVillagePenalty(level, offender, event.getCrimeType(), event.getRecordView()
-                    .flatMap(dev.otectus.mcacrime.api.model.CrimeRecordView::community).orElse(null));
+    }
+
+    private static boolean isKilling(net.minecraft.resources.ResourceLocation crime) {
+        return CrimeIds.KILL_VILLAGER.equals(crime) || CrimeIds.KILL_GUARD.equals(crime)
+                || CrimeIds.MUGGING_MURDER.equals(crime);
+    }
+
+    private static boolean degradedWarned;
+
+    private static void warnDegradedOnce() {
+        if (degradedWarned) {
+            return;
         }
+        degradedWarned = true;
+        McaCrime.LOGGER.warn("MCA: Crime's native justice hooks did not apply ({}), so MCA charges its own "
+                + "killing penalty to every villager nearby and to the whole family with no witness rule. "
+                + "MCA: Crime is skipping its own family and witness heart loss for killings so the two do "
+                + "not stack; relationship.murderHeartPenalty and murderHeartsRequireWitness cannot act on "
+                + "MCA's penalty until the hooks apply.", NativeJusticeCapabilities.status());
     }
 
     /**

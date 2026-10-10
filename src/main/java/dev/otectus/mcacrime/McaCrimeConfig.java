@@ -36,6 +36,20 @@ public final class McaCrimeConfig {
     private McaCrimeConfig() {
     }
 
+    /**
+     * Whether the client spec is loaded and its values may be read (0.7.7).
+     *
+     * <p>Client game-bus callbacks run before any world exists -- on the title screen and on the
+     * loader's error screen when a launch has failed -- and the client config is only loaded once mod
+     * loading succeeds. Reading a value earlier throws ("Cannot get config value before config is
+     * loaded"), which on the error screen replaced the loader's own report with a crash. Every such
+     * callback asks this first and does nothing until it is true; nothing is cached, so the first
+     * callback after loading behaves normally.
+     */
+    public static boolean clientLoaded() {
+        return CLIENT_SPEC.isLoaded();
+    }
+
     // The sand defaults live in the policy that implements them; naming them here would be a second
     // copy of a tuning table the spec asks to be playtested as one.
     private static final int SAND_DEFAULT_COOLDOWN =
@@ -114,6 +128,11 @@ public final class McaCrimeConfig {
         public final ForgeConfigSpec.IntValue witnessRadius;
         public final ForgeConfigSpec.IntValue communitySearchRadius;
         public final ForgeConfigSpec.IntValue harmCooldownTicks;
+        // minor friendly fire (0.7.7) — read by detect/MinorHarmPolicy through DamageIncidentService
+        public final ForgeConfigSpec.BooleanValue enableMinorHarmForgiveness;
+        public final ForgeConfigSpec.DoubleValue minorHarmMaxDamage;
+        public final ForgeConfigSpec.IntValue minorHarmWindowTicks;
+        public final ForgeConfigSpec.IntValue minorHarmMaxVictimsPerWindow;
         public final ForgeConfigSpec.IntValue maxStoredWitnesses;
         public final ForgeConfigSpec.BooleanValue enableWitnessSystem;
         public final ForgeConfigSpec.DoubleValue visualWitnessRadiusMultiplier;
@@ -162,6 +181,7 @@ public final class McaCrimeConfig {
         // dialogue (§16)
         public final ForgeConfigSpec.BooleanValue enableDialogue;
         public final ForgeConfigSpec.IntValue dialogueCooldownTicks;
+        public final ForgeConfigSpec.DoubleValue speechRadius;
         public final ForgeConfigSpec.ConfigValue<String> dialogueMessageFormat;
         public final ForgeConfigSpec.ConfigValue<String> dialogueNameColor;
         public final ForgeConfigSpec.BooleanValue dialogueNameBold;
@@ -197,6 +217,7 @@ public final class McaCrimeConfig {
         public final ForgeConfigSpec.BooleanValue raidGrace;
         public final ForgeConfigSpec.BooleanValue redIsLegalTarget;
         public final ForgeConfigSpec.BooleanValue allowKillingRed;
+        public final ForgeConfigSpec.BooleanValue outlawCombatLegal;
         public final ForgeConfigSpec.BooleanValue globalCrimePropagation;
         public final ForgeConfigSpec.DoubleValue guardAggroRadius;
         public final ForgeConfigSpec.IntValue guardScanIntervalTicks;
@@ -469,6 +490,7 @@ public final class McaCrimeConfig {
         public final ForgeConfigSpec.IntValue escortStuckScans;
         public final ForgeConfigSpec.BooleanValue restrainedPlayerRestrictions;
         public final ForgeConfigSpec.IntValue arrestRecoveryTicks;
+        public final ForgeConfigSpec.IntValue adminReleaseRecoveryTicks;
         public final ForgeConfigSpec.DoubleValue jailAssignedMaxDistance;
         public final ForgeConfigSpec.BooleanValue jailFallbackEnabled;
         public final ForgeConfigSpec.ConfigValue<List<? extends Integer>> jailFallbackPos;
@@ -549,6 +571,9 @@ public final class McaCrimeConfig {
         public final ForgeConfigSpec.IntValue villageRepRise;
         public final ForgeConfigSpec.IntValue restitutionHeartGain;
         public final ForgeConfigSpec.DoubleValue restitutionFractionOfFine;
+        // murder hearts (0.7.7) — read by relationship/NativeHeartPolicy and RelationshipConsequences
+        public final ForgeConfigSpec.BooleanValue murderHeartPenalty;
+        public final ForgeConfigSpec.BooleanValue murderHeartsRequireWitness;
 
         // family loyalty (§ relationship.familyLoyalty) — read at witness selection by WitnessChecker
         public final ForgeConfigSpec.BooleanValue enableFamilyLoyalty;
@@ -625,8 +650,19 @@ public final class McaCrimeConfig {
             enableCrimeNews = b.comment("Deliver relevant factual village news through MCA mail; MCA mailing and personal preference still apply.").define("enableCrimeNews", true);
             crimeNewsIntervalDays = b.defineInRange("crimeNewsIntervalDays", 1, 1, 30);
             crimeNewsMaxStories = b.defineInRange("crimeNewsMaxStories", 4, 1, 8);
-            thiefDefenseGraceTicks = b.defineInRange("thiefDefenseGraceTicks", 1200, 0, 240000);
-            thiefCombatPolicy = b.comment("ALL_THIEVES exempts adult canonical Thieves from combat blame, even after release; children, guards and restrained prisoners remain protected. This creates neither report evidence nor rewards. EVIDENCE_REQUIRED requires recent evidence or a local actionable report.")
+            thiefDefenseGraceTicks = b.comment(
+                    "How long, in ticks, being held up by a thief keeps justifying the victim's force after the",
+                    "mugging ends -- a mugger running off with the purse is still the aggressor to the player",
+                    "chasing them. Also the window in which, under EVIDENCE_REQUIRED, a robbery the player",
+                    "witnessed counts as evidence. 0 ends it with the mugging. Custody ends eligibility",
+                    "immediately.")
+                    .defineInRange("thiefDefenseGraceTicks", 1200, 0, 240000);
+            thiefCombatPolicy = b.comment(
+                    "ALL_THIEVES exempts adult canonical Thieves from combat blame, even after release; children,",
+                    "guards and restrained prisoners remain protected. This creates neither report evidence nor",
+                    "rewards. EVIDENCE_REQUIRED requires recent evidence or a local actionable report. NORMAL_LAW",
+                    "gives Thieves no special status. Under every policy the victim of a mugging may fight the",
+                    "mugger off; under NORMAL_LAW killing one is still charged as excessive force.")
                     .defineEnum("thiefCombatPolicy", dev.otectus.mcacrime.justice.ThiefCombatPolicy.ALL_THIEVES);
             b.pop();
             b.push("bands");
@@ -805,6 +841,30 @@ public final class McaCrimeConfig {
                     "investigates instead, which is what a heard-but-unseen crime should produce.")
                     .defineInRange("reportConfidenceThreshold", 0.6, 0.0, 1.0);
             b.pop();
+            b.comment(
+                    "Minor friendly fire. One light, accidental-looking hit on a protected villager is",
+                    "forgiven with a warning instead of becoming an assault. It is never lethal, never a",
+                    "pet's or a mugging's, never against somebody who already remembers you, and only once",
+                    "per attacker and victim inside the window: every later hit in the window is charged",
+                    "normally, so repeated taps gain nothing. The grace ledger is kept in memory; a server",
+                    "restart clears it, relogging does not.")
+                    .push("minorHarm");
+            enableMinorHarmForgiveness = b.comment("Forgive one minor hit per attacker and victim per window.")
+                    .define("enableMinorHarmForgiveness", true);
+            minorHarmMaxDamage = b.comment(
+                    "Largest final damage (after armour and every other modifier) that can be forgiven.",
+                    "2.0 is one heart, which covers an unarmed punch. 0 forgives nothing.")
+                    .defineInRange("minorHarmMaxDamage", 2.0, 0.0, 10.0);
+            minorHarmWindowTicks = b.comment(
+                    "How long one forgiven hit protects nobody from the next. Any further hit by the same",
+                    "attacker on the same victim inside this window is charged as normal.",
+                    "Must not be shorter than detection.harmCooldownTicks.")
+                    .defineInRange("minorHarmWindowTicks", 6000, 200, 72000);
+            minorHarmMaxVictimsPerWindow = b.comment(
+                    "How many different victims one attacker can be forgiven for inside the window,",
+                    "so walking down a street tapping everybody is still assault.")
+                    .defineInRange("minorHarmMaxVictimsPerWindow", 3, 1, 16);
+            b.pop();
             b.pop();
 
             b.comment(
@@ -898,6 +958,11 @@ public final class McaCrimeConfig {
             enableDialogue = b.define("enableDialogue", true);
             dialogueCooldownTicks = b.comment("Minimum ticks between spoken lines from one villager to one player.")
                     .defineInRange("dialogueCooldownTicks", 40, 0, 12000);
+            speechRadius = b.comment(
+                    "How far (blocks) a villager's spoken line carries. A player in another dimension or",
+                    "farther away than this hears nothing, so a villager whose chunk another player keeps",
+                    "loaded cannot speak to somebody across the map. Refusals obey it too.")
+                    .defineInRange("speechRadius", 16.0, 4.0, 64.0);
             dialogueMessageFormat = b.comment(
                     "How a spoken line is laid out in chat. %1$s is the villager's name, %2$s the line.",
                     "The default matches MCA Conversations' chat mode so both mods read alike;",
@@ -924,8 +989,25 @@ public final class McaCrimeConfig {
             pvpCountsAsCrime = b.define("pvpCountsAsCrime", false);
             raidGrace = b.comment("Forgive one nonlethal indirect explosion against a protected non-player, non-responder per combat encounter during an active raid. Direct/repeated attacks and killing remain crimes.")
                     .define("raidGrace", true);
-            redIsLegalTarget = b.define("redIsLegalTarget", false);
-            allowKillingRed = b.define("allowKillingRed", false);
+            redIsLegalTarget = b.comment(
+                    "Whether being an Outlaw (Red band) is grounds for the law itself: guards pursue a Red",
+                    "player with no Wanted status, and force against them is lawful. Whether another player",
+                    "may fight one without a charge is outlawCombatLegal's question, not this one.")
+                    .define("redIsLegalTarget", false);
+            allowKillingRed = b.comment(
+                    "Whether lethal force is lawful against a player who is a legal target only because",
+                    "redIsLegalTarget makes Red one. outlawCombatLegal, when on, already makes killing an",
+                    "outlaw uncharged; Wanted, an escape or holding a captive justify it either way.")
+                    .define("allowKillingRed", false);
+            outlawCombatLegal = b.comment(
+                    "Attacking or killing an outlaw is never a crime: a Red-band player, or an adult MCA",
+                    "Outlaw villager who is not restrained or held. No Wanted status or bounty is needed,",
+                    "and no charge, Heat, Karma, memory, heart loss or guard response follows the fight.",
+                    "A player victim is only ever a crime with pvpCountsAsCrime on. This does not make guards",
+                    "hunt Red players (redIsLegalTarget) and never makes anybody bounty-eligible",
+                    "(bounty.redBandEligible). maskSuppressesRedBandTargeting hides a masked Red player from",
+                    "it too. Off restores redIsLegalTarget and allowKillingRed as the only Red-band rules.")
+                    .define("outlawCombatLegal", true);
             globalCrimePropagation = b.comment("If true, a crime in one village sours every village.")
                     .define("globalCrimePropagation", false);
             guardAggroRadius = b.comment("How far (blocks) a guard is made to pursue a Legal-Target player.")
@@ -1773,7 +1855,15 @@ public final class McaCrimeConfig {
                     .defineInRange("bailMinServedFraction", 0.25, 0.0, 1.0);
             maxCaptivityRealMinutes = b.comment("Hard real-online-time ceiling on how long any player can be held.")
                     .defineInRange("maxCaptivityRealMinutes", 360, 1, 100_000);
-            jailContainmentMode = b.comment("How jail blocks resist escape: CONTAINMENT, PHYSICAL, or REINFORCED.")
+            jailContainmentMode = b.comment(
+                    "How a jail holds its prisoners. Applies to every sentence, including those already being",
+                    "served. CONTAINMENT (default): a prisoner cannot break blocks inside their jail region, and",
+                    "one who gets out another way is put back. PHYSICAL: a prisoner may break their way out of",
+                    "an assigned jail or a built holding cell, and walking out is a jailbreak -- one charge, the",
+                    "escaped flag, guards pursue, the sentence pauses -- with no teleport back. REINFORCED",
+                    "behaves as CONTAINMENT. In every mode worn restraints that forbid mining, locks, and the",
+                    "prison reinforced-block settings still refuse a break, and walking out through a cell door",
+                    "whose padlock was picked or opened is an escape. A built cell's blocks never drop.")
                     .defineEnum("jailContainmentMode", JailContainmentMode.CONTAINMENT);
             maxJailCommandTicks = b.comment("Upper clamp on a /crime jail sentence (online ticks; 72000 = 1 online hour).")
                     .defineInRange("maxJailCommandTicks", 72000, 1, 100_000_000);
@@ -1851,6 +1941,13 @@ public final class McaCrimeConfig {
                     "just failed to arrest somebody re-opens the same screen on the next scan and fails",
                     "again, which is what the repeating confrontation menu actually was.")
                     .defineInRange("arrestRecoveryTicks", 200, 20, 24000);
+            adminReleaseRecoveryTicks = b.comment(
+                    "How long, in online ticks, guards stand down after an operator's /crime release or a jail",
+                    "that no longer exists frees a prisoner (0.7.7). Neither forgives anything -- the charges",
+                    "are released from the sentence and assessed again by a later arrest -- but without a",
+                    "pause the guards on the doorstep would put the player straight back into the custody",
+                    "the operator just ended. 0 leaves only the ordinary arrest recovery.")
+                    .defineInRange("adminReleaseRecoveryTicks", 2400, 0, 72000);
             jailAssignedMaxDistance = b.comment(
                     "How far (blocks) an operator-assigned jail may be from an arrest and still be used.",
                     "0 means unlimited, which is the historical behaviour and means a single",
@@ -2079,6 +2176,19 @@ public final class McaCrimeConfig {
             restitutionHeartGain = b.defineInRange("restitutionHeartGain", 2, 0, 1000);
             restitutionFractionOfFine = b.comment("Fraction of a paid fine conceptually returned to the victim as relationship recovery (§11.3).")
                     .defineInRange("restitutionFractionOfFine", 0.5, 0.0, 1.0);
+            murderHeartPenalty = b.comment(
+                    "Whether killing a villager costs personal hearts at all: MCA's own penalty (20 hearts from",
+                    "every villager within 32 blocks and from the victim's family) and MCA: Crime's family and",
+                    "witness loss for killings. Off removes both. Community standing is a separate control",
+                    "(villageRepDrop here, and MCA: Reputation's own killing settings) and is not affected.")
+                    .define("murderHeartPenalty", true);
+            murderHeartsRequireWitness = b.comment(
+                    "Whether a mourner must actually have seen who did it before MCA's killing penalty applies.",
+                    "On, a neighbour behind a wall, a relative across the map and anybody facing a masked",
+                    "killer whose mask hides identity keep their hearts. Off restores MCA's native rule,",
+                    "which charges everybody nearby and the whole family. Needs the native justice hooks;",
+                    "/crime validate says whether they applied. Community standing is not affected.")
+                    .define("murderHeartsRequireWitness", true);
 
             b.comment("Family who look the other way. A relative who declines to report is removed from the",
                             "witness set itself, so the crime is un-witnessed for Heat, community standing and",

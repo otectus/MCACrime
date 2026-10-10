@@ -166,6 +166,61 @@ class CombatIncidentTest {
         assertTrue(complete(hit(10), damage(1), false));
         assertTrue(processor.complete(hit(player, UUID.randomUUID(), 11, true, true, true, false, false), HARM, 40, this::commit));
     }
+    // ---------------------------------------------------------------- minor friendly fire (0.7.7)
+
+    final dev.otectus.mcacrime.detect.MinorHarmPolicy grace = new dev.otectus.mcacrime.detect.MinorHarmPolicy();
+    static final dev.otectus.mcacrime.detect.MinorHarmPolicy.Settings GRACE =
+            new dev.otectus.mcacrime.detect.MinorHarmPolicy.Settings(true, 2.0, 6000, 3);
+    static final dev.otectus.mcacrime.detect.MinorHarmPolicy.Eligibility CLEAN =
+            new dev.otectus.mcacrime.detect.MinorHarmPolicy.Eligibility(true, true, false, false);
+    CombatIncidentProcessor.Hit graced(UUID actor, UUID victim, long at, boolean playerActor, boolean harm,
+                                       boolean kill, boolean lawfulNpc, boolean raid, double amount) {
+        return new CombatIncidentProcessor.Hit(UUID.randomUUID(), actor, victim, at, playerActor, harm, kill,
+                lawfulNpc, raid, amount, playerActor ? CLEAN : null);
+    }
+    CombatIncidentProcessor.Completion graced(CombatIncidentProcessor.Hit hit, DamageFinality.Outcome outcome) {
+        return processor.completeDetailed(hit, outcome, 40, grace, GRACE, this::commit);
+    }
+    @Test void oneLightHitIsForgivenAndTheSecondIsChargedOnce() {
+        assertEquals(CombatIncidentProcessor.Completion.FORGIVEN,
+                graced(graced(player, villager, 10, true, true, true, false, false, 1.0), HARM));
+        assertEquals(0, karmaWrites, "a forgiven hit wrote a case");
+        assertEquals(CombatIncidentProcessor.Completion.COMMITTED,
+                graced(graced(player, villager, 15, true, true, true, false, false, 1.0), HARM),
+                "the forgiven hit must not stamp the harm cooldown");
+        assertEquals(CombatIncidentProcessor.Completion.COOLDOWN,
+                graced(graced(player, villager, 20, true, true, true, false, false, 1.0), HARM));
+        assertEquals(1, karmaWrites, "the second hit is charged exactly once");
+    }
+    @Test void selfDefenceIsStillExemptBeforeTheGraceIsAsked() {
+        processor.complete(hit(villager, player, 10, false, false, false, false, false), HARM, 40, this::commit);
+        assertEquals(CombatIncidentProcessor.Completion.EXEMPT,
+                graced(graced(player, villager, 11, true, true, true, false, false, 1.0), HARM));
+        assertEquals(0, grace.size(), "an exempt hit never reaches the grace ledger");
+    }
+    @Test void lawfulForceIsStillExemptBeforeTheGraceIsAsked() {
+        assertEquals(CombatIncidentProcessor.Completion.EXEMPT,
+                graced(graced(player, villager, 10, true, false, true, false, false, 1.0), HARM),
+                "a legal target's nonlethal harm is lawful whatever the grace says");
+        assertEquals(CombatIncidentProcessor.Completion.EXEMPT,
+                graced(graced(villager, player, 11, false, false, false, true, false, 1.0), HARM),
+                "an NPC's lawful force is never graced or charged");
+        assertEquals(0, karmaWrites);
+    }
+    @Test void raidGraceIsUnchangedAndKillingIsNeverForgiven() {
+        assertEquals(CombatIncidentProcessor.Completion.EXEMPT,
+                graced(graced(player, villager, 10, true, true, true, false, true, 1.0), HARM));
+        assertEquals(CombatIncidentProcessor.Completion.COMMITTED,
+                graced(graced(player, UUID.randomUUID(), 11, true, true, true, false, false, 1.0), KILL),
+                "a lethal hit is never minor");
+    }
+    @Test void aHeavyFirstHitIsChargedAndAHitWithoutFactsIsNeverGraced() {
+        assertEquals(CombatIncidentProcessor.Completion.COMMITTED,
+                graced(graced(player, villager, 10, true, true, true, false, false, 5.0), HARM));
+        assertEquals(CombatIncidentProcessor.Completion.COMMITTED,
+                processor.completeDetailed(hit(player, UUID.randomUUID(), 11, true, true, true, false, false),
+                        HARM, 40, grace, GRACE, this::commit), "no eligibility facts, no grace");
+    }
     @Test void encounterStoreIsBoundedAndTimeRewindClearsProvenance() {
         var encounters = new CombatEncounters();
         for (int i = 0; i < CombatEncounters.MAX_ENCOUNTERS; i++)

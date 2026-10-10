@@ -154,14 +154,17 @@ class NpcMuggerEligibilityTest {
     }
 
     /**
-     * A child who already holds a record may still be driven. Recruiting one is forbidden; retiring an
-     * existing record is the sweep's job, and refusing to tick a grown-up thief who read as a child for
-     * one pass would strand an open session instead.
+     * A child never acts, record or not (0.7.7). Recruiting one was already forbidden; a record that
+     * reaches a child anyway -- a migration, an edited save, an API caller -- is refused at execution
+     * too, and a session whose actor stops reading as an adult is aborted by the ordinary teardown.
      */
     @Test
-    void theAgeCheckBelongsToRecruitmentOnly() {
+    void theAgeCheckAppliesToExecutionAsWellAsRecruitment() {
         Facts youngThief = new Facts(true, true, true, false, false, true, true);
-        assertTrue(NpcMuggerEligibility.evaluate(youngThief, Context.EXECUTION).eligible());
+        assertEquals(NpcMuggerEligibilityReason.NOT_ADULT,
+                NpcMuggerEligibility.evaluate(youngThief, Context.EXECUTION).reason());
+        assertEquals(NpcMuggerEligibilityReason.NOT_ADULT,
+                NpcMuggerEligibility.evaluate(youngThief, Context.ASSIGNMENT).reason());
     }
 
     // ---------------------------------------------------------------- promotion, the other direction

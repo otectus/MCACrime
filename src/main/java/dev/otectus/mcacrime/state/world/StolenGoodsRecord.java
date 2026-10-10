@@ -57,9 +57,13 @@ public record StolenGoodsRecord(UUID transactionId, UUID thief, UUID owner, @Nul
     /**
      * The stolen item, decoded from its saved form. Server-side only — {@code ItemStack.of} needs the
      * item registry — and never called by the persistence path.
+     *
+     * <p>Decoded from a copy (0.7.7): on 1.20.1 {@code ItemStack.of} keeps the source's {@code tag}
+     * compound as the new stack's own, so anything done to the returned stack -- the search screen's
+     * provenance lore, for one -- was written into this record and saved with it.
      */
     public ItemStack stack() {
-        return hasStack() ? ItemStack.of(stackTag) : ItemStack.EMPTY;
+        return hasStack() ? ItemStack.of(stackTag.copy()) : ItemStack.EMPTY;
     }
 
     public CompoundTag save() {

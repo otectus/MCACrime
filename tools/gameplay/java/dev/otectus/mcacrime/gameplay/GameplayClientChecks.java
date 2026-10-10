@@ -35,20 +35,31 @@ public final class GameplayClientChecks {
     private final String server = System.getProperty("crime.gameplay.server", "");
     private final boolean law = Boolean.getBoolean("crime.gameplay.law");
     private final boolean resume = Boolean.getBoolean("crime.gameplay.resume");
+    /** 0.7.7: a scripted part of the two-client scenarios, or empty for the original single-client run. */
+    private final String role = System.getProperty("crime.gameplay.role", "");
+    private final long deadlineMillis = 1000L * Long.getLong("crime.gameplay.deadline", 240L);
+    private ScenarioChecks scenario;
     private final long started = System.currentTimeMillis();
     private final List<String> results = new ArrayList<>();
-    private int ticks, entered, stage, before, after, deaths;
+    private int ticks, entered, stage, before, after, deaths, sub;
     private boolean opening, finished;
     private float targetHealth;
 
     public GameplayClientChecks() { MinecraftForge.EVENT_BUS.register(this); }
+
+    /** Every system chat line, reduced to the translation keys it carries, for the scenario checks. */
+    @SubscribeEvent
+    public void chat(net.minecraftforge.client.event.ClientChatReceivedEvent.System event) {
+        ScenarioChecks.received(event.getMessage(), ticks);
+    }
 
     @SubscribeEvent
     public void tick(TickEvent.ClientTickEvent event) {
         if (event.phase != TickEvent.Phase.END || finished) return;
         ticks++;
         try {
-            if (System.currentTimeMillis() - started > 240_000) throw new AssertionError("Gameplay client timed out at stage " + stage);
+            if (System.currentTimeMillis() - started > deadlineMillis) throw new AssertionError("Gameplay client timed out at stage " + stage
+                    + (scenario == null ? "" : " (" + role + " step " + scenario.step() + ")"));
             if (!opening && (mc.screen instanceof TitleScreen || mc.screen instanceof AccessibilityOnboardingScreen)) {
                 opening = true;
                 mc.options.pauseOnLostFocus = false;
@@ -78,6 +89,11 @@ public final class GameplayClientChecks {
                 return;
             }
             if (law) { lawChecks(); return; }
+            if (!role.isEmpty()) {
+                if (scenario == null) scenario = new ScenarioChecks(mc, role, output, this::pass, this::note, this::finishQuietly);
+                scenario.tick(ticks);
+                return;
+            }
             switch (stage) {
                 case 0 -> {
                     mc.setScreen(null);
@@ -159,10 +175,25 @@ public final class GameplayClientChecks {
                     next();
                 }
                 case 10 -> {
-                    require(target().getHealth() < targetHealth, "real client attack did not damage the villager");
+                    // 0.7.7: the first light punch is minor friendly fire, forgiven with a warning; the
+                    // second one inside the window is the witnessed assault this stage always checked.
+                    if (ticks - entered < 15) return;
+                    if (sub == 0) {
+                        require(target().getHealth() < targetHealth, "real client attack did not damage the villager");
+                        require(ClientSelfData.karma() == 0 && ClientSelfData.heat() == 0,
+                                "a single light punch was charged instead of forgiven");
+                        targetHealth = target().getHealth();
+                        mc.gameMode.attack(mc.player, target());
+                        sub = 1;
+                        entered = ticks;
+                        return;
+                    }
+                    // No health comparison here: MCA villagers regenerate, and one point of damage can be
+                    // healed back before the client reads it. The synchronized Karma and Heat are the charge.
                     require(ClientSelfData.karma() < 0 && ClientSelfData.heat() > 0,
                             "witnessed assault did not synchronize karma and heat");
                     pass("real client attack produced a witnessed assault and synchronized karma/heat");
+                    sub = 0;
                     command("kill @e[type=mca:male_villager]");
                     command("crime set karma @s 0");
                     command("crime set heat @s 0");
@@ -177,10 +208,24 @@ public final class GameplayClientChecks {
                     next();
                 }
                 case 12 -> {
-                    require(target().getHealth() < targetHealth, "masked attack did not damage the villager");
+                    // The same 0.7.7 grace: the first masked punch on a fresh villager is forgiven too.
+                    if (ticks - entered < 15) return;
+                    if (sub == 0) {
+                        require(target().getHealth() < targetHealth, "masked attack did not damage the villager");
+                        require(ClientSelfData.karma() == 0 && ClientSelfData.heat() == 0,
+                                "a single light masked punch was charged instead of forgiven");
+                        targetHealth = target().getHealth();
+                        mc.gameMode.attack(mc.player, target());
+                        sub = 1;
+                        entered = ticks;
+                        return;
+                    }
+                    // No health comparison here: MCA villagers regenerate, and one point of damage can be
+                    // healed back before the client reads it. The synchronized Karma and Heat are the charge.
                     require(ClientSelfData.karma() < 0 && ClientSelfData.heat() == 0,
                             "mask did not defer heat while retaining karma: " + ClientSelfData.karma() + "/" + ClientSelfData.heat());
                     pass("masked real-client assault applied karma and deferred heat");
+                    sub = 0;
                     command("item replace entity @s armor.head with minecraft:air");
                     next();
                 }
@@ -318,13 +363,31 @@ public final class GameplayClientChecks {
         throw new AssertionError("summoned target is missing from the client world");
     }
 
-    private void command(String command) { mc.player.connection.sendCommand(command); }
+    private void command(String command) {
+        mc.player.connection.sendCommand(command);
+        freezeFixture(command);
+    }
+
+    // Townstead can clear NoAI while coordinating a villager. Pin fixture movement through a
+    // vanilla server attribute too; active guards are deliberately never frozen.
+    private void freezeFixture(String command) {
+        if (!command.contains("NoAI:1b")) return;
+        String type = command.contains("mca:female_villager") ? "mca:female_villager" : "mca:male_villager";
+        mc.player.connection.sendCommand("attribute @e[type=" + type + ",sort=nearest,limit=1] minecraft:generic.movement_speed base set 0");
+        mc.player.connection.sendCommand("attribute @e[type=" + type + ",sort=nearest,limit=1] minecraft:generic.knockback_resistance base set 1");
+    }
     private int emeralds() {
         return mc.player.getInventory().items.stream().filter(s -> s.is(Items.EMERALD)).mapToInt(s -> s.getCount()).sum();
     }
     private void pass(String result) { results.add("PASS " + result); }
+    /** An observation that is neither a pass nor a failure of this mod, recorded as such. */
+    private void note(String result) { results.add("NOTE " + result); }
     private void next() { stage++; entered = ticks; }
     private static void require(boolean value, String message) { if (!value) throw new AssertionError(message); }
+    /** For the scenario checks, which finish from inside a lambda that cannot throw. */
+    private void finishQuietly() {
+        try { finish(); } catch (Exception failure) { throw new RuntimeException(failure); }
+    }
     private void finish() throws Exception {
         Files.writeString(output.resolve("PASS.txt"), String.join("\n", results) + "\n");
         finished = true;

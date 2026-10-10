@@ -778,6 +778,37 @@ public final class ConfigValidator {
     }
 
     /**
+     * Whether {@code jailContainmentMode = PHYSICAL} can let anybody dig out at all (0.7.7).
+     *
+     * <p>PHYSICAL lets a prisoner break the blocks of their jail, and two prison settings refuse exactly
+     * the reinforced ones: {@code HARD_CONTAINMENT} to anybody in custody, authorised-removal-only to
+     * everybody but an operator. Neither is wrong on its own, so this warns about the combination and says
+     * what it means: a built holding cell is reinforced from floor to roof, so its prisoner's only way out
+     * is the padlock, while a jail built from ordinary blocks can still be dug out of.
+     */
+    public static List<String> validateJailbreak(dev.otectus.mcacrime.jail.JailContainmentMode mode,
+                                                 String breakingPolicy, boolean authorisedOnly,
+                                                 boolean buildHoldingCell) {
+        List<String> problems = new ArrayList<>();
+        if (mode != dev.otectus.mcacrime.jail.JailContainmentMode.PHYSICAL) {
+            return problems;
+        }
+        boolean hard = dev.otectus.mcacrime.block.prison.ReinforcedBreakingPolicy.parse(breakingPolicy)
+                .orElse(dev.otectus.mcacrime.block.prison.ReinforcedBreakingPolicy.PICKAXE_QUALIFIED)
+                == dev.otectus.mcacrime.block.prison.ReinforcedBreakingPolicy.HARD_CONTAINMENT;
+        if (hard || authorisedOnly) {
+            problems.add("jailContainmentMode is PHYSICAL, but "
+                    + (hard ? "prison.reinforcedBreakingPolicy is HARD_CONTAINMENT"
+                            : "prison.reinforcedAuthorisedRemovalOnly is on")
+                    + ", so no prisoner can break a reinforced block."
+                    + (buildHoldingCell ? " A built holding cell is reinforced from floor to roof, so its only way "
+                            + "out is picking or unlocking its padlock." : "")
+                    + " A jail built from ordinary blocks can still be dug out of.");
+        }
+        return problems;
+    }
+
+    /**
      * The prison construction and furniture settings (0.7.5 M5.4-M5.7).
      *
      * <p>Every message here says what the code does rather than what a prison sounds like it should
@@ -1309,6 +1340,33 @@ public final class ConfigValidator {
     }
 
     /**
+     * The {@code detection.minorHarm} block (0.7.7).
+     *
+     * <p>The one combination worth reporting is a grace window shorter than the harm cooldown. The
+     * cooldown is what makes a melee flurry one crime; a window that closes before it does would let a
+     * second tap fall outside the window and be forgiven again, which is exactly the "repeated taps
+     * gain nothing" promise broken.
+     */
+    public static List<String> validateMinorHarm(boolean enabled, double maxDamage, int windowTicks,
+                                                 int harmCooldownTicks) {
+        List<String> problems = new ArrayList<>();
+        if (!enabled) {
+            return problems;
+        }
+        if (windowTicks < harmCooldownTicks) {
+            problems.add("detection.minorHarm.minorHarmWindowTicks (" + windowTicks + ") is shorter than "
+                    + "detection.harmCooldownTicks (" + harmCooldownTicks + "), so a repeated hit can fall "
+                    + "outside the grace window and be forgiven again. Raise the window to at least the "
+                    + "cooldown.");
+        }
+        if (maxDamage <= 0.0D) {
+            problems.add("detection.minorHarm.minorHarmMaxDamage is 0 with forgiveness enabled, so no hit "
+                    + "can ever be forgiven; set enableMinorHarmForgiveness=false to say so explicitly.");
+        }
+        return problems;
+    }
+
+    /**
      * The {@code criminalJobs.thief} block and the two NPC-mug intervals beside it.
      *
      * <p>Ranges are already enforced by {@code defineInRange}; what is worth reporting is the pair
@@ -1616,6 +1674,11 @@ public final class ConfigValidator {
                 c.protectedEntities.get(),
                 c.responderEntities.get());
 
+        problems.addAll(validateMinorHarm(
+                c.enableMinorHarmForgiveness.get(),
+                c.minorHarmMaxDamage.get(),
+                c.minorHarmWindowTicks.get(),
+                c.harmCooldownTicks.get()));
         problems.addAll(validateJail(
                 c.buildHoldingCell.get(),
                 c.jailFallbackEnabled.get(),
@@ -1697,6 +1760,8 @@ public final class ConfigValidator {
         problems.addAll(validatePrisonConstruction(
                 c.reinforcedBreakingPolicy.get(), c.reinforcedResistsExplosions.get(),
                 c.reinforcedResistsPistons.get(), c.reinforcedAuthorisedRemovalOnly.get()));
+        problems.addAll(validateJailbreak(c.jailContainmentMode.get(), c.reinforcedBreakingPolicy.get(),
+                c.reinforcedAuthorisedRemovalOnly.get(), c.buildHoldingCell.get()));
         problems.addAll(validateFrisking(
                 c.friskMaxRangeBlocks.get(), c.friskSessionTimeoutTicks.get(),
                 c.friskTransferIntervalTicks.get(), c.friskRequiresArmRestraint.get(),

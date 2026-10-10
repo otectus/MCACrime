@@ -15,6 +15,17 @@ import net.minecraft.world.damagesource.DamageSource;
 import net.minecraftforge.common.util.FakePlayer;
 import java.util.UUID;
 
+/**
+ * One sampled decision about a player's act against a villager under the Thief combat policy.
+ *
+ * <p>0.7.7 adds the mugging threat ({@code MuggingThreats}) as an input every policy honours: the
+ * victim of a hold-up may fight it off, and under {@code NORMAL_LAW} only lethal force is still
+ * charged. Age, law identity and restraint are read live and still protect whoever they protect.
+ *
+ * <p>MCA's Outlaw is the other input every policy honours (0.7.7): with {@code outlawCombatLegal} on,
+ * fighting or killing an adult Outlaw who is not restrained or held is exempt, so it files nothing and
+ * the native hooks hold back MCA's hearts, gossip, murder witnesses and guard alert for it.
+ */
 public final class ThiefCombatService {
     private ThiefCombatService() {}
     public static ThiefCombatDecision sample(LivingEntity target, DamageSource source, String action) {
@@ -46,8 +57,19 @@ public final class ThiefCombatService {
         boolean report = ReportService.warrantExists(server, target.getUUID(), community, now);
         boolean currentThief = dev.otectus.mcacrime.job.CriminalProfessions.THIEF_ID.equals(
                 dev.otectus.mcacrime.compat.McaCompat.getProfessionId(target).orElse(null));
-        var reason = policy.decide(facts.loaded() && facts.mcaVillager() && facts.adult() && facts.thiefRecord() && currentThief,
-                facts.classifiable(), facts.responder(), held, evidence != null, report);
+        // The mugging this target opened on this player, live or within the recovery window (0.7.7).
+        // Read from the threat ledger, never from the session: by the time a blow is classified the
+        // punch, the drawn weapon, the sand or the death has already ended the session.
+        boolean threatened = dev.otectus.mcacrime.mug.npc.MuggingThreats.threatens(target.getUUID(),
+                player.getUUID(), now, McaCrimeConfig.COMMON.thiefDefenseGraceTicks.get());
+        boolean livingAdult = facts.loaded() && facts.mcaVillager() && facts.adult();
+        // MCA's own Outlaw, while outlaw combat is legal (0.7.7). Read live from the profession, like the
+        // Thief role above: a villager MCA has made an outlaw since the last blow is one now.
+        boolean outlaw = McaCrimeConfig.COMMON.outlawCombatLegal.get()
+                && dev.otectus.mcacrime.compat.McaCompat.isOutlaw(target);
+        var reason = policy.decide(livingAdult && facts.thiefRecord() && currentThief,
+                facts.classifiable(), facts.responder(), held, evidence != null, report, threatened, livingAdult,
+                outlaw);
         return new ThiefCombatDecision(player.getUUID(), target.getUUID(), level.dimension().location(),
                 action, policy.ruleValue(), reason, evidence == null ? null : evidence.incidentId());
     }

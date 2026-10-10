@@ -125,6 +125,10 @@ public final class CriminalJobAssignmentSweep {
                         // signal available; it reads as protected when unbound, which fails safe to
                         // "assign nobody" rather than to "recruit the village's only cleric".
                         McaHandles.available() && McaHandles.isProfessionImportant(entity),
+                        // 0.7.7: a profession, trading XP, a level or a used offer, or nothing readable.
+                        // Checked for every route, wild and fence included, because a villager with no
+                        // MCA home village is exactly what a player's trading hall looks like.
+                        WorldCriminalJobService.established(entity),
                         village.isPresent(),
                         village.isPresent() ? populations.getOrDefault(village.getAsInt(), 0) : 0,
                         village.isPresent() ? lastAssignDay(world, level, village.getAsInt()) : Long.MIN_VALUE);
@@ -170,8 +174,10 @@ public final class CriminalJobAssignmentSweep {
     private static boolean begin(ServerLevel level, Entity entity, WorldCriminalJobService jobs,
                                  CriminalJob job, boolean hasVillage) {
         if (job != CriminalJob.THIEF) {
-            jobs.assign(entity.getUUID(), job, !hasVillage);
-            return jobs.isCriminal(entity.getUUID());
+            // The sweep's own source, not the operator default: an automatic fence roll must not relabel
+            // an established villager (0.7.7).
+            return jobs.tryAssign(entity.getUUID(), job, !hasVillage, OccupationSource.SETTLEMENT_SWEEP).eligible()
+                    && jobs.isCriminal(entity.getUUID());
         }
         if (hasVillage) {
             return ThiefWorksiteService.beginRecruitment(level, entity, OccupationSource.SETTLEMENT_SWEEP);

@@ -76,7 +76,8 @@ public record PropertyLot(UUID lotId, UUID owner, @Nullable CompoundTag stackTag
      * item registry — and never called by the persistence path.
      */
     public ItemStack stack() {
-        return hasStack() ? ItemStack.of(stackTag) : ItemStack.EMPTY;
+        // From a copy: ItemStack.of keeps the source's tag compound as the new stack's own (0.7.7).
+        return hasStack() ? ItemStack.of(stackTag.copy()) : ItemStack.EMPTY;
     }
 
     /** The same lot holding only what is still owed after a partial handover. */

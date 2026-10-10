@@ -258,6 +258,7 @@ public final class GuardEnforcement {
      * enforcement action nobody is taking any more.
      */
     public static void clearAll() {
+        McaCompat.clearAssignedTargets();
         ALERTS.clear();
         ORDERS.clear();
     }

@@ -4,11 +4,64 @@ This implements the Thief combat, player reporting, village news and world-rule 
 
 ## Compatibility contract
 
-The native adapter probes MCA's actual bytecode before installing its hooks. Supported target fixtures are MCA Reborn 7.6.20, 7.7.0-beta.2 and 7.7.1-alpha.2 for 1.20.1. Their Forge package roots are `forge.net.mca` and `forge.net.conczin.mca`; the unprefixed roots are recognized when present. A recognized name alone does not establish support: hurt, death, tragedy, mailbox load/save and collection must match the required descriptors and call sites. `/crime validate` reports applied and degraded native capabilities.
+The native adapter probes MCA's actual bytecode before installing its hooks. Supported target fixtures are MCA Reborn 7.6.20, 7.7.0-beta.2 and 7.7.1-alpha.2 for 1.20.1. Their Forge package roots are `forge.net.mca` and `forge.net.conczin.mca`; the unprefixed roots are recognized when present. A recognized name alone does not establish support: hurt, death, tragedy, mailbox load/save and collection must match the required descriptors and call sites; the guard-alert friend test in `hurt` (0.7.7) is optional and degrades on its own. `/crime validate` reports applied and degraded native capabilities.
 
 Default `ALL_THIEVES` policy requires a current canonical adult Thief occupation and readable native role. Children, responders, ordinary workers, unknown roles, lawful prisoners and physically restrained targets retain ordinary protection. An externally changed profession affects the next hit immediately. Strict mode uses identified recent robbery evidence or an actionable warrant in the action's actual MCA village bounds. Invocation-scoped decisions survive native damage/death callbacks and are removed even when callbacks throw. Only the responsible actor's blame is suppressed; no reward is created.
 
 MCA: Reputation requires the per-incident exemption capability supplied in [MCAReputation-thief-exemption.patch](MCAReputation-thief-exemption.patch) to preserve this guarantee while normal Crime incident ownership is handed back. The patch was built in an isolated copy of the companion, leaving the sibling checkout unchanged. It adds capability version 1 for villager assault/kill only, with default-pass and bounded registration. Older companions retain normal authority integration, but cannot promise the exemption during handback; the diagnostic explicitly reports that limit. The patch is a required companion change, not a claim that a published companion version already contains it.
+
+## Killing and hurt hearts (0.7.7)
+
+MCA's killing penalty, `Relationship.onTragedy(DamageSource, BlockPos, RelationshipType, Entity)`, runs
+once per mourner: for every MCA villager within 32 blocks of the victim and for every loaded relative,
+on that mourner's own relationship, with a fixed `-20` before `Memories.modHearts(I)V` and no sight check.
+The tragedy hook now hands `NativeCombatContext.tragedyDelta` the mourner as well, read from the
+relationship's own `entity` field (descriptor `Lnet/minecraft/world/entity/Mob;` on every probed build) and
+declared `Object` in the hook descriptor. `supported()` requires that field, so a build without it degrades
+before injection. The hurt and death wrappers also pass the raw damage MCA was handed into `enter`
+(`0` for a death).
+
+Each mourner's delta goes through `relationship/NativeHeartPolicy`, in order: an exempt Thief fight costs
+nothing; `relationship.murderHeartPenalty=false` costs nothing; `murderHeartsRequireWitness=false` restores
+MCA's value; a masked killer whose mask hides identity costs nothing; a mourner who did not identify the
+killer costs nothing; otherwise MCA's value stands. Identity is `WitnessChecker.perceive` with the kill's
+own `CrimeAwareness`, asked once per mourner per death scope. The mourners MCA did charge are kept for a
+minute in a bounded ledger, and `RelationshipConsequences` never adds MCA: Crime's family or witness loss to
+one of them. With the hooks degraded MCA's penalty is unconditional, so MCA: Crime skips its own killing
+loss entirely and logs that once.
+
+MCA's hurt penalty is withheld from a masked attacker whose mask hides identity, and it is held back for a
+hit that may still be forgiven as minor friendly fire: the hit is decided at the end of the tick, when a
+forgiven hit's hearts are dropped (or refunded, if MCA applied them because the raw damage looked heavy)
+and any other hit's are applied exactly as MCA computed them. A held-back charge whose hit never reached a
+damage event is applied too, as it always was. MCA: Reputation's exemption query also answers `EXEMPT` for
+a hit MCA: Crime will forgive, using a non-consuming peek with the final damage it is handed.
+
+Community standing is not part of any of this: `villageRepDrop` and MCA: Reputation's own killing switch
+remain the standing controls.
+
+## Fighting off a mugger (0.7.7)
+
+A mugging is the thief's aggression, so the victim's force against the mugger is answered from the
+threat rather than from the policy's view of Thieves. `NpcMuggingService.begin` records the threat in
+`mug/npc/MuggingThreats` when the session opens; the session's end, for any reason, stamps it closed, and
+it keeps covering the victim for `villageJustice.thiefDefenseGraceTicks` ticks starting with the one it
+ended in (`0` ends it with the session). `ThiefCombatService` reads the ledger, never the live session,
+because the punch, drawn weapon, sand or death that ends a session ends it before the blow is classified;
+the damage pipeline also samples each blow before the interruption it causes. Every policy honours the
+threat; `exemptsKill` is false only under `NORMAL_LAW`, where the encounter opens with the thief as its
+initiator and a killing is charged as excessive defensive force. Protection is decided first: a child, a
+responder, an unresolved role and a held or physically restrained target are never exempt.
+
+The native consequences of an exempt blow are suppressed at their own sites: MCA's hearts (above),
+vanilla gossip and murder-witness blame (`mixin/ThiefGossipMixin`), and MCA's guard alert. MCA's `hurt`
+marks the villager as hit by the player, raises a bounty on it and on every guard within 32 blocks, and
+has those guards warn and then attack, all behind `!isHostile() && !isFriend(attackerType)`. The plugin
+wraps that `isFriend(EntityType)` call (`NativeCombatContext.friendlyToMca`) so it answers "friend" only
+inside an exempt scope and only for the actor the scope exempts; a build without exactly one such call in
+`hurt` keeps MCA's own answer and `/crime validate` reports `guard alert ungated`. MCA: Reputation 0.6.1 or
+newer gets the same answer through its per-incident exemption query, with a killing asked of
+`exemptsKill`.
 
 ## Persistence and scope
 

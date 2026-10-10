@@ -13,6 +13,224 @@ companion degrades to the surface it does have rather than failing the load. Als
 Townstead, reached only by reflection and a plugin-gated mixin config, and silently absent on an
 install that does not have it.
 
+## [0.7.7] — 2026-10-10
+
+No network protocol change. One additive save field: a jail sentence now records the Heat it answers
+for (`sentenceHeat` in the player's jail state); a sentence saved by an earlier version loads without it
+and settles an amount derived from its bound cases instead, so existing saves load unchanged. Nine new
+COMMON keys, all documented in `CONFIG.md`; their defaults are listed below.
+
+- **Established villagers are no longer recruited as criminals.** Only the settlement thief route used
+  to ask whether a candidate was employed; the wild route (any villager with no MCA home village, which
+  is exactly a player's trading hall) and the fence route asked nothing, and no route looked at trading
+  history, so a master librarian could become a Thief and the occupation transaction cleared its trades.
+  Every automatic route (settlement sweep, Mask Station walk, wild route, fence roll) now recruits only an
+  adult with a readable `none` profession, zero trading XP, level one and no used offer
+  (`job/RecruitmentEligibility`); anybody else is skipped before any random roll and is never walked to a
+  Mask Station. Profession, offers, XP and workstation are left exactly as they were. Existing thieves
+  keep their bypass, and `/crime job` and the API keep their behaviour. **Trades that were already lost
+  to an earlier conversion cannot be restored:** the transaction's snapshot lived only in memory.
+- **Villager speech has a range, and an accepted apology is honoured.** A line now reaches only a
+  listener in the same dimension within the new `dialogue.speechRadius` (16 blocks), checked before the
+  pair cooldown is stamped, so a villager whose chunk another player keeps loaded no longer tells
+  somebody across the map or in another dimension that it would rather not speak to them. A click is
+  routed only for a villager within the player's reach. The refusal gate now reads the apology flag
+  (`memory/ConversationGate`): once every blocking memory has been apologized for, conversation resumes
+  at once unless one is grave (severity 0.8 or more, or more than two repeats); a grave one says so and
+  how many days remain (`mcacrime.apologize.still_wary`). Memories stay scoped to the villager and the
+  offender, so a second player is never refused, blamed or messaged for somebody else's crime. One
+  constant now defines "grave" (`VictimCrimeMemory.GRAVE_SEVERITY`), so an apology for a single punch
+  (severity 0.7) softens fifteen percent of the anger instead of three. The refusal line says the true
+  reason, and the how-to hint appears only when the click was not the apology gesture.
+- **Murder no longer costs hearts with villagers who never saw it.** MCA itself docks 20 hearts from
+  every villager within 32 blocks and from the victim's loaded family, with no sight check. The native
+  justice hooks now pass each mourner to `relationship/NativeHeartPolicy`: an exempt Thief fight costs
+  nothing, `relationship.murderHeartPenalty=false` costs nothing, `murderHeartsRequireWitness=false`
+  restores MCA's value, a masked killer whose mask hides identity costs nothing, and a mourner who did not
+  identify the killer (perceived with the kill's own awareness) keeps their hearts. MCA: Crime's own
+  heart loss no longer stacks: it skips every mourner MCA already charged, skips all personal hearts for a
+  hidden masked offender, skips killing loss with the penalty key off, and, if the native hooks did not
+  apply, skips its own killing loss and says so once in the log. MCA's hurt hearts are withheld from a
+  masked hidden attacker too. Hearts and community standing are separate controls: neither new key
+  changes standing (`villageRepDrop`, and MCA: Reputation's own settings).
+- **Minor friendly fire is forgiven once.** One light hit (final damage at most
+  `detection.minorHarm.minorHarmMaxDamage`, 2.0) on a protected villager, by the attacker's own blow or
+  projectile, with no mugging in progress and no existing memory of the attacker, is forgiven with a
+  warning and a `minor_harm_warned` line, at most once per attacker and victim per
+  `minorHarmWindowTicks` (6000) and for at most `minorHarmMaxVictimsPerWindow` (3) victims per attacker.
+  It creates no case, Karma, Heat, memory, observation or reaction, and MCA's own hurt hearts for it are
+  held back and then dropped; every later hit in the window is charged normally, and a lethal hit never
+  qualifies. Self-defence, lawful force and `raidGrace` are decided first and are unchanged. With
+  MCA: Reputation recording villager assault itself, the same hit is answered as exempt through its
+  per-incident exemption query. The grace ledger is in memory: a relog keeps it, a server restart clears
+  it. The validator reports a window shorter than `harmCooldownTicks`.
+- **Startup with Dramatic Doors fixed.** Dramatic Doors adds a `waterlogged` property to every
+  `DoorBlock` from mixins on the door's constructor and state definition. The cell door and the
+  reinforced bars restated their vanilla parents' properties instead of inheriting them, so the injected
+  property was missing and the constructor hook threw during block registration (`Cannot set property
+  ... waterlogged ... as it does not exist`); every MCA: Crime registry object was then absent and the
+  load failed. `CellDoorBlock` and `ReinforcedBarsBlock` now extend their parents' state definitions and
+  default states, so whatever another mod adds to every door or pane is carried, with its default.
+  Reproduced on a real Forge 47.4.23 client with the shipped 0.7.5 jar and Dramatic Doors 3.3.3; the fixed
+  jars launch with Dramatic Doors 3.3.3 on Forge and 3.3.2 on NeoForge 21.1.250, and the cell door then
+  carries `waterlogged`. Placed doors and bars keep their state.
+- **A loading error is no longer hidden behind a second crash.** When any mod fails to load, NeoForge
+  keeps firing client screen and tick events on its error screen while MCA: Crime's CLIENT config was
+  never loaded, and the MCA screen button read it and threw `Cannot get config value before config is
+  loaded`, replacing the real error. `McaCrimeConfig.clientLoaded()` now gates that button, the player-card
+  hooks, the name-tag renderer and the HUD overlays, so the error screen shows the actual failure.
+- **Stolen property can be searched for and taken back.** A thief's stolen-goods ledger now appears in the
+  existing search screen (`frisk/StolenGoodsInventoryProvider`), one slot per theft, each labelled with
+  whose it is, the searcher's own property first. Who searches decides what a take is
+  (`frisk/StolenGoodsTransfer`): the owner recovers it, with no theft filed; a lawful search seals it for
+  its owner, not for the thief; anybody else steals it again, filed as a new theft that still names the
+  original owner. Recovered and sealed property goes through the same receipt-backed escrow as recovery on
+  arrest and death: what cannot be handed over at once (the owner is offline or has no room, or the purse's
+  currency provider is unavailable) is held and paid at login, never twice; the owner's own take needs room
+  in their inventory first. A stolen purse moves only as the currency it was taken in, and only the
+  owner or a lawful search can take one (`mcacrime.msg.frisk.not_your_purse`). Every take is checked
+  against the live session, reach, line of sight, restraint, custody and the slot's revision, and is
+  keyed by a transfer id, so a replayed packet or a second searcher moves nothing. A record whose item
+  can no longer be decoded stays in the ledger instead of being shown.
+- **A player thief's death no longer duplicates what they took.** Confirmed death escrowed every ledger
+  record naming the dead entity as thief. That is right for an NPC thief, who holds stolen goods only in the
+  ledger, but a player who took something through a criminal search carries the item itself, so their
+  death handed the owner a second copy while the first dropped. Death recovery now applies to non-player
+  thieves only; a player's record stays as provenance until it expires.
+- **Fighting off a mugger is lawful.** Under every `thiefCombatPolicy`, the victim of a mugging may hit
+  the mugger from the moment the hold-up starts. The threat is recorded when the session opens
+  (`mug/npc/MuggingThreats`) instead of being read from the session, so the punch, drawn weapon, sand or
+  death that ends the session is still self-defence when it is classified, and the right lasts
+  `villageJustice.thiefDefenseGraceTicks` after the session ends (a mugger running off with the purse);
+  `0` now ends it with the session. The victim's own blow, arrow or pet interrupts the mugging at once
+  (`victim_resisted`). Melee, projectiles, tamed animals, non-damaging acts and killing blows share one
+  decision. An exempt act files no case, Heat, Karma, memory or observation; the native hooks suppress
+  MCA's own hearts, gossip, murder-witness blame and guard alert (its bounty on the villager and the
+  guards' warning and attack); MCA: Reputation 0.6.1 or newer is told the incident is exempt. Killing
+  the mugger stays exempt under `ALL_THIEVES` and `EVIDENCE_REQUIRED`; under `NORMAL_LAW` it is charged,
+  as excessive defensive force. Children, guards, unresolved roles and a mugger already restrained or in
+  custody are never fair game, and none of this pays a reward.
+- **Only a canonical adult Thief may mug.** Nothing on 0.7.6 lets a real nitwit act, and 0.7.7's
+  recruitment rule (above) admits only a `none` profession. Two gaps remained around a Thief record: age
+  was asked only of a recruitment candidate, so a record on a child (from a migration, an edited save or
+  the API) could act; and when another mod or a player changed a Thief's profession, the lifecycle ran the
+  full retirement, which zeroed the new profession's trading experience and erased its work memories. Age
+  is now part of the actor test at every step of a mugging; a profession change mid-mugging ends the
+  session before anything is taken; and an external change retires only the Thief record, leaving the new
+  profession, its experience and its workstation alone. `/crime debug thief [villager]` reports MCA's
+  native profession and label, the clothing, the Crime record, the eligibility facts and why the villager
+  may or may not act now.
+- **Guards keep their fights.** Ending any of this mod's reactions cleared the villager's attack target,
+  whoever had set it, so a guard MCA had sent after a monster, or one this mod had just ordered to use
+  force, could lose the fight on the next reaction exit. A release now clears only a target this mod
+  assigned, so MCA's own fights survive; a sleeping villager still drops every order, whoever gave it.
+  Challenges, the response window and arrest rules are unchanged.
+- **A sentence ends without leaving the prisoner a target or stuck.** Every way a sentence ends now has
+  one defined effect (`jail/SentenceDisposition`): serving it, or the captivity cap, marks its cases served
+  and settles its Heat; bail and a pardon settle its Heat; an operator's `/crime release` or a jail that no
+  longer exists ends the custody and forgives nothing, releasing the cases for a later arrest and holding
+  guards off for `jail.adminReleaseRecoveryTicks`. A sentence records the Heat it answers for and settles
+  exactly that once, net of decay while serving, so a released prisoner is no longer Wanted for the crimes
+  they served time for, while Heat from crimes committed in the cell survives. A sentence whose every case
+  has been pardoned or paid ends on the jail clock's next second. Release cleanup (holding cell, custody,
+  escort, cell reservation, the guards' stand-down and the arrest phase) is called directly rather than
+  from the release event and each step runs even if another throws, so one failing listener no longer
+  leaves a cell or a custody behind. A holding cell whose door side is blocked still lets its prisoner
+  out, through the ring around the cell or, for a player, the world spawn. A prisoner who slipped their
+  cuffs but is back inside the jail and still in lawful custody resumes serving. `/crime status` shows
+  the charges, the time left, why the sentence is paused, the Heat it will settle and the options (bail
+  when it is offered).
+- **Operators can inspect and repair a stuck prisoner.** `/crime repair <player> [inspect]` (permission 3)
+  names each problem it finds (an unreachable jail, a stale escape, a sentence resolved elsewhere, an
+  overdue release, an orphaned holding cell, custody, arrest phase or restraint, or an escape awaiting
+  recapture) and repairs what it can; none of its repairs forgives a crime. The safe subset also runs at
+  login, after arrest reconciliation, which is how a record orphaned by a crash or an interrupted escort is
+  put right without anybody asking.
+- **Stored item snapshots are decoded from copies.** On 1.20.1 `ItemStack.of` keeps the source's `tag`
+  compound as the new stack's own, so anything done to a stack decoded from a stolen-goods record, an
+  escrow lot or an applied restraint was written back into the stored record. Found by the new search
+  path, whose provenance lore accumulated on the record; `StolenGoodsRecord`, `PropertyLot` and
+  `AppliedRestraint` now decode from a copy.
+- **Prisoners can break out of a `PHYSICAL` jail, and the setting reaches everybody serving.**
+  `jailContainmentMode` was read from a snapshot taken at jailing, so switching a server to `PHYSICAL`
+  changed nothing for anybody already inside, while the villager side read the live value. Every sentence
+  now follows the live setting. Under `PHYSICAL` a prisoner may break any block of their jail region,
+  assigned jail or built holding cell alike, and walking out is a jailbreak: one charge with its Karma and
+  Heat, the escaped flag (guards pursue), the sentence's cases marked escaped, the clock and the captivity
+  cap paused, a built cell taken down, and no teleport back. The jail never pulls an escaped prisoner back
+  afterwards, whatever the mode becomes; only a recapture or a surrender returns them. Restraints that forbid mining, locks,
+  `prison.reinforcedAuthorisedRemovalOnly` and `HARD_CONTAINMENT` still refuse a break in every mode;
+  `CONFIG.md` lists the order, and the validator warns when `PHYSICAL` meets a reinforced-block setting
+  that leaves a built cell's padlock as the only way out. A built cell's blocks no longer drop when broken,
+  by anybody or anything, and taking the cell down puts the terrain back where a wall was dug out instead
+  of leaving the hole. `CONFIG.md` said an escaped sentence keeps running; it pauses, and now says so.
+- **A paid ransom frees the captive's body too.** The restraint that begins a kidnapping goes on a moment
+  before the custody record exists, so it named no custody, and a custody's end takes off only the gear
+  that names it: a villager whose ransom had been paid walked home in the kidnapper's cuffs. A kidnapping
+  now adopts every involuntary restraint on its captive when it begins, and gear put on a captive while a
+  kidnapper holds them belongs to the kidnapping. Its end -- a ransom paid by family or by the village
+  fallback, a rescue, the captor going, the captivity cap, an operator -- takes all of it off through the
+  ordinary removal path (a supplied item drops at the captive's feet once, or not at all with
+  `restraints.escape.returnsWornItem` off) and ends any escort; and for a villager that is loaded, as a
+  ransomed one always is, it cuts the chains and anchors, opens any pillory it is locked in, and hands the
+  villager back to MCA. The captive's own voluntary gear stays on;
+  lawful custody keeps its own rules. The release no longer rides inside the ransom's audit record, so a
+  refused record cannot leave a paid captive held, and a payment whose demand names a captor who no longer
+  holds the victim fails instead of paying the wrong person. Released while the captive's chunk is
+  unloaded, an owed item goes to the player who applied it if they are online, and is otherwise lost, as an
+  untied chain is. A full custody table now refuses a kidnapping instead of reporting a capture it never
+  wrote.
+- **Fighting an outlaw is legal.** New `enforcement.outlawCombatLegal` (on): attacking or killing an outlaw
+  is never a crime, with no Wanted status or bounty needed. An outlaw is a Red-band player, or an adult MCA
+  Outlaw villager (the `outlaw` profession every supported MCA build registers) who is not restrained or
+  held. Against a player it widens only whether a private fight is charged (`pvpCountsAsCrime` still
+  decides whether any fight between players is), never whether guards pursue (`redIsLegalTarget`) or
+  whether a bounty stands (`bounty.redBandEligible`); `allowKillingRed` keeps deciding the law's own lethal
+  force. Against MCA's Outlaw it is a reason every `thiefCombatPolicy` honours, so a blow, an arrow, a
+  pet's bite or a kill files no case, moves no Karma or Heat and leaves no memory or witness reaction; the
+  native hooks hold back MCA's hearts, gossip, murder witnesses and guard alert; and MCA: Reputation 0.6.1
+  or newer is told the assault or killing is exempt. Children, guards and an outlaw in restraints or
+  custody stay protected, and `maskSuppressesRedBandTargeting` hides a masked Red player from it. Off
+  restores the previous rules. **Limitation:** MCA: Reputation's own in-village player-kill record (its PvP
+  setting, off by default) has no exemption to ask, so with it on an outlaw's death at a player's hands is
+  still recorded there.
+- **Known limitation (pre-existing, found while validating this release, not changed by it):** MCA 7.6.x
+  (7.6.20 and 7.6.26 in `mca_probe_versions`) opens its interaction screen from `interactAt`, which a real
+  right-click sends before the plain interaction, so with those builds the conversation refusal and the
+  empty-hand apology gesture are bypassed for real clicks (the Crime menu, its keybind and MCA's Crime
+  button still offer the apology). MCA 7.7.x opens the screen from `mobInteract`, behind the gate, as the
+  two-client run on 7.7.1-beta.2 confirmed. The 7.6.x routing was found by bytecode inspection, not at
+  runtime. The NeoForge port has the same gap with every MCA 1.21.1 build it probes.
+- New keys: `dialogue.speechRadius` (16.0), `relationship.murderHeartPenalty` (true),
+  `relationship.murderHeartsRequireWitness` (true), `detection.minorHarm.enableMinorHarmForgiveness`
+  (true), `minorHarmMaxDamage` (2.0), `minorHarmWindowTicks` (6000), `minorHarmMaxVictimsPerWindow` (3),
+  `jail.adminReleaseRecoveryTicks` (2400), `enforcement.outlawCombatLegal` (true).
+- New lang keys: `mcacrime.job.rejected.established_profession`, `mcacrime.apologize.still_wary`,
+  `mcacrime.apologize.still_wary_indefinite`, `mcacrime.minor_harm.warned`, and the `memory_apologized`
+  and `minor_harm_warned` dialogue lines; `gui.mcacrime.outcome.npc_mug.victim_resisted`; the
+  `mcacrime.stolen.*` slot labels; `mcacrime.msg.frisk.not_visible`, `not_your_purse`, `recovered`,
+  `recovered_held` and `sealed_for_owner`; `mcacrime.jail.release_blocked`, `resumed` and `status_hint`;
+  the `mcacrime.command.status.sentence.*` lines; and `mcacrime.repair.*` with one
+  `mcacrime.repair.finding.*` per finding.
+- Runtime checks: the gameplay harness now runs two concurrent clients (an operator offender and a plain
+  bystander) and a restart, plus a Crime-alone smoke role; its single-client flow punches twice where the
+  first punch is now forgiven. The review harness checks a forced recruitment sweep against an
+  established librarian; the justice harness hits above the minor-harm maximum where it asserts MCA's
+  normal blame. For the corrections, the review harness can now wait across ticks and uses a real server
+  player where crime detection ignores fake ones; it adds fifteen checks: the door and bars against their
+  parents, the actor matrix and a stale record's retirement, a child Thief, fighting off a mugger under
+  `NORMAL_LAW`, a mugger in custody, stolen-property recovery, death escrow for player and NPC thieves, a
+  real guard keeping and winning its fight with a husk, a real guard hurting a Wanted player who refused
+  arrest, sentence Heat, the cap, operator release and pardon, and a walled-off cell's exit. The gameplay
+  smoke role reports the cell door's properties and, when MCA: Reputation is loaded, the exemption
+  bridge's status. `MuggingThreatsTest` pins the half-open grace window. For outlaws, ransom and
+  breakouts the justice harness adds nine checks (eight without MCA: Reputation): hitting, shooting and
+  killing MCA's Outlaw in front of a witness, an outlaw in cuffs and an ordinary villager still charged,
+  the setting off, MCA: Reputation's exemption following it, a Red player fought with PvP crime on, a
+  village-paid ransom taking off the kidnapping's cuffs and gag and paying the chain back once, an
+  unaffordable ransom freeing nobody, and digging out of an assigned jail and a built holding cell under
+  `PHYSICAL`.
+
 ## [0.7.6] — 2026-10-03
 
 - Refresh the client crime status after respawn from the copied server state.

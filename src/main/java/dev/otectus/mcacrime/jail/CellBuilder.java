@@ -307,10 +307,10 @@ public final class CellBuilder {
      * {@code placed} map means "restore unconditionally", which is only used by the rollback path,
      * where every block was placed moments ago by this same call.
      *
-     * <p>Door halves are restored with {@code UPDATE_KNOWN_SHAPE}, and air is accepted where a half
-     * stood, because vanilla removes the other half of a door the moment one half goes: restoring the
-     * upper half would otherwise pop the lower into air before the loop reached it, and the lower's
-     * own restore would then find "somebody's" air and leave whatever grass was there unrestored.
+     * <p>Door halves are restored with {@code UPDATE_KNOWN_SHAPE}, and air is accepted wherever a cell
+     * block stood (see {@link #stillOurs}), which also covers the door: vanilla removes the other half of
+     * a door the moment one half goes, so restoring the upper half pops the lower into air before the
+     * loop reaches it, and the lower's own restore must still put the grass back.
      */
     private static Set<BlockPos> restoreBlocks(ServerLevel level, Map<BlockPos, BlockState> replaced,
                                                Map<BlockPos, BlockState> placed) {
@@ -349,15 +349,20 @@ public final class CellBuilder {
         return unresolved;
     }
 
-    /** Whether what stands at a position is still the block this mod put there, whatever state it is in. */
+    /**
+     * Whether what stands at a position is still the block this mod put there, whatever state it is in.
+     *
+     * <p>Air counts as ours at every position (0.7.7), not only where a door half stood. A cell block that
+     * is gone was dug out -- by a prisoner breaking out of a {@code PHYSICAL} cell, a rescuer, a drill --
+     * and nobody put anything of their own there, so putting the original terrain back is the cell coming
+     * down rather than the mod overwriting somebody. Before this a dug-out wall was "somebody's air", and
+     * the hole outlived the cell.
+     */
     public static boolean stillOurs(BlockState expected, BlockState current) {
         if (expected == null || current == null) {
             return false;
         }
-        if (current.is(expected.getBlock())) {
-            return true;
-        }
-        return expected.getBlock() instanceof DoorBlock && current.isAir();
+        return current.is(expected.getBlock()) || current.isAir();
     }
 
     /**

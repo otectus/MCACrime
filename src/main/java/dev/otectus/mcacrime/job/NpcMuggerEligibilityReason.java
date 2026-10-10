@@ -35,11 +35,20 @@ public enum NpcMuggerEligibilityReason {
     /** Not an MCA villager. This mod's criminals are MCA's people and nobody else's. */
     NOT_A_VILLAGER,
 
-    /** Children are never recruited, and an unreadable age counts as a child here. */
+    /**
+     * Children are never recruited and, since 0.7.7, never act either, record or not; an unreadable age
+     * counts as a child here.
+     */
     NOT_ADULT,
 
     /** Asked as an execution actor, but nothing in world data says this villager is a thief. */
-    NOT_A_THIEF;
+    NOT_A_THIEF,
+
+    /**
+     * An automatic route found a villager with a profession, trading XP, a level or a used offer
+     * (0.7.7). Only an operator or an API call may convert somebody a player has invested in.
+     */
+    ESTABLISHED_PROFESSION;
 
     /** {@code mcacrime.job.rejected.<reason>}, shown to an operator when a job mutation is refused. */
     public String messageKey() {

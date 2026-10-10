@@ -133,6 +133,35 @@ crime type is worth; charging again per witness would make a crowded street cost
 the same act costs in an alley, for reasons the player cannot see. What a filed report changes is
 **jurisdiction** — which village's guards have a basis to act, and whose standing drops.
 
+### `[detection.minorHarm]` (0.7.7)
+
+Minor friendly fire. One light hit on a protected villager, the kind a swing at a zombie beside them
+produces, is forgiven with a warning instead of becoming an assault.
+
+| Option | Default | Range | What it does |
+|---|---|---|---|
+| `enableMinorHarmForgiveness` | `true` | — | Forgive one minor hit per attacker and victim inside the window. Off restores the 0.7.6 rule: any damage above zero is an assault. |
+| `minorHarmMaxDamage` | `2.0` | `0.0 … 10.0` | The largest **final** damage (after armour and every other modifier) that can be forgiven. `2.0` is one heart, which covers an unarmed punch. |
+| `minorHarmWindowTicks` | `6000` | `200 … 72000` | How long one forgiven hit protects nobody from the next. Any further hit by the same attacker on the same victim inside the window is charged as normal. The validator reports a window shorter than `harmCooldownTicks`. |
+| `minorHarmMaxVictimsPerWindow` | `3` | `1 … 16` | How many different victims one attacker can be forgiven for inside the window, so walking down a street tapping everybody is still assault. |
+
+A hit is forgiven only when all of these hold: forgiveness is on; the hit is not lethal; its final
+damage is above zero and at or below `minorHarmMaxDamage`; the victim is a protected NPC, not a player;
+the blow or projectile is the attacker's own, not a pet's, and no mugging of that victim is in
+progress; the victim holds no memory of the attacker; no hit by the same attacker on the same victim
+lies inside the window; and the attacker is under the victim cap. The lawful exemptions (self-defence,
+lawful force against a wanted player, `raidGrace`) are decided first and are unchanged.
+
+A forgiven hit creates no case, Karma, Heat, memory, observation or reaction. The villager says so
+(the `minor_harm_warned` dialogue line, within `dialogue.speechRadius`) and the attacker is told that
+the next hit counts. MCA's own heart loss for the hit is held back until the hit is decided at the end
+of the tick and then applied, dropped or refunded to match, so a forgiven hit costs no hearts either.
+With MCA: Reputation present and recording villager assault itself, the same hit is answered as
+exempt through its per-incident exemption query.
+
+The grace ledger is kept in memory. Relogging keeps it; a server restart clears it. Persisting a grace
+that lasts five minutes by default would need a world schema change, and it was not worth one.
+
 ## `[reactions]`
 
 | Option | Default | Range | What it does |
@@ -167,6 +196,7 @@ does one villager's worth of work.
 |---|---|---|---|
 | `enableDialogue` | `true` | — | Data-driven villager lines. The server picks the line and the client renders the key, so lines localise and no text crosses the wire. |
 | `dialogueCooldownTicks` | `40` | `0 … 12000` | Minimum ticks between spoken lines from one villager to one player. Per **pair**, not global, so a village reacting to a murder produces several villagers each saying something once. |
+| `speechRadius` | `16.0` | `4.0 … 64.0` | How far (blocks) a villager's spoken line carries (0.7.7). A player in another dimension, or farther away than this, hears nothing. Refusals obey it too. Before 0.7.7 a line reached its listener anywhere, so a villager whose chunk another player kept loaded could speak to somebody across the map. A line that could not be heard does not stamp the pair cooldown. |
 | `dialogueMessageFormat` | `<%1$s> %2$s` | — | How a spoken line is laid out in chat. `%1$s` is the villager's name, `%2$s` the line. A template missing either placeholder falls back to `%1$s: %2$s`. |
 | `dialogueNameColor` | `#FFC34D` | — | Hex colour (`#RRGGBB`) for the villager's name in spoken lines. An unparseable value leaves the name uncoloured. |
 | `dialogueNameBold` | `true` | — | Whether the villager's name in spoken lines is bold. |
@@ -198,8 +228,9 @@ These cap the reward sources in `[karma.rewardWeights]`, none of which exists ye
 | `villagerFleeRadius` | `10.0` | `1.0 … 64.0` | How close an Outlaw must be for villagers to run. |
 | `guardAggroRadius` | `16.0` | `1.0 … 128.0` | How far a guard is made to pursue a legal target. |
 | `guardScanIntervalTicks` | `10` | `1 … 200` | Server ticks between guard-pursuit scans, and the re-apply cadence. The scan is bounded by the number of online legal targets, so it is never a per-tick world sweep — raise this on a large server before touching anything else. |
-| `redIsLegalTarget` | `false` | — | Whether simply being an Outlaw makes force against you lawful, with no Wanted status needed. |
-| `allowKillingRed` | `false` | — | Whether **lethal** force against a player who is only an Outlaw is lawful. Separate from `redIsLegalTarget` on purpose: a server can allow subduing an outlaw without allowing executing one. Wanted status, an escape, or actively holding a captive each justify lethal force regardless of this setting. |
+| `redIsLegalTarget` | `false` | — | Whether being an Outlaw is grounds for the law itself, with no Wanted status needed: guards pursue a Red player, and force against them is lawful. Whether another player may fight one without a charge is `outlawCombatLegal`'s question. |
+| `allowKillingRed` | `false` | — | Whether **lethal** force is lawful against a player who is a legal target only because `redIsLegalTarget` makes Red one. Separate from `redIsLegalTarget` on purpose: a server can let the law subdue an outlaw without letting it execute one. Wanted status, an escape, or actively holding a captive each justify lethal force regardless of this setting. With `outlawCombatLegal` on, a private killing of an outlaw is uncharged whatever this says. |
+| `outlawCombatLegal` | `true` | — | Attacking or killing an outlaw is never a crime, with no Wanted status or bounty needed (0.7.7). An outlaw is a Red-band player, or an adult MCA Outlaw villager (the `outlaw` profession, matched by `professionMatchingMode`) who is not restrained or held in custody. No charge, Heat, Karma, memory or witness reaction follows; the native MCA hooks hold back MCA's hearts, gossip, murder witnesses and guard alert; and MCA: Reputation 0.6.1 or newer is told a villager assault or killing is exempt. MCA: Reputation's own in-village player-kill record (its PvP setting, off by default) has no exemption to ask, so with that setting on it still records an outlaw's death at another player's hands. A player victim is only ever a crime with `pvpCountsAsCrime` on. It never makes guards hunt Red players (`redIsLegalTarget` does) and never makes anybody bounty-eligible (`bounty.redBandEligible` does). `maskSuppressesRedBandTargeting` hides a masked Red player from it. Off restores `redIsLegalTarget` and `allowKillingRed` as the only Red-band combat rules and makes an MCA Outlaw an ordinary protected villager again. |
 | `raidGrace` | `true` | — | Forgive the first nonlethal indirect explosion against a protected non-player, non-responder in a combat encounter during an active raid. Direct attacks, arrows, repeated hits and killing remain chargeable. Encounter grace resets only after 200 ticks without harm between those actors. |
 | `pvpCountsAsCrime` | `false` | — | Whether harming another player is recorded as a crime. On, it produces `mcacrime:assault_player` and `mcacrime:murder_player` — their own crime types, not the villager ones. Force against a legal target is still lawful, so attacking a Wanted player is never itself an offence. |
 | `globalCrimePropagation` | `false` | — | Whether a filed report sours every village that already knows you, rather than only the jurisdiction that received it. Off keeps standing local, which is what makes per-village reputation mean anything. It also decides whether a guard may act on another village's reports. |
@@ -304,6 +335,15 @@ with dynamic pricing.
 | `presentFenceAsMcaProfession` | `true` | — | Show a fence as the `mcacrime:fence` villager profession. The previous profession is remembered and restored if this is turned off again. |
 | `presentThiefAsMcaProfession` | `true` | — | Deprecated, no effect: since 0.7.2 a thief is always the visible `mcacrime:thief` profession. A file that still says `false` gets one startup notice. |
 | `staleRecordGraceDays` | `14` | `1 … 365` | Days a criminal record is kept after the villager was last seen loaded. |
+
+**Who can be recruited (0.7.7).** The automatic routes — the settlement sweep, the Mask Station walk it
+starts, the wild route for villagers with no home village, and the fence roll — only ever recruit a
+blank slate: an adult whose profession reads as `none`, with zero trading XP, level one, and no offer
+that has ever been used. A villager with a profession, any trading history, MCA's protected-profession
+flag, or an unreadable state is left alone, and costs the sweep no randomness. A player's trading hall
+has no MCA home village, which is why the wild route needed this most. An existing Thief keeps its own
+bypass (it holds one trading XP by design), and `/crime job` and the API keep their behaviour: an
+operator may still convert anybody.
 
 ### `[criminalJobs.thief]`
 
@@ -479,7 +519,7 @@ sentence like any other arrest.
 | `bailCostPerMinute` | `4` | `0 … 100000` | Emeralds per remaining real minute. Priced on what is left, not the original sentence, and rounded up so a sliver of a minute is never free. |
 | `bailMinServedFraction` | `0.25` | `0.0 … 1.0` | How much of the sentence must already be served before bail is offered. `0.0` lets a sentence be bought out the instant it starts. |
 | `maxCaptivityRealMinutes` | `360` | `1 … 100000` | Hard ceiling, in real online minutes, on how long any player may be held — jailed or kidnapped. This is the softlock backstop: it force-releases regardless of anchor, dimension, or chunk state. |
-| `jailContainmentMode` | `CONTAINMENT` | `CONTAINMENT`, `PHYSICAL`, `REINFORCED` | How jail resists escape. **Snapshotted at the moment of jailing**, so changing this mid-sentence cannot surprise a prisoner. One rule sits above the mode: once a generated cell's padlock has been picked, detached or unlocked, walking out of that cell is an escape in every mode, because the door was the containment and it has been defeated. |
+| `jailContainmentMode` | `CONTAINMENT` | `CONTAINMENT`, `PHYSICAL`, `REINFORCED` | How a jail holds its prisoners, server-side. **The live setting applies to every sentence, including those already being served** (0.7.7; it used to be snapshotted at jailing, so switching to `PHYSICAL` changed nothing for anybody already inside). `PHYSICAL` is the breakable-jail switch: a prisoner may break their way out of an assigned jail or a built holding cell, and walking out is a jailbreak with no teleport back. The jail never pulls an escaped prisoner back, whatever the mode becomes afterwards; only a recapture or a surrender returns them. One rule sits above the mode: once a generated cell's padlock has been picked, detached or unlocked, walking out of that cell is an escape in every mode, because the door was the containment and it has been defeated. See *Containment modes* below for what else decides a break. |
 | `maxJailCommandTicks` | `72000` | `1 … 100000000` | Upper clamp on a `/crime jail` sentence, in online ticks. 72000 is one online hour. |
 | `jailRadiusDefault` | `8` | `1 … 64` | Default jail-region radius for `/crime assignjail` and the fallback. |
 | `buildHoldingCell` | `true` | — | **This is the temporary-jail switch.** When no jail anchor is assigned and no fallback is configured, build a small holding cell near the arrest — reinforced stone and reinforced bars around a cell door that faces the arrest, held shut by a padlock the mod hangs itself — and take it down again on release, restoring every block it replaced. The padlock can be picked, from outside or through the door; a prisoner who then walks out has escaped and the cell comes down without a release (see `jailContainmentMode`). It gates the only code path in the mod that places a block, so turning it off means the mod builds nothing, anywhere, ever. Player-built and `/crime assignjail` jails keep working exactly as before. See below for what happens to an arrest with nowhere to go. |
@@ -497,6 +537,7 @@ sentence like any other arrest.
 | `escortStuckScans` | `6` | `1 … 100` | Consecutive scans without meaningful guard or prisoner movement before intake completes by teleport. Detours count as progress even when they lead away from the jail temporarily. The overall escort deadline still applies. |
 | `restrainedPlayerRestrictions` | `true` | — | While restrained, suppress attacking, interacting, breaking blocks, jumping, mounting and sprinting. Off keeps the escort and the visuals but lets a cuffed player act normally. |
 | `arrestRecoveryTicks` | `200` | `20 … 24000` | How long, in online ticks, guards stand down after an arrest could not be completed. This is a state the arrest genuinely reached, not a cooldown on the screen: without it a guard that just failed re-opens the same confrontation on the next scan and fails again. |
+| `adminReleaseRecoveryTicks` | `2400` | `0 … 72000` | (0.7.7) How long, in online ticks, guards stand down after `/crime release` or a jail whose dimension no longer exists frees a prisoner. Neither forgives anything: the charges are released from the sentence and a later arrest assesses them again. Without the pause the guards on the doorstep would put the player straight back into the custody the operator just ended. `0` leaves only the ordinary arrest recovery. |
 | `jailAssignedMaxDistance` | `256.0` | `0.0 … 10000.0` | How far an operator-assigned jail may be from an arrest and still be used. `0` means unlimited, which is the historical behaviour and means a single `/crime assignjail` anywhere in a dimension captures every arrest in it and permanently suppresses cell-building. Beyond this distance the arrest builds or falls back locally instead. `/crime jail` is never distance-limited. |
 | `jailFallbackEnabled` | `false` | — | Jail at the fallback position when no anchor is assigned. Off means jailing is **refused** with a clear message instead — which is the safer default, because a fallback pointing at a hole in the ground is worse than a refusal. |
 | `jailFallbackPos` | `[0, 64, 0]` | — | Fallback position, used only when the fallback is enabled. |
@@ -504,11 +545,56 @@ sentence like any other arrest.
 
 **Containment modes.** `CONTAINMENT` protects the region's blocks and teleports strays back.
 `PHYSICAL` lets the walls be broken and treats leaving as a genuine breakout: the escaped flag is
-set, a `jailbreak` crime is recorded with its Heat, the prisoner is *not* teleported back, and the
-sentence keeps running while they run. `REINFORCED` currently behaves as `CONTAINMENT`.
+set, so guards treat the prisoner as a legal target; the sentence's cases are marked escaped; one
+`jailbreak` crime is recorded with its Karma and Heat; a built holding cell is taken down; and the
+prisoner is *not* teleported back. The sentence clock and the captivity cap
+pause while they are out, and only a recapture or a surrender resumes the term; walking back into an
+assigned jail's region resumes it too. `REINFORCED` currently behaves as `CONTAINMENT`.
+
+The mode is one of several things that decide whether a prisoner's break stands, and each of the
+others refuses on its own, in every mode:
+
+1. `prison.reinforcedAuthorisedRemovalOnly` lets only an operator break a reinforced block.
+2. Worn restraints that forbid mining (cuffs on the arms, for instance) refuse every break.
+3. A locked block resists breaking while `locks.protectLockedBlocksFromBreaking` is on, so a padlocked
+   cell door is opened by its key or a lockpick, never mined.
+4. `prison.reinforcedBreakingPolicy = HARD_CONTAINMENT` refuses a reinforced block to anybody in
+   custody, which includes a jailed prisoner.
+5. Only then does the mode decide: `CONTAINMENT` and `REINFORCED` refuse any break inside the
+   prisoner's own jail region; `PHYSICAL` allows it.
+
+A built holding cell is reinforced stone, reinforced bars, a reinforced lamp and a cell door, so with the default
+`PICKAXE_QUALIFIED` a `PHYSICAL` prisoner needs an iron pickaxe and time to dig out of one, and with
+`HARD_CONTAINMENT` or authorised-only removal its padlock is the only way out (the validator says so).
+An assigned jail built from ordinary blocks can be dug out of with whatever the prisoner carries. The
+blocks of a built cell never drop as items, however they are broken, and taking the cell down puts
+the original terrain back where its walls were dug out.
 
 Sentences are counted in online ticks: logging out pauses, dying does not clear, changing dimension
 does not stop it, and a restart resumes.
+
+**How a sentence ends (0.7.7).** Each way out is one disposition, applied once:
+
+| Release | Cases the sentence was for | Their Heat |
+|---|---|---|
+| Time served | marked `SERVED` | settled |
+| `maxCaptivityRealMinutes` reached | marked `SERVED` (the cap is time served, or the same cases would put the same player back in) | settled |
+| Bail | marked `FINED` by the payment | settled |
+| A pardon of every charge, or fines covering all of them, while jailed | already closed | settled; the prisoner is released on the next second |
+| `/crime release`, or a jail whose dimension vanished | released from the sentence, still open | kept; guards stand down for `adminReleaseRecoveryTicks` |
+
+"Settled" means the Heat the prisoner carried in when the sentence began, less any Heat that left while
+it ran (decay, a fine paid from the cell), never more than they have left. Heat from crimes committed
+while jailed, or on the run after an escape, is a separate offence and survives the release. A served
+sentence used to close its cases and leave its Heat, so a prisoner still above the Wanted line was
+arrested again on the doorstep. `/crime status` shows a prisoner what they are held for, the time left,
+any pause and the ways out; `/crime repair <player> [inspect]` (level 3) finds and fixes a stuck
+player's jail, custody, arrest and restraint records, and its safe subset runs at every login.
+
+A released prisoner leaves a built holding cell through its door; if that spot is unusable the search
+widens around the cell, then falls back to the overworld spawn. If nowhere safe exists at all the cell
+stays up, the prisoner is told, and the sweep and `/crime repair` retry -- it is never restored around
+them.
 
 **Turning temporary jails off.** With `buildHoldingCell = false`, an arrest looks for an assigned
 anchor within `jailAssignedMaxDistance`, then for a cell that already exists, then for the configured
@@ -799,9 +885,31 @@ MCA hearts moved when a crime or a good deed lands. All of these are counts of h
 | `villageRepRise` | `2` | `0 … 1000` | The village standing reward. |
 | `restitutionHeartGain` | `2` | `0 … 1000` | Hearts returned to a victim when a fine is paid. |
 | `restitutionFractionOfFine` | `0.5` | `0.0 … 1.0` | Fraction of a paid fine treated as restitution to the victim. |
+| `murderHeartPenalty` | `true` | — | Whether killing a villager costs personal hearts at all (0.7.7). Off removes MCA's own killing penalty and MCA: Crime's family and witness loss for killings. Community standing is not affected. |
+| `murderHeartsRequireWitness` | `true` | — | Whether a mourner must have seen who did it before MCA's killing penalty applies (0.7.7). Off restores MCA's native rule. Community standing is not affected. |
 
 Every one of these goes through the MCA adapter and fails safe: a differing MCA version means the
 hearts change does not happen, not that anything crashes.
+
+**Personal hearts and community standing are separate controls.** Hearts are one villager's feelings
+toward one player, kept by MCA. Standing is the community's ledger, kept by MCA: Crime (or by MCA:
+Reputation when it is installed). They are tuned independently:
+
+- **Hearts** — `directVictimHeartLoss`, `familyHeartLoss` and `witnessTrustLoss` for MCA: Crime's own
+  loss, and `murderHeartPenalty` / `murderHeartsRequireWitness` for MCA's native killing penalty.
+- **Standing** — `villageRepDrop` here, and MCA: Reputation's own killing and assault settings when it
+  records the deed. Neither 0.7.7 key changes standing.
+
+MCA itself docks 20 hearts toward a player who kills a villager, from every MCA villager within 32
+blocks and from the victim's loaded family, with no sight check. With the native justice hooks applied
+(`/crime validate` reports them), MCA: Crime gates that per mourner: an exempt Thief fight costs
+nothing; `murderHeartPenalty=false` costs nothing; `murderHeartsRequireWitness=false` restores MCA's
+value; a masked killer whose mask hides identity costs nothing; and a mourner who did not identify the
+killer, a neighbour behind a wall or a relative across the map, keeps their hearts. MCA: Crime never
+adds its own family or witness loss to a mourner MCA already charged for the same killing, skips all
+personal hearts for a masked offender whose mask hides identity, and, if the native hooks did not
+apply, skips its own killing loss entirely and says so once in the log, rather than stacking it on
+MCA's unconditional penalty.
 
 ### `[relationship.familyLoyalty]`
 
@@ -1317,8 +1425,8 @@ A few coherent configurations rather than a list of switches:
 | `enableCrimeNews` | `true` | boolean | Optional relevant digests through MCA's native mailbox, subject to its mailing switch and personal subscription. |
 | `crimeNewsIntervalDays` | `1` | `1 … 30` | Monotonic Minecraft days between nonempty combined editions. |
 | `crimeNewsMaxStories` | `4` | `1 … 8` | Stories per edition, also bounded by four pages and 2,000 serialized text characters. |
-| `thiefDefenseGraceTicks` | `1200` | `0 … 240000` | Strict-mode identified robbery evidence window; custody ends eligibility immediately. |
-| `thiefCombatPolicy` | `ALL_THIEVES` | `NORMAL_LAW`, `EVIDENCE_REQUIRED`, `ALL_THIEVES` | Combat blame policy. All-Thieves includes free Thieves after serving a sentence; children, guards, unresolved roles and restrained prisoners remain protected. It creates neither report evidence nor rewards. |
+| `thiefDefenseGraceTicks` | `1200` | `0 … 240000` | How long being held up keeps justifying the victim's force after the mugging ends (0.7.7) -- a mugger running off with the purse is still the aggressor to the player chasing them. Also the strict-mode identified robbery evidence window. `0` ends it with the mugging. Custody ends eligibility immediately. |
+| `thiefCombatPolicy` | `ALL_THIEVES` | `NORMAL_LAW`, `EVIDENCE_REQUIRED`, `ALL_THIEVES` | Combat blame policy. All-Thieves includes free Thieves after serving a sentence; children, guards, unresolved roles and restrained prisoners remain protected. It creates neither report evidence nor rewards. Under every policy the victim of a mugging may fight the mugger off, from the moment it starts and for `thiefDefenseGraceTicks` after it ends; under `NORMAL_LAW` killing the mugger is still charged, as excessive defensive force (0.7.7). |
 
 ## Per-world game rules
 

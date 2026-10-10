@@ -27,15 +27,15 @@ class JurisdictionPolicyTest {
         var evidence = Optional.of(snapshot(true, true, JurisdictionSnapshot.Cooperation.LOCAL_ONLY));
         assertFalse(JurisdictionPolicies.allowsStandaloneWanted(evidence));
         assertTrue(JurisdictionPolicies.civilianLawContinues(evidence));
-        assertThrows(IllegalArgumentException.class, () -> new JurisdictionSnapshot(LOCAL, "ultima:local",
-                "ultima:madera", "recruits:red", "ultima:civil", JurisdictionSnapshot.CivilLaw.CONTINUES,
+        assertThrows(IllegalArgumentException.class, () -> new JurisdictionSnapshot(LOCAL, "mcakingdoms:local",
+                "mcakingdoms:madera", "recruits:red", "mcakingdoms:civil", JurisdictionSnapshot.CivilLaw.CONTINUES,
                 JurisdictionSnapshot.Cooperation.LOCAL_ONLY, true, false, false, true, 4,
                 JurisdictionSnapshot.Availability.AVAILABLE, "Invalid immunity"));
     }
 
     @Test void unavailableEvidencePreservesExistingCrimeRules() {
-        var unavailable = Optional.of(new JurisdictionSnapshot(LOCAL, "ultima:local", "ultima:madera",
-                "recruits:red", "ultima:civil", JurisdictionSnapshot.CivilLaw.UNKNOWN,
+        var unavailable = Optional.of(new JurisdictionSnapshot(LOCAL, "mcakingdoms:local", "mcakingdoms:madera",
+                "recruits:red", "mcakingdoms:civil", JurisdictionSnapshot.CivilLaw.UNKNOWN,
                 JurisdictionSnapshot.Cooperation.LOCAL_ONLY, true, true, true, true, 4,
                 JurisdictionSnapshot.Availability.SUSPENDED, "Provider absent"));
         assertTrue(JurisdictionPolicies.allowsSharedReports(unavailable));
@@ -66,8 +66,8 @@ class JurisdictionPolicyTest {
 
     private static JurisdictionSnapshot snapshot(boolean safe, boolean immunity,
                                                   JurisdictionSnapshot.Cooperation cooperation) {
-        return new JurisdictionSnapshot(LOCAL, "ultima:local", "ultima:madera", "recruits:red",
-                "ultima:civil", JurisdictionSnapshot.CivilLaw.CONTINUES, cooperation, true, false,
+        return new JurisdictionSnapshot(LOCAL, "mcakingdoms:local", "mcakingdoms:madera", "recruits:red",
+                "mcakingdoms:civil", JurisdictionSnapshot.CivilLaw.CONTINUES, cooperation, true, false,
                 safe, immunity, 4, JurisdictionSnapshot.Availability.AVAILABLE,
                 "Civil law continues under occupation");
     }

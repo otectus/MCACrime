@@ -196,8 +196,19 @@ public final class CustodyService {
         if (alreadyHeld >= maxUnlawfulPerCaptor) {
             return CaptureCommitResult.QUOTA_FULL; // commit-time invariant: a race cannot bypass the start check
         }
-        data.putCustody(new CustodyRecord(captiveUuid, captiveIsPlayer, false,
-                CustodyOwner.kidnapper(captorUuid), startTick, holdPos, holdDim));
+        CustodyRecord record = new CustodyRecord(captiveUuid, captiveIsPlayer, false,
+                CustodyOwner.kidnapper(captorUuid), startTick, holdPos, holdDim);
+        if (data.putCustody(record) != dev.otectus.mcacrime.state.world.CapacityResult.OK) {
+            // A full table wrote nothing, so nothing downstream may run: no charge for a custody that
+            // does not exist, and no gear attributed to one.
+            return CaptureCommitResult.GATED;
+        }
+        // The restraint that began this kidnapping went on a moment before the record existed, so it
+        // names no custody. It is this custody's gear all the same, and adopting it here is what lets the
+        // custody's end -- a ransom, a rescue, the captor going -- take it off with everything else
+        // (0.7.7). The subject's own voluntary gear is not adopted and stays theirs.
+        dev.otectus.mcacrime.restraint.CustodyTransitionService.adoptGear(data, captiveUuid,
+                record.getCustodyId());
         return CaptureCommitResult.CAPTURED;
     }
 
@@ -389,9 +400,10 @@ public final class CustodyService {
         RestraintService.releaseFor(server, captiveUuid, record.getCustodyId());
         // And the claims this custody owned rather than merely coexisted with: the escort that existed
         // only because somebody was being walked somewhere, and any execution order naming them
-        // (§3.19 -- a pardon, a ransom or a served sentence all clear it). A chain somebody paid for
-        // and a device somebody locked are independent physical facts and are deliberately left alone,
-        // for the same reason removing one restraint is not a release.
+        // (§3.19 -- a pardon, a ransom or a served sentence all clear it). For a player, a chain somebody
+        // paid for and a device somebody locked are independent physical facts and are deliberately left
+        // alone, for the same reason removing one restraint is not a release. A villager cannot be told it
+        // is free, so it is let out of both in the villager branch below.
         dev.otectus.mcacrime.restraint.CustodyTransitionService.clearPhysicalClaims(server, captiveUuid,
                 record.getCustodyId());
         UUID formerCaptor = record.getOwner().ownerUuid().orElse(null);
@@ -442,6 +454,11 @@ public final class CustodyService {
             NpcReleaseEffects.apply(new NpcReleaseEffects.Effects() {
                 @Override
                 public void clearLeash() {
+                    // A villager cannot work a pillory's latch, so the device comes open first (0.7.7).
+                    // Opening it resumes the chains it suspended, and the tethers cut next end each of
+                    // them exactly once.
+                    dev.otectus.mcacrime.restraint.CustodyTransitionService.releaseDevice(server,
+                            captiveUuid);
                     // Both, and in this order. The tether is the live hold as of 0.7.5 M4.3; the
                     // vanilla lead is only ever a leftover from a world upgraded from before it, and
                     // leaving one on would be a second hold nothing owns.

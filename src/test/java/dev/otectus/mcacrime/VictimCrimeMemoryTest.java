@@ -59,6 +59,35 @@ class VictimCrimeMemoryTest {
         assertTrue(apology.anger() > original.anger() * 0.95); assertEquals(original.fear(),apology.fear());
         assertTrue(VictimCrimeMemory.load(apology.save()).apologized());
     }
+    @Test void aSinglePunchIsBelowTheGraveBoundaryAndAnApologySoftensIt() {
+        // 0.7.7: one constant for "grave". A punch is severity 0.7, which the apology rule used to treat
+        // as severe, so an accepted apology took three percent of the anger instead of fifteen.
+        var punch = memory(CrimeMemoryCategory.ASSAULT,CrimeAwareness.defaults(CrimeIds.HARM_VILLAGER),1,false);
+        assertEquals(0.7,punch.severity(),1e-9); assertTrue(punch.severity() < VictimCrimeMemory.GRAVE_SEVERITY);
+        var apology = punch.reconcile(1000,1,true,false,false);
+        assertEquals(punch.anger() * 0.85,apology.anger(),1e-9);
+        assertEquals(punch.fear(),apology.fear(),1e-9,"an apology still repairs anger, not fear");
+        assertEquals(0,punch.fearAt(Long.MAX_VALUE / 2,1),1e-9,"below the boundary there is no residual");
+    }
+    @Test void severityEightTenthsIsGraveForTheApologyAndTheResidual() {
+        var grave = new VictimCrimeMemory(actor,UUID.randomUUID(),victim,CrimeMemoryCategory.ASSAULT,1000,1000,
+                24000L * 10,0.8,0.8,0.8,1,false,false,false,false,0);
+        var apology = grave.reconcile(1000,1,true,false,false);
+        assertEquals(grave.anger() * 0.97,apology.anger(),1e-9);
+        assertTrue(grave.fearAt(Long.MAX_VALUE / 2,1) > 0,"a grave memory keeps its residual");
+        var justBelow = new VictimCrimeMemory(actor,UUID.randomUUID(),victim,CrimeMemoryCategory.ASSAULT,1000,1000,
+                24000L * 10,0.79,0.8,0.8,1,false,false,false,false,0);
+        assertEquals(justBelow.anger() * 0.85,justBelow.reconcile(1000,1,true,false,false).anger(),1e-9);
+    }
+    @Test void ticksUntilCalmIsLongEnoughAndHonestAboutNever() {
+        var punch = memory(CrimeMemoryCategory.ASSAULT,CrimeAwareness.defaults(CrimeIds.HARM_VILLAGER),1,false);
+        long wait = punch.ticksUntilCalm(1000,1,0.45,0.6);
+        assertTrue(wait > 0 && wait < Long.MAX_VALUE);
+        assertTrue(punch.fearAt(1000 + wait,1) < 0.45 && punch.angerAt(1000 + wait,1) < 0.6);
+        assertEquals(0,punch.ticksUntilCalm(1000 + wait,1,0.45,0.6));
+        assertEquals(Long.MAX_VALUE,punch.ticksUntilCalm(1000,0,0.45,0.6),"a decay multiplier of 0 never calms");
+        assertTrue(punch.ticksUntilCalm(1000,2,0.45,0.6) < wait,"faster decay calms sooner");
+    }
     @Test void familyMemoryIsDistinctAndReduced() {
         var direct = memory(CrimeMemoryCategory.ASSAULT,CrimeAwareness.defaults(CrimeIds.HARM_VILLAGER),1,false);
         var family = memory(CrimeMemoryCategory.FAMILY_HARM,CrimeAwareness.defaults(CrimeIds.HARM_VILLAGER),0.5,true);

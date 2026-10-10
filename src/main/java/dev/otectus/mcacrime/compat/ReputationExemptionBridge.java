@@ -29,7 +29,15 @@ public final class ReputationExemptionBridge {
                     LivingEntity target = (LivingEntity) args[2]; DamageSource source = (DamageSource) args[3];
                     var sampled = NativeCombatContext.decision(target, source);
                     if (sampled == null) sampled = ThiefCombatService.sample(target, (ServerPlayer) args[1], args[0].toString());
-                    return sampled != null && sampled.exempt() ? exempt : pass;
+                    // A killing is asked of the narrower kill exemption (0.7.7): under NORMAL_LAW a mugging
+                    // victim may fight the mugger off, but killing them is still Reputation's to record.
+                    boolean kill = "MCA_VILLAGER_KILL".equals(args[0].toString());
+                    if (sampled != null && (kill ? sampled.exemptsKill() : sampled.exempt())) return exempt;
+                    // 0.7.7: a hit MCA: Crime is going to forgive as minor friendly fire is not an assault
+                    // for Reputation either. A peek, so asking changes nothing; the final damage arrives here.
+                    return "MCA_VILLAGER_ASSAULT".equals(args[0].toString()) && args[4] instanceof Float amount
+                            && dev.otectus.mcacrime.detect.DamageIncidentService.minorHarmCandidate(target, source, amount)
+                            ? exempt : pass;
                 }
                 return switch (method.getName()) {
                     case "toString" -> "MCA Crime exact-action legal exemptions";

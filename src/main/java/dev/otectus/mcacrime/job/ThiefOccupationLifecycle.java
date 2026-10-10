@@ -143,7 +143,9 @@ public final class ThiefOccupationLifecycle {
             if (McaCompat.getProfessionId(entity).isPresent()) {
                 ThiefWorkRegistry.clearEmployed(record.villager());
                 dev.otectus.mcacrime.ai.thief.ThiefTicker.stop(record.villager());
-                jobs.retireOccupation(record.villager(), OccupationSource.MIGRATION);
+                // Record-only (0.7.7): the full retirement zeroed the new profession's experience and
+                // wiped its work memories, undoing the very change this branch exists to respect.
+                jobs.retireAfterExternalChange(record.villager());
             }
             return;
         }

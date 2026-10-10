@@ -47,6 +47,31 @@ public final class ReinforcedPolicy {
     }
 
     /**
+     * Whether the block these loot parameters describe stands where the mod built a cell (0.7.7).
+     *
+     * <p>Such a block drops nothing, however it is broken: a prisoner digging out of a {@code PHYSICAL}
+     * cell, a rescuer digging in, a drill from another mod. The cell was made out of nothing for an
+     * arrest, and the walls of one must not become the cheapest reinforced stone on the server. Read
+     * from the loot parameters rather than a break event so that every breaker is covered and no other
+     * mod's break handler has to be second-guessed.
+     */
+    public static boolean generatedCellBlock(
+            @Nullable net.minecraft.world.level.storage.loot.LootParams.Builder params) {
+        if (params == null) {
+            return false;
+        }
+        net.minecraft.server.level.ServerLevel level = params.getLevel();
+        net.minecraft.world.phys.Vec3 origin = params.getOptionalParameter(
+                net.minecraft.world.level.storage.loot.parameters.LootContextParams.ORIGIN);
+        if (level == null || origin == null || level.getServer() == null) {
+            return false;
+        }
+        return dev.otectus.mcacrime.jail.HoldingCellService.generatedBlockAt(
+                dev.otectus.mcacrime.state.world.CrimeWorldData.get(level.getServer()),
+                level.dimension().location(), net.minecraft.core.BlockPos.containing(origin));
+    }
+
+    /**
      * The whole breaking rule, with nothing else in it.
      *
      * @param policy      the configured policy

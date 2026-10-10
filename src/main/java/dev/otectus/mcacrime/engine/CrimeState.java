@@ -184,6 +184,7 @@ public final class CrimeState {
             boolean nowWanted = CrimeMath.isWanted(newHeat, c.wantedHeatThreshold.get());
             data.setKarma(newKarma);
             data.setHeat(newHeat);
+            consumeSentenceHeat(data, oldHeat, newHeat);
             data.setCachedBand(newBand);
             data.setWantedCached(nowWanted);
             if (oldKarma != newKarma) dev.otectus.mcacrime.incident.IncidentNotifications.post(
@@ -226,6 +227,7 @@ public final class CrimeState {
             boolean wasWanted = CrimeMath.isWanted(oldHeat, threshold);
             boolean nowWanted = CrimeMath.isWanted(newHeat, threshold);
             data.setHeat(newHeat);
+            consumeSentenceHeat(data, oldHeat, newHeat);
             data.setWantedCached(nowWanted);
             // Every real change is reported; the wanted event stays reserved for the boundary crossing,
             // so a listener that only cares about pursuit does not have to filter out ordinary decay.
@@ -236,5 +238,16 @@ public final class CrimeState {
             }
             CrimeNetwork.sendSelfStatus(player);
         }, () -> McaCrime.LOGGER.debug("Heat mutation on a player without the crime capability; ignoring"));
+    }
+
+    /**
+     * Heat that leaves a prisoner comes off their sentence's obligation first (0.7.7), so the release
+     * that settles the rest never subtracts the same Heat twice. Heat that arrives is a new offence and
+     * is not added; see {@code JailState#getSentenceHeat}.
+     */
+    private static void consumeSentenceHeat(PlayerCrimeData data, long oldHeat, long newHeat) {
+        if (newHeat < oldHeat && data.getJail() != null) {
+            data.getJail().consumeSentenceHeat(oldHeat - newHeat);
+        }
     }
 }

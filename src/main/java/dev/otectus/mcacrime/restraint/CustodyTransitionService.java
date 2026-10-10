@@ -431,6 +431,95 @@ public final class CustodyTransitionService {
     }
 
     /**
+     * Opens whatever device is holding a villager whose custody just ended (0.7.7).
+     *
+     * <p>A villager cannot work a pillory's latch, so a villager let out of custody and left locked in
+     * one has not been let out of anything; a ransom paid for them would buy nothing. Only the villager
+     * half of a release asks: a player can be told where they are and act on it, and a player's device
+     * is still the independent physical fact {@link #clearPhysicalClaims} leaves alone.
+     *
+     * <p>Asked before the villager's tethers are cut. Opening a device resumes the chains it suspended,
+     * so cutting them afterwards ends each of them exactly once. The device's own tick corrects its
+     * boards on the next pass, the same way it does when an occupant dies.
+     *
+     * @return true when this call opened a device
+     */
+    public static boolean releaseDevice(@Nullable MinecraftServer server, @Nullable UUID subject) {
+        if (server == null || subject == null) {
+            return false;
+        }
+        CrimeWorldData data = CrimeWorldData.get(server);
+        DetentionRecord held = DetentionService.forSubject(data, subject).orElse(null);
+        return held != null && DetentionService.release(server, data, held.id(),
+                DetentionService.ReleaseReason.ADMINISTRATIVE).isPresent();
+    }
+
+    // --- whose gear it is --------------------------------------------------------------------------------------
+
+    /**
+     * Which custody a restraint going on right now belongs to (0.7.7).
+     *
+     * <p>Only a kidnapping's. Gear put on somebody an unlawful captor is already holding is part of that
+     * hold -- the gag added after the cuffs, a pair a dispenser snapped on, a hood an accomplice pulled
+     * down -- and the custody's end takes it off with everything else. A voluntary application is the
+     * subject's own and stays theirs. A lawful custody keeps owning only the system-issued gear its own
+     * arrest puts on, as it always has: when a hunter's cuffs come off a prisoner is the arrest's
+     * business, and nothing here changes it.
+     *
+     * @return the unlawful custody's id, or null when the gear is nobody's custody's
+     */
+    @Nullable
+    public static UUID custodyFor(@Nullable CrimeWorldData data, @Nullable UUID subject, boolean voluntary) {
+        if (voluntary || data == null || subject == null) {
+            return null;
+        }
+        CustodyRecord custody = data.getCustody(subject);
+        return custody != null && !custody.isLawful() ? custody.getCustodyId() : null;
+    }
+
+    /**
+     * Whether a worn restraint is taken over by a kidnapping that begins around it (0.7.7).
+     *
+     * <p>Pure. Unattributed and involuntary. The restraint that begins a kidnapping goes on a moment
+     * before the custody record exists, so it was stamped with no custody at all, and the custody's end
+     * -- which takes off exactly the gear carrying its id -- never took it off. That is how a villager
+     * whose ransom had been paid walked home in the kidnapper's cuffs.
+     */
+    public static boolean adoptable(@Nullable AppliedRestraint worn) {
+        return worn != null && worn.custodyId() == null
+                && worn.context() != AppliedRestraint.ApplicationContext.VOLUNTARY;
+    }
+
+    /**
+     * Attributes every adoptable restraint on {@code subject} to a kidnapping that just began (0.7.7).
+     *
+     * <p>One store write for every slot, and idempotent: an adopted restraint carries an id from then on
+     * and is never adopted again, by this custody or a later one.
+     *
+     * @return how many slots were adopted; 0 when none were, or when the store refused the write
+     */
+    public static int adoptGear(@Nullable CrimeWorldData data, @Nullable UUID subject,
+                                @Nullable UUID custodyId) {
+        if (data == null || subject == null || custodyId == null) {
+            return 0;
+        }
+        PhysicalRestraintState state = data.physicalRestraint(subject);
+        if (state == null) {
+            return 0;
+        }
+        PhysicalRestraintState next = state;
+        int adopted = 0;
+        for (RestraintSlot slot : RestraintSlot.values()) {
+            AppliedRestraint worn = state.slot(slot).orElse(null);
+            if (adoptable(worn)) {
+                next = next.with(slot, worn.withCustody(custodyId));
+                adopted++;
+            }
+        }
+        return adopted > 0 && data.putPhysicalRestraint(next) ? adopted : 0;
+    }
+
+    /**
      * A rescue, an escape or a guard's death ended a pending execution.
      *
      * <p>Named separately from {@link #clearPhysicalClaims} because the reason is part of the record

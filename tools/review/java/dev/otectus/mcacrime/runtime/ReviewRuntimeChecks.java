@@ -68,6 +68,11 @@ public final class ReviewRuntimeChecks {
     private CrimeWorldData data;
     private int ticks;
     private int fixture;
+    private boolean finished;
+    /** Checks that need the world to run: polled once a tick until they hold or their time is up. */
+    private final List<Waiting> waiting = new ArrayList<>();
+
+    private record Waiting(String name, int deadline, java.util.function.Supplier<String> problem, Runnable cleanup) {}
 
     public ReviewRuntimeChecks() {
         MinecraftForge.EVENT_BUS.addListener(this::started);
@@ -77,21 +82,64 @@ public final class ReviewRuntimeChecks {
     private void started(ServerStartedEvent event) { server = event.getServer(); }
 
     private void tick(TickEvent.ServerTickEvent event) {
-        if (server == null || event.phase != TickEvent.Phase.END || ++ticks != 5) return;
-        level = server.overworld();
-        data = CrimeWorldData.get(server);
-        try {
-            runChecks();
-        } catch (Throwable failure) {
-            results.add("FAIL harness: " + failure);
-            failure.printStackTrace();
-        } finally {
-            results.add("COMPLETE " + results.size() + " checks");
-            try { Files.write(Path.of("runtime-results.txt"), results); }
-            catch (Exception failure) { throw new RuntimeException(failure); }
-            results.forEach(System.out::println);
-            server.halt(false);
+        if (server == null || finished || event.phase != TickEvent.Phase.END || ++ticks < 5) return;
+        if (ticks == 5) {
+            level = server.overworld();
+            data = CrimeWorldData.get(server);
+            try {
+                runChecks();
+            } catch (Throwable failure) {
+                results.add("FAIL harness: " + failure);
+                failure.printStackTrace();
+            }
         }
+        poll();
+        if (waiting.isEmpty()) finish();
+    }
+
+    private void finish() {
+        finished = true;
+        results.add("COMPLETE " + results.size() + " checks");
+        try { Files.write(Path.of("runtime-results.txt"), results); }
+        catch (Exception failure) { throw new RuntimeException(failure); }
+        results.forEach(System.out::println);
+        server.halt(false);
+    }
+
+    /** Registers a check that needs ticks to pass; {@code problem} answers null once it holds. */
+    private void await(String name, int timeoutTicks, java.util.function.Supplier<String> problem, Runnable cleanup) {
+        waiting.add(new Waiting(name, ticks + timeoutTicks, problem, cleanup));
+    }
+
+    private void poll() {
+        for (Iterator<Waiting> it = waiting.iterator(); it.hasNext(); ) {
+            Waiting check = it.next();
+            String problem;
+            try {
+                problem = check.problem().get();
+            } catch (Throwable failure) {
+                failure.printStackTrace();
+                problem = failure.toString();
+                results.add("FAIL " + check.name() + ": " + problem);
+                cleanUp(check);
+                it.remove();
+                continue;
+            }
+            if (problem == null) {
+                results.add("PASS " + check.name());
+            } else if (ticks < check.deadline()) {
+                continue;
+            } else {
+                results.add("FAIL " + check.name() + ": " + problem);
+            }
+            cleanUp(check);
+            it.remove();
+        }
+    }
+
+    private static void cleanUp(Waiting check) {
+        try { check.cleanup().run(); }
+        catch (Throwable failure) { failure.printStackTrace(); }
     }
 
     private void runChecks() {
@@ -114,6 +162,705 @@ public final class ReviewRuntimeChecks {
         check("offline release restores persisted bunk snapshot on login", () -> bunkRelease(true));
         check("bunk release preserves a newer chosen home", this::bunkNewHome);
         check("bunk release leaves another dimension's chosen spawn intact", this::bunkNewDimension);
+        check("forced recruitment sweep leaves an established librarian intact", this::establishedLibrarian);
+        // 2026-10-04 corrections (0.7.7), mirrored by the NeoForge CorrectionsGameTests.
+        check("cell door and reinforced bars keep every property and default of their vanilla parents", this::cellParentParity);
+        check("only a canonical adult Thief may start or finish a mugging", this::thiefActorMatrix);
+        check("a child holding a Thief record cannot mug", this::childThief);
+        check("a mugging victim may hit the mugger first; killing under NORMAL_LAW is excessive force", this::muggingDefense);
+        check("a mugger in custody is protected", this::custodyMugger);
+        check("a victim recovers stolen property from a living thief through the search", this::stolenRecovery);
+        check("a player thief's death escrows nothing they carry; an NPC thief's death still escrows", this::thiefDeathEscrow);
+        check("a guard fighting a monster keeps its own fight when released", this::guardMonster);
+        check("a guard is told to fight a Wanted player who refused arrest", this::guardForce);
+        check("serving a sentence settles its own Heat and no more", this::sentenceHeat);
+        check("captivity cap serves, operator release forgives nothing, a pardon frees", this::sentenceExits);
+        check("a cell with its door walled off still has a way out", this::walledCellExit);
+    }
+
+    /**
+     * 0.7.7: a master librarian in a trading hall has no MCA home village, so the wild route took it and
+     * the occupation transaction cleared its trades. A forced sweep at chance 1.0 must leave an
+     * established villager's profession, level, XP, offers and job site exactly as they were, while the
+     * unemployed adult beside it is recruited by the same pass, which proves the sweep ran.
+     */
+    private void establishedLibrarian() {
+        TestPlayer observer = player();
+        BlockPos base = observer.blockPosition();
+        var jobs = dev.otectus.mcacrime.job.WorldCriminalJobService.of(server);
+        net.minecraft.world.entity.Mob librarian = mcaVillager(base.east(2));
+        net.minecraft.world.entity.Mob blank = mcaVillager(base.west(2));
+        try {
+            var trader = (net.minecraft.world.entity.npc.Villager) librarian;
+            ResourceLocation librarianId = new ResourceLocation("minecraft", "librarian");
+            require(dev.otectus.mcacrime.compat.McaCompat.setVillagerProfession(librarian, librarianId),
+                    "cannot make the fixture a librarian");
+            trader.setVillagerData(trader.getVillagerData().setLevel(5));
+            trader.setVillagerXp(250);
+            var offers = trader.getOffers();
+            if (offers.isEmpty()) {
+                offers.add(new net.minecraft.world.item.trading.MerchantOffer(new ItemStack(Items.EMERALD),
+                        new ItemStack(Items.BOOK), 12, 5, 0.05F));
+            }
+            offers.get(0).increaseUses();
+            CompoundTag offersBefore = offers.createTag();
+            var site = net.minecraft.core.GlobalPos.of(level.dimension(), base.north(3));
+            dev.otectus.mcacrime.compat.OccupationCompat.setJobSite(librarian, site);
+            require(dev.otectus.mcacrime.job.WorldCriminalJobService.established(librarian), "librarian fixture not established");
+            require(!dev.otectus.mcacrime.job.WorldCriminalJobService.established(blank), "control fixture already established");
+            dev.otectus.mcacrime.job.CriminalJobAssignmentSweep.sweep(server,
+                    new dev.otectus.mcacrime.job.CriminalJobAssigner.AssignmentPolicy(true, true, 1.0D, 1.0D, 1.0D, 1, 0));
+            require(jobs.get(blank.getUUID()) == dev.otectus.mcacrime.job.CriminalJob.THIEF,
+                    "the forced sweep did not recruit the unemployed control, so it proves nothing");
+            require(data.criminalVillager(librarian.getUUID()) == null
+                    && jobs.get(librarian.getUUID()) == dev.otectus.mcacrime.job.CriminalJob.NONE,
+                    "the sweep wrote a criminal record for an established librarian");
+            require(librarianId.equals(dev.otectus.mcacrime.compat.McaCompat.getProfessionId(librarian).orElse(null)),
+                    "librarian profession became " + dev.otectus.mcacrime.compat.McaCompat.getProfessionId(librarian));
+            require(trader.getVillagerData().getLevel() == 5, "librarian lost its level");
+            require(trader.getVillagerXp() == 250, "librarian trading XP became " + trader.getVillagerXp());
+            var offersAfter = ((dev.otectus.mcacrime.mixin.MerchantOffersAccessor) trader).mcacrime$rawOffers();
+            require(offersAfter != null && offersBefore.equals(offersAfter.createTag()), "librarian offers changed or cleared");
+            require(site.equals(dev.otectus.mcacrime.compat.OccupationCompat.jobSite(librarian).orElse(null)),
+                    "librarian job site memory erased");
+        } finally {
+            jobs.retireOccupation(blank.getUUID(), dev.otectus.mcacrime.job.OccupationSource.OPERATOR);
+            data.removeCriminalVillager(blank.getUUID());
+            librarian.discard(); blank.discard(); observer.discard();
+        }
+    }
+
+    // ------------------------------------------------------------------ 2026-10-04 corrections (0.7.7)
+
+    /** The cell door and bars inherit their parents' state definitions instead of restating them. */
+    private void cellParentParity() {
+        parentParity(CrimeBlocks.CELL_DOOR.get(), Blocks.IRON_DOOR, "cell door");
+        parentParity(CrimeBlocks.REINFORCED_BARS.get(), Blocks.IRON_BARS, "reinforced bars");
+    }
+
+    private static void parentParity(Block ours, Block parent, String what) {
+        for (var property : parent.getStateDefinition().getProperties()) {
+            var mine = ours.getStateDefinition().getProperty(property.getName());
+            require(mine != null, what + " lacks the " + property.getName() + " property");
+            Object ourDefault = ours.defaultBlockState().getValue(mine);
+            Object parentDefault = parent.defaultBlockState().getValue(property);
+            require(Objects.equals(ourDefault, parentDefault), what + " defaults " + property.getName() + " to "
+                    + ourDefault + " where its parent defaults to " + parentDefault);
+        }
+    }
+
+    /**
+     * A valid Thief may start a mugging; the same villager as a guard may not; made a nitwit by somebody
+     * else mid-mugging it loses the session with nothing taken and cannot start another, and the
+     * lifecycle then retires the stale record without overwriting the nitwit.
+     */
+    private void thiefActorMatrix() {
+        BlockPos base = fixtureSite();
+        ServerPlayer victim = realPlayer(base, false);
+        net.minecraft.world.entity.Mob thief = stationThief(base.east(1), base.east(3));
+        var jobs = dev.otectus.mcacrime.job.WorldCriminalJobService.of(server);
+        ResourceLocation nitwit = new ResourceLocation("minecraft", "nitwit");
+        boolean handedOver = false;
+        try {
+            victim.getInventory().setItem(12, new ItemStack(Items.EMERALD, 64));
+            require(execution(jobs, thief).eligible(),
+                    "a committed adult Thief may not act: " + jobs.diagnose(thief).executionDetail());
+            dev.otectus.mcacrime.compat.McaCompat.setVillagerProfession(thief, new ResourceLocation("mca", "guard"));
+            require(execution(jobs, thief).reason() == dev.otectus.mcacrime.job.NpcMuggerEligibilityReason.RESPONDER,
+                    "a guard holding a Thief record may act: " + execution(jobs, thief).reason());
+            require(dev.otectus.mcacrime.mug.npc.NpcMuggingService.begin(level, thief, victim).isEmpty(),
+                    "a guard started a mugging");
+            dev.otectus.mcacrime.compat.McaCompat.setVillagerProfession(thief,
+                    dev.otectus.mcacrime.job.CriminalProfessions.THIEF_ID);
+            require(execution(jobs, thief).eligible(), "restoring the Thief profession did not restore it");
+            require(dev.otectus.mcacrime.mug.npc.NpcMuggingService.begin(level, thief, victim).isPresent(),
+                    "a valid Thief could not start a mugging");
+            dev.otectus.mcacrime.compat.McaCompat.setVillagerProfession(thief, nitwit);
+            require(execution(jobs, thief).reason() == dev.otectus.mcacrime.job.NpcMuggerEligibilityReason.NOT_A_THIEF,
+                    "a nitwit with a stale Thief record may act: " + execution(jobs, thief).reason());
+            String detail = jobs.diagnose(thief).executionDetail();
+            require(detail.contains("minecraft:nitwit"), "the diagnosis does not name the nitwit: " + detail);
+            dev.otectus.mcacrime.mug.npc.NpcMuggingService.tick(server);
+            require(dev.otectus.mcacrime.mug.npc.NpcMuggingService.sessionForThief(thief.getUUID()).isEmpty(),
+                    "the mugging survived its actor becoming a nitwit");
+            require(victim.getInventory().getItem(12).getCount() == 64, "something was taken");
+            require(data.stolenGoodsByThief(thief.getUUID()).isEmpty(), "a theft was filed");
+            require(dev.otectus.mcacrime.mug.npc.NpcMuggingService.begin(level, thief, victim).isEmpty(),
+                    "a nitwit started a mugging");
+            await("the lifecycle retires a stale Thief record without overwriting the new profession", 200, () -> {
+                var status = jobs.occupationStatus(thief.getUUID());
+                if (status != dev.otectus.mcacrime.job.OccupationStatus.RETIRED) return "occupation is " + status;
+                var profession = dev.otectus.mcacrime.compat.McaCompat.getProfessionId(thief);
+                return nitwit.equals(profession.orElse(null)) ? null : "the profession became " + profession;
+            }, () -> { offline(victim); retireThief(thief); });
+            handedOver = true;
+        } finally {
+            if (!handedOver) { offline(victim); retireThief(thief); }
+        }
+    }
+
+    private void childThief() {
+        BlockPos base = fixtureSite();
+        ServerPlayer victim = realPlayer(base, false);
+        net.minecraft.world.entity.Mob thief = stationThief(base.east(1), base.east(3));
+        var jobs = dev.otectus.mcacrime.job.WorldCriminalJobService.of(server);
+        try {
+            ((net.minecraft.world.entity.npc.Villager) thief).setAge(-24000);
+            require(execution(jobs, thief).reason() == dev.otectus.mcacrime.job.NpcMuggerEligibilityReason.NOT_ADULT,
+                    "a child Thief may act: " + execution(jobs, thief).reason());
+            require(dev.otectus.mcacrime.mug.npc.NpcMuggingService.begin(level, thief, victim).isEmpty(),
+                    "a child started a mugging");
+        } finally {
+            offline(victim); retireThief(thief);
+        }
+    }
+
+    private static dev.otectus.mcacrime.job.NpcMuggerEligibility.Result execution(
+            dev.otectus.mcacrime.job.WorldCriminalJobService jobs, net.minecraft.world.entity.Mob thief) {
+        return jobs.evaluate(thief, dev.otectus.mcacrime.job.NpcMuggerEligibility.Context.EXECUTION);
+    }
+
+    /**
+     * Under NORMAL_LAW only the threat can excuse the victim: the punch ends the mugging and is charged
+     * nothing, the window outlives the session, killing the mugger is excessive defensive force, and an
+     * innocent villager hit the same way is assaulted.
+     */
+    private void muggingDefense() {
+        BlockPos base = fixtureSite();
+        ServerPlayer victim = realPlayer(base, false);
+        net.minecraft.world.entity.Mob thief = stationThief(base.east(1), base.east(3));
+        net.minecraft.world.entity.Mob innocent = mcaVillager(base.south(3));
+        var policy = McaCrimeConfig.COMMON.thiefCombatPolicy;
+        var forgiveness = McaCrimeConfig.COMMON.enableMinorHarmForgiveness;
+        var policyBefore = policy.get();
+        boolean forgivenessBefore = forgiveness.get();
+        policy.set(dev.otectus.mcacrime.justice.ThiefCombatPolicy.NORMAL_LAW);
+        forgiveness.set(false);
+        dev.otectus.mcacrime.config.CrimeWorldSettings.invalidate();
+        try {
+            require(dev.otectus.mcacrime.mug.npc.NpcMuggingService.begin(level, thief, victim).isPresent(),
+                    "the mugging did not start");
+            require(thief.hurt(level.damageSources().playerAttack(victim), 1F), "the punch did no damage");
+            require(dev.otectus.mcacrime.mug.npc.NpcMuggingService.sessionFor(victim.getUUID()).isEmpty(),
+                    "the victim's punch did not interrupt the mugging");
+            dev.otectus.mcacrime.detect.DamageIncidentService.flush(server);
+            require(data.recordsForOffender(victim.getUUID()).isEmpty(),
+                    "fighting off a mugger was charged: " + data.recordsForOffender(victim.getUUID()));
+            require(dev.otectus.mcacrime.engine.CrimeState.getHeat(victim) == 0L, "fighting off a mugger cost Heat");
+            require(dev.otectus.mcacrime.mug.npc.MuggingThreats.threatens(thief.getUUID(), victim.getUUID(),
+                    level.getGameTime(), McaCrimeConfig.COMMON.thiefDefenseGraceTicks.get()),
+                    "the right to answer the threat ended with it");
+            thief.hurt(level.damageSources().playerAttack(victim), 1000F);
+            dev.otectus.mcacrime.detect.DamageIncidentService.flush(server);
+            var killing = data.recordsForOffender(victim.getUUID());
+            require(killing.size() == 1, "killing the mugger under NORMAL_LAW was not charged once: " + killing);
+            require("excessive_defensive_force".equals(killing.get(0).context()
+                            .get(dev.otectus.mcacrime.ledger.CrimeContext.COMBAT_BASIS)),
+                    "the killing was not judged excessive defensive force: " + killing.get(0).context());
+            require(innocent.hurt(level.damageSources().playerAttack(victim), 1F), "the innocent took no damage");
+            dev.otectus.mcacrime.detect.DamageIncidentService.flush(server);
+            require(data.recordsForOffender(victim.getUUID()).size() == 2,
+                    "hitting an innocent villager was not charged: " + data.recordsForOffender(victim.getUUID()));
+        } finally {
+            policy.set(policyBefore);
+            forgiveness.set(forgivenessBefore);
+            dev.otectus.mcacrime.config.CrimeWorldSettings.invalidate();
+            dev.otectus.mcacrime.engine.CrimeState.setHeat(victim, 0);
+            innocent.discard();
+            offline(victim); retireThief(thief);
+        }
+    }
+
+    private void custodyMugger() {
+        BlockPos base = fixtureSite();
+        ServerPlayer victim = realPlayer(base, false);
+        net.minecraft.world.entity.Mob thief = stationThief(base.east(1), base.east(3));
+        var forgiveness = McaCrimeConfig.COMMON.enableMinorHarmForgiveness;
+        boolean forgivenessBefore = forgiveness.get();
+        forgiveness.set(false);
+        try {
+            require(dev.otectus.mcacrime.mug.npc.NpcMuggingService.begin(level, thief, victim).isPresent(),
+                    "the mugging did not start");
+            dev.otectus.mcacrime.mug.npc.NpcMuggingService.abort(victim.getUUID(),
+                    dev.otectus.mcacrime.mug.npc.NpcMugAbortReason.GUARD_INTERVENTION);
+            require(CustodyService.captureLawful(data, thief.getUUID(), false, CustodyOwner.guard(UUID.randomUUID()),
+                    level.getGameTime(), thief.blockPosition(), level.dimension().location()).ok(),
+                    "the mugger could not be taken into custody");
+            thief.hurt(level.damageSources().playerAttack(victim), 1F);
+            dev.otectus.mcacrime.detect.DamageIncidentService.flush(server);
+            require(!data.recordsForOffender(victim.getUUID()).isEmpty(),
+                    "hitting a mugger in custody was treated as self-defence");
+        } finally {
+            forgiveness.set(forgivenessBefore);
+            dev.otectus.mcacrime.engine.CrimeState.setHeat(victim, 0);
+            CustodyService.release(server, thief.getUUID(), CustodyReleaseReason.ADMIN);
+            offline(victim); retireThief(thief);
+        }
+    }
+
+    /**
+     * The searcher's own stolen property is first and comes back exactly as taken with no theft filed; a
+     * replay moves nothing; another victim's item taken is a new theft that still names that victim; the
+     * searcher's purse comes back as currency and another victim's purse cannot be taken.
+     */
+    private void stolenRecovery() {
+        BlockPos base = fixtureSite();
+        ServerPlayer victim = realPlayer(base, false);
+        net.minecraft.world.entity.Mob thief = mcaVillager(base.east(1));
+        UUID other = UUID.randomUUID();
+        var restraint = McaCrimeConfig.COMMON.friskRequiresArmRestraint;
+        var interval = McaCrimeConfig.COMMON.friskTransferIntervalTicks;
+        boolean restraintBefore = restraint.get();
+        int intervalBefore = interval.get();
+        restraint.set(false);
+        interval.set(0); // every take in one tick; the delay itself is covered by unit tests
+        ItemStack sword = new ItemStack(Items.IRON_SWORD);
+        sword.enchant(net.minecraft.world.item.enchantment.Enchantments.SHARPNESS, 3);
+        sword.setHoverName(Component.literal("Grandfather's sword"));
+        sword.setDamageValue(17);
+        java.util.function.Predicate<ItemStack> isSword = stack -> ItemStack.isSameItemSameTags(stack, sword);
+        long now = level.getGameTime();
+        UUID swordTx = UUID.randomUUID(), breadTx = UUID.randomUUID(), purseTx = UUID.randomUUID(),
+                otherPurseTx = UUID.randomUUID();
+        String provider = dev.otectus.mcacrime.economy.Currencies.active().id().toString();
+        try {
+            data.putStolenGoods(dev.otectus.mcacrime.state.world.StolenGoodsRecord.ofStack(breadTx, thief.getUUID(),
+                    other, new ItemStack(Items.BREAD, 5), 0L, now - 30));
+            data.putStolenGoods(dev.otectus.mcacrime.state.world.StolenGoodsRecord.ofStack(swordTx, thief.getUUID(),
+                    victim.getUUID(), sword.copy(), 0L, now - 20));
+            data.putStolenGoods(new dev.otectus.mcacrime.state.world.StolenGoodsRecord(purseTx, thief.getUUID(),
+                    victim.getUUID(), null, 12L, now - 10, provider));
+            data.putStolenGoods(new dev.otectus.mcacrime.state.world.StolenGoodsRecord(otherPurseTx, thief.getUUID(),
+                    other, null, 7L, now - 5, provider));
+            require(dev.otectus.mcacrime.frisk.FriskingService.open(victim, thief), "the search did not open");
+            var session = dev.otectus.mcacrime.frisk.FriskingService.sessionFor(victim);
+            require(session != null, "no search session");
+            var view = session.view();
+            require(view.size() >= 4, "the stolen property is not in the search: " + view);
+            require(victim.getUUID().equals(dev.otectus.mcacrime.frisk.StolenGoodsInventoryProvider.ownerOf(thief, view.get(0)))
+                    && victim.getUUID().equals(dev.otectus.mcacrime.frisk.StolenGoodsInventoryProvider.ownerOf(thief, view.get(1))),
+                    "the searcher's own property is not first: " + view);
+
+            int swordIndex = stolenIndex(thief, view, swordTx);
+            int swordRevision = dev.otectus.mcacrime.frisk.FriskRevision.of(
+                    dev.otectus.mcacrime.frisk.InventoryProviders.peek(thief, view.get(swordIndex)));
+            var refusal = dev.otectus.mcacrime.frisk.FriskValidation.check(dev.otectus.mcacrime.frisk.FriskingService
+                    .facts(victim, session, swordIndex, swordRevision, 1, true));
+            if (!refusal.accepted()) {
+                var a = dev.otectus.mcacrime.frisk.InventoryProviders.peek(thief, view.get(swordIndex));
+                var b = dev.otectus.mcacrime.frisk.InventoryProviders.peek(thief, session.slotAt(swordIndex));
+                throw new AssertionError("the owner's take was refused before it ran: " + refusal + " (revision "
+                        + swordRevision + ", reread " + dev.otectus.mcacrime.frisk.FriskRevision.of(a) + "/"
+                        + dev.otectus.mcacrime.frisk.FriskRevision.of(b) + ", tags " + a.getTag() + " | " + b.getTag()
+                        + ", refs " + view.get(swordIndex) + " | " + session.slotAt(swordIndex) + ")");
+            }
+            dev.otectus.mcacrime.frisk.FriskingService.transfer(victim, session.id(), swordIndex, swordRevision, 1);
+            require(data.stolenGoods(swordTx) == null, "the recovered sword is still in the ledger");
+            require(count(victim, isSword) == 1, "the sword did not come back exactly as it was taken");
+            require(data.stolenGoodsByThief(victim.getUUID()).isEmpty(), "recovering it was filed as theft");
+            dev.otectus.mcacrime.frisk.FriskingService.transfer(victim, session.id(), swordIndex, swordRevision, 1);
+            require(count(victim, isSword) == 1, "a replayed recovery duplicated the sword");
+
+            int breadIndex = stolenIndex(thief, view, breadTx);
+            dev.otectus.mcacrime.frisk.FriskingService.transfer(victim, session.id(), breadIndex,
+                    dev.otectus.mcacrime.frisk.FriskRevision.of(
+                            dev.otectus.mcacrime.frisk.InventoryProviders.peek(thief, view.get(breadIndex))), 2);
+            var rest = data.stolenGoods(breadTx);
+            require(rest != null && rest.stack().getCount() == 3, "taking two of five breads left " + rest);
+            var refiled = data.stolenGoodsByThief(victim.getUUID());
+            require(refiled.size() == 1 && other.equals(refiled.get(0).owner()),
+                    "taking another victim's property did not stay that victim's: " + refiled);
+
+            int emeraldsBefore = count(victim, stack -> stack.is(Items.EMERALD));
+            int purseIndex = stolenIndex(thief, view, purseTx);
+            dev.otectus.mcacrime.frisk.FriskingService.transfer(victim, session.id(), purseIndex,
+                    dev.otectus.mcacrime.frisk.FriskRevision.of(
+                            dev.otectus.mcacrime.frisk.InventoryProviders.peek(thief, view.get(purseIndex))), 1);
+            require(data.stolenGoods(purseTx) == null, "the purse is still with the thief");
+            require(count(victim, stack -> stack.is(Items.EMERALD)) == emeraldsBefore + 12,
+                    "the purse did not come back as its own currency");
+
+            int otherIndex = stolenIndex(thief, view, otherPurseTx);
+            int revision = dev.otectus.mcacrime.frisk.FriskRevision.of(
+                    dev.otectus.mcacrime.frisk.InventoryProviders.peek(thief, view.get(otherIndex)));
+            var facts = dev.otectus.mcacrime.frisk.FriskingService.facts(victim, session, otherIndex, revision, 1, true);
+            var result = dev.otectus.mcacrime.frisk.FriskTransaction.commit(victim, thief, session, otherIndex,
+                    revision, 1, facts, data, level.getGameTime());
+            require(result.refusal() == dev.otectus.mcacrime.frisk.FriskRefusal.NOT_YOUR_PURSE,
+                    "somebody else's purse was taken: " + result.refusal());
+            require(data.stolenGoods(otherPurseTx) != null, "the other purse moved");
+        } finally {
+            restraint.set(restraintBefore);
+            interval.set(intervalBefore);
+            data.stolenGoodsByThief(thief.getUUID()).forEach(record -> data.removeStolenGoods(record.transactionId()));
+            data.stolenGoodsByThief(victim.getUUID()).forEach(record -> data.removeStolenGoods(record.transactionId()));
+            dev.otectus.mcacrime.frisk.FriskingService.closeAll(victim, SessionCancelCause.CANCELLED);
+            dev.otectus.mcacrime.engine.CrimeState.setHeat(victim, 0);
+            thief.discard();
+            offline(victim);
+        }
+    }
+
+    /**
+     * Confirmed death escrows ledger property only for a thief who holds it in the ledger alone. A player
+     * who took something carries it, so escrowing the record as well would duplicate it.
+     */
+    private void thiefDeathEscrow() {
+        BlockPos base = fixtureSite();
+        ServerPlayer playerThief = realPlayer(base, false);
+        net.minecraft.world.entity.Mob npcThief = mcaVillager(base.east(2));
+        UUID owner = UUID.randomUUID(), playerTx = UUID.randomUUID(), npcTx = UUID.randomUUID();
+        long now = level.getGameTime();
+        try {
+            data.putStolenGoods(dev.otectus.mcacrime.state.world.StolenGoodsRecord.ofStack(playerTx,
+                    playerThief.getUUID(), owner, new ItemStack(Items.DIAMOND, 2), 0L, now));
+            data.putStolenGoods(dev.otectus.mcacrime.state.world.StolenGoodsRecord.ofStack(npcTx,
+                    npcThief.getUUID(), owner, new ItemStack(Items.EMERALD, 3), 0L, now));
+            dev.otectus.mcacrime.mug.npc.StolenGoodsRecovery.confirmedDeath(level, playerThief);
+            require(data.stolenGoods(playerTx) != null, "a player thief's death consumed the provenance record");
+            require(data.propertyEscrow().stream().noneMatch(lot -> owner.equals(lot.owner())),
+                    "a player thief's death escrowed what they still carry");
+            dev.otectus.mcacrime.mug.npc.StolenGoodsRecovery.confirmedDeath(level, npcThief);
+            require(data.stolenGoods(npcTx) == null, "an NPC thief's death left its record in the ledger");
+            require(data.propertyEscrow().stream().filter(lot -> owner.equals(lot.owner())).count() == 1,
+                    "an NPC thief's death did not escrow its property exactly once");
+        } finally {
+            data.removeStolenGoods(playerTx);
+            data.removeStolenGoods(npcTx);
+            data.propertyEscrow().stream().filter(lot -> owner.equals(lot.owner()))
+                    .map(dev.otectus.mcacrime.state.world.PropertyLot::lotId).toList().forEach(data::removePropertyLot);
+            npcThief.discard();
+            offline(playerThief);
+        }
+    }
+
+    private static int stolenIndex(net.minecraft.world.entity.LivingEntity thief,
+                                   List<dev.otectus.mcacrime.frisk.FriskSlotRef> view, UUID transaction) {
+        for (int i = 0; i < view.size(); i++) {
+            var record = dev.otectus.mcacrime.frisk.StolenGoodsInventoryProvider.recordAt(thief, view.get(i));
+            if (record != null && record.transactionId().equals(transaction)) return i;
+        }
+        throw new AssertionError("no slot for " + transaction + " in " + view);
+    }
+
+    private static int count(ServerPlayer player, java.util.function.Predicate<ItemStack> test) {
+        int n = 0;
+        for (int i = 0; i < player.getInventory().getContainerSize(); i++) {
+            ItemStack stack = player.getInventory().getItem(i);
+            if (!stack.isEmpty() && test.test(stack)) n += stack.getCount();
+        }
+        return n;
+    }
+
+    /**
+     * A real MCA guard keeps the monster fight MCA gave it when this mod releases it, and damages the
+     * monster. Away from the fixture grid: a guard with its brain running answers whatever is in reach.
+     */
+    private void guardMonster() {
+        BlockPos base = isolatedSite(-80, -80);
+        net.minecraft.world.entity.Mob guard = mcaGuard(base);
+        guard.setNoAi(false);
+        var husk = EntityType.HUSK.create(level);
+        require(husk != null, "no husk");
+        husk.moveTo(base.getX() + 2.5, base.getY(), base.getZ() + .5, 0, 0);
+        level.addFreshEntity(husk);
+        husk.setNoAi(true);
+        float full = husk.getHealth();
+        boolean handedOver = false;
+        try {
+            require(level.isPositionEntityTicking(base), "the guard site is not entity-ticking");
+            guard.getBrain().setMemory(net.minecraft.world.entity.ai.memory.MemoryModuleType.ATTACK_TARGET, husk);
+            dev.otectus.mcacrime.compat.McaCompat.releaseVillagerControl(guard);
+            require(guard.getBrain().getMemory(net.minecraft.world.entity.ai.memory.MemoryModuleType.ATTACK_TARGET)
+                    .filter(target -> target == husk).isPresent(), "releasing the guard took MCA's own fight away");
+            await("a real MCA guard damages the monster it is fighting", 400,
+                    () -> husk.getHealth() < full || husk.isDeadOrDying() ? null : "husk health " + husk.getHealth(),
+                    () -> { guard.discard(); husk.discard(); });
+            handedOver = true;
+        } finally {
+            if (!handedOver) { guard.discard(); husk.discard(); }
+        }
+    }
+
+    /** A Wanted player who refuses arrest is targeted, then actually hurt, by a real MCA guard. */
+    private void guardForce() {
+        BlockPos base = isolatedSite(-80, -40);
+        net.minecraft.world.entity.Mob guard = mcaGuard(base);
+        ServerPlayer outlaw = realPlayer(base.east(2), true);
+        var memory = net.minecraft.world.entity.ai.memory.MemoryModuleType.ATTACK_TARGET;
+        Runnable tidy = () -> {
+            dev.otectus.mcacrime.enforcement.GuardChallengeService.forget(outlaw.getUUID());
+            dev.otectus.mcacrime.enforcement.ArrestStates.clear(outlaw);
+            dev.otectus.mcacrime.enforcement.GuardEnforcement.forget(outlaw.getUUID());
+            dev.otectus.mcacrime.enforcement.LawHold.clear(guard.getUUID());
+            dev.otectus.mcacrime.engine.CrimeState.setHeat(outlaw, 0);
+            offline(outlaw);
+            guard.discard();
+        };
+        boolean handedOver = false;
+        try {
+            dev.otectus.mcacrime.engine.CrimeState.setHeat(outlaw, 100);
+            require(dev.otectus.mcacrime.engine.CrimeState.isWanted(outlaw), "the fixture is not Wanted");
+            scan();
+            var challenge = dev.otectus.mcacrime.enforcement.GuardChallengeService.open(outlaw.getUUID());
+            require(challenge != null, "the guard did not confront the Wanted player");
+            dev.otectus.mcacrime.enforcement.GuardChallengeService.menuDisplayed(outlaw, challenge.encounterId());
+            dev.otectus.mcacrime.enforcement.GuardChallengeService.respond(outlaw, challenge.encounterId(),
+                    dev.otectus.mcacrime.enforcement.ChallengeResponse.REFUSE);
+            require(dev.otectus.mcacrime.enforcement.GuardChallengeService.forcePermitted(outlaw, level.getGameTime()),
+                    "refusing arrest did not permit force");
+            guard.setNoAi(false);
+            scan();
+            require(guard.getBrain().getMemory(memory).filter(target -> target == outlaw).isPresent(),
+                    "the guard was not told to fight: " + guard.getBrain().getMemory(memory));
+            float full = outlaw.getHealth();
+            await("a real MCA guard hurts a Wanted player who refused arrest", 600,
+                    () -> outlaw.getHealth() < full ? null : "health " + outlaw.getHealth() + ", target "
+                            + guard.getBrain().getMemory(memory), tidy);
+            handedOver = true;
+        } finally {
+            if (!handedOver) tidy.run();
+        }
+    }
+
+    private void scan() {
+        var event = new TickEvent.ServerTickEvent(TickEvent.Phase.END, () -> true, server);
+        for (int tick = 0; tick < McaCrimeConfig.COMMON.guardScanIntervalTicks.get(); tick++) {
+            dev.otectus.mcacrime.enforcement.GuardEnforcement.onServerTick(event);
+        }
+    }
+
+    /** Release settles the sentence's own Heat once; decay comes off it first; the cell's own crime stays. */
+    private void sentenceHeat() {
+        BlockPos base = fixtureSite();
+        ServerPlayer prisoner = realPlayer(base, false);
+        try {
+            dev.otectus.mcacrime.engine.CrimeState.setHeat(prisoner, 120);
+            require(dev.otectus.mcacrime.jail.JailService.jail(prisoner, 600, jailAt(base)), "could not jail");
+            var jail = CrimeCapabilities.get(prisoner).orElseThrow().getJail();
+            require(jail.getSentenceHeat() == 120L, "the obligation is " + jail.getSentenceHeat());
+            dev.otectus.mcacrime.engine.CrimeState.addHeat(prisoner, -30);
+            dev.otectus.mcacrime.engine.CrimeState.addHeat(prisoner, 20);
+            require(jail.getSentenceHeat() == 90L, "decay did not come off the obligation first: " + jail.getSentenceHeat());
+            dev.otectus.mcacrime.jail.JailService.release(prisoner, dev.otectus.mcacrime.jail.ReleaseReason.SENTENCE_SERVED);
+            require(dev.otectus.mcacrime.engine.CrimeState.getHeat(prisoner) == 20L,
+                    "release left " + dev.otectus.mcacrime.engine.CrimeState.getHeat(prisoner) + " Heat, not the cell's own 20");
+            require(!dev.otectus.mcacrime.engine.CrimeState.isWanted(prisoner), "the released prisoner is still Wanted");
+            require(!dev.otectus.mcacrime.jail.JailService.isJailed(prisoner), "still jailed");
+            dev.otectus.mcacrime.jail.JailService.release(prisoner, dev.otectus.mcacrime.jail.ReleaseReason.SENTENCE_SERVED);
+            require(dev.otectus.mcacrime.engine.CrimeState.getHeat(prisoner) == 20L, "a second release settled Heat again");
+        } finally {
+            freePrisoner(prisoner);
+        }
+    }
+
+    /** The cap serves its cases, an operator's release forgives nothing and holds guards off, a pardon frees. */
+    private void sentenceExits() {
+        BlockPos base = fixtureSite();
+        ServerPlayer prisoner = realPlayer(base, false);
+        try {
+            var capped = charge(prisoner.getUUID());
+            UUID first = sentence(prisoner, capped, base);
+            require(dev.otectus.mcacrime.jail.JailService.jail(prisoner, 600, jailAt(base), first, false), "first jailing failed");
+            dev.otectus.mcacrime.jail.JailService.release(prisoner, dev.otectus.mcacrime.jail.ReleaseReason.CAPTIVITY_CAP);
+            require(data.recordById(capped.id()).map(dev.otectus.mcacrime.ledger.CrimeRecord::resolution).orElse(null)
+                    == dev.otectus.mcacrime.ledger.Resolution.SERVED, "the captivity cap left its case open");
+            require(data.getCustody(prisoner.getUUID()) == null, "the cap left the custody open");
+
+            var kept = charge(prisoner.getUUID());
+            UUID second = sentence(prisoner, kept, base);
+            dev.otectus.mcacrime.engine.CrimeState.setHeat(prisoner, 80);
+            require(dev.otectus.mcacrime.jail.JailService.jail(prisoner, 600, jailAt(base), second, false), "second jailing failed");
+            dev.otectus.mcacrime.jail.JailService.release(prisoner, dev.otectus.mcacrime.jail.ReleaseReason.ADMIN);
+            var after = data.recordById(kept.id()).orElseThrow();
+            require(after.actionable() && after.sentenceId() == null,
+                    "an operator's release served or kept binding the case: " + after.resolution() + " " + after.sentenceId());
+            require(dev.otectus.mcacrime.engine.CrimeState.getHeat(prisoner) == 80L, "an operator's release forgave Heat");
+            require(dev.otectus.mcacrime.enforcement.ArrestStates.phaseOf(prisoner) == dev.otectus.mcacrime.enforcement.ArrestPhase.RECOVERY,
+                    "guards are not held off after an operator's release: " + dev.otectus.mcacrime.enforcement.ArrestStates.phaseOf(prisoner));
+            dev.otectus.mcacrime.enforcement.ArrestStates.clear(prisoner);
+
+            var pardoned = charge(prisoner.getUUID());
+            UUID third = sentence(prisoner, pardoned, base);
+            require(dev.otectus.mcacrime.jail.JailService.jail(prisoner, 6000, jailAt(base), third, false), "third jailing failed");
+            dev.otectus.mcacrime.ledger.CrimeCaseService.resolve(server, pardoned.id(), dev.otectus.mcacrime.ledger.Resolution.PARDONED,
+                    dev.otectus.mcacrime.McaCrime.id("review_pardon"), "pardon:" + pardoned.id(), null, Map.of(), true);
+            require(dev.otectus.mcacrime.jail.JailRecovery.inspect(prisoner).contains(dev.otectus.mcacrime.jail.JailRecovery.Finding.RESOLVED_ELSEWHERE),
+                    "a fully pardoned sentence is not recognised as over: " + dev.otectus.mcacrime.jail.JailRecovery.inspect(prisoner));
+            // The jail clock runs per player tick; this fixture has no connection ticking it.
+            var crime = CrimeCapabilities.get(prisoner).orElseThrow();
+            for (int tick = 0; tick < 40 && dev.otectus.mcacrime.jail.JailService.isJailed(prisoner); tick++) {
+                crime.incrementOnlineTicks();
+                dev.otectus.mcacrime.jail.JailService.tick(prisoner, crime);
+            }
+            require(!dev.otectus.mcacrime.jail.JailService.isJailed(prisoner), "a pardoned prisoner is still serving");
+            require(data.getCustody(prisoner.getUUID()) == null, "the pardon left the custody open");
+        } finally {
+            freePrisoner(prisoner);
+        }
+    }
+
+    private void walledCellExit() {
+        BlockPos anchor = fixtureSite();
+        ResourceLocation dim = level.dimension().location();
+        var cell = new dev.otectus.mcacrime.jail.HoldingCell(UUID.randomUUID(), UUID.randomUUID(), anchor, dim, 2,
+                level.getGameTime(), Map.of(), Map.of()).withDoor(anchor.east(2), Direction.EAST, null, null);
+        BlockPos stand = cell.outsideStand();
+        for (int dy = -1; dy <= 9; dy++) level.setBlock(stand.above(dy), Blocks.STONE.defaultBlockState(), 3);
+        try {
+            require(dev.otectus.mcacrime.jail.SafeCustodyDestination.validate(level, stand, 8).isEmpty(),
+                    "the fixture did not wall the door side off");
+            var exit = dev.otectus.mcacrime.jail.HoldingCellService.exitFor(server, level, cell, true);
+            require(exit != null, "a walled-off door side left the prisoner no way out");
+            require(!dev.otectus.mcacrime.jail.JailRegion.contains(anchor, 2, dim, exit.pos(), exit.level().dimension().location()),
+                    "the way out is inside the cell: " + exit.pos());
+        } finally {
+            for (int dy = -1; dy <= 9; dy++) level.setBlock(stand.above(dy), Blocks.AIR.defaultBlockState(), 3);
+        }
+    }
+
+    private static dev.otectus.mcacrime.ledger.CrimeRecord charge(UUID offender) {
+        return new dev.otectus.mcacrime.ledger.CrimeRecord(UUID.randomUUID(), offender, null,
+                dev.otectus.mcacrime.crime.type.CrimeIds.THEFT, OptionalInt.empty(), true, 10L, 40L, -20L, 0L, 600L,
+                dev.otectus.mcacrime.ledger.Resolution.UNRESOLVED);
+    }
+
+    private UUID sentence(ServerPlayer offender, dev.otectus.mcacrime.ledger.CrimeRecord charge, BlockPos base) {
+        require(CustodyService.captureLawful(data, offender.getUUID(), true, CustodyOwner.jail(-1, base, level.dimension().location()),
+                level.getGameTime(), base, level.dimension().location()).ok(), "could not take the offender into lawful custody");
+        data.addRecord(charge);
+        UUID sentence = UUID.randomUUID();
+        require(dev.otectus.mcacrime.ledger.SentenceAssignmentService.assign(data, offender.getUUID(), sentence,
+                List.of(charge.id()), level.getGameTime()), "the sentence did not bind");
+        return sentence;
+    }
+
+    private dev.otectus.mcacrime.jail.JailAnchor jailAt(BlockPos base) {
+        return new dev.otectus.mcacrime.jail.JailAnchor(base, level.dimension().location(), 3);
+    }
+
+    private void freePrisoner(ServerPlayer prisoner) {
+        if (dev.otectus.mcacrime.jail.JailService.isJailed(prisoner)) {
+            dev.otectus.mcacrime.jail.JailService.release(prisoner, dev.otectus.mcacrime.jail.ReleaseReason.ADMIN);
+        }
+        dev.otectus.mcacrime.engine.CrimeState.setHeat(prisoner, 0);
+        dev.otectus.mcacrime.enforcement.ArrestStates.clear(prisoner);
+        offline(prisoner);
+    }
+
+    /** The next cell of the fixture grid, floored, without a fake player standing in it. */
+    private BlockPos fixtureSite() {
+        BlockPos pos = new BlockPos((fixture++ % 8) * 16, 65, (fixture / 8) * 16);
+        for (BlockPos ground : BlockPos.betweenClosed(pos.offset(-5, -1, -5), pos.offset(5, -1, 5))) {
+            level.setBlock(ground, Blocks.STONE.defaultBlockState(), 2);
+        }
+        return pos;
+    }
+
+    /** A floored site well away from the grid, for fixtures whose brains run. */
+    private BlockPos isolatedSite(int dx, int dz) {
+        BlockPos spawn = level.getSharedSpawnPos();
+        BlockPos pos = new BlockPos(spawn.getX() + dx, 65, spawn.getZ() + dz);
+        for (BlockPos ground : BlockPos.betweenClosed(pos.offset(-7, -1, -7), pos.offset(7, -1, 7))) {
+            level.setBlock(ground, Blocks.STONE.defaultBlockState(), 2);
+        }
+        return pos;
+    }
+
+    /**
+     * A real server player, not a {@link FakePlayer}: crime detection, theft and combat deliberately
+     * ignore fake players, so the paths under test only run for this one. Nothing it is sent goes
+     * anywhere; the embedded channel only answers Forge's per-connection attribute reads.
+     */
+    private ServerPlayer realPlayer(BlockPos at, boolean inLevel) {
+        GameProfile profile = new GameProfile(UUID.randomUUID(), "Real" + fixture);
+        ServerPlayer player = new ServerPlayer(server, level, profile);
+        net.minecraft.network.Connection connection = new net.minecraft.network.Connection(PacketFlow.SERVERBOUND) {
+            @Override public void send(Packet<?> packet) { }
+            @Override public void send(Packet<?> packet, @javax.annotation.Nullable net.minecraft.network.PacketSendListener listener) { }
+        };
+        new io.netty.channel.embedded.EmbeddedChannel(connection);
+        player.connection = new ServerGamePacketListenerImpl(server, connection, player) {
+            @Override public void send(Packet<?> packet) { }
+            @Override public void send(Packet<?> packet, @javax.annotation.Nullable net.minecraft.network.PacketSendListener listener) { }
+        };
+        player.setPos(at.getX() + .5, at.getY(), at.getZ() + .5);
+        net.minecraftforge.fml.util.ObfuscationReflectionHelper.setPrivateValue(
+                net.minecraft.server.level.ServerPlayer.class, player, 0, "f_8921_");
+        if (inLevel) level.addNewPlayer(player);
+        playerList().add(player);
+        onlinePlayers().put(player.getUUID(), player);
+        require(CrimeCapabilities.get(player).isPresent(), "player capability missing");
+        return player;
+    }
+
+    private void offline(ServerPlayer player) {
+        playerList().remove(player);
+        onlinePlayers().remove(player.getUUID(), player);
+        if (level.getEntity(player.getId()) == player) {
+            level.removePlayerImmediately(player, Entity.RemovalReason.DISCARDED);
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<ServerPlayer> playerList() {
+        for (java.lang.reflect.Field field : PlayerList.class.getDeclaredFields()) {
+            if (!(field.getGenericType() instanceof java.lang.reflect.ParameterizedType type)) continue;
+            if (type.getRawType() != List.class || !Arrays.equals(type.getActualTypeArguments(),
+                    new java.lang.reflect.Type[]{ServerPlayer.class})) continue;
+            try {
+                field.setAccessible(true);
+                return (List<ServerPlayer>) field.get(server.getPlayerList());
+            } catch (ReflectiveOperationException failure) { throw new AssertionError(failure); }
+        }
+        throw new AssertionError("server player list not found");
+    }
+
+    /** A committed, station-bound Thief, as the occupation transaction makes one. */
+    private net.minecraft.world.entity.Mob stationThief(BlockPos at, BlockPos station) {
+        level.setBlockAndUpdate(station, CrimeBlocks.MASK_STATION.get().defaultBlockState());
+        net.minecraft.world.entity.Mob thief = mcaVillager(at);
+        var result = dev.otectus.mcacrime.job.WorldCriminalJobService.of(server).requestThiefOccupation(
+                dev.otectus.mcacrime.job.OccupationRequest.station(thief.getUUID(),
+                        dev.otectus.mcacrime.job.OccupationSource.STATION_RECRUITMENT,
+                        dev.otectus.mcacrime.state.world.WorksiteRef.of(level, station), false, false));
+        require(result.committed(), "the Thief fixture did not commit: " + result.reason());
+        require(dev.otectus.mcacrime.job.CriminalProfessions.THIEF_ID.equals(
+                dev.otectus.mcacrime.compat.McaCompat.getProfessionId(thief).orElse(null)), "the fixture is not a Thief");
+        return thief;
+    }
+
+    private void retireThief(net.minecraft.world.entity.Mob thief) {
+        dev.otectus.mcacrime.mug.npc.NpcMuggingService.clearAll();
+        dev.otectus.mcacrime.job.WorldCriminalJobService.of(server).retireOccupation(thief.getUUID(),
+                dev.otectus.mcacrime.job.OccupationSource.OPERATOR);
+        data.removeCriminalVillager(thief.getUUID());
+        thief.discard();
+    }
+
+    /** A real MCA guard, standing still until the check lets its brain run. */
+    private net.minecraft.world.entity.Mob mcaGuard(BlockPos pos) {
+        net.minecraft.world.entity.Mob guard = mcaVillager(pos);
+        require(dev.otectus.mcacrime.compat.McaCompat.setVillagerProfession(guard, new ResourceLocation("mca", "guard")),
+                "the guard fixture could not be made a guard");
+        require(dev.otectus.mcacrime.compat.McaCompat.isGuard(guard), "the guard fixture is not a guard");
+        return guard;
+    }
+
+    /** An adult MCA villager standing still at {@code pos}, resolved by name: no MCA type is linked. */
+    @SuppressWarnings("unchecked")
+    private net.minecraft.world.entity.Mob mcaVillager(BlockPos pos) {
+        var type = (EntityType<? extends net.minecraft.world.entity.Mob>) net.minecraftforge.registries.ForgeRegistries
+                .ENTITY_TYPES.getValue(new ResourceLocation("mca", "male_villager"));
+        require(type != null, "MCA's male_villager type is not registered");
+        var mob = type.create(level);
+        require(mob != null, "MCA villager could not be created");
+        mob.moveTo(pos.getX() + .5, pos.getY(), pos.getZ() + .5, 0, 0);
+        level.addFreshEntity(mob);
+        ((net.minecraft.world.entity.npc.Villager) mob).setAge(0);
+        mob.setNoAi(true);
+        require(dev.otectus.mcacrime.compat.McaCompat.isMcaVillager(mob), "fixture is not an MCA villager");
+        return mob;
     }
 
     private void deathClone() {

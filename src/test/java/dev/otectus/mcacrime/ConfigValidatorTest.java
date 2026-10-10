@@ -322,4 +322,16 @@ class ConfigValidatorTest {
         assertEquals(List.of(), ConfigValidator.validatePreset("CUFFED_PARITY", "CUFFED_PARITY"));
         assertFalse(ConfigValidator.validatePreset("CUFFED_PARITY", "SOMETHING_ELSE").isEmpty());
     }
+
+    @Test
+    void aMinorHarmWindowShorterThanTheHarmCooldownIsReported() {
+        assertEquals(List.of(), ConfigValidator.validateMinorHarm(true, 2.0, 6000, 20));
+        assertEquals(List.of(), ConfigValidator.validateMinorHarm(true, 2.0, 200, 200), "equal is fine");
+        List<String> problems = ConfigValidator.validateMinorHarm(true, 2.0, 200, 400);
+        assertTrue(problems.stream().anyMatch(p -> p.contains("minorHarmWindowTicks")), problems.toString());
+        assertTrue(ConfigValidator.validateMinorHarm(true, 0.0, 6000, 20).stream()
+                .anyMatch(p -> p.contains("minorHarmMaxDamage")));
+        assertEquals(List.of(), ConfigValidator.validateMinorHarm(false, 0.0, 200, 6000),
+                "a disabled grace has nothing to contradict");
+    }
 }

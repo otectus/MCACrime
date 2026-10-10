@@ -56,6 +56,10 @@ public final class DialogueEvents {
 
     // --- restorative (§10.2) ---
     public static final ResourceLocation APOLOGY_ACCEPTED = McaCrime.id("apology_accepted");
+    /** An accepted apology for something grave: heard, and still too soon to talk (0.7.7). */
+    public static final ResourceLocation MEMORY_APOLOGIZED = McaCrime.id("memory_apologized");
+    /** One light hit forgiven as an accident, with the warning that the next one counts (0.7.7). */
+    public static final ResourceLocation MINOR_HARM_WARNED = McaCrime.id("minor_harm_warned");
 
     /** Every id above, in declaration order. Used by the coverage test and by {@code /crime validate}. */
     public static final java.util.List<ResourceLocation> ALL = java.util.List.of(
@@ -66,7 +70,7 @@ public final class DialogueEvents {
             GUARD_CHALLENGE, GUARD_STAND_DOWN, REPORT_FILED,
             NPC_MUG_START, NPC_MUG_ABORT_ARMED, NPC_MUG_SUCCESS,
             FENCE_GREET_AFFINITY, FENCE_GREET_OUTSIDER, FENCE_GREET_HOT, FENCE_GREET_WANTED,
-            APOLOGY_ACCEPTED);
+            APOLOGY_ACCEPTED, MEMORY_APOLOGIZED, MINOR_HARM_WARNED);
 
     private DialogueEvents() {
     }

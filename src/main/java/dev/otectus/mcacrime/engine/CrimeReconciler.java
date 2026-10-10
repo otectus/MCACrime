@@ -65,6 +65,15 @@ public final class CrimeReconciler {
         // Finish an arrest whose escort was interrupted by the logout, a restart, or a death. The walk
         // is not replayed -- the sentence is what matters, and nobody was there to watch the walk.
         dev.otectus.mcacrime.enforcement.ArrestService.reconcileOnLogin(player);
+        // 0.7.7: last, after the arrest has had its own chance: whatever a crash, an interrupted escort or
+        // a failed listener left behind -- an orphaned cell, custody or restraint, a stale escape, a
+        // pardoned sentence still running -- is put right, the safe subset only. /crime repair runs the
+        // same checks on demand and explains each one.
+        var repaired = dev.otectus.mcacrime.jail.JailRecovery.repair(player, true);
+        if (!repaired.isEmpty()) {
+            dev.otectus.mcacrime.McaCrime.LOGGER.info("Reconciled {} at login: {}",
+                    player.getGameProfile().getName(), repaired);
+        }
         // Third removal path for the movement penalty, after the transition chokepoint and the respawn
         // handler: a crash between applying it and saving would otherwise leave a permanently slow
         // player with no arrest to explain it.

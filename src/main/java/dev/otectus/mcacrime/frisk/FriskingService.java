@@ -163,7 +163,8 @@ public final class FriskingService {
         CustodyRecord custody = data == null ? null : data.getCustody(subject.getUUID());
         SeizureKind kind = classify(searcher, subject, custody);
 
-        List<FriskSlotRef> view = InventoryProviders.view(subject);
+        // The searcher's own stolen property first, so it is never past the edge of the screen (0.7.7).
+        List<FriskSlotRef> view = InventoryProviders.viewFor(subject, searcher.getUUID());
         if (view.isEmpty()) {
             searcher.displayClientMessage(
                     Component.translatable("mcacrime.msg.frisk.nothing_to_search"), true);
@@ -266,9 +267,9 @@ public final class FriskingService {
             slotMatches = ref != null && !present.isEmpty()
                     && FriskRevision.of(present) == expectedRevision
                     && count > 0 && count <= present.getCount();
-            destination = slotMatches
-                    && FriskTransaction.destinationWouldTake(session, searcher,
-                            present.copyWithCount(count));
+            destination = slotMatches && (StolenGoodsInventoryProvider.ID.equals(ref.providerId())
+                    ? StolenGoodsTransfer.destinationWouldTake(session, searcher, subject, ref, count)
+                    : FriskTransaction.destinationWouldTake(session, searcher, present.copyWithCount(count)));
             delay = session.delayElapsed(now, transferIntervalTicks());
             transferId = SeizureLedger.transferId(session.id(), viewIndex, expectedRevision, count);
         }
@@ -326,8 +327,8 @@ public final class FriskingService {
             }
             return;
         }
-        searcher.displayClientMessage(Component.translatable(session.seizureKind().messageKey(),
-                result.moved().getCount(), result.moved().getHoverName()), true);
+        searcher.displayClientMessage(Component.translatable(result.feedbackKey() != null ? result.feedbackKey()
+                : session.seizureKind().messageKey(), result.moved().getCount(), result.moved().getHoverName()), true);
         if (subject instanceof ServerPlayer searched) {
             searched.displayClientMessage(Component.translatable("mcacrime.msg.frisk.taken_from_you",
                     result.moved().getCount(), result.moved().getHoverName()), true);

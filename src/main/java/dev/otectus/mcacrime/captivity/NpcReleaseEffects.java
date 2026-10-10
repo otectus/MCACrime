@@ -21,7 +21,10 @@ public final class NpcReleaseEffects {
     /** The four things a release does, in the order {@link #apply} does them. */
     public interface Effects {
 
-        /** Cuts the lead. Only meaningful while the villager is loaded. */
+        /**
+         * Takes off every physical hold: opens any device the villager is locked in, then cuts the lead
+         * and the chains (0.7.7 added the device). Only meaningful while the villager is loaded.
+         */
         void clearLeash();
 
         /** Hands the villager back to MCA, so it stops walking to wherever the arrest pointed it. */

@@ -34,7 +34,11 @@ public enum FriskRefusal {
     /** This exact transfer has already been made. */
     ALREADY_DONE,
     /** The escrow could not record the seizure, so nothing was taken. */
-    LEDGER_FULL;
+    LEDGER_FULL,
+    /** The searcher cannot see the subject (0.7.7; asked of stolen-property takes). */
+    NOT_VISIBLE,
+    /** A stolen purse is money, not an item: only its owner or a lawful search may take it (0.7.7). */
+    NOT_YOUR_PURSE;
 
     public boolean accepted() {
         return this == NONE;

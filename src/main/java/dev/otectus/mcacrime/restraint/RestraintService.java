@@ -224,12 +224,17 @@ public final class RestraintService {
         CrimeWorldData data = data(subject);
         ApplicationTransaction.Request request = request(actor, subject, slot, definitionId,
                 reserved.save(new CompoundTag()), self);
+        boolean voluntary = self || context == AppliedRestraint.ApplicationContext.VOLUNTARY;
+        // Gear put on somebody a kidnapper already holds belongs to that kidnapping, so the custody's end
+        // takes it off with the rest (0.7.7). The first restraint of a kidnapping finds no custody yet;
+        // the capture adopts it the moment the record exists.
         ApplicationTransaction.Request classified = new ApplicationTransaction.Request(
                 request.subject(), request.subjectIsPlayer(), request.dimension(), request.slot(),
                 request.definitionId(), request.applier(), request.actorId(),
                 self ? AppliedRestraint.ApplicationContext.VOLUNTARY : context,
                 AppliedRestraint.Provenance.PLAYER_OWNED,
-                returnPolicy(), request.custodyId(), request.itemSnapshot());
+                returnPolicy(), CustodyTransitionService.custodyFor(data, subject.getUUID(), voluntary),
+                request.itemSnapshot());
 
         ApplicationTransaction.Result result = ApplicationTransaction.commit(data, classified,
                 rig(subject), subject.level().getGameTime());
@@ -284,7 +289,8 @@ public final class RestraintService {
                 subject.getUUID(), subject instanceof Player, dimensionOf(subject), slot, definitionId,
                 RestraintApplier.device(dimensionOf(subject), devicePos), null,
                 AppliedRestraint.ApplicationContext.DEVICE,
-                AppliedRestraint.Provenance.PLAYER_OWNED, returnPolicy(), null,
+                AppliedRestraint.Provenance.PLAYER_OWNED, returnPolicy(),
+                CustodyTransitionService.custodyFor(data, subject.getUUID(), false),
                 reserved.save(new CompoundTag()));
         ApplicationTransaction.Result result = ApplicationTransaction.commit(data, request, rig(subject),
                 level.getGameTime());
@@ -365,42 +371,54 @@ public final class RestraintService {
             return 0;
         }
         CrimeWorldData data = CrimeWorldData.get(server);
-        PhysicalRestraintState state = data.physicalRestraint(subjectId);
-        if (state == null) {
-            return 0;
-        }
         LivingEntity subject = findLiving(server, subjectId);
-        int removed = 0;
-        for (RestraintSlot slot : RestraintSlot.values()) {
-            AppliedRestraint worn = state.slot(slot).orElse(null);
-            if (worn == null || !custodyId.equals(worn.custodyId())) {
-                continue;
-            }
-            if (subject != null) {
-                if (RemovalService.remove(subject, slot, RemovalService.Reason.ADMINISTRATIVE, null)
-                        .removed()) {
-                    removed++;
-                }
-                state = data.physicalRestraint(subjectId);
-                if (state == null) {
-                    break;
-                }
-            } else if (data.putPhysicalRestraint(state.without(slot))) {
-                // Not loaded: the row is still authoritative and the gear was never anybody's, so the
-                // slot is emptied in place. Nothing is dropped into a world nobody is standing in.
-                removed++;
-                state = data.physicalRestraint(subjectId);
-                if (state == null) {
-                    break;
-                }
-            }
-        }
+        int removed = releaseFor(data, subjectId, custodyId, subject == null
+                ? slot -> RemovalService.removeUnloaded(server, data, subjectId, slot)
+                : slot -> RemovalService.remove(subject, slot, RemovalService.Reason.ADMINISTRATIVE, null)
+                        .removed());
         if (removed > 0) {
             if (subject != null) {
                 publish(subject, data);
             } else {
                 RestraintSyncService.broadcastRemoval(server, subjectId);
             }
+        }
+        return removed;
+    }
+
+    /**
+     * The store half of {@link #releaseFor(MinecraftServer, UUID, UUID)}: which slots a custody's end
+     * empties, and how.
+     *
+     * <p>A slot is emptied only when the gear in it names {@code custodyId}, and each slot goes through
+     * the store exactly once: a second release, or a second path reaching here in the same tick, finds
+     * nothing left that names the custody and empties nothing.
+     *
+     * @param remover takes one slot off through the removal path, which owns the item rules: the ordinary
+     *                one for a loaded subject, {@link RemovalService#removeUnloaded} for one nobody can
+     *                see. Null empties each slot in place and settles no item at all.
+     * @return how many slots were emptied
+     */
+    public static int releaseFor(@Nullable CrimeWorldData data, @Nullable UUID subjectId,
+                                 @Nullable UUID custodyId,
+                                 @Nullable java.util.function.Predicate<RestraintSlot> remover) {
+        if (data == null || subjectId == null || custodyId == null) {
+            return 0;
+        }
+        PhysicalRestraintState state = data.physicalRestraint(subjectId);
+        int removed = 0;
+        for (RestraintSlot slot : RestraintSlot.values()) {
+            if (state == null) {
+                break;
+            }
+            AppliedRestraint worn = state.slot(slot).orElse(null);
+            if (worn == null || !custodyId.equals(worn.custodyId())) {
+                continue;
+            }
+            if (remover != null ? remover.test(slot) : data.putPhysicalRestraint(state.without(slot))) {
+                removed++;
+            }
+            state = data.physicalRestraint(subjectId);
         }
         return removed;
     }

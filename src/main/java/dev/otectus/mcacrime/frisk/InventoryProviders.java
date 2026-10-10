@@ -25,6 +25,9 @@ public final class InventoryProviders {
     private static final Map<String, InventoryProvider> PROVIDERS = new LinkedHashMap<>();
 
     static {
+        // First, so what a thief is carrying for somebody else is never pushed past the screen's edge
+        // by its own clothes and pockets (0.7.7). It answers only for NPCs holding stolen property.
+        register(new StolenGoodsInventoryProvider());
         register(new PlayerInventoryProvider());
         register(new EquipmentInventoryProvider());
         register(new VillagerInventoryProvider());
@@ -98,6 +101,30 @@ public final class InventoryProviders {
             }
         }
         return List.copyOf(refs);
+    }
+
+    /**
+     * {@link #view}, with the stolen property that belongs to {@code searcher} moved to the front
+     * (0.7.7). The screen shows at most six rows; an owner recovering from a thief who robbed many
+     * people must see their own goods first. Everything else keeps its order.
+     */
+    public static List<FriskSlotRef> viewFor(@Nullable LivingEntity subject, @Nullable java.util.UUID searcher) {
+        List<FriskSlotRef> refs = view(subject);
+        if (searcher == null || refs.stream().noneMatch(ref -> StolenGoodsInventoryProvider.ID.equals(ref.providerId()))) {
+            return refs;
+        }
+        List<FriskSlotRef> own = new ArrayList<>();
+        List<FriskSlotRef> rest = new ArrayList<>();
+        for (FriskSlotRef ref : refs) {
+            if (StolenGoodsInventoryProvider.ID.equals(ref.providerId())
+                    && searcher.equals(StolenGoodsInventoryProvider.ownerOf(subject, ref))) {
+                own.add(ref);
+            } else {
+                rest.add(ref);
+            }
+        }
+        own.addAll(rest);
+        return List.copyOf(own);
     }
 
     /** What is in a slot, or empty when its provider is gone. */

@@ -19,6 +19,16 @@ public final class McaJusticeMixinPlugin implements IMixinConfigPlugin, Opcodes 
     private static final org.slf4j.Logger LOGGER = org.slf4j.LoggerFactory.getLogger("mcacrime-native-justice");
     public static final Set<String> DEGRADED = Collections.synchronizedSet(new HashSet<>());
     private static final String TAG = "Lnet/minecraft/nbt/CompoundTag;";
+    /** The relationship's own villager, the mourner a killing penalty is charged to (0.7.7). */
+    private static final String MOURNER_FIELD = "entity";
+    private static final String MOB = "Lnet/minecraft/world/entity/Mob;";
+    /**
+     * MCA's friend test in its hurt handler (0.7.7). Optional: a build without exactly one such call keeps
+     * every other hook and only loses the guard-alert suppression, which is reported as its own capability.
+     */
+    static final String FRIEND_TEST = "(Lnet/minecraft/world/entity/EntityType;)Z";
+    /** Marker added to {@link #APPLIED} when the guard-alert hook was applied. */
+    public static final String GUARD_ALERT = "VillagerEntityMCA#guard_alert";
     public static final Set<String> APPLIED = Collections.synchronizedSet(new HashSet<>());
     @Override public void onLoad(String pkg) {}
     @Override public String getRefMapperConfig() { return null; }
@@ -38,7 +48,8 @@ public final class McaJusticeMixinPlugin implements IMixinConfigPlugin, Opcodes 
             return node.methods.stream().anyMatch(m -> hurtSite(m))
                     && node.methods.stream().anyMatch(m -> deathSite(m));
         }
-        if (node.name.endsWith("/Relationship")) return node.methods.stream().anyMatch(m -> tragedy(node, m) && count(m, "modHearts", "(I)V") == 1);
+        if (node.name.endsWith("/Relationship")) return node.fields.stream().anyMatch(f -> f.name.equals(MOURNER_FIELD) && f.desc.equals(MOB))
+                && node.methods.stream().anyMatch(m -> tragedy(node, m) && count(m, "modHearts", "(I)V") == 1);
         if (node.name.endsWith("/PlayerSaveData")) return node.fields.stream().anyMatch(f -> f.name.equals("inbox") && f.desc.equals("Ljava/util/List;"))
                 && node.methods.stream().anyMatch(m -> mailConstructor(m))
                 && node.methods.stream().anyMatch(m -> m.name.equals("sendMail") && m.desc.equals("(" + TAG + ")V"))
@@ -74,7 +85,14 @@ public final class McaJusticeMixinPlugin implements IMixinConfigPlugin, Opcodes 
             if (DEGRADED.add(target)) LOGGER.warn("MCA native justice target changed after probe: {}; capability disabled", target);
             return;
         }
+        boolean guardAlert = guardAlertSite(node);
         transform(node); APPLIED.add(target.substring(target.lastIndexOf('.') + 1));
+        if (guardAlert) APPLIED.add(GUARD_ALERT);
+    }
+    /** Whether this villager class has the one friend test the guard-alert hook needs (0.7.7). */
+    public static boolean guardAlertSite(ClassNode node) {
+        return node.name.endsWith("/VillagerEntityMCA")
+                && node.methods.stream().anyMatch(m -> hurtSite(m) && count(m, "isFriend", FRIEND_TEST) == 1);
     }
     public static void transform(ClassNode node) {
         for (MethodNode method : List.copyOf(node.methods)) {
@@ -83,6 +101,12 @@ public final class McaJusticeMixinPlugin implements IMixinConfigPlugin, Opcodes 
                 if (hurtSite(method)) {
                     for (var insn : method.instructions.toArray()) if (insn instanceof MethodInsnNode call && call.name.equals("modHearts") && call.desc.equals("(I)V"))
                         method.instructions.insertBefore(insn, new MethodInsnNode(INVOKESTATIC, CONTEXT, "damageDelta", "(I)I", false));
+                    // 0.7.7: an exempt blow is not an assault to MCA's guard alert either. The boolean the
+                    // friend test leaves on the stack is passed through friendlyToMca, which only ever
+                    // turns "not a friend" into "friend" for the actor the current scope exempts.
+                    if (count(method, "isFriend", FRIEND_TEST) == 1)
+                        for (var insn : method.instructions.toArray()) if (insn instanceof MethodInsnNode call && call.name.equals("isFriend") && call.desc.equals(FRIEND_TEST))
+                            method.instructions.insert(insn, new MethodInsnNode(INVOKESTATIC, CONTEXT, "friendlyToMca", "(Z)Z", false));
                     wrap(node, method, false);
                 } else if (deathSite(method)) {
                     for (var insn : method.instructions.toArray()) if (insn instanceof MethodInsnNode call && call.name.equals("pushHearts") && call.desc.equals("(Ljava/util/UUID;I)V")) {
@@ -96,8 +120,11 @@ public final class McaJusticeMixinPlugin implements IMixinConfigPlugin, Opcodes 
                 }
             } else if (node.name.endsWith("/Relationship") && tragedy(node, method)) {
                 for (var insn : method.instructions.toArray()) if (insn instanceof MethodInsnNode call && call.name.equals("modHearts") && call.desc.equals("(I)V")) {
+                    // delta, source, deceased, and the mourner read from this relationship's own field.
                     InsnList code = new InsnList(); code.add(new VarInsnNode(ALOAD, 1)); code.add(new VarInsnNode(ALOAD, 4));
-                    code.add(new MethodInsnNode(INVOKESTATIC, CONTEXT, "tragedyDelta", "(I" + DAMAGE + "Lnet/minecraft/world/entity/Entity;)I", false));
+                    code.add(new VarInsnNode(ALOAD, 0)); code.add(new FieldInsnNode(GETFIELD, node.name, MOURNER_FIELD, MOB));
+                    code.add(new MethodInsnNode(INVOKESTATIC, CONTEXT, "tragedyDelta",
+                            "(I" + DAMAGE + "Lnet/minecraft/world/entity/Entity;Ljava/lang/Object;)I", false));
                     method.instructions.insertBefore(insn, code);
                 }
             } else if (node.name.endsWith("/PlayerSaveData")) {
@@ -131,8 +158,11 @@ public final class McaJusticeMixinPlugin implements IMixinConfigPlugin, Opcodes 
         original.name = "mcacrime$native$" + name;
         original.access = (original.access & ~(ACC_PUBLIC | ACC_PROTECTED)) | ACC_PRIVATE;
         var c = wrapper.instructions;
-        c.add(new VarInsnNode(ALOAD, 0)); c.add(new VarInsnNode(ALOAD, 1)); c.add(new InsnNode(death ? ICONST_1 : ICONST_0));
-        c.add(new MethodInsnNode(INVOKESTATIC, CONTEXT, "enter", "(Lnet/minecraft/world/entity/LivingEntity;" + DAMAGE + "Z)" + SCOPE, false));
+        c.add(new VarInsnNode(ALOAD, 0)); c.add(new VarInsnNode(ALOAD, 1));
+        // The raw damage MCA was handed, for the minor-harm hold-back; a death carries none (0.7.7).
+        c.add(death ? new InsnNode(FCONST_0) : new VarInsnNode(FLOAD, 2));
+        c.add(new InsnNode(death ? ICONST_1 : ICONST_0));
+        c.add(new MethodInsnNode(INVOKESTATIC, CONTEXT, "enter", "(Lnet/minecraft/world/entity/LivingEntity;" + DAMAGE + "FZ)" + SCOPE, false));
         int scope = death ? 2 : 3;
         c.add(new VarInsnNode(ASTORE, scope));
         LabelNode start = new LabelNode(), end = new LabelNode(), handler = new LabelNode();

@@ -189,9 +189,12 @@ public record AppliedRestraint(
         return itemSnapshot != null && !itemSnapshot.isEmpty();
     }
 
-    /** Server-side only: {@code ItemStack.of} needs the item registry. */
+    /**
+     * Server-side only: {@code ItemStack.of} needs the item registry. From a copy, because it keeps the
+     * source's tag compound as the new stack's own, and this snapshot is meant to stay as applied (0.7.7).
+     */
     public ItemStack stack() {
-        return hasItem() ? ItemStack.of(itemSnapshot) : ItemStack.EMPTY;
+        return hasItem() ? ItemStack.of(itemSnapshot.copy()) : ItemStack.EMPTY;
     }
 
     /** Durability as a 0..1 fraction of the definition's configured maximum, for the client. */

@@ -22,6 +22,6 @@ public abstract class ThiefGossipMixin {
     }
     @Inject(method = "tellWitnessesThatIWasMurdered", at = @At("HEAD"), cancellable = true)
     private void mcacrime$lawfulThiefDeath(Entity actor, CallbackInfo ci) {
-        if (NativeCombatContext.suppressesActor(actor, (Entity)(Object)this)) ci.cancel();
+        if (NativeCombatContext.suppressesMurderWitnesses(actor, (Entity)(Object)this)) ci.cancel();
     }
 }
