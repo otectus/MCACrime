@@ -9,7 +9,7 @@ never hears about it.
 
 - **Minecraft** 1.21.1 · **NeoForge** · **Java** 21
 - **Requires** MCA Reborn, the version pinned in `gradle.properties`
-- **Optional integrations** MCA: Reputation, MCA: Quests, Townstead, and Locks Reforged, using their NeoForge 1.21.1 builds
+- **Optional integrations** MCA: Reputation, MCA: Quests, Townstead, Locks Reforged, and MCA Capitals, using their NeoForge 1.21.1 builds
 - **Not required** the Cuffed mod, whose feature set 0.7.5 absorbs natively, and Locks Reforged
 - **Licence** GPL-3.0-only
 
@@ -182,6 +182,7 @@ Each add-on works alone, and any combination works.
 | **Crime** alone | Karma and Heat, the fourteen shipped crimes, witnesses, guards, jail, kidnapping, ransom, mugging, fines, the ledger, and a built-in per-village standing store |
 | **+ MCA: Reputation** | Crime becomes the single producer for villager assault and killing; every case becomes a public incident the village can gossip about, and paying a fine or serving a sentence reads publicly as making good |
 | **+ Townstead** | Crime reads the settlement: a collapsed or immobile villager stops being treated as a witness or a suspect, villagers on shift are passed over when guards are drafted, temporary cells are never dug inside a registered building, a display tool is no longer dropped as duplicate loot, and Townstead plays its own reactions when a crime, an arrest or a release becomes public |
+| **+ MCA Capitals** | The player who rules a capital can issue a **royal decree**: a player below Noble status is wanted in that village alone, and its guards stop them there to pay a fine or surrender. A decree is not a crime and touches no Heat, Karma, bounty or case |
 
 Nothing here depends on MCA: Reputation at compile time, and removing it leaves this mod working
 on its own store. The handover is a real handshake rather than a guess — one mod produces each
@@ -200,6 +201,19 @@ surface behind it is missing is reported as *degraded* by `/crime validate` and
 can be a crime, and **civic work**, where an eligible case can be settled by doing something useful
 for the settlement instead of paying its fine. See
 [the support matrix](docs/0.7.4/TOWNSTEAD.md) for what is available, degraded and unavailable.
+
+**MCA Capitals is optional and reached only by reflection** under `compat/capitals`, the same way.
+Royal decrees are switched by `[capitals]` and `[capitals.decrees]`; without Capitals nothing is asked
+and a decree command is refused because nobody can be shown to rule. The ruler opens the Crime menu on
+a guard or a court officer of their capital and chooses **Royal decree**, or uses `/crime decree`.
+Neither needs an operator level, because the throne is read from Capitals on the server for every
+action. See [docs/0.7.8/CAPITALS.md](docs/0.7.8/CAPITALS.md).
+
+**Blueprint prisons.** MCA's prison tags include Crime's reinforced bars, the gapped bars and the cell
+door, so they count toward MCA's prison exactly like iron bars and an iron door, with or without any
+companion: eight bars, a door and a vanilla bed (a bunk is not a bed). On MCA 7.7.36 a room counts the
+blocks standing inside it, not its walls, so the bars and that door go inside the room, for iron and for
+Crime's blocks alike. See [docs/0.7.8/BLUEPRINT_PRISON.md](docs/0.7.8/BLUEPRINT_PRISON.md).
 
 ## Seeing where you stand
 
@@ -235,6 +249,10 @@ cooldowns, and finite accounts.
 /crime payransom                             pay a ransom for a held relative
 /crime escape                                begin timed work against your restraint
 /crime releasecaptive                        release any captive record you own
+/crime decree issue <player> [reason]        as a capital's ruler, decree a player wanted here
+/crime decree withdraw <player>              as its ruler, withdraw a decree standing here
+/crime decree pay                            pay the decree standing against you here
+/crime decree list                           decrees against you; for a ruler, those standing here
 
 /crime query <player>                        another player's full status           (level 2)
 /crime ledger <player>                       another player's every crime record    (level 2)
@@ -242,6 +260,7 @@ cooldowns, and finite accounts.
 /crime debug integrations                    API version, bridge state, outbox      (level 2)
 /crime debug outbox [dead]                   queued or dead-lettered cross-mod work (level 2)
 /crime debug thief [villager]                why a villager may or may not mug now   (level 2)
+/crime debug capitals                        the MCA Capitals binding and this village (level 2)
 
 /crime validate                              run config validation                  (level 3)
 /crime reload                                reload datapack crime definitions       (level 3)
@@ -252,6 +271,7 @@ cooldowns, and finite accounts.
 /crime release <player>                      clears jail and kidnapping alike       (level 3)
 /crime assignjail <pos> [radius]                                                    (level 3)
 /crime repair <player> [inspect]             find, explain and fix a stuck sentence (level 3)
+/crime decree void <player>                  clear every decree against a player    (level 3)
 ```
 
 `/crime debug integrations` deliberately emits no player UUIDs, so its output can be pasted
@@ -371,9 +391,9 @@ See **[API.md](API.md)**.
 
 ## Upgrading an existing world
 
-Older saves are migrated on load, up to schema 15, without a server or a config
-being consulted. 0.7.5 also bumps the network protocol to 16, so client and server must be updated
-together, and retires twenty-one config keys whose replacements are named one for one in
+Older saves are migrated on load, up to schema 17, without a server or a config
+being consulted. 0.7.8 bumps the network protocol to 18, so client and server must be updated
+together; 0.7.5 also retired twenty-one config keys whose replacements are named one for one in
 [CONFIG.md](CONFIG.md). The migration is **not reversible** — take a copy of your world first. The
 policy, what changes about village identity, and what an old jar does with a new save are in
 **[MIGRATION.md](docs/MIGRATION.md)**.

@@ -61,9 +61,10 @@ class CrimeDataMigrationsV14toV15Test {
     }
 
     @Test
-    void theCurrentSchemaIsFifteenAndFollowsFourteenDirectly() {
+    void physicalSchemaRemainsFifteenAndFollowsFourteenDirectly() {
         assertEquals(15, CrimeDataMigrations.SCHEMA_CUFFED_PHYSICAL);
-        assertEquals(CrimeDataMigrations.SCHEMA_CUFFED_PHYSICAL, CrimeDataMigrations.CURRENT_SCHEMA);
+        // Later schemas (16 and 17, stamp-only, 0.7.8) follow it; this step's number never moves.
+        assertTrue(CrimeDataMigrations.CURRENT_SCHEMA >= CrimeDataMigrations.SCHEMA_CUFFED_PHYSICAL);
         assertEquals(CrimeDataMigrations.SCHEMA_PROPERTY_LAW + 1,
                 CrimeDataMigrations.SCHEMA_CUFFED_PHYSICAL);
     }

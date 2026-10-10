@@ -5,6 +5,33 @@ All notable changes to MCA: Crime.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); this project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.8] — 2026-10-10
+
+The NeoForge 1.21.1 port of Forge 0.7.8. Network protocol `"18"` on this port: client and server must
+update together. World schema 17, through two stamp-only steps (16 is the Forge build's village-justice
+schema, taken here as a stamp so both trees agree on what 16 and 17 mean): nothing is rewritten, and a
+0.7.7 save loads with an empty decree table. New COMMON keys in `[capitals]` and `[capitals.decrees]`,
+all documented in `CONFIG.md`.
+
+- **The Blueprint counts Crime's cell blocks toward MCA's prison.** `mcacrime:reinforced_bars` and
+  `mcacrime:reinforced_bars_gap` join `#mca:iron_bars`, and `mcacrime:cell_door` joins `#mca:iron_doors`
+  (`data/mca/tags/block/`, `"replace": false`). MCA's prison definition is unchanged in every build in
+  `mca_probe_versions`, and no other MCA building type reads either tag. Crime's blocks count wherever iron
+  bars and an iron door count: on MCA 7.7.36 a room counts the blocks standing inside it rather than its
+  walls, so eight bars and a door inside the room, with a vanilla bed, make a prison, for iron and for
+  Crime's blocks alike. The Blueprint then asks prison or house; choose prison.
+- **Royal decrees (MCA Capitals).** As on Forge: the player who rules an active capital may declare a
+  player below Noble status in that capital wanted in that village alone, from the Crime menu on one of
+  its guards or court officers or with `/crime decree`, with no operator level. Every fact is read from
+  Capitals on the server for every action; anything it cannot confirm is refused. The village's guards
+  challenge for the fine or surrender; a decree-only arrest carries at least `sentenceTicks`; paying or
+  serving it ends the decree. No Heat, Karma, band, Wanted flag, bounty, case, reputation or hearts move.
+  Lifecycle, commands and limits are in `docs/0.7.8/CAPITALS.md`. Bound against NeoForge Capitals 1.3.5
+  (`capitalsProbeTest`, paired with MCA 7.7.36-beta.3).
+- API: `McaCrimeApi.decrees(server, player)`, `api/model/DecreeView`, `api/event/DecreeChangedEvent`. The
+  Forge build's `mayEnforce` change has no counterpart here, since that method belongs to the jurisdiction
+  API this port does not carry.
+
 ## [0.7.7] — 2026-10-10
 
 The NeoForge 1.21.1 port of Forge 0.7.7, at behavioural parity. No network protocol change. One

@@ -39,10 +39,16 @@ public final class JusticeService {
         // It is off by default, because on a server that has not opted in a mask is a hat.
         boolean maskWorn = c.maskEnabled.get() && c.guardsChallengeMaskWearers.get()
                 && dev.otectus.mcacrime.mask.Masks.isMasked(player);
+        CrimeCommunityKey jurisdiction = ReportService.jurisdictionOf(level, guard);
+        // A royal decree is local by construction: it names one village, and only that village's guards
+        // act on it (0.7.8). Read through the decree service, which asks MCA Capitals whether it still
+        // stands; nothing about it widens to any other jurisdiction.
+        UUID decree = dev.otectus.mcacrime.decree.DecreeService.inForce(level.getServer(), player.getUUID(),
+                jurisdiction).map(dev.otectus.mcacrime.decree.Decree::id).orElse(null);
         return evaluate(CrimeWorldData.get(level.getServer()), player.getUUID(),
-                ReportService.jurisdictionOf(level, guard), level.getGameTime(), Settings.fromConfig(),
+                jurisdiction, level.getGameTime(), Settings.fromConfig(),
                 LegalTarget.isEscapedPrisoner(player), LegalTarget.isHoldingCaptive(player),
-                CrimeState.isWanted(player), LegalTarget.isResistingArrest(player), maskWorn);
+                CrimeState.isWanted(player), LegalTarget.isResistingArrest(player), maskWorn, decree);
     }
 
     public static LegalDecision evaluate(MinecraftServer server, UUID offender,
@@ -72,6 +78,20 @@ public final class JusticeService {
                                          @Nullable CrimeCommunityKey jurisdiction, long now,
                                          Settings settings, boolean escaped, boolean holdingCaptive,
                                          boolean wanted, boolean resistingArrest, boolean maskWorn) {
+        return evaluate(data, offender, jurisdiction, now, settings, escaped, holdingCaptive, wanted,
+                resistingArrest, maskWorn, null);
+    }
+
+    /**
+     * The same decision with a royal decree in force (0.7.8). {@code decree} is honoured only with a
+     * jurisdiction: a decree is an order of one village, and a question asked for no village in particular
+     * -- {@code GuardEnforcement}'s public-scope gate -- never sees one.
+     */
+    public static LegalDecision evaluate(CrimeWorldData data, UUID offender,
+                                         @Nullable CrimeCommunityKey jurisdiction, long now,
+                                         Settings settings, boolean escaped, boolean holdingCaptive,
+                                         boolean wanted, boolean resistingArrest, boolean maskWorn,
+                                         @Nullable UUID decree) {
         if (data == null || offender == null || data.isReadOnlyFutureData() || data.isLoadFailed())
             return new LegalDecision(offender, jurisdiction, List.of(), Set.of());
         Set<UUID> reported = new HashSet<>();
@@ -101,6 +121,8 @@ public final class JusticeService {
         if (wanted) basis.add(LegalDecision.Basis.WANTED);
         if (resistingArrest) basis.add(LegalDecision.Basis.RESISTING_ARREST);
         if (maskWorn) basis.add(LegalDecision.Basis.MASK_WORN);
-        return new LegalDecision(offender, jurisdiction, cases, basis);
+        UUID localDecree = jurisdiction == null ? null : decree;
+        if (localDecree != null) basis.add(LegalDecision.Basis.ROYAL_DECREE);
+        return new LegalDecision(offender, jurisdiction, cases, basis, localDecree);
     }
 }

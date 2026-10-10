@@ -43,6 +43,8 @@ mug/npc    NPC mugging sessions, theft planning, stolen-goods recovery
 economy/fence  contraband pricing, goods registry, trading UI
 compat integration locksreforged mcaquests numismatic  optional companions; degrade at runtime
 compat/townstead  the reflective Townstead adapter; nothing outside it may name a Townstead type
+compat/capitals  the reflective MCA Capitals adapter (0.7.8); nothing outside it may name a Capitals type
+decree     royal decrees: a capital ruler's local wanted order, read through compat/CapitalsBridge
 activity   enforcement claims over a villager and which operations they yield (work start, navigation)
 facility   civic facilities: building refs, roles, assignments, cell reservations, custody care
 civic      read-only village security projection, plus civic work: tasks, service contracts,

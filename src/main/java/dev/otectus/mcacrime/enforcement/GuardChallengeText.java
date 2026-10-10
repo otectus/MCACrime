@@ -22,6 +22,8 @@ public final class GuardChallengeText {
                     "You are holding someone unlawfully. The law demands your surrender.";
             case "mcacrime.challenge.reason.masked" ->
                     "The guards want a look at the face under that mask.";
+            case "mcacrime.challenge.reason.decree" ->
+                    "You are wanted here by royal decree. Surrender to answer it.";
             case "mcacrime.challenge.no_charges" ->
                     "The guard checks, and finds nothing against you.";
             default -> "The law demands your surrender.";

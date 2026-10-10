@@ -308,24 +308,71 @@ tasks.register('townsteadProbeTest', Test) {
     }
 }
 
+// Resolves CapitalsBinding's manifest (0.7.8) against a real MCA Capitals jar, for Townstead's reason:
+// Capitals is published on CurseForge only, so the jar is supplied by whoever runs it.
+// CapitalsBindingProbeTest stays in `test` and skips there on an assumption.
+//
+//     gradlew capitalsProbeTest -PcapitalsJar=/path/mcacapitals-1.3.5-neoforge.jar
+//
+// NeoForge Capitals 1.3.5 requires MCA [7.7.35-beta.3, 7.8.0), and its authority resolver's own
+// descriptors name MCA's Rank, so the jar is opened beside MCA 7.7.36-beta.3 from the probe fleet;
+// without it that class reads as unbound and the probe would fail for the wrong reason.
+ext.capitalsProbeMca = '7.7.36-beta.3+1.21.1'
+
+tasks.register('capitalsProbeTest', Test) {
+    group = 'verification'
+    description = 'Verifies the MCA Capitals binding manifest against a supplied Capitals jar.'
+    useJUnitPlatform()
+    filter {
+        includeTestsMatching 'dev.otectus.mcacrime.compat.capitals.CapitalsBindingProbeTest'
+    }
+    outputs.upToDateWhen { false }
+    testLogging { showStandardStreams = true }
+    systemProperty 'mcacrime.projectRoot', project.projectDir.absolutePath
+    onlyIf {
+        if (project.hasProperty('capitalsJar')) {
+            return true
+        }
+        logger.lifecycle('capitalsProbeTest: no -PcapitalsJar supplied; skipping (nothing to probe against).')
+        false
+    }
+    doFirst {
+        File suppliedJar = file(project.property('capitalsJar'))
+        if (!suppliedJar.isFile() || !suppliedJar.canRead()) {
+            throw new GradleException("-PcapitalsJar must name a readable MCA Capitals jar: ${suppliedJar}")
+        }
+        int index = mcaProbeVersions.indexOf(capitalsProbeMca)
+        if (index < 0) {
+            throw new GradleException("capitalsProbeTest needs MCA ${capitalsProbeMca} on the probe classpath, "
+                    + "but mca_probe_versions does not list it.")
+        }
+        systemProperty 'mcacrime.capitals.probe.jar', suppliedJar.absolutePath
+        systemProperty 'mcacrime.capitals.probe.mcaJars', configurations.getByName("mcaProbe${index}").files
+                .findAll { it.name.contains('mca-neoforge') || it.name.contains('minecraft-comes-alive') }
+                .join(File.pathSeparator)
+    }
+}
+
 // ModDevGradle configures `test` late -- unitTest wires in the Minecraft classpath, the NeoForge JUnit
 // runner, its JVM args and the build/minecraft-junit working directory -- so townsteadProbeTest
 // inherits that configuration here rather than assembling a second, subtly different runtime out of
 // sourceSets. Without it the runner aborts with "Failed to start Minecraft: mainargs.txt".
 afterEvaluate {
     def base = tasks.named('test', Test).get()
-    tasks.named('townsteadProbeTest', Test).configure {
-        classpath = base.classpath
-        testClassesDirs = base.testClassesDirs
-        jvmArgs = base.jvmArgs
-        // MDG supplies fml.modFolders lazily through a provider; without it the mod is not loaded.
-        jvmArgumentProviders.addAll(base.jvmArgumentProviders)
-        javaLauncher = base.javaLauncher
-        // Includes MDG's generated launch files and manifest stub without running `test` itself.
-        dependsOn { base.taskDependencies.getDependencies(base) }
-        base.systemProperties.each { key, value -> systemProperty(key, value) }
-        workingDir = base.workingDir
-        environment base.environment
+    [tasks.named('townsteadProbeTest', Test), tasks.named('capitalsProbeTest', Test)].each { probe ->
+        probe.configure {
+            classpath = base.classpath
+            testClassesDirs = base.testClassesDirs
+            jvmArgs = base.jvmArgs
+            // MDG supplies fml.modFolders lazily through a provider; without it the mod is not loaded.
+            jvmArgumentProviders.addAll(base.jvmArgumentProviders)
+            javaLauncher = base.javaLauncher
+            // Includes MDG's generated launch files and manifest stub without running `test` itself.
+            dependsOn { base.taskDependencies.getDependencies(base) }
+            base.systemProperties.each { key, value -> systemProperty(key, value) }
+            workingDir = base.workingDir
+            environment base.environment
+        }
     }
 }
 
@@ -434,6 +481,11 @@ def apiReadModel = [
         'dev/otectus/mcacrime/compat/TownsteadBuildingView',
         'dev/otectus/mcacrime/crime/Band',
         'dev/otectus/mcacrime/crime/KarmaSource',
+        // 0.7.8: the decree table of CrimeWorldData names the record and its three vocabularies.
+        'dev/otectus/mcacrime/decree/Decree',
+        'dev/otectus/mcacrime/decree/DecreeProvenance',
+        'dev/otectus/mcacrime/decree/DecreeReason',
+        'dev/otectus/mcacrime/decree/DecreeState',
         'dev/otectus/mcacrime/detention/DetentionKind',
         'dev/otectus/mcacrime/detention/DetentionRecord',
         'dev/otectus/mcacrime/dialogue/DialogueContext',

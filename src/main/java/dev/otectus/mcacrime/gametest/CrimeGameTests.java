@@ -124,8 +124,9 @@ public final class CrimeGameTests {
         data.addActionCounter(counter, 7L);
 
         CompoundTag tag = data.save(new CompoundTag(), server.registryAccess());
-        helper.assertTrue(CrimeDataMigrations.CURRENT_SCHEMA == 15,
-                "this build writes schema " + CrimeDataMigrations.CURRENT_SCHEMA + ", expected 15");
+        helper.assertTrue(CrimeDataMigrations.CURRENT_SCHEMA == CrimeDataMigrations.SCHEMA_DECREES,
+                "this build writes schema " + CrimeDataMigrations.CURRENT_SCHEMA + ", expected "
+                        + CrimeDataMigrations.SCHEMA_DECREES);
         helper.assertTrue(CrimeDataMigrations.schemaOf(tag) == CrimeDataMigrations.CURRENT_SCHEMA,
                 "saved tag is schema " + CrimeDataMigrations.schemaOf(tag));
 

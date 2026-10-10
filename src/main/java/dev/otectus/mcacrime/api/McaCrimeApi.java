@@ -292,6 +292,22 @@ public final class McaCrimeApi {
         }
     }
 
+    /**
+     * Every royal decree naming this player, open and recently ended, oldest first (0.7.8).
+     *
+     * <p>A decree is a village ruler's local wanted order through MCA Capitals, and is not a crime record:
+     * it appears in no case ledger, changes no Heat or band and opens no bounty. Whether an open one is
+     * enforced right now also depends on its capital, which {@code DecreeView#open()} does not say.
+     */
+    public static List<dev.otectus.mcacrime.api.model.DecreeView> decrees(MinecraftServer server, UUID offender) {
+        try {
+            return List.copyOf(dev.otectus.mcacrime.decree.DecreeService.views(server, offender));
+        } catch (Throwable t) {
+            McaCrime.LOGGER.debug("MCA: Crime — decree lookup failed; returning empty", t);
+            return List.of();
+        }
+    }
+
     static JailSentenceView toView(JailState jail, CrimeWorldData world, UUID offender) {
         return new JailSentenceView(
                 Optional.of(jail.getSentenceId()),

@@ -50,11 +50,14 @@ class PayloadRegistrationTest {
         EXPECTED.put(PhysicalStateRemoveS2CPacket.TYPE, "physical_state_remove");
         EXPECTED.put(RestraintStruggleC2SPacket.TYPE, "restraint_struggle");
         EXPECTED.put(SelfRestraintC2SPacket.TYPE, "self_restraint");
+        // 0.7.8: the royal decree screen and its answer.
+        EXPECTED.put(DecreeMenuS2CPacket.TYPE, "decree_menu");
+        EXPECTED.put(DecreeActionC2SPacket.TYPE, "decree_action");
     }
 
     @Test
-    void thereAreTwentyFourPayloads() {
-        assertEquals(24, EXPECTED.size());
+    void thereAreTwentySixPayloads() {
+        assertEquals(26, EXPECTED.size());
     }
 
     @Test

@@ -115,6 +115,7 @@ public final class CrimeCommand {
     private static void register(CommandDispatcher<CommandSourceStack> dispatcher) {
         dispatcher.register(Commands.literal("crime")
                 .then(RecoveryCommand.tree())
+                .then(DecreeCommand.tree())
                 .then(Commands.literal("collectbounty").executes(ctx -> BountyService.collect(ctx.getSource().getPlayerOrException())))
                 .then(Commands.literal("karma")
                         .executes(CrimeCommand::karma))
@@ -357,6 +358,9 @@ public final class CrimeCommand {
                         .requires(src -> src.hasPermission(2))
                         .then(Commands.literal("capital")
                                 .executes(CrimeCommand::debugCapital))
+                        // MCA Capitals, the monarchy companion -- not "capital" above, which is punishment.
+                        .then(Commands.literal("capitals")
+                                .executes(DecreeCommand::debugCapitals))
                         .then(Commands.literal("restraints")
                                 .executes(CrimeCommand::debugRestraints))
                         .then(Commands.literal("witness").executes(ctx -> debugAwareness(ctx, "witness", null))
@@ -589,6 +593,10 @@ public final class CrimeCommand {
         }
         src.sendSuccess(() -> Component.translatable("mcacrime.command.status.jail", jailInfo), false);
         sendSentence(src, player);
+        // Royal decrees (0.7.8): local wanted orders, listed apart from Heat and the global Wanted flag.
+        for (Component line : dev.otectus.mcacrime.decree.DecreeService.statusLines(player)) {
+            src.sendSuccess(() -> line, false);
+        }
     }
 
     /**
@@ -693,6 +701,8 @@ public final class CrimeCommand {
                 + "; degraded=" + dev.otectus.mcacrime.mixin.mca.McaJusticeMixinPlugin.DEGRADED
                 + "; thief combat policy=" + McaCrimeConfig.COMMON.thiefCombatPolicy.get()
                 + "; Reputation exemption=" + dev.otectus.mcacrime.compat.ReputationExemptionBridge.status()), false);
+        ctx.getSource().sendSuccess(() -> Component.literal("MCA Capitals: " + dev.otectus.mcacrime.compat.CapitalsBridge.status()
+                + "; royal decrees " + dev.otectus.mcacrime.compat.CapitalsDiagnostics.decreeState()), false);
         List<String> problems = ConfigValidator.validateCurrentConfig();
         if (problems.isEmpty()) {
             ctx.getSource().sendSuccess(() -> Component.translatable("mcacrime.command.validate.ok"), false);

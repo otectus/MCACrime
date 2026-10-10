@@ -50,6 +50,33 @@ cp -r world world-backup-pre-0.2.0
 That is the entire mitigation, and it is the only complete one. Everything below explains what the
 migration does and what safety nets exist, but none of them replace the copy.
 
+## 0.7.8
+
+**Network protocol 18.** `network/CrimeNetwork.PROTOCOL_VERSION` is `"18"` on this port (the Forge build
+is at `"20"`): the royal decree screen adds two payloads, `mcacrime:decree_menu` and
+`mcacrime:decree_action`. Update the client and the server together.
+
+**World schema 17, two stamp-only steps.** `CrimeDataMigrations.v15to16` and `v16to17` rewrite nothing:
+16 is the Forge build's village-justice schema, taken here as a stamp so both trees agree on what 16 and
+17 mean (its village news is still pending on this port, and is additive when it comes), and 17 adds the
+royal decree table (`decrees` in `mcacrime.dat`), absent in older saves and read as empty. A row that
+cannot be read is quarantined rather than dropped. The table holds at most 1024 decrees, and an ended
+decree is forgotten 30 in-game days after it ends.
+
+**MCA Capitals added or removed later.** Both are safe. Without Capitals, or with `capitals.enabled` or
+`capitals.decrees.enabled` off, decrees are kept but not enforced and none can be issued; they lapse on
+their own clock in the meantime, and the rest come back into force once Capitals binds again. A decree
+whose capital is no longer in Capitals' registry when it binds again is voided by the next maintenance
+sweep.
+
+**The Blueprint tags need no migration.** MCA keeps the type it recorded for each building. To have a
+cell that was recorded before the upgrade counted with Crime's blocks, remove it in the Blueprint and add
+the room again.
+
+**Rollback.** A 0.7.7 jar of this port reads schema 17 as a save from the future: it leaves
+`mcacrime.dat` untouched and writes no crime state for the session. Restore the backup taken before the
+upgrade, or stay on 0.7.8.
+
 ## 0.7.7
 
 No world schema or network protocol change: a 0.7.6 world and client keep working. One player-data

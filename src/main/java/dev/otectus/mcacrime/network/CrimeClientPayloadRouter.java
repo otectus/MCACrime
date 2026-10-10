@@ -116,6 +116,10 @@ public final class CrimeClientPayloadRouter {
         handler.onFriskSnapshot(payload);
     }
 
+    public static void handleDecreeMenu(DecreeMenuS2CPacket payload, IPayloadContext context) {
+        handler.onDecreeMenu(payload);
+    }
+
     /** What the client side supplies. Every method defaults to doing nothing, which is what a server does. */
     public interface Handler {
 
@@ -185,6 +189,9 @@ public final class CrimeClientPayloadRouter {
         }
 
         default void onFriskSnapshot(FriskSnapshotS2CPacket payload) {
+        }
+
+        default void onDecreeMenu(DecreeMenuS2CPacket payload) {
         }
     }
 }

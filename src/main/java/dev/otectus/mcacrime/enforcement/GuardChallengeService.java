@@ -134,11 +134,11 @@ public final class GuardChallengeService {
         // figure while charging the other is how a guard came to offer a murder for pocket change.
         DispositionService.Offer offer = DispositionService.offer(CrimeWorldData.get(server), decision,
                 CrimeState.getHeat(player), CrimeState.getBand(player), now, SettlementPolicy.Settings.fromConfig(),
-                dev.otectus.mcacrime.economy.Currencies.active().id().toString());
-        SettlementQuote quote = offer.quote();
+                dev.otectus.mcacrime.economy.Currencies.active().id().toString(),
+                dev.otectus.mcacrime.decree.DecreeSettings.fromConfig().guardFine());
 
         GuardChallenge challenge = new GuardChallenge(UUID.randomUUID(), guard.getUUID(), player.getUUID(),
-                jurisdiction, open.size(), quote.amount(), quote.ok(), now,
+                jurisdiction, open.size(), offer.payableAmount(), offer.payable(), now,
                 now + Math.max(GuardChallenge.MIN_RESPONSE_TICKS,
                         McaCrimeConfig.COMMON.guardChallengeWindowTicks.get()), 0L, offer).awaitDisplay();
         OPEN.put(player.getUUID(), challenge);
@@ -236,7 +236,10 @@ public final class GuardChallengeService {
             sendChallenge(player, challenge, now);
             return paymentRefused(player, "mcacrime.challenge.not_finable");
         }
-        FineService.Payment payment = FineService.pay(player, challenge.offer().quote());
+        // A decree-only challenge settles the decree it names (0.7.8); anything else settles its cases.
+        FineService.Payment payment = challenge.offer().settlesDecree()
+                ? dev.otectus.mcacrime.decree.DecreeService.pay(player, challenge.offer().decision().decree())
+                : FineService.pay(player, challenge.offer().quote());
         if (payment.paid()) {
             close(player, ChallengeResponse.PAY_FINE);
             CrimeSounds.paid(player);
@@ -260,7 +263,8 @@ public final class GuardChallengeService {
         DispositionService.Offer live = DispositionService.offer(CrimeWorldData.get(level.getServer()),
                 JusticeService.forGuard(level, guard, player), CrimeState.getHeat(player), CrimeState.getBand(player),
                 now, SettlementPolicy.Settings.fromConfig(),
-                dev.otectus.mcacrime.economy.Currencies.active().id().toString());
+                dev.otectus.mcacrime.economy.Currencies.active().id().toString(),
+                dev.otectus.mcacrime.decree.DecreeSettings.fromConfig().guardFine());
         if (DispositionService.current(challenge.offer(), live, now)) return challenge;
         GuardChallenge updated = challenge.refresh(live);
         OPEN.put(player.getUUID(), updated);
@@ -329,8 +333,14 @@ public final class GuardChallengeService {
         }
         List<CrimeRecord> open = challenge.offer() == null ? List.of() : challenge.offer().decision().cases();
         if (open.isEmpty()) {
-            player.sendSystemMessage(GuardChallengeText.detentionReason(
-                    challenge.offer() == null ? null : challenge.offer().decision()));
+            LegalDecision decision = challenge.offer() == null ? null : challenge.offer().decision();
+            player.sendSystemMessage(decision != null && decision.decree() != null
+                    ? dev.otectus.mcacrime.decree.DecreeService.challengeLine(server, decision.decree())
+                    : GuardChallengeText.detentionReason(decision));
+            if (challenge.canPay()) {
+                player.sendSystemMessage(Component.translatable("mcacrime.challenge.total_due",
+                        dev.otectus.mcacrime.economy.Currencies.active().format(challenge.assessedFine())));
+            }
             return;
         }
         player.sendSystemMessage(Component.translatable("mcacrime.challenge.charges_header", open.size()));

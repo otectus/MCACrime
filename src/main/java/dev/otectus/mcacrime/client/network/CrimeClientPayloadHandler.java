@@ -139,4 +139,9 @@ public final class CrimeClientPayloadHandler implements CrimeClientPayloadRouter
     public void onFriskSnapshot(dev.otectus.mcacrime.network.FriskSnapshotS2CPacket payload) {
         dev.otectus.mcacrime.client.ClientFriskData.accept(payload);
     }
+
+    @Override
+    public void onDecreeMenu(dev.otectus.mcacrime.network.DecreeMenuS2CPacket payload) {
+        CrimeClientHandlers.onDecreeMenu(payload);
+    }
 }

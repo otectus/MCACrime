@@ -111,7 +111,25 @@ public final class CrimeDataMigrations {
      * "a migration that creates a free extra cuff on every login".
      */
     public static final int SCHEMA_CUFFED_PHYSICAL = 15;
-    public static final int CURRENT_SCHEMA = SCHEMA_CUFFED_PHYSICAL;
+    /**
+     * The Forge build's village-justice schema, adopted here as a stamp only (0.7.8) so that the two
+     * trees agree on what 16 and 17 mean. On Forge, 16 adds the village-news projection {@code crimeNews},
+     * which this port has not taken yet (docs/PORT_PARITY.md); there it is additive and absent reads as
+     * empty, so {@link #v15to16} writes nothing but the version here too, and porting the news later
+     * needs no step of its own.
+     */
+    public static final int SCHEMA_VILLAGE_JUSTICE = 16;
+    /**
+     * The 0.7.8 royal-decree schema: the bounded {@code decrees} table ({@code decree/Decree}), the
+     * local wanted orders a village's ruler issues through MCA Capitals.
+     *
+     * <p>Additive only, so {@link #v16to17} writes nothing but the version. {@code decrees} is absent in
+     * every world written before this release and absent reads as an empty table: no decree existed
+     * before the feature did, and nothing in the case ledger is one. An older build that opens a world
+     * stamped 17 takes the from-the-future path and holds the store read-only.
+     */
+    public static final int SCHEMA_DECREES = 17;
+    public static final int CURRENT_SCHEMA = SCHEMA_DECREES;
 
     /** Root NBT key holding the schema integer. Absent means 0. */
     public static final String TAG_SCHEMA = "schema";
@@ -179,6 +197,12 @@ public final class CrimeDataMigrations {
         }
         if (schema < 15) {
             working = v14to15(working);
+        }
+        if (schema < 16) {
+            working = v15to16(working);
+        }
+        if (schema < 17) {
+            working = v16to17(working);
         }
         working.putInt(TAG_SCHEMA, CURRENT_SCHEMA);
         return working;
@@ -623,6 +647,30 @@ public final class CrimeDataMigrations {
     }
 
     /** Adds one context entry to a record tag, creating the compound if needed. */
+    // ------------------------------------------------------------------ 15 -> 16
+
+    /**
+     * Village justice: stamps the version and nothing else. {@link #SCHEMA_VILLAGE_JUSTICE} says why
+     * that is the whole step, here as on Forge.
+     */
+    public static CompoundTag v15to16(CompoundTag tag) {
+        CompoundTag out = tag.copy();
+        out.putInt(TAG_SCHEMA, SCHEMA_VILLAGE_JUSTICE);
+        return out;
+    }
+
+    // ------------------------------------------------------------------ 16 -> 17
+
+    /**
+     * Royal decrees: stamps the version and nothing else. {@link #SCHEMA_DECREES} says why an absent
+     * {@code decrees} table is the right starting state.
+     */
+    public static CompoundTag v16to17(CompoundTag tag) {
+        CompoundTag out = tag.copy();
+        out.putInt(TAG_SCHEMA, SCHEMA_DECREES);
+        return out;
+    }
+
     private static void stampContext(CompoundTag record, String key, String value) {
         CompoundTag context = record.contains("context", Tag.TAG_COMPOUND)
                 ? record.getCompound("context")

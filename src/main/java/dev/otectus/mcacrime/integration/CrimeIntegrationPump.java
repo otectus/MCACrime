@@ -85,6 +85,9 @@ public final class CrimeIntegrationPump {
         // question about an installed companion, it needs a server to be meaningful, and an operator
         // reading the log wants both answers in one place. Binding is idempotent and never throws.
         TownsteadBridge.bind();
+        // MCA Capitals binds here too (0.7.8): its records are a per-server map, read-only questions,
+        // and the operator wants this line beside the other companions' in the log.
+        dev.otectus.mcacrime.compat.CapitalsBridge.bind();
         if (!McaCrimeConfig.COMMON.replayPendingOperations.get()) {
             return;
         }
@@ -120,6 +123,8 @@ public final class CrimeIntegrationPump {
         // Drop the Townstead binding too, so a second world in one session re-binds against whatever is
         // installed then rather than inheriting this server's answer.
         TownsteadBridge.release();
+        dev.otectus.mcacrime.compat.CapitalsBridge.release();
+        dev.otectus.mcacrime.decree.DecreeService.clearRuntime();
         TownsteadReactions.clearAll();
         tickCounter = 0;
     }

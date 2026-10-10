@@ -547,6 +547,26 @@ block in this tag is still a soft block.
 
 Nothing here is unbreakable, and no setting in `prison` makes it so.
 
+### MCA's prison tags (0.7.8)
+
+Two MCA tags gain MCA: Crime's cell blocks, so the Blueprint counts them toward MCA's own prison:
+
+| File | Adds |
+|---|---|
+| `data/mca/tags/block/iron_bars.json` | `mcacrime:reinforced_bars`, `mcacrime:reinforced_bars_gap` |
+| `data/mca/tags/block/iron_doors.json` | `mcacrime:cell_door` |
+
+Both are `"replace": false`, so they add to MCA's values and remove nothing. MCA's `prison` building
+type asks for eight `#mca:iron_bars`, one `#mca:iron_doors` and one `#minecraft:beds`, and in every MCA
+build in `mca_probe_versions` it is the only building type that reads either tag
+(`McaPrisonDefinitionProbeTest`), so no other classification moves. The bunk is not a bed and is not
+added to `#minecraft:beds`: a cell needs one vanilla bed to be a prison.
+
+**A pack that writes either tag with `"replace": true` replaces Crime's entries along with MCA's.**
+That is the pack author's call; list the `mcacrime:` ids above in your own file if you still want
+Crime's cells counted. A pack may also widen the tags further, with another mod's bars or doors, in the
+usual way. See [docs/0.7.8/BLUEPRINT_PRISON.md](docs/0.7.8/BLUEPRINT_PRISON.md).
+
 ---
 
 ## Validation checklist
@@ -572,3 +592,5 @@ Before shipping a pack:
 - [ ] If you wrote a `townstead/` table, run `/crime validate` **and** `/crime debug townstead`: the
       first reports a refused table, the second reports whether the capability the table feeds is
       actually available.
+- [ ] If your pack writes `mca:iron_bars` or `mca:iron_doors` with `"replace": true`, scan a cell of
+      Crime's bars and cell door with the Blueprint to confirm it is still offered as a prison.

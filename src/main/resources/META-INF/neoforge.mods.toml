@@ -93,6 +93,16 @@ description='''${mod_description}'''
     versionRange="[0,)"
     ordering="AFTER"
     side="BOTH"
+# MCA Capitals -- OPTIONAL (0.7.8). Read entirely by reflection through compat/CapitalsBridge for royal
+# decrees: who rules a village, and what a player holds there. AFTER, because MCA: Crime reads Capitals'
+# records and Capitals names nothing of ours, so there is no cycle. "[0,)" for the same reason as the
+# companions above: an incompatible Capitals turns decrees off with one log line, never the game.
+[[dependencies.${mod_id}]]
+    modId="mcacapitals"
+    type="optional"
+    versionRange="[0,)"
+    ordering="AFTER"
+    side="BOTH"
 # MCA: Kingdoms (Forge only today) consumes this mod's institutional-service and jurisdiction APIs, so it is
 # ordered BEFORE, as on Forge: a consumer that each side declared AFTER would be a sorting cycle.
 [[dependencies.${mod_id}]]

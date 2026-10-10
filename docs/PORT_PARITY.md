@@ -13,14 +13,16 @@ this file says what it lacks.
 | | Forge 1.20.1 | This port |
 |---|---|---|
 | `mod_version` | 0.7.7 | 0.7.7 |
-| World schema (`CrimeDataMigrations.CURRENT_SCHEMA`) | 16 | 15 |
-| Network protocol (`CrimeNetwork.PROTOCOL_VERSION`) | `"19"` | `"17"` |
+| World schema (`CrimeDataMigrations.CURRENT_SCHEMA`) | 17 | 17 (16 and 17 stamp-only here) |
+| Network protocol (`CrimeNetwork.PROTOCOL_VERSION`) | `"20"` | `"18"` |
 | MCA range | `[7.6,8)` | `[7.7,8)` |
 | MCA probe fleet | six 1.20.1 builds | 7.7.0, 7.7.13, 7.7.22, 7.7.33, 7.7.36-beta.3 |
 | GeckoLib | required | not declared |
 
-A world stamped 16 by the Forge build cannot reach this port (the Minecraft versions differ), but the
-guard exists anyway: a schema newer than the build's own loads read-only and is written back unchanged.
+A Forge world cannot reach this port (the Minecraft versions differ), but the guard exists anyway: a
+schema newer than the build's own loads read-only and is written back unchanged. Since 0.7.8 both trees
+mean the same thing by 16 and 17: this port takes 16 as a stamp only, because its village news is still
+pending and is additive when it comes.
 
 ## Features the port does not have
 
@@ -85,3 +87,13 @@ guard exists anyway: a schema newer than the build's own loads read-only and is 
 | Ransom release: a kidnapping adopts the gear that began it and owns gear added during it (`CustodyTransitionService.adoptGear`, `custodyFor`), a villager's device opened on release, the release before the ransom audit, `RansomService.checkPayment`, an unloaded captive's owed item handed to its applier (`RemovalService.removeUnloaded`) | Mirrored. This port's `EscapeService` keeps no per-restraint memory, so the unloaded removal has no escape step to clear, exactly as the port's ordinary removal has none. GameTests `aPaidRansomTakesOffTheKidnappingsGearAndSettlesOnce` and `aFailedRansomPaymentFreesNobody` |
 | Outlaw combat: `enforcement.outlawCombatLegal`, `OutlawStatus.attackLawful` and `killLawful`, `ThiefCombatPolicy.Reason.OUTLAW`, `McaCompat.isOutlaw` | Mirrored; every build in `mca_probe_versions` registers `mca:outlaw`. A player victim is gated by `pvpCountsAsCrime` alone, as everywhere on this port. GameTests `fightingMcasOutlawIsLegalEvenWatched` and `fightingARedPlayerIsLegalWithPvpCrimeOn` |
 | Real right-clicks reaching `memory/MemoryInteractionHandler` (found during 0.7.7 runtime validation, not a 0.7.7 change) | **Pending.** Every MCA build in `mca_probe_versions` (7.7.0 to 7.7.36-beta.3) opens its interaction screen from `VillagerEntityMCA.interactAt`, which a real client sends first as INTERACT_AT (`EntityInteractSpecific`). On 1.20.1, MCA 7.7.x delegates `interactAt` to vanilla and opens the screen from `mobInteract`, behind `EntityInteract`, while MCA 7.6.x opens it from `interactAt` as here, so the Forge baseline shares the gap with 7.6.x (bytecode inspection of its fleet; Forge's runtime runs used 7.7.1-beta.2). The handler listens to `EntityInteract` only, so on this port a real right-click opens MCA's screen past the refusal gate and the empty-hand apology gesture; the gate's own decisions are correct when the plain interaction arrives (GameTests, and the two-client run's interaction packets). Routing `EntityInteractSpecific` for MCA villagers through the same handler, with one decision per click, would close it. |
+
+## Changes from 0.7.8
+
+| Change | Here |
+|---|---|
+| MCA prison tags: `mca:iron_bars` gains both reinforced bar blocks, `mca:iron_doors` the cell door, `"replace": false` | Mirrored under `data/mca/tags/block/`; `PrisonTagJsonTest`, `McaPrisonDefinitionProbeTest` over all five `mca_probe_versions` builds, and GameTests `BlueprintPrisonGameTests` (port only), which drive MCA 7.7.36's own scan. MCA 7.7.36 counts the blocks on a room's floor cells rather than its walls, for iron and Crime's blocks alike; the GameTests record both |
+| Royal decrees through MCA Capitals: `compat/Capitals*`, `compat/capitals/`, `decree/`, the decree table and stamp-only schema 17, the decree basis in `JusticeService`, the decree fine in `DispositionService` and the guard challenge, the arrest floor and sentence binding, the pursuit gate, the maintenance sweep, `/crime decree`, `/crime debug capitals`, the decree screen and its two payloads, `[capitals]` config and validation, 68 language keys | Mirrored; the same unit suites (`DecreeRulesTest`, `DecreeRecordTest`, `DecreeEnforcementTest`, `DecreeIsolationTest`, `CapitalsBridgeTest`, `CapitalsConfigValidationTest`, `NoCapitalsStaticLinkTest`, `DecreePacketTest` on the payload codecs, `CrimeDataMigrationsV15toV17Test`) and `capitalsProbeTest` against NeoForge Capitals 1.3.5 with MCA 7.7.36-beta.3. The probe's "without MCA" case is skipped here, because the unit-test runner has MCA on its classpath. Protocol `"18"` here |
+| `McaCrimeApi.mayEnforce` treats a decree of the responder's village as a local basis | **Not applicable.** `mayEnforce` belongs to the jurisdiction API, which this port does not carry (see above) |
+| Production-server Capitals harness (`tools/capitals`) | **Not ported.** It is a Forge dedicated-server fixture; this port's evidence is the probe, the unit suites and the GameTests. No NeoForge production run with Capitals installed has been made |
+

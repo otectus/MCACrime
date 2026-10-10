@@ -44,6 +44,9 @@ class OptionalClassloadTest {
             // therefore to the relocated MCA types Townstead's own descriptors carry -- ever reaches
             // this mod's constant pool.
             "com/aetherianartificer/townstead/",
+            // MCA Capitals (0.7.8), for the same reason as Townstead: its descriptors carry relocated MCA
+            // types, so the adapter names it only as a dotted string and nothing else names it at all.
+            "com/majesttyx/mcacapitals/",
             "melonslise/locks/",
             "dev/architectury/",
             "me/shedaniel/");
@@ -101,7 +104,10 @@ class OptionalClassloadTest {
                     // target class resolves, so a reference from one of them into this adapter cannot
                     // drag anything into a load that has no Townstead -- the mixin class is not loaded
                     // there either. Every other class in the mod is still held to the blanket rule.
-                    "dev/otectus/mcacrime/mixin/townstead/"});
+                    "dev/otectus/mcacrime/mixin/townstead/"},
+            new String[] {"dev/otectus/mcacrime/compat/capitals/",
+                    "dev/otectus/mcacrime/compat/CapitalsBridge.class",
+                    "dev.otectus.mcacrime.compat.capitals.ReflectiveCapitalsBridge"});
 
     /**
      * Every MCA package root, so this guard cannot pass vacuously. It used to test only

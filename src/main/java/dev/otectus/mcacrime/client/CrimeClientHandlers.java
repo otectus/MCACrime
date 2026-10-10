@@ -86,6 +86,13 @@ public final class CrimeClientHandlers {
      * front of them, and delivering it into a chat line they might be scrolled away from is how the
      * window quietly expires without them ever seeing it.
      */
+    /** The royal decree screen (0.7.8), opened over whatever the ruler was looking at. */
+    public static void onDecreeMenu(dev.otectus.mcacrime.network.DecreeMenuS2CPacket msg) {
+        Minecraft minecraft = Minecraft.getInstance();
+        TownsteadDialogueState.markExternalClose(minecraft.screen);
+        minecraft.setScreen(new dev.otectus.mcacrime.client.screen.RoyalDecreeScreen(msg, minecraft.screen));
+    }
+
     public static void onGuardChallenge(GuardChallengeS2CPacket msg) {
         GuardChallengeS2CPacket previous = ClientChallengeData.current();
         ClientChallengeData.update(msg);

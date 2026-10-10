@@ -641,6 +641,18 @@ public final class McaCrimeConfig {
         public final ModConfigSpec.IntValue townsteadActivityLeaseTicks;
         public final ModConfigSpec.IntValue townsteadFacilitySearchRadius;
 
+        // MCA Capitals (0.7.8): royal decrees and the read-only Capitals seam.
+        public final ModConfigSpec.BooleanValue capitalsEnabled;
+        public final ModConfigSpec.BooleanValue capitalsReadPlayerWarrants;
+        public final ModConfigSpec.BooleanValue decreesEnabled;
+        public final ModConfigSpec.IntValue decreesDurationTicks;
+        public final ModConfigSpec.IntValue decreesCooldownTicks;
+        public final ModConfigSpec.IntValue decreesMaxOpenPerCapital;
+        public final ModConfigSpec.IntValue decreesSentenceTicks;
+        public final ModConfigSpec.IntValue decreesFineAmount;
+        public final ModConfigSpec.BooleanValue decreesChronicle;
+        public final ModConfigSpec.BooleanValue decreesChronicleHerald;
+
         Common(ModConfigSpec.Builder b) {
             // The same section and keys as the Forge build. Forge's [villageJustice] also carries player
             // reports and village news, which this port has not taken (docs/PORT_PARITY.md); only the two
@@ -2411,6 +2423,63 @@ public final class McaCrimeConfig {
                     "operator running /crime jail means the jail they assigned wherever it is, but an arrest",
                     "that could reach any facility in the dimension would teleport prisoners across the map.")
                     .defineInRange("facilitySearchRadius", 96, 16, 512);
+            b.pop();
+
+            b.comment(
+                    "MCA Capitals, the monarchy companion (0.7.8). Every setting here is a no-op when Capitals",
+                    "is absent. MCA: Crime only reads Capitals -- who rules a village, what titles a player",
+                    "holds there -- and, when chronicle is on, writes one line into a capital's chronicle. It",
+                    "never writes Capitals' own justice, warrants, titles or succession.")
+                    .push("capitals");
+            capitalsEnabled = b.comment(
+                    "Master switch for the whole Capitals integration. Off means MCA: Crime never asks",
+                    "Capitals anything, even when it is installed, and no royal decree can be issued.")
+                    .define("enabled", true);
+            capitalsReadPlayerWarrants = b.comment(
+                    "Mention in /crime status that Capitals itself holds a warrant against the player in the",
+                    "capital they are standing in. Read only: such a warrant never makes MCA: Crime's guards",
+                    "challenge anybody; Capitals enforces its own.")
+                    .define("readPlayerWarrants", true);
+            b.comment(
+                    "Royal decrees: the player who rules a village through Capitals may declare a player of",
+                    "less than Noble status in that same village wanted there. A decree is local and lawful,",
+                    "not a crime record: it never changes Heat, Karma, the Outlaw band, the global Wanted",
+                    "flag or any bounty. The village's guards challenge the target there; paying the fine or",
+                    "serving the term ends it, and a refusal is resisting arrest exactly as with any charge.")
+                    .push("decrees");
+            decreesEnabled = b.comment(
+                    "Whether a ruler may issue royal decrees at all.")
+                    .define("enabled", true);
+            decreesDurationTicks = b.comment(
+                    "How long a decree stands, in overworld game ticks, counted whether or not the target is",
+                    "online. 72000 is three in-game days. A decree bound to a running sentence does not",
+                    "lapse while that sentence runs.")
+                    .defineInRange("durationTicks", 72000, 1200, 2_400_000);
+            decreesCooldownTicks = b.comment(
+                    "How long after a decree against one player in one village ends (withdrawn, paid, served,",
+                    "lapsed or voided) before another may be issued against them there. 0 allows it at once.")
+                    .defineInRange("cooldownTicks", 24000, 0, 2_400_000);
+            decreesMaxOpenPerCapital = b.comment(
+                    "How many decrees one capital may hold open at the same time.")
+                    .defineInRange("maxOpenPerCapital", 8, 1, 64);
+            decreesSentenceTicks = b.comment(
+                    "The custody term, in online ticks, an arrest on a decree carries at least. 6000 is the",
+                    "five minutes Capitals itself sentences a player to. An arrest that also has charges",
+                    "serves the longer of this and their sentence.")
+                    .defineInRange("sentenceTicks", 6000, 20, 2_400_000);
+            decreesFineAmount = b.comment(
+                    "The fine, in the active currency's units, that settles a decree at the guard's challenge",
+                    "or with /crime decree pay. 0 means a decree can only be served, never paid.")
+                    .defineInRange("fineAmount", 32, 0, 1_000_000);
+            decreesChronicle = b.comment(
+                    "Write one line into the capital's chronicle when a decree is issued or withdrawn. The",
+                    "line names the ruler, the target, the village and the reason, and nothing else.")
+                    .define("chronicle", false);
+            decreesChronicleHerald = b.comment(
+                    "Let the capital's herald announce that chronicle line to players in the capital. Only",
+                    "used while chronicle is on.")
+                    .define("chronicleHerald", false);
+            b.pop();
             b.pop();
         }
     }

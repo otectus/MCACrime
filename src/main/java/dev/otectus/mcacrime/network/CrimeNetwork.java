@@ -41,8 +41,8 @@ public final class CrimeNetwork {
 
     // 15 added the 0.7.5 physical-restraint messages: a full snapshot, a per-subject delta and an
     // explicit removal; 16 drops the warden-guide payload; 17 adds the paused-sentence flag to the self
-    // status. Update clients and server together.
-    private static final String PROTOCOL_VERSION = "17";
+    // status; 18 (0.7.8) adds the royal decree menu and its answer. Update clients and server together.
+    private static final String PROTOCOL_VERSION = "18";
 
     private CrimeNetwork() {
     }
@@ -136,6 +136,18 @@ public final class CrimeNetwork {
         // 0.7.5 §3.13: the restraint_profiles datapack layer, sent on login and after every reload.
         registrar.playToClient(RestraintProfileSyncS2CPacket.TYPE,
                 RestraintProfileSyncS2CPacket.STREAM_CODEC, RestraintProfileSyncS2CPacket::handle);
+        // 0.7.8: the royal decree screen and its answer.
+        registrar.playToClient(DecreeMenuS2CPacket.TYPE, DecreeMenuS2CPacket.STREAM_CODEC,
+                CrimeClientPayloadRouter::handleDecreeMenu);
+        registrar.playToServer(DecreeActionC2SPacket.TYPE, DecreeActionC2SPacket.STREAM_CODEC,
+                DecreeActionC2SPacket::handle);
+    }
+
+    /** The decree screen, to the ruler who asked for it and nobody else. */
+    public static void sendDecreeMenu(ServerPlayer player, dev.otectus.mcacrime.decree.DecreeMenuService.Menu menu) {
+        if (player != null && menu != null) {
+            PacketDistributor.sendToPlayer(player, new DecreeMenuS2CPacket(menu));
+        }
     }
 
     /**

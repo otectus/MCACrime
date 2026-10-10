@@ -49,7 +49,7 @@ public record GuardChallenge(UUID encounterId,
     /** A requote retains the conversation and its original response deadline. */
     public GuardChallenge refresh(DispositionService.Offer updated) {
         return new GuardChallenge(encounterId, guardId, playerId, updated.decision().jurisdiction(),
-                updated.decision().cases().size(), updated.quote().amount(), updated.quote().ok(),
+                updated.decision().cases().size(), updated.payableAmount(), updated.payable(),
                 openedAt, expiresAt, revision + 1L, updated, displayWindowTicks, awaitingDisplay);
     }
 
@@ -88,8 +88,11 @@ public record GuardChallenge(UUID encounterId,
         return awaitingDisplay ? Math.min(displayWindowTicks, remaining) : remaining;
     }
 
-    /** Whether paying is actually on the table: it needs a price, and charges that money can settle. */
+    /**
+     * Whether paying is actually on the table: it needs a price, and charges that money can settle -- or,
+     * with no charge at all, a royal decree whose fine settles it (0.7.8).
+     */
     public boolean canPay() {
-        return finable && assessedFine > 0L && chargeCount > 0;
+        return finable && assessedFine > 0L && (chargeCount > 0 || offer != null && offer.settlesDecree());
     }
 }
