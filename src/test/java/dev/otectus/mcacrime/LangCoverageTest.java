@@ -169,6 +169,13 @@ class LangCoverageTest {
                 : dev.otectus.mcacrime.restraint.RestraintFamily.values()) {
             require(lang, missing, "mcacrime.restraint.family." + family.id() + ".scope");
         }
+
+        // /crime job explains a refused assignment through NpcMuggerEligibilityReason.messageKey(),
+        // which 0.7.7 extended with the established-profession refusal.
+        for (dev.otectus.mcacrime.job.NpcMuggerEligibilityReason reason
+                : dev.otectus.mcacrime.job.NpcMuggerEligibilityReason.values()) {
+            require(lang, missing, reason.messageKey());
+        }
         assertTrue(missing.isEmpty(),
                 "These translation keys are built by concatenation and have no entry in en_us.json:\n  "
                         + String.join("\n  ", missing));

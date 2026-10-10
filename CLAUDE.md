@@ -50,9 +50,11 @@ civic      read-only village security projection, plus civic work: tasks, servic
 property   explicit property law (opt-in, townstead.propertyLaw): policies, pure access table,
            per-tick matched-pair transfer attribution, loss receipts, bounded auto-protection
 client mixin/client  client-only; common code must never import these
-mixin      eleven common vanilla-only mixins: equipment capture, Thief worksite and brain, sand sight,
-           hopper lock gate, restraint container-click / jump / player-action gates
+mixin      twelve common vanilla-only mixins: equipment capture, Thief worksite and brain, sand sight,
+           Thief-fight gossip, hopper lock gate, restraint container-click / jump / player-action gates
 mixin/townstead  five plugin-gated Townstead mixins in a second, optional mixin config
+mixin/mca  MCA's native heart sites (hurt, killing penalty) and its guard-alert friend test, plugin-gated,
+           in a third optional config
 network item audio command config util  plumbing
 ```
 
@@ -72,10 +74,17 @@ network item audio command config util  plumbing
 
 - Registration is imperative on the MOD bus in the `McaCrime` constructor. DeferredRegisters for items and creative tabs are attached in `item/CrimeItems.register`; villager professions are registered in `job/CriminalProfessions.register`. Gameplay handlers are `@EventBusSubscriber` (inherits FORGE bus) or on the mod bus. NeoForge uses a different annotation system; check the imports (`net.neoforged.*`).
 - Config is hand-written `ModConfigSpec`, **COMMON + CLIENT only, no SERVER spec**: common is server-authoritative, client is presentation only. `config/ConfigValidator` runs at setup and on every reload. 0.7.2 adds the common `[maskStation]` (`enableMaskStationCrafting`, `enableMaskRestyling`) and `[sandBottle]` sections, `memory.emptyHandApologyMode`, and client `sandParticles`.
-- Two mixin configs, both declared by `[[mixins]]` blocks in
+- Three mixin configs, all declared by `[[mixins]]` blocks in
   `src/main/resources/META-INF/neoforge.mods.toml` (NeoForge does not honour the Forge-era
-  `MixinConfigs` manifest attribute), and `checkJarContents` asserts exactly those two and no refmap
-  in either. `mcacrime.mixins.json` is required and targets **vanilla classes only**.
+  `MixinConfigs` manifest attribute), and `checkJarContents` asserts exactly those three and no refmap
+  in any. `mcacrime.mixins.json` is required and targets **vanilla classes only**.
+  `mcacrime.mca.mixins.json` (0.7.7) is `required: false`, gated by `mixin/mca/McaJusticeMixinPlugin`,
+  which matches MCA's `VillagerEntityMCA.hurt`/`die` and `Relationship.onTragedy` by name and exact
+  descriptor before rewriting them for `compat/mca/NativeCombatContext`; its two `@Pseudo` markers name
+  MCA only as dotted strings. It is Forge's native justice layer without the mailbox: the heart hooks and the `isFriend` call in
+  `hurt` that gates MCA's guard alert (optional: a build without exactly one such call keeps MCA's own
+  answer),
+  checked by `McaJusticeTargetTest` against every jar in `mca_probe_versions`.
   `mcacrime.townstead.mixins.json` is `required: false` with `defaultRequire 0`, gated by
   `mixin/townstead/TownsteadMixinPlugin` on Townstead being loaded *and* the target class existing;
   its five mixins - `GuardRestYieldMixin`, `ReactionLockGateMixin`, `WorkToolProvenanceMixin`,
@@ -83,7 +92,7 @@ network item audio command config util  plumbing
   strings and never name a Townstead or MCA type. Nothing here carries a refmap - NeoForge 1.21.1 runs on Mojang names, so every `@Mixin`,
   `@Inject` and `@Redirect` is `remap = false`, as is every `@At` that names a vanilla descriptor.
   `NoTownsteadStaticLinkTest`, `NoMcaStaticLinkTest`, `MixinConfigTest` and
-  `TownsteadMixinTargetTest` enforce that. Twelve vanilla-targeting mixins, eleven common:
+  `TownsteadMixinTargetTest` enforce that. Thirteen vanilla-targeting mixins, twelve common:
   `MobDeathEquipmentMixin` (`Mob.setItemSlot`, HEAD) observes equipment before MCA clears a dying
   villager's; `MaskStationAcquisitionMixin` (`VillagerProfession.acquirableJobSite`, RETURN) hides the
   Mask Station from every profession except Thief; `NativeJobAssignmentMixin`
@@ -92,7 +101,10 @@ network item audio command config util  plumbing
   chunks; `ThiefBrainMixin` (`Brain.tick`, HEAD) wraps this brain's `Activity.WORK` entries for
   employed Thieves; `MerchantOffersAccessor` (`AbstractVillager.offers`) is a field accessor with no
   behaviour; `SandSensingMixin` (`Sensing.hasLineOfSight`, HEAD) enforces sand blindness before the
-  cached-positive return; and four added in 0.7.5 - `HopperLockMixin`
+  cached-positive return; `ThiefGossipMixin` (`Villager.setLastHurtByMob`, redirecting
+  `ServerLevel.onReputationEvent`, and `Villager.tellWitnessesThatIWasMurdered`, HEAD, cancellable)
+  spares the actor an exempt Thief fight protects from vanilla gossip and murder-witness blame (0.7.7);
+  and four added in 0.7.5 - `HopperLockMixin`
   (`HopperBlockEntity.suckInItems` and `ejectItems`, HEAD, cancellable) applies the locked-container
   automation policy where 1.21.1 performs the transfer, `RestraintContainerClickMixin`
   (`AbstractContainerMenu.clicked`, HEAD), `RestraintJumpMixin` (`LivingEntity.jumpFromGround`, HEAD)

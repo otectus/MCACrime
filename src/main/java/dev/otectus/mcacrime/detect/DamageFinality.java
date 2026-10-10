@@ -19,6 +19,12 @@ public final class DamageFinality {
 
     public void death(BooleanSupplier canceled) { deathCancellations.add(canceled); }
 
+    /** The final damage as the event reads now, after every listener had its say (0.7.7). */
+    public double amount() {
+        double amount = damageAmount.getAsDouble();
+        return Double.isFinite(amount) ? amount : 0.0D;
+    }
+
     public Outcome resolve(boolean deadOrDying) {
         // Player/ServerPlayer can post more than one death event for the same terminal hit.
         if (deadOrDying && !deathCancellations.isEmpty()

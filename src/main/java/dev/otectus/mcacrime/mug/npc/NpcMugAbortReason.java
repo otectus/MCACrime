@@ -5,13 +5,20 @@ import java.util.Locale;
 /**
  * Why a thief's mug ended without taking anything (spec §"Player mugging interaction").
  *
- * <p>The list is short on purpose. The requested counterplay is drawing a weapon, so incidental
- * damage, a step backwards, looking away, opening the inventory and tapping sprint are all absent:
- * none of them may end a mug, and a reason that does not exist cannot be added by accident.
+ * <p>The list is short on purpose. The requested counterplay is drawing a weapon and, since 0.7.7,
+ * fighting back; incidental damage the victim takes, a step backwards, looking away, opening the
+ * inventory and tapping sprint are all absent: none of them may end a mug, and a reason that does not
+ * exist cannot be added by accident.
  */
 public enum NpcMugAbortReason {
     /** The victim drew a qualifying weapon. The one piece of counterplay the spec asks for. */
     VICTIM_ARMED,
+    /**
+     * The victim struck the thief, or restrained or shoved them (0.7.7). Being held up is the thief's
+     * aggression, so the victim may answer it at once rather than waiting to be hurt first; the blow is
+     * classified as self-defence through {@code MuggingThreats}.
+     */
+    VICTIM_RESISTED,
     /** The villager's relationship with this player now meets the configured protection threshold. */
     RELATIONSHIP_PROTECTED,
     /**

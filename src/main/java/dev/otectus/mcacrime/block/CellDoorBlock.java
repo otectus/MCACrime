@@ -91,13 +91,11 @@ public class CellDoorBlock extends DoorBlock implements EntityBlock {
 
     public CellDoorBlock(Properties properties, BlockSetType setType) {
         super(setType, properties);
-        registerDefaultState(stateDefinition.any()
-                .setValue(FACING, Direction.NORTH)
-                .setValue(OPEN, Boolean.FALSE)
-                .setValue(HINGE, DoorHingeSide.LEFT)
-                .setValue(POWERED, Boolean.FALSE)
-                .setValue(HALF, DoubleBlockHalf.LOWER)
-                .setValue(IN_BARS, Boolean.FALSE));
+        // Built on the default DoorBlock has already registered, never on stateDefinition.any(): a mod
+        // that adds a property to every door sets that property's default at the end of DoorBlock's
+        // constructor (Dramatic Doors makes every door waterloggable and sets waterlogged=false there),
+        // and any() would throw that away -- placing, and reloading, every cell door full of water.
+        registerDefaultState(defaultBlockState().setValue(IN_BARS, Boolean.FALSE));
     }
 
     @Override
@@ -105,9 +103,18 @@ public class CellDoorBlock extends DoorBlock implements EntityBlock {
         return CODEC;
     }
 
+    /**
+     * DoorBlock's own definition, then the one property this door adds (0.7.7).
+     *
+     * <p>Listing the vanilla door properties here instead skipped every property another mod injects
+     * into {@code DoorBlock.createBlockStateDefinition}. Dramatic Doors 3.3.2 does exactly that, and
+     * then sets its {@code waterlogged} default from DoorBlock's constructor, which threw for this block
+     * and aborted the whole block registry for every mod after this one in the load order.
+     */
     @Override
     protected void createBlockStateDefinition(StateDefinition.Builder<Block, BlockState> builder) {
-        builder.add(HALF, FACING, OPEN, HINGE, POWERED, IN_BARS);
+        super.createBlockStateDefinition(builder);
+        builder.add(IN_BARS);
     }
 
     @Override
@@ -135,7 +142,9 @@ public class CellDoorBlock extends DoorBlock implements EntityBlock {
         if (placed == null) {
             return null;
         }
-        return placed.setValue(IN_BARS,
+        // A door placed beside a live signal is placed closed and unpowered: redstone never opens a
+        // cell door (see neighborChanged), so it does not open one at placement either.
+        return placed.setValue(OPEN, Boolean.FALSE).setValue(POWERED, Boolean.FALSE).setValue(IN_BARS,
                 inBars(ctx.getLevel(), ctx.getClickedPos(), placed.getValue(FACING), DoubleBlockHalf.LOWER));
     }
 
@@ -274,5 +283,17 @@ public class CellDoorBlock extends DoorBlock implements EntityBlock {
         return state.getValue(HALF) == DoubleBlockHalf.LOWER
                 ? new LockableBlockEntity(pos, state)
                 : null;
+    }
+
+    /**
+     * The door of a holding cell the mod built is never loot (0.7.7), like its padlock; a door somebody
+     * placed drops as usual. Either half is asked, because breaking the upper half removes the lower one
+     * through its shape update, and that is the half whose loot table carries the item.
+     */
+    @Override
+    protected java.util.List<ItemStack> getDrops(BlockState state,
+            net.minecraft.world.level.storage.loot.LootParams.Builder params) {
+        return dev.otectus.mcacrime.block.prison.ReinforcedPolicy.generatedCellBlock(params)
+                ? java.util.List.of() : super.getDrops(state, params);
     }
 }

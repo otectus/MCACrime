@@ -19,8 +19,15 @@ never hears about it.
 
 The latest development pass confirms death before awarding kill bounties or recovering stolen
 property. Recovered goods go to their owner's escrow, with delivery attempted immediately for
-online owners and on login for everyone else. See the
+online owners and on login for everyone else. A living thief's stolen property also appears in the
+search screen (0.7.7): its owner takes it back, and a lawful search seals it for the owner. See the
 [death and recovery phase notes](docs/MCA_CRIME_PHASE2_DEATH_RECOVERY.md) for validation and limits.
+
+The Thief combat policy (`villageJustice.thiefCombatPolicy`, 0.7.7 on this port) exempts adult
+canonical Thieves from combat blame by default; children, guards, restrained prisoners and unresolved
+roles remain protected. Under every policy the victim of a mugging may fight the mugger off, from the
+moment the hold-up starts until `thiefDefenseGraceTicks` after it ends; under `NORMAL_LAW`, killing the
+mugger is still charged.
 
 MCA already models how one villager feels about you — that is what hearts are. This mod models
 what the **law** does about you, on two separate axes that never read each other.
@@ -220,7 +227,7 @@ cooldowns, and finite accounts.
 
 ```
 /crime karma                                 your karma and band
-/crime status                                karma, band, Heat, Wanted, remaining sentence
+/crime status                                karma, band, Heat, Wanted, sentence, charges, options
 /crime payfine                               pay off cases in the active currency, oldest first
 /crime surrender                             surrender near a guard, jail, or lawful player
 /crime mug                                   threaten the exact villager in your crosshair
@@ -234,6 +241,7 @@ cooldowns, and finite accounts.
 /crime debug villager|custody|actions        villager, custody, or action state     (level 2)
 /crime debug integrations                    API version, bridge state, outbox      (level 2)
 /crime debug outbox [dead]                   queued or dead-lettered cross-mod work (level 2)
+/crime debug thief [villager]                why a villager may or may not mug now   (level 2)
 
 /crime validate                              run config validation                  (level 3)
 /crime reload                                reload datapack crime definitions       (level 3)
@@ -243,11 +251,15 @@ cooldowns, and finite accounts.
 /crime jail <player> <ticks>                 ticks are online ticks                 (level 3)
 /crime release <player>                      clears jail and kidnapping alike       (level 3)
 /crime assignjail <pos> [radius]                                                    (level 3)
+/crime repair <player> [inspect]             find, explain and fix a stuck sentence (level 3)
 ```
 
 `/crime debug integrations` deliberately emits no player UUIDs, so its output can be pasted
 straight into a bug report. `/crime release` is the universal backstop: it frees a player from a
-sentence, from a kidnapper, or from their own captive, whichever applies.
+sentence, from a kidnapper, or from their own captive, whichever applies. Since 0.7.7 it forgives
+nothing: the charges are released from the sentence for a later arrest, and guards hold off for
+`jail.adminReleaseRecoveryTicks`. `/crime repair <player> inspect` names what is wrong with a stuck
+prisoner before `/crime repair <player>` fixes it.
 
 ## Configuration
 
@@ -331,6 +343,10 @@ bridges that ship alongside it are detected by id: "MC-Epicly-A" (`mcea`) and "E
 Compatibility" (`mcaefcompat`) is client rendering only and is reported rather than acted on.
 MCA: Crime forwards the swallowed interaction and can only report the damage block. See
 [docs/COMPATIBILITY_EPIC_FIGHT.md](docs/COMPATIBILITY_EPIC_FIGHT.md).
+
+Dramatic Doors adds a `waterlogged` property to every door. From 0.7.7 the cell door and reinforced
+bars carry it like any vanilla door; earlier versions of MCA: Crime fail during block registration with
+Dramatic Doors installed.
 
 ## For pack authors
 

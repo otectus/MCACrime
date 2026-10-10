@@ -150,6 +150,10 @@ public final class NpcMuggingService {
                 victim.getUUID(), level.dimension(), now,
                 EnumSet.of(CrimeFlag.NPC_OFFENDER),
                 ActiveIncidentRegistry.Phase.THREAT));
+        // The victim's right to fight back exists from this instant and outlives the session (0.7.7):
+        // a punch, a drawn weapon, sand or the thief's death all end the session before the blow that
+        // caused it is classified, so the justification is recorded now rather than read from it then.
+        MuggingThreats.opened(transactionId, thief.getUUID(), victim.getUUID(), now);
 
         CrimeDialogueService.speak(thief, victim, DialogueEvents.NPC_MUG_START,
                 CrimeDialogueService.context(level, thief, victim, transactionId, DialogueEvents.NPC_MUG_START));
@@ -294,6 +298,8 @@ public final class NpcMuggingService {
     private static void closeAborted(@Nullable MinecraftServer server, NpcMugSession session,
                                      NpcMugAbortReason reason) {
         session.markAborted();
+        MuggingThreats.closed(session.transactionId(), session.thiefId(), session.victimId(),
+                server == null ? session.startedAt() : server.overworld().getGameTime());
         ServerPlayer victim = server == null ? null : server.getPlayerList().getPlayer(session.victimId());
         if (victim != null) {
             CrimeNetwork.sendActionProgress(victim, ActionProgressS2CPacket.ended(session.transactionId(),
@@ -368,6 +374,9 @@ public final class NpcMuggingService {
         }
         TheftExecutor.TheftResult result = committed.get();
         session.markFinished();
+        // A completed robbery starts the same recovery window as an abandoned one: the victim chasing
+        // the purse down is still answering the threat that took it.
+        MuggingThreats.closed(session.transactionId(), session.thiefId(), session.victimId(), now);
         ActiveIncidentRegistry.advance(session.thiefId(), ActiveIncidentRegistry.Phase.COMMITTED);
         EnumSet<CrimeFlag> flags = ActiveIncidentRegistry.get(session.thiefId())
                 .map(ActiveIncidentRegistry.ActiveIncident::flags)
@@ -424,6 +433,22 @@ public final class NpcMuggingService {
             abort(victim, NpcMugAbortReason.CANCELLED);
         }
         SESSIONS.clear();
+        MuggingThreats.clear();
+    }
+
+    /**
+     * The victim fought back (0.7.7): a blow or a non-damaging act of resistance against the very thief
+     * holding them up ends the mugging on the spot, before anything is taken.
+     *
+     * @return true when a session of exactly this thief against exactly this victim was ended
+     */
+    public static boolean interruptByVictim(UUID victim, UUID thief) {
+        NpcMugSession session = victim == null || thief == null ? null : SESSIONS.get(victim);
+        if (session == null || !thief.equals(session.thiefId())) {
+            return false;
+        }
+        abort(victim, NpcMugAbortReason.VICTIM_RESISTED);
+        return true;
     }
 
     // ------------------------------------------------------------------ internals

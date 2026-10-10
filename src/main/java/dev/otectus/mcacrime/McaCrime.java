@@ -219,7 +219,12 @@ public final class McaCrime {
             dev.otectus.mcacrime.stat.CrimeStats.registerFormatters();
             // Last, and inside enqueueWork: every mod has finished loading by now, so ModList is
             // authoritative, and the bridge must not race our own registration.
+            // MCA's native heart hooks (0.7.7): report once whether they applied, before anything relies
+            // on the killing and hurt penalties being gated.
+            dev.otectus.mcacrime.compat.mca.NativeJusticeCapabilities.initialize();
             ReputationBridge.init();
+            // 0.7.7: Reputation's own assault and killing incidents ask the Thief combat policy too.
+            dev.otectus.mcacrime.compat.ReputationExemptionBridge.init();
             // Same discipline, one optional mod later: a fence stocks locks and picks when Locks
             // Reforged is installed, and stocks vanilla contraband only when it is not.
             LocksReforgedBridge.init();

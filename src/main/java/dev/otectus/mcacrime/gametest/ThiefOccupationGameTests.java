@@ -175,6 +175,78 @@ public final class ThiefOccupationGameTests {
         helper.succeed();
     }
 
+    /**
+     * The 0.7.7 report: a master librarian in a trading hall has no MCA home village, so the wild route
+     * took it and the transaction cleared its trades. A forced sweep at chance 1.0 must leave an
+     * established villager exactly as it was (profession, level, XP, offers and job site), while the
+     * unemployed adult beside it is recruited by the same pass, which proves the sweep really ran.
+     *
+     * <p>Its own batch: a sweep at chance 1.0 looks at every villager near every player in the level, so
+     * it must not share a batch with tests whose villagers stand nearby.
+     */
+    @GameTest(template = "cell_parity", batch = "mcacrime_recruitment_sweep", timeoutTicks = 100)
+    public static void anEstablishedLibrarianSurvivesAForcedSweep(GameTestHelper helper) {
+        ServerLevel level = helper.getLevel();
+        place(helper);
+        WorldCriminalJobService jobs = WorldCriminalJobService.of(level.getServer());
+        CrimeWorldData world = CrimeWorldData.get(level.getServer());
+        Mob librarian = villager(helper);
+        Mob blank = villagerAt(helper, new BlockPos(9, 1, 9));
+        var observer = new net.neoforged.neoforge.common.util.FakePlayer(level,
+                new com.mojang.authlib.GameProfile(UUID.randomUUID(), "SweepObserver"));
+        try {
+            Villager trader = (Villager) librarian;
+            ResourceLocation librarianId = ResourceLocation.withDefaultNamespace("librarian");
+            helper.assertTrue(McaCompat.setVillagerProfession(librarian, librarianId),
+                    "Cannot make the fixture a librarian");
+            trader.setVillagerData(trader.getVillagerData().setLevel(5));
+            trader.setVillagerXp(250);
+            var offers = trader.getOffers();
+            if (offers.isEmpty()) {
+                offers.add(new net.minecraft.world.item.trading.MerchantOffer(
+                        new net.minecraft.world.item.trading.ItemCost(net.minecraft.world.item.Items.EMERALD, 1),
+                        new net.minecraft.world.item.ItemStack(net.minecraft.world.item.Items.BOOK), 12, 5, 0.05F));
+            }
+            offers.get(0).increaseUses();
+            var offersBefore = offers.copy();
+            var site = net.minecraft.core.GlobalPos.of(level.dimension(), helper.absolutePos(new BlockPos(3, 1, 3)));
+            OccupationCompat.setJobSite(librarian, site);
+            helper.assertTrue(WorldCriminalJobService.established(librarian), "The librarian fixture is not established");
+            helper.assertTrue(!WorldCriminalJobService.established(blank), "The control fixture is already established");
+
+            BlockPos at = helper.absolutePos(new BlockPos(6, 1, 4));
+            observer.setPos(at.getX() + 0.5, at.getY(), at.getZ() + 0.5);
+            level.addNewPlayer(observer);
+            dev.otectus.mcacrime.job.CriminalJobAssignmentSweep.sweep(level.getServer(),
+                    new dev.otectus.mcacrime.job.CriminalJobAssigner.AssignmentPolicy(true, true, 1.0D, 1.0D, 1.0D, 1, 0));
+
+            helper.assertTrue(jobs.get(blank.getUUID()) == CriminalJob.THIEF,
+                    "The forced sweep did not recruit the unemployed control, so it proves nothing");
+            helper.assertTrue(world.criminalVillager(librarian.getUUID()) == null && jobs.get(librarian.getUUID()) == CriminalJob.NONE,
+                    "The sweep wrote a criminal record for an established librarian");
+            helper.assertTrue(librarianId.equals(McaCompat.getProfessionId(librarian).orElse(null)),
+                    "The librarian's profession became " + McaCompat.getProfessionId(librarian));
+            helper.assertTrue(trader.getVillagerData().getLevel() == 5, "The librarian lost its level");
+            helper.assertTrue(trader.getVillagerXp() == 250, "The librarian's trading XP became " + trader.getVillagerXp());
+            var offersAfter = ((dev.otectus.mcacrime.mixin.MerchantOffersAccessor) trader).mcacrime$rawOffers();
+            helper.assertTrue(offersAfter != null && offersAfter.size() == offersBefore.size()
+                            && offersAfter.get(0).getUses() == offersBefore.get(0).getUses()
+                            && net.minecraft.world.item.ItemStack.matches(offersAfter.get(0).getResult(), offersBefore.get(0).getResult()),
+                    "The librarian's offers were changed or cleared");
+            helper.assertTrue(site.equals(OccupationCompat.jobSite(librarian).orElse(null)),
+                    "The librarian's job site memory was erased");
+            OccupationTransitionResult forced = jobs.requestThiefOccupation(
+                    OccupationRequest.unbound(librarian.getUUID(), OccupationSource.WILD, true));
+            helper.assertTrue(forced.rejected() && forced.reason() == OccupationTransitionReason.ALREADY_EMPLOYED,
+                    "A wild request for the librarian was " + forced.outcome() + "/" + forced.reason());
+        } finally {
+            observer.discard();
+            cleanUp(jobs, world, librarian);
+            cleanUp(jobs, world, blank);
+        }
+        helper.succeed();
+    }
+
     // ------------------------------------------------------------------ fixture
 
     /** A rejection may not consume the station, write a record, or leave the villager half-changed. */
@@ -200,11 +272,15 @@ public final class ThiefOccupationGameTests {
     }
 
     /** An adult MCA villager beside the station, resolved by name like every other MCA fixture here. */
-    @SuppressWarnings("unchecked")
     private static Mob villager(GameTestHelper helper) {
+        return villagerAt(helper, CANDIDATE);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Mob villagerAt(GameTestHelper helper, BlockPos at) {
         EntityType<? extends Mob> type = (EntityType<? extends Mob>) BuiltInRegistries.ENTITY_TYPE
                 .getOptional(ResourceLocation.fromNamespaceAndPath("mca", "male_villager")).orElseThrow();
-        Mob mob = helper.spawn(type, CANDIDATE);
+        Mob mob = helper.spawn(type, at);
         ((Villager) mob).setAge(0);
         mob.setNoAi(true);
         mob.setOnGround(true);

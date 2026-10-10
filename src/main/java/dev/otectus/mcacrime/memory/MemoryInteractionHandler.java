@@ -46,10 +46,17 @@ import net.neoforged.neoforge.event.entity.player.PlayerInteractEvent;
 public final class MemoryInteractionHandler {
     private MemoryInteractionHandler() {}
 
+    /** Server-side slack on top of the player's own entity reach, for movement and latency. */
+    private static final double REACH_PADDING = 3.0D;
+
     @SubscribeEvent(priority = EventPriority.LOWEST)
     public static void onInteract(PlayerInteractEvent.EntityInteract event) {
         if (!(event.getEntity() instanceof ServerPlayer player) || !(event.getTarget() instanceof LivingEntity villager)
                 || !McaCompat.isMcaVillager(villager)) return;
+        // 0.7.7: a click is only a conversation with a villager the player can actually reach. Another
+        // mod posting this event for a distant or cross-dimension villager must not be refused, blamed or
+        // turned into an apology on that player's behalf.
+        if (!withinReach(player, villager)) return;
         long now = player.serverLevel().getGameTime();
         // Invariant 11: the companion hand path of a click already claimed is consumed, not re-routed.
         if (ApologyClaimLedger.isCompanionPath(player.getUUID(), villager.getUUID(), now)) {
@@ -81,21 +88,65 @@ public final class MemoryInteractionHandler {
             case NOT_CLAIMED, PASS_THROUGH -> { }
         }
 
-        var strongest = memories.stream().max(java.util.Comparator.comparingDouble(m -> m.fear() + m.anger())).orElseThrow();
         if (dev.otectus.mcacrime.detect.EntitySelectors.isResponder(villager)) return;
-        if (strongest.fear() < 0.45 && strongest.anger() < 0.6) return;
+        // 0.7.7: the gate reads the apology flag. Before, fear and anger alone refused, so an accepted
+        // apology for one punch still cancelled every later click.
+        var gate = VictimMemoryService.conversation(player.getServer(), villager.getUUID(), player.getUUID());
+        if (gate.allows() || gate.deciding() == null) return;
         event.setCanceled(true); event.setCancellationResult(InteractionResult.SUCCESS);
         if (event.getHand() != InteractionHand.MAIN_HAND) return;
-        var line = McaCrime.id(strongest.category().equals("FAMILY_HARM") ? "memory_family"
-                : strongest.restitutionPaid() ? "memory_restitution" : strongest.fear() >= 0.45 ? "memory_fear" : "memory_anger");
-        CrimeDialogueService.speak(villager, player, line,
-                CrimeDialogueService.context(player.serverLevel(), villager, player, strongest.incident(), line));
-        // Where conversation is refused, the player hears the true reason — the wait they are actually
-        // in — instead of a generic hint, and never "they have no history with you".
-        player.sendSystemMessage(Component.translatable(
-                reasonKey == null || reasonKey.isEmpty() ? "mcacrime.apologize.hint" : reasonKey));
-        if (strongest.fear() >= 0.45 && CrimeReactionService.stateOf(villager.getUUID()) == VictimReactionState.CALM)
+        VictimCrimeMemory strongest = gate.deciding();
+        double decay = McaCrimeConfig.COMMON.memoryDecayMultiplier.get();
+        boolean afraid = strongest.fearAt(player.getServer().overworld().getGameTime(), decay)
+                >= ConversationGate.FEAR_BLOCK;
+        if (gate.verdict() == ConversationGate.Verdict.WARY) {
+            // The apology was heard and accepted; what remains is a grave memory that has to fade.
+            var line = dev.otectus.mcacrime.dialogue.DialogueEvents.MEMORY_APOLOGIZED;
+            CrimeDialogueService.speak(villager, player, line,
+                    CrimeDialogueService.context(player.serverLevel(), villager, player, strongest.incident(), line));
+            long days = ConversationGate.daysRemaining(gate.ticksRemaining());
+            player.sendSystemMessage(days == Long.MAX_VALUE
+                    ? Component.translatable("mcacrime.apologize.still_wary_indefinite")
+                    : Component.translatable("mcacrime.apologize.still_wary", days));
+        } else {
+            var line = McaCrime.id(strongest.category() == CrimeMemoryCategory.FAMILY_HARM ? "memory_family"
+                    : strongest.restitutionPaid() ? "memory_restitution" : afraid ? "memory_fear" : "memory_anger");
+            CrimeDialogueService.speak(villager, player, line,
+                    CrimeDialogueService.context(player.serverLevel(), villager, player, strongest.incident(), line));
+            // Where conversation is refused, the player hears the true reason — the wait they are actually
+            // in — and never "they have no history with you". The how-to hint is only for a click that
+            // was not the apology gesture at all; a gesture that was refused already said why.
+            String message = refusalMessage(reasonKey, decision.route(),
+                    VictimMemoryService.apologyStatus(player.getServer(), villager.getUUID(), player.getUUID(), now),
+                    McaCrimeConfig.COMMON.emptyHandApologyMode.get());
+            if (message != null) player.sendSystemMessage(Component.translatable(message));
+        }
+        if (afraid && CrimeReactionService.stateOf(villager.getUUID()) == VictimReactionState.CALM)
             CrimeReactionService.trigger(player.serverLevel(), villager, player.getUUID(), VictimReactionState.FLEEING, null);
+    }
+
+    /**
+     * The one line that explains a refusal (0.7.7): the reason a usable gesture was refused, else the
+     * true apology status, else the how-to hint when an apology is available but the click was not the
+     * gesture. Null when there is nothing true to add to the villager's own line.
+     */
+    public static String refusalMessage(String reasonKey, ApologyInteractionPolicy.Route route, ApologyStatus status,
+                                        ApologyInteractionPolicy.Mode mode) {
+        if (reasonKey != null && !reasonKey.isEmpty()) return reasonKey;
+        boolean gestureUsed = route == ApologyInteractionPolicy.Route.EXECUTE
+                || route == ApologyInteractionPolicy.Route.REFUSE_WITH_REASON;
+        return switch (status) {
+            // The hint describes the empty-hand gesture, so it is wrong in MENU_ONLY mode.
+            case READY -> gestureUsed || mode != ApologyInteractionPolicy.Mode.CONTEXTUAL_DIRECT
+                    ? null : "mcacrime.apologize.hint";
+            case GIVE_SPACE, COOLDOWN, DISABLED -> status.reason();
+            case NOT_NEEDED, ALREADY_APOLOGIZED -> null;
+        };
+    }
+
+    /** Same level, and within the player's entity interaction range plus {@link #REACH_PADDING}. */
+    private static boolean withinReach(ServerPlayer player, LivingEntity villager) {
+        return player.level() == villager.level() && player.canInteractWithEntity(villager, REACH_PADDING);
     }
 
     /** Live world state, reduced to the plain facts the routing table is written against. */

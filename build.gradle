@@ -663,11 +663,13 @@ tasks.register('checkJarContents') {
         if (!plural.isEmpty()) {
             problems << "1.20.1 plural data director(ies): ${plural.take(5)}"
         }
-        // Exactly these two, by name. The required vanilla config and the optional, plugin-gated
-        // Townstead one; a missing entry means the matching [[mixins]] block points at nothing, and an
-        // extra one means a config was added without being declared in neoforge.mods.toml.
-        // No refmap is expected in either - NeoForge 1.21.1 production runs on Mojang names.
-        def expectedMixinConfigs = ['mcacrime.mixins.json', 'mcacrime.townstead.mixins.json']
+        // Exactly these three, by name. The required vanilla config, the optional, plugin-gated
+        // Townstead one, and (0.7.7) the optional, plugin-gated MCA heart hooks; a missing entry means
+        // the matching [[mixins]] block points at nothing, and an extra one means a config was added
+        // without being declared in neoforge.mods.toml.
+        // No refmap is expected in any - NeoForge 1.21.1 production runs on Mojang names.
+        def expectedMixinConfigs = ['mcacrime.mixins.json', 'mcacrime.townstead.mixins.json',
+                                    'mcacrime.mca.mixins.json']
         def mixinConfigs = entries.findAll { it.endsWith('.mixins.json') }.sort()
         if (mixinConfigs != expectedMixinConfigs.sort()) {
             problems << "expected exactly ${expectedMixinConfigs}, found ${mixinConfigs}"

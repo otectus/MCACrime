@@ -1,0 +1,14 @@
+{
+  "required": false,
+  "minVersion": "0.8",
+  "package": "dev.otectus.mcacrime.mixin.mca",
+  "compatibilityLevel": "JAVA_21",
+  "plugin": "dev.otectus.mcacrime.mixin.mca.McaJusticeMixinPlugin",
+  "mixins": [
+    "TragedyPenaltyMarker",
+    "VillagerPenaltyMarker"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

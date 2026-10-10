@@ -186,6 +186,12 @@ public final class CrimeCommand {
                         .requires(src -> src.hasPermission(3))
                         .then(Commands.argument("target", EntityArgument.player())
                                 .executes(CrimeCommand::release)))
+                .then(Commands.literal("repair")
+                        .requires(src -> src.hasPermission(3))
+                        .then(Commands.argument("target", EntityArgument.player())
+                                .executes(ctx -> repair(ctx, false))
+                                .then(Commands.literal("inspect")
+                                        .executes(ctx -> repair(ctx, true)))))
                 .then(Commands.literal("assignjail")
                         .requires(src -> src.hasPermission(3))
                         .then(Commands.argument("pos", BlockPosArgument.blockPos())
@@ -367,6 +373,10 @@ public final class CrimeCommand {
                         }))
                         .then(Commands.literal("thieves")
                                 .executes(CrimeCommand::debugThieves))
+                        .then(Commands.literal("thief")
+                                .executes(ctx -> debugThief(ctx, null))
+                                .then(Commands.argument("villager", EntityArgument.entity())
+                                        .executes(ctx -> debugThief(ctx, EntityArgument.getEntity(ctx, "villager")))))
                         .then(Commands.literal("bounty")
                                 .executes(CrimeCommand::debugBounty))
                         .then(Commands.literal("jobs")
@@ -578,7 +588,71 @@ public final class CrimeCommand {
             jailInfo = Component.translatable("mcacrime.command.status.jail.none");
         }
         src.sendSuccess(() -> Component.translatable("mcacrime.command.status.jail", jailInfo), false);
+        sendSentence(src, player);
     }
+
+    /**
+     * Why a prisoner is held and how they get out (0.7.7): the charges the sentence was handed down for,
+     * the time left and why it is paused if it is, the Heat it answers for, and the ways out that exist.
+     */
+    private static void sendSentence(CommandSourceStack src, ServerPlayer player) {
+        var jail = dev.otectus.mcacrime.state.CrimeAttachments.get(player).getJail();
+        MinecraftServer server = player.getServer();
+        if (jail == null || server == null) {
+            return;
+        }
+        src.sendSuccess(() -> Component.translatable("mcacrime.command.status.sentence",
+                dev.otectus.mcacrime.util.TickFormat.compact(jail.getRemainingOnlineTicks())), false);
+        if (jail.isEscaped()) {
+            String pause = jail.isCuffEscape() ? "cuff_escape"
+                    : jail.isTemporaryCell() && dev.otectus.mcacrime.jail.HoldingCellService.existingFor(server,
+                            player.getUUID()) == null ? "cell_gone" : "escaped";
+            src.sendSuccess(() -> Component.translatable("mcacrime.command.status.sentence.paused." + pause)
+                    .withStyle(ChatFormatting.YELLOW), false);
+        }
+        var cases = CrimeWorldData.get(server).casesForSentence(player.getUUID(), jail.getSentenceId());
+        if (cases.isEmpty()) {
+            src.sendSuccess(() -> Component.translatable("mcacrime.command.status.sentence.heat_only"), false);
+        } else {
+            net.minecraft.network.chat.MutableComponent list = Component.empty();
+            for (int i = 0; i < cases.size(); i++) {
+                var type = cases.get(i).type();
+                if (i > 0) list.append(Component.literal(", "));
+                list.append(Component.translatable("crime." + type.getNamespace() + "." + type.getPath()));
+            }
+            src.sendSuccess(() -> Component.translatable("mcacrime.command.status.sentence.charges", list), false);
+        }
+        long obligation = dev.otectus.mcacrime.jail.JailService.sentenceHeat(player);
+        src.sendSuccess(() -> Component.translatable("mcacrime.command.status.sentence.heat", obligation), false);
+        boolean bail = McaCrimeConfig.COMMON.enableBail.get();
+        src.sendSuccess(() -> bail
+                ? Component.translatable("mcacrime.command.status.sentence.options_bail",
+                        dev.otectus.mcacrime.economy.Currencies.active().format(
+                                dev.otectus.mcacrime.action.handler.BailActionHandler.cost(jail)))
+                : Component.translatable("mcacrime.command.status.sentence.options"), false);
+    }
+
+    /**
+     * Inspects, and unless asked only to inspect repairs, a player stuck in or around a jail (0.7.7).
+     * Every repair is idempotent and none forgives a crime; see JailRecovery.
+     */
+    private static int repair(CommandContext<CommandSourceStack> ctx, boolean inspectOnly) throws CommandSyntaxException {
+        ServerPlayer target = EntityArgument.getPlayer(ctx, "target");
+        var findings = inspectOnly ? dev.otectus.mcacrime.jail.JailRecovery.inspect(target)
+                : dev.otectus.mcacrime.jail.JailRecovery.repair(target, false);
+        if (findings.isEmpty()) {
+            ctx.getSource().sendSuccess(() -> Component.translatable("mcacrime.repair.none", target.getName()), true);
+        }
+        for (var finding : findings) {
+            String outcome = inspectOnly ? "mcacrime.repair.found"
+                    : finding.repairable() ? "mcacrime.repair.repaired" : "mcacrime.repair.reported";
+            ctx.getSource().sendSuccess(() -> Component.translatable(outcome,
+                    Component.translatable(finding.messageKey())), true);
+        }
+        sendStatus(ctx.getSource(), target);
+        return findings.size();
+    }
+
 
     // --- op mutators (all via CrimeState) ---
 
@@ -611,6 +685,14 @@ public final class CrimeCommand {
     }
 
     private static int validate(CommandContext<CommandSourceStack> ctx) {
+        // 0.7.7: whether MCA's own heart penalties are gated at all on this MCA build. A degraded answer
+        // is not a config problem, so it is reported beside the result rather than as one.
+        ctx.getSource().sendSuccess(() -> Component.literal("Native heart hooks: "
+                + dev.otectus.mcacrime.compat.mca.NativeJusticeCapabilities.status()
+                + "; applied=" + dev.otectus.mcacrime.mixin.mca.McaJusticeMixinPlugin.APPLIED
+                + "; degraded=" + dev.otectus.mcacrime.mixin.mca.McaJusticeMixinPlugin.DEGRADED
+                + "; thief combat policy=" + McaCrimeConfig.COMMON.thiefCombatPolicy.get()
+                + "; Reputation exemption=" + dev.otectus.mcacrime.compat.ReputationExemptionBridge.status()), false);
         List<String> problems = ConfigValidator.validateCurrentConfig();
         if (problems.isEmpty()) {
             ctx.getSource().sendSuccess(() -> Component.translatable("mcacrime.command.validate.ok"), false);
@@ -1514,6 +1596,55 @@ public final class CrimeCommand {
                                 + (record.wildOrigin() ? " wild" : ""))
                 .withStyle(ChatFormatting.DARK_GRAY), false));
         return records.size();
+    }
+
+    /**
+     * One villager's whole theft eligibility (0.7.7), defaulting to the nearest MCA villager.
+     *
+     * <p>Reports the native profession beside the label MCA's own screen derives from it and the
+     * clothing it wears, then the record, the facts and the exact condition that refuses -- so an
+     * operator can tell an actual nitwit from a canonical Thief that somebody remembers as one, and a
+     * stale record from a working Thief, without reading world data by hand.
+     */
+    private static int debugThief(CommandContext<CommandSourceStack> ctx, @Nullable Entity explicit)
+            throws CommandSyntaxException {
+        CommandSourceStack source = ctx.getSource();
+        Entity villager = explicit != null ? explicit
+                : nearestMcaVillager(source.getPlayerOrException(), JOB_TARGET_RADIUS);
+        if (villager == null) {
+            source.sendFailure(Component.literal("No MCA villager within " + (int) JOB_TARGET_RADIUS
+                    + " blocks; name one with /crime debug thief <villager>"));
+            return 0;
+        }
+        WorldCriminalJobService jobs = WorldCriminalJobService.of(source.getServer());
+        WorldCriminalJobService.ActorDiagnosis d = jobs.diagnose(villager);
+        var record = d.record();
+        var facts = d.facts();
+        Entity shown = villager;
+        source.sendSuccess(() -> Component.literal("Thief diagnostics for ").append(shown.getDisplayName())
+                .append(Component.literal(" (" + shown.getUUID() + ")")), false);
+        source.sendSuccess(() -> Component.literal("  native profession: "
+                        + (d.nativeProfession() == null ? "<unreadable>" : d.nativeProfession()) + "  MCA shows: ")
+                .append(Component.translatable(d.labelKey()))
+                .append(Component.literal(" (" + d.labelKey() + ")")), false);
+        source.sendSuccess(() -> Component.literal("  clothing: "
+                + (d.clothing() == null ? "<unreadable>" : d.clothing())), false);
+        source.sendSuccess(() -> Component.literal(record == null ? "  record: none"
+                : "  record: job=" + record.job().id() + " status=" + record.status().id()
+                        + " source=" + record.source().id()
+                        + " worksite=" + (record.worksite() == null ? "<none>" : record.worksite().pos().toShortString())
+                        + " previous=" + (record.previousProfessionId().isBlank() ? "<none>" : record.previousProfessionId())), false);
+        source.sendSuccess(() -> Component.literal("  facts: adult=" + facts.adult() + " responder=" + facts.responder()
+                + " classifiable=" + facts.classifiable() + " mcaVillager=" + facts.mcaVillager()
+                + " established=" + WorldCriminalJobService.established(shown)), false);
+        source.sendSuccess(() -> Component.literal(d.execution().eligible() ? "  may steal now: yes"
+                : "  may steal now: no -- " + d.executionDetail()), false);
+        source.sendSuccess(() -> Component.literal(d.assignment().eligible() ? "  may hold a criminal job: yes"
+                : "  may hold a criminal job: no -- " + d.assignment().reason().name().toLowerCase(java.util.Locale.ROOT)), false);
+        NpcMuggingService.sessionForThief(villager.getUUID()).ifPresent(session -> source.sendSuccess(() ->
+                Component.literal("  mugging " + session.victimId() + " " + session.progress() + "/"
+                        + session.requiredTicks()), false));
+        return d.execution().eligible() ? 1 : 0;
     }
 
     /**

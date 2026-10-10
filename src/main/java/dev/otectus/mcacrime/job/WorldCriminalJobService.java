@@ -166,23 +166,43 @@ public final class WorldCriminalJobService implements CriminalJobService {
      * permanent.
      */
     public NpcMuggerEligibility.Result tryAssign(UUID villager, CriminalJob job, boolean wildOrigin) {
+        return tryAssign(villager, job, wildOrigin, OccupationSource.OPERATOR);
+    }
+
+    /**
+     * {@link #tryAssign(UUID, CriminalJob, boolean)} with the asking route named (0.7.7).
+     *
+     * <p>An {@link OccupationSource#automatic() automatic} route may not relabel an established
+     * villager. The fence route is the one this exists for: it used to call the operator overload, so a
+     * fence roll could put the fence profession on a master librarian, and the vanilla profession change
+     * nulled its offers. Operator and API calls go through the three-argument form and keep their
+     * behaviour.
+     */
+    public NpcMuggerEligibility.Result tryAssign(UUID villager, CriminalJob job, boolean wildOrigin,
+                                                 OccupationSource source) {
         if (server == null || villager == null || job == null || !ServerMutationGate.allows(server)) {
             return new NpcMuggerEligibility.Result(false, NpcMuggerEligibilityReason.NOT_LOADED);
         }
+        OccupationSource route = source == null ? OccupationSource.OPERATOR : source;
         if (job != CriminalJob.NONE) {
+            Entity entity = findLoaded(villager);
             NpcMuggerEligibility.Result role =
-                    NpcMuggerEligibility.evaluate(facts(findLoaded(villager), job),
+                    NpcMuggerEligibility.evaluate(facts(entity, job),
                             NpcMuggerEligibility.Context.ASSIGNMENT);
             if (role.rejected()) {
                 CrimeDebug.crime("Criminal job {} refused for {}: {}", job, villager, role.reason());
                 return role;
             }
+            if (route.automatic() && get(villager) == CriminalJob.NONE && established(entity)) {
+                CrimeDebug.crime("Criminal job {} refused for {}: established profession", job, villager);
+                return new NpcMuggerEligibility.Result(false, NpcMuggerEligibilityReason.ESTABLISHED_PROFESSION);
+            }
         }
-        applyAssignment(villager, job, wildOrigin);
+        applyAssignment(villager, job, wildOrigin, route);
         return new NpcMuggerEligibility.Result(true, NpcMuggerEligibilityReason.ELIGIBLE);
     }
 
-    private void applyAssignment(UUID villager, CriminalJob job, boolean wildOrigin) {
+    private void applyAssignment(UUID villager, CriminalJob job, boolean wildOrigin, OccupationSource source) {
         if (job == CriminalJob.NONE && get(villager) == CriminalJob.THIEF) {
             // Clearing an exclusive occupation is a transition too: the station claim has to be given
             // back and the previous profession restored, which a record deletion would not do.
@@ -211,8 +231,7 @@ public final class WorldCriminalJobService implements CriminalJobService {
             CrimeDebug.crime("Criminal job cleared for {} (was {})", villager, previous);
         } else {
             CriminalVillagerRecord record = existing == null
-                    ? CriminalVillagerRecord.fresh(villager, job, day, wildOrigin, seedFor(villager),
-                            OccupationSource.OPERATOR)
+                    ? CriminalVillagerRecord.fresh(villager, job, day, wildOrigin, seedFor(villager), source)
                     : existing.withJob(job).withLastSeenDay(day);
             if (!world.putCriminalVillager(record).stored()) return;
             applyPresentation(villager);
@@ -521,13 +540,21 @@ public final class WorldCriminalJobService implements CriminalJobService {
         CriminalVillagerRecord existing = world.criminalVillager(villager);
         boolean alreadyThief = existing != null && existing.job() == CriminalJob.THIEF
                 && CriminalProfessions.THIEF_ID.equals(McaCompat.getProfessionId(entity).orElse(null));
-        if (request.source().requiresStation()) {
+        if (request.source().automatic()) {
+            // 0.7.7: every route nobody asked for, the wild one included, leaves an established villager
+            // alone. Until then only the station routes asked, and only about employment, so a master
+            // librarian with no home village could be recruited wild and lose every trade.
             if (McaHandles.isProfessionImportant(entity)) {
                 return OccupationTransitionResult.rejected(OccupationTransitionReason.PROTECTED_NPC);
             }
-            if (!alreadyThief && employedElsewhere(entity)) {
-                // Spec §10.1: the settlement path never secretly converts an employed villager.
-                return OccupationTransitionResult.rejected(OccupationTransitionReason.ALREADY_EMPLOYED);
+            // An existing Thief keeps its bypass: it holds one trading XP by design (the reset floor),
+            // and rebinding it to a replacement station is not a recruitment.
+            if (!alreadyThief) {
+                RecruitmentEligibility.Verdict verdict =
+                        RecruitmentEligibility.evaluate(OccupationCompat.recruitmentFacts(entity));
+                if (verdict.rejected()) {
+                    return OccupationTransitionResult.rejected(transitionReasonFor(verdict));
+                }
             }
         }
 
@@ -626,6 +653,44 @@ public final class WorldCriminalJobService implements CriminalJobService {
     }
 
     /**
+     * Retires a Thief record whose villager somebody else has already given another profession (0.7.7).
+     *
+     * <p>{@link #retireOccupation} is the transition for a Thief this mod is ending: it clears the work
+     * memories, zeroes trading XP and puts the remembered profession back. None of that is right when
+     * another writer ended it first -- a datapack, a command, a settlement companion, MCA's own editor.
+     * The villager belongs to the new profession now, and a librarian keeps its lectern, its experience
+     * and its trades. So only what this mod still holds is given back: the Mask Station claim and any
+     * reservation, and a work memory only while it still points at that station. Stolen property, cases
+     * and legal history are not touched; the record stays, retired, as every retirement keeps it.
+     */
+    public OccupationTransitionResult retireAfterExternalChange(UUID villager) {
+        if (server == null || villager == null || !ServerMutationGate.allows(server)) {
+            return OccupationTransitionResult.rejected(OccupationTransitionReason.NOT_MUTABLE);
+        }
+        CrimeWorldData world = CrimeWorldData.get(server);
+        CriminalVillagerRecord existing = world.criminalVillager(villager);
+        if (existing == null || existing.job() != CriminalJob.THIEF) {
+            return OccupationTransitionResult.rejected(OccupationTransitionReason.NOT_ELIGIBLE);
+        }
+        Entity entity = findLoaded(villager);
+        if (entity != null && entity.level() instanceof ServerLevel level) {
+            for (WorksiteRef held : new WorksiteRef[]{existing.worksite(), existing.reservation()}) {
+                if (held != null && held.matches(level)) {
+                    OccupationCompat.releaseTicket(level, held.pos());
+                    OccupationCompat.forgetWorkSite(entity, held.toGlobalPos(level));
+                }
+            }
+        }
+        world.putCriminalVillager(existing.retired().withSource(OccupationSource.MIGRATION));
+        dev.otectus.mcacrime.ai.thief.ThiefTicker.stop(villager);
+        NeoForge.EVENT_BUS.post(new CriminalJobChangedEvent(villager, CriminalJob.THIEF, CriminalJob.NONE));
+        broadcast(villager, CriminalJob.NONE);
+        CrimeDebug.crime("Thief record for {} retired after an external profession change; the new "
+                + "profession, its experience and its workstation were left alone", villager);
+        return OccupationTransitionResult.committed(OccupationStatus.RETIRED);
+    }
+
+    /**
      * Charges the village's assignment cooldown, and only once a recruitment has actually committed.
      *
      * <p>Spec §10.1. The sweep used to stamp this the instant it rolled a thief, so a village whose
@@ -671,13 +736,87 @@ public final class WorldCriminalJobService implements CriminalJobService {
         return CriminalProfessions.THIEF_ID.equals(McaCompat.getProfessionId(entity).orElse(null));
     }
 
-    /** True when this villager already holds some other profession (spec §10.1's "unemployed adults"). */
-    private static boolean employedElsewhere(Entity entity) {
-        ResourceLocation current = McaCompat.getProfessionId(entity).orElse(null);
-        if (current == null) {
-            return true; // unreadable is not unemployed
+    /**
+     * Everything that decides whether one villager may steal, gathered in one place (0.7.7).
+     *
+     * <p>Built for {@code /crime debug thief} and for the actor-matrix runtime checks, because "a nitwit
+     * robbed me" has three different answers that look identical in play: an actual
+     * {@code minecraft:nitwit} acting (a defect), a canonical Thief that somebody remembers as a nitwit
+     * (a past recruitment), and a stale record on a villager whose profession has since changed (which
+     * cannot act). The native profession, the label MCA's own screen derives from it, the clothing and
+     * the record are each reported, beside the exact refusal.
+     *
+     * @param labelKey          the translation key MCA's interaction screen shows for this profession,
+     *                          derived exactly the way MCA derives it
+     * @param executionDetail   empty when the actor may act; otherwise which condition refused
+     */
+    public record ActorDiagnosis(@Nullable ResourceLocation nativeProfession, String labelKey,
+                                 @Nullable String clothing, @Nullable CriminalVillagerRecord record,
+                                 NpcMuggerEligibility.Facts facts, NpcMuggerEligibility.Result execution,
+                                 NpcMuggerEligibility.Result assignment, String executionDetail) {
+    }
+
+    /** {@link ActorDiagnosis} for a loaded entity. */
+    public ActorDiagnosis diagnose(Entity entity) {
+        ResourceLocation profession = entity == null ? null : McaCompat.getProfessionId(entity).orElse(null);
+        CriminalVillagerRecord record = entity == null ? null : raw(entity.getUUID());
+        NpcMuggerEligibility.Facts facts = facts(entity, entity == null ? CriminalJob.NONE : get(entity.getUUID()));
+        NpcMuggerEligibility.Result execution = evaluate(entity, NpcMuggerEligibility.Context.EXECUTION);
+        NpcMuggerEligibility.Result assignment = NpcMuggerEligibility.evaluate(facts,
+                NpcMuggerEligibility.Context.ASSIGNMENT);
+        String detail = "";
+        if (execution.rejected()) {
+            NpcMuggerEligibility.Result base = NpcMuggerEligibility.evaluate(facts,
+                    NpcMuggerEligibility.Context.EXECUTION);
+            if (base.rejected()) {
+                detail = base.reason().name().toLowerCase(java.util.Locale.ROOT);
+            } else if (record == null || record.job() != CriminalJob.THIEF) {
+                detail = "no Thief record";
+            } else if (!record.status().mayMug()) {
+                detail = "occupation status " + record.status().id() + " may not act";
+            } else {
+                detail = "native profession " + (profession == null ? "<unreadable>" : profession)
+                        + " is not " + CriminalProfessions.THIEF_ID;
+            }
         }
-        return !"none".equals(current.getPath()) && !CriminalProfessions.THIEF_ID.equals(current);
+        return new ActorDiagnosis(profession, mcaLabelKey(profession),
+                entity == null ? null : dev.otectus.mcacrime.compat.mca.McaHandles.clothes(entity).orElse(null),
+                record, facts, execution, assignment, detail);
+    }
+
+    /**
+     * The key MCA's interaction screen renders for a profession, by MCA's own rule: a vanilla
+     * profession by its path ({@code none} becomes {@code mca.none}), anything else by its full id with
+     * the colon replaced, all under {@code entity.minecraft.villager.}.
+     */
+    public static String mcaLabelKey(@Nullable ResourceLocation profession) {
+        String name;
+        if (profession == null) {
+            name = "mca.none";
+        } else if ("minecraft".equals(profession.getNamespace())) {
+            name = "none".equals(profession.getPath()) ? "mca.none" : profession.getPath();
+        } else {
+            name = profession.toString().replace(':', '.');
+        }
+        return "entity.minecraft.villager." + name;
+    }
+
+    /**
+     * Whether an automatic route must leave this villager alone (0.7.7): a profession, trading XP, a
+     * level, a used offer, MCA's protection, or nothing readable at all.
+     */
+    public static boolean established(@Nullable Entity entity) {
+        return RecruitmentEligibility.evaluate(OccupationCompat.recruitmentFacts(entity)).rejected();
+    }
+
+    private static OccupationTransitionReason transitionReasonFor(RecruitmentEligibility.Verdict verdict) {
+        return switch (verdict) {
+            case PROTECTED -> OccupationTransitionReason.PROTECTED_NPC;
+            case EMPLOYED -> OccupationTransitionReason.ALREADY_EMPLOYED;
+            case TRADED -> OccupationTransitionReason.ESTABLISHED_TRADER;
+            case UNREADABLE -> OccupationTransitionReason.CLASSIFICATION_UNAVAILABLE;
+            case ELIGIBLE -> OccupationTransitionReason.OK;
+        };
     }
 
     private static OccupationTransitionReason reasonFor(NpcMuggerEligibilityReason reason) {

@@ -34,7 +34,9 @@ public final class PlayerCardScreenHooks {
 
     @SubscribeEvent
     public static void onInit(ScreenEvent.Init.Post event) {
-        if (!(event.getScreen() instanceof InventoryScreen screen)
+        // The screen before the config, and the config's loaded state before its value (0.7.7): see
+        // McaCrimeConfig.clientLoaded.
+        if (!(event.getScreen() instanceof InventoryScreen screen) || !McaCrimeConfig.clientLoaded()
                 || !McaCrimeConfig.CLIENT.showPlayerCardButton.get()) {
             return;
         }
@@ -44,7 +46,7 @@ public final class PlayerCardScreenHooks {
 
     @SubscribeEvent
     public static void onRender(ScreenEvent.Render.Post event) {
-        if (!(event.getScreen() instanceof InventoryScreen screen)
+        if (!(event.getScreen() instanceof InventoryScreen screen) || !McaCrimeConfig.clientLoaded()
                 || !McaCrimeConfig.CLIENT.showPlayerCardButton.get()) {
             return;
         }

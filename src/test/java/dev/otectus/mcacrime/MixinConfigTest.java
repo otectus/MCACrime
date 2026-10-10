@@ -38,11 +38,15 @@ class MixinConfigTest {
 
     private static final Path CONFIG = TestPaths.resources("mcacrime.mixins.json");
     private static final Path TOWNSTEAD_CONFIG = TestPaths.resources("mcacrime.townstead.mixins.json");
+    /** The optional MCA heart-hook layer (0.7.7), plugin-gated like the Townstead one. */
+    private static final Path MCA_CONFIG = TestPaths.resources("mcacrime.mca.mixins.json");
     private static final Path MIXIN_SOURCE_ROOT =
             TestPaths.sources("dev", "otectus", "mcacrime", "mixin");
 
     /** The sub-package whose classes belong to the Townstead config rather than the main one. */
     private static final String TOWNSTEAD_PREFIX = "townstead.";
+    /** The sub-package whose classes belong to the MCA heart-hook config. */
+    private static final String MCA_PREFIX = "mca.";
 
     /** Townstead's package root, dotted — the only form a Crime class is allowed to carry. */
     private static final String TOWNSTEAD_PACKAGE = "com.aetherianartificer.townstead.";
@@ -73,6 +77,7 @@ class MixinConfigTest {
                 "RestraintPlayerActionMixin",
                 "SandSensingMixin",
                 "ThiefBrainMixin",
+                "ThiefGossipMixin",
                 "ThiefPoiValidationMixin"), mixins(CONFIG, "mixins"));
         assertEquals(List.of("client.RestraintPoseMixin"), mixins(CONFIG, "client"));
     }
@@ -125,7 +130,7 @@ class MixinConfigTest {
 
     @Test
     void everyListedMixinExistsOnDisk() {
-        for (Path config : List.of(CONFIG, TOWNSTEAD_CONFIG)) {
+        for (Path config : List.of(CONFIG, TOWNSTEAD_CONFIG, MCA_CONFIG)) {
             Path root = packageRoot(config);
             for (String name : allMixins(config)) {
                 Path source = root.resolve(name.replace('.', '/') + ".java");
@@ -148,12 +153,23 @@ class MixinConfigTest {
     void everyMixinOnDiskIsListedInTheConfigThatOwnsIt() {
         List<String> main = allMixins(CONFIG);
         List<String> townstead = allMixins(TOWNSTEAD_CONFIG);
+        List<String> mca = allMixins(MCA_CONFIG);
         for (String name : sourceNames()) {
             if (name.endsWith("MixinPlugin")) {
                 // The config plugin is not a mixin: it decides whether the others apply. Listing it
                 // would have Mixin try to merge it into something.
-                assertFalse(main.contains(name) || townstead.contains(name),
+                String simple = name.substring(name.lastIndexOf('.') + 1);
+                assertFalse(main.contains(name) || townstead.contains(simple) || mca.contains(simple),
                         name + " is a config plugin, not a mixin, and must not be listed");
+                continue;
+            }
+            if (name.startsWith(MCA_PREFIX)) {
+                String relative = name.substring(MCA_PREFIX.length());
+                assertTrue(mca.contains(relative),
+                        name + " lives under mixin/mca but is not named in " + MCA_CONFIG.getFileName()
+                                + ", so it would never be applied");
+                assertFalse(main.contains(relative) || townstead.contains(relative),
+                        name + " is an MCA hook and must not be in another config");
                 continue;
             }
             if (name.startsWith(TOWNSTEAD_PREFIX)) {
@@ -171,12 +187,46 @@ class MixinConfigTest {
         }
     }
 
-    /** Nothing may be claimed by both configs; Mixin would apply it twice. */
+    /** Nothing may be claimed by two configs; Mixin would apply it twice. */
     @Test
     void theTwoConfigsShareNoClass() {
-        List<String> shared = new ArrayList<>(allMixins(CONFIG));
-        shared.retainAll(allMixins(TOWNSTEAD_CONFIG));
-        assertTrue(shared.isEmpty(), "listed in both mixin configs: " + shared);
+        List<Path> configs = List.of(CONFIG, TOWNSTEAD_CONFIG, MCA_CONFIG);
+        for (int i = 0; i < configs.size(); i++) {
+            for (int j = i + 1; j < configs.size(); j++) {
+                List<String> shared = new ArrayList<>(allMixins(configs.get(i)));
+                shared.retainAll(allMixins(configs.get(j)));
+                assertTrue(shared.isEmpty(), "listed in two mixin configs: " + shared);
+            }
+        }
+    }
+
+    /**
+     * The MCA heart-hook config's own shape (0.7.7): optional, plugin-gated, same toolchain, no refmap,
+     * and markers that name MCA only as dotted strings.
+     *
+     * <p>Optional because an MCA build whose shape differs must degrade one capability rather than stop
+     * the game; the plugin matches every target by exact descriptor before changing anything.
+     */
+    @Test
+    void theMcaHeartConfigIsOptionalAndPluginGated() {
+        JsonObject config = config(MCA_CONFIG);
+        assertEquals("dev.otectus.mcacrime.mixin.mca", config.get("package").getAsString());
+        assertEquals("JAVA_21", config.get("compatibilityLevel").getAsString());
+        assertFalse(config.has("refmap"), "a refmap is neither generated nor needed on NeoForge 1.21.1");
+        assertFalse(config.get("required").getAsBoolean(),
+                "an MCA release that moved a member must not stop the game from starting");
+        assertEquals("dev.otectus.mcacrime.mixin.mca.McaJusticeMixinPlugin", config.get("plugin").getAsString());
+        assertEquals(List.of("TragedyPenaltyMarker", "VillagerPenaltyMarker"), mixins(MCA_CONFIG, "mixins"));
+        assertTrue(mixins(MCA_CONFIG, "client").isEmpty(), "the heart hooks decide on the server");
+        for (String marker : allMixins(MCA_CONFIG)) {
+            String text = read(MIXIN_SOURCE_ROOT.resolve("mca").resolve(marker + ".java"));
+            Matcher matcher = Pattern.compile("\"([a-z][A-Za-z0-9_.]*\\.(?:VillagerEntityMCA|Relationship))\"").matcher(text);
+            assertTrue(matcher.find(), marker + " names no MCA target");
+            do {
+                assertFalse(matcher.group(1).contains("/"), marker + " names an MCA class in internal form");
+            } while (matcher.find());
+            assertFalse(CLASS_TARGET.matcher(text).find(), marker + " uses a class literal; MCA is never on the compile path");
+        }
     }
 
     @Test
@@ -229,7 +279,7 @@ class MixinConfigTest {
     @Test
     void bothConfigsAreDeclaredInTheModMetadata() {
         String toml = read(TestPaths.resources("META-INF", "neoforge.mods.toml"));
-        for (Path config : List.of(CONFIG, TOWNSTEAD_CONFIG)) {
+        for (Path config : List.of(CONFIG, TOWNSTEAD_CONFIG, MCA_CONFIG)) {
             String name = config.getFileName().toString();
             assertTrue(toml.contains("config=\"" + name + "\""),
                     name + " has no [[mixins]] block in neoforge.mods.toml, so it would never be read");
@@ -241,6 +291,7 @@ class MixinConfigTest {
     void bothConfigsParse() {
         assertTrue(config(CONFIG).has("package"));
         assertTrue(config(TOWNSTEAD_CONFIG).has("package"));
+        assertTrue(config(MCA_CONFIG).has("package"));
     }
 
     /**
@@ -257,7 +308,7 @@ class MixinConfigTest {
         List<String> offenders = new ArrayList<>();
         for (Path source : sourceFiles()) {
             String relative = MIXIN_SOURCE_ROOT.relativize(source).toString().replace('\\', '/');
-            if (relative.startsWith("townstead/")) {
+            if (relative.startsWith("townstead/") || relative.startsWith("mca/")) {
                 continue;
             }
             String text = read(source);
@@ -319,6 +370,9 @@ class MixinConfigTest {
 
     /** Where the mixins of {@code config} live on disk. */
     private static Path packageRoot(Path config) {
+        if (config.equals(MCA_CONFIG)) {
+            return MIXIN_SOURCE_ROOT.resolve("mca");
+        }
         return config.equals(TOWNSTEAD_CONFIG)
                 ? MIXIN_SOURCE_ROOT.resolve("townstead")
                 : MIXIN_SOURCE_ROOT;

@@ -197,15 +197,21 @@ public final class IncidentService {
                 });
     }
 
-    /** A paid ransom is an audit fact; capture already applied its Karma/Heat and private effects. */
+    /**
+     * A paid ransom is an audit fact; capture already applied its Karma/Heat and private effects.
+     *
+     * <p>Only the audit. The captive's release used to ride in here as the evidence step, so a refused
+     * insert skipped it; since 0.7.7 {@code RansomService} frees the captive first, whatever happens to
+     * this record.
+     */
     public static Optional<CrimeRecordView> commitRansom(UUID demandId, ServerPlayer captor,
-            LivingEntity victim, ServerLevel level, long amount, Runnable release) {
+            LivingEntity victim, ServerLevel level, long amount) {
         if (!available(level)) return Optional.empty();
         var context = context(victim, WitnessResult.none(), "ransom");
         context.put(CrimeContext.RANSOM_ID, demandId.toString());
         CrimeRecord record = record(demandId, captor, victim, CrimeIds.EXTORTION, level,
                 WitnessResult.none(), 0, 0, amount, context);
-        return commitPrepared(CrimeWorldData.get(level.getServer()), record, () -> {}, release,
+        return commitPrepared(CrimeWorldData.get(level.getServer()), record, () -> {}, () -> {},
                 () -> CrimeIntegrationHooks.onCommitted(level.getServer(), record.view()));
     }
 

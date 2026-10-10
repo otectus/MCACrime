@@ -299,7 +299,7 @@ public final class McaCrimeApi {
                 jail.getRealOnlineTicksServed(),
                 Optional.ofNullable(jail.getJailDim()),
                 jail.isEscaped(),
-                jail.getModeSnapshot(),
+                dev.otectus.mcacrime.jail.JailConfine.mode(jail),
                 world.casesForSentence(offender, jail.getSentenceId()).stream()
                         .map(dev.otectus.mcacrime.ledger.CrimeRecord::id)
                         .collect(java.util.stream.Collectors.toUnmodifiableSet()),

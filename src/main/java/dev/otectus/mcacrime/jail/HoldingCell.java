@@ -146,6 +146,17 @@ public final class HoldingCell {
         return new LinkedHashMap<>(placed);
     }
 
+    /**
+     * Whether this cell built over {@code pos}, asked without copying the journal (0.7.7).
+     *
+     * <p>Read from {@code replaced}, which names every position the cell changed in every record ever
+     * written, rather than from {@code placed}, which a cell saved before it existed does not carry and a
+     * narrowed journal entry carries only where a state was recorded.
+     */
+    public boolean generated(@Nullable BlockPos pos) {
+        return pos != null && replaced.containsKey(pos);
+    }
+
     /** True once the legacy case binding has been attempted for this cell's sentence. */
     public boolean isLegacyBound() {
         return legacyBound;

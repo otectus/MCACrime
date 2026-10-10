@@ -280,6 +280,19 @@ public final class McaHandles {
     }
 
     /**
+     * MCA's actual bounds at this position, with zero expansion; never uses a resident's home (0.7.7 on
+     * this port, from the Forge tree). The Thief combat policy asks it for the community whose warrants
+     * cover a target standing here.
+     */
+    public static OptionalInt villageAt(net.minecraft.server.level.ServerLevel level, net.minecraft.core.BlockPos pos) {
+        if (!R.has(McaBinding.VILLAGE_MANAGER_AT_POSITION) || !R.has(McaBinding.VILLAGE_MANAGER_GET)) return OptionalInt.empty();
+        try {
+            Object village = unwrap(H_VILLAGE_AT.invoke(H_VILLAGE_MANAGER.invoke(level), pos, 0));
+            return village == null ? OptionalInt.empty() : OptionalInt.of((int) H_VILLAGE_ID.invoke(village));
+        } catch (Throwable unavailable) { return OptionalInt.empty(); }
+    }
+
+    /**
      * Whether MCA considers this a real village rather than a couple of huts.
      *
      * <p>Defaults to <b>true</b> when unbound. An unreadable check should not stop the feature working;

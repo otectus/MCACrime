@@ -82,13 +82,23 @@ public final class CrimeDialogueService {
     /**
      * Says a line to one player, respecting the per-pair cooldown.
      *
-     * @return false when dialogue is disabled or the pair is still on cooldown, so a caller that wants
-     *         to fall back to a plain system message can tell that nothing was said
+     * <p>0.7.7: the listener must also be within earshot, the same level and no farther than
+     * {@code dialogue.speechRadius}. That is checked before the cooldown is stamped, so a line that
+     * could not be heard does not silence the pair's next line that could.
+     *
+     * @return false when dialogue is disabled, the listener is out of earshot or the pair is still on
+     *         cooldown, so a caller that wants to fall back to a plain system message can tell that
+     *         nothing was said
      */
     public static boolean speak(@Nullable LivingEntity speaker, ServerPlayer listener,
                                 ResourceLocation event, DialogueContext context, Object... args) {
         if (!McaCrimeConfig.COMMON.enableDialogue.get() || listener == null
                 || speaker != null && !dev.otectus.mcacrime.ai.NpcAwareness.canSpeakOrReport(speaker)) {
+            return false;
+        }
+        if (!withinEarshot(speaker, listener)) {
+            dev.otectus.mcacrime.util.CrimeDebug.crime("Dialogue {} from {} to {} not delivered: out of earshot",
+                    event, speaker.getUUID(), listener.getGameProfile().getName());
             return false;
         }
         long now = listener.level().getGameTime();
@@ -127,7 +137,7 @@ public final class CrimeDialogueService {
      */
     public static boolean speakRefusal(@Nullable LivingEntity speaker, @Nullable ServerPlayer listener,
                                        dev.otectus.mcacrime.civic.ServiceRestrictionPolicy.Decision decision) {
-        if (listener == null || decision == null || !decision.refused()) {
+        if (listener == null || decision == null || !decision.refused() || !withinEarshot(speaker, listener)) {
             return false;
         }
         Component name = speaker == null ? Component.empty() : McaCompat.getVillagerDisplayName(speaker);
@@ -139,6 +149,21 @@ public final class CrimeDialogueService {
             listener.sendSystemMessage(Component.translatable(decision.repairKey()));
         }
         return true;
+    }
+
+    /**
+     * Whether a line from this speaker can reach this listener (0.7.7). A line with no speaker is a
+     * system line and always arrives.
+     */
+    public static boolean withinEarshot(@Nullable LivingEntity speaker, @Nullable ServerPlayer listener) {
+        if (listener == null) {
+            return false;
+        }
+        if (speaker == null) {
+            return true;
+        }
+        return SpeechLocality.reaches(speaker.level() == listener.level(), speaker.distanceToSqr(listener),
+                McaCrimeConfig.COMMON.speechRadius.get());
     }
 
     /** Drops every cooldown involving this entity. Called on death and on release. */

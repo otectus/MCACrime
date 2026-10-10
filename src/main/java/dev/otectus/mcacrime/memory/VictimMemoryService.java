@@ -32,6 +32,24 @@ public final class VictimMemoryService {
                 .map(m -> m.view(now, decay)).toList();
     }
 
+    /**
+     * What this villager remembers about this offender and nobody else, undecayed, for
+     * {@link ConversationGate} (0.7.7). Empty when victim memory is off.
+     */
+    public static List<VictimCrimeMemory> rawMemories(MinecraftServer server, UUID villager, UUID offender) {
+        if (server == null || villager == null || offender == null || !McaCrimeConfig.COMMON.enableVictimMemory.get())
+            return List.of();
+        return CrimeWorldData.get(server).villagerProfile(villager).stream()
+                .flatMap(p -> p.crimeMemories().stream()).filter(m -> m.perpetrator().equals(offender)).toList();
+    }
+
+    /** The decision {@link MemoryInteractionHandler} obeys, for this villager and this offender only. */
+    public static ConversationGate.Decision conversation(MinecraftServer server, UUID villager, UUID offender) {
+        if (server == null) return new ConversationGate.Decision(ConversationGate.Verdict.ALLOW, null, 0L);
+        return ConversationGate.decide(offender, rawMemories(server, villager, offender),
+                server.overworld().getGameTime(), McaCrimeConfig.COMMON.memoryDecayMultiplier.get());
+    }
+
     public static Set<UUID> familyOf(LivingEntity villager) {
         Set<UUID> family = new LinkedHashSet<>();
         McaCompat.getSpouseUuid(villager).ifPresent(family::add);

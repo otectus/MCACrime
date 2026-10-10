@@ -44,7 +44,12 @@ import java.util.UUID;
 public final class FriskTransaction {
 
     /** What one transfer did. */
-    public record Result(FriskRefusal refusal, @Nullable UUID transferId, ItemStack moved) {
+    public record Result(FriskRefusal refusal, @Nullable UUID transferId, ItemStack moved,
+                         @Nullable String feedbackKey) {
+
+        public Result(FriskRefusal refusal, @Nullable UUID transferId, ItemStack moved) {
+            this(refusal, transferId, moved, null);
+        }
 
         public boolean committed() {
             return refusal == FriskRefusal.NONE;
@@ -72,6 +77,11 @@ public final class FriskTransaction {
             return Result.refused(refusal);
         }
         FriskSlotRef ref = session.slotAt(viewIndex);
+        // Stolen property is never a plain take: whose it is decides where it goes (0.7.7).
+        if (ref != null && StolenGoodsInventoryProvider.ID.equals(ref.providerId())) {
+            return StolenGoodsTransfer.commit(searcher, subject, session, ref, viewIndex, expectedRevision,
+                    intendedCount, data, now);
+        }
         InventoryProvider provider = ref == null ? null : InventoryProviders.byId(ref.providerId());
         if (provider == null) {
             return Result.refused(FriskRefusal.SLOT_CHANGED);

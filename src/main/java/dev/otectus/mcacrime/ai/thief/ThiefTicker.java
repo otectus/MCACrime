@@ -44,6 +44,13 @@ public final class ThiefTicker {
         dev.otectus.mcacrime.job.ThiefOccupationLifecycle.tick(server);
         ThiefBehaviorService.tick(server);
         NpcMuggingService.tick(server);
+        // Closed threats whose recovery window has passed; once a second is plenty for a window
+        // measured in minutes (0.7.7).
+        long now = server.overworld().getGameTime();
+        if (now % 20L == 0L && dev.otectus.mcacrime.mug.npc.MuggingThreats.size() > 0) {
+            dev.otectus.mcacrime.mug.npc.MuggingThreats.expire(now,
+                    dev.otectus.mcacrime.McaCrimeConfig.COMMON.thiefDefenseGraceTicks.get());
+        }
     }
 
     /** A thief that has just loaded starts being driven; everybody else is ignored cheaply. */

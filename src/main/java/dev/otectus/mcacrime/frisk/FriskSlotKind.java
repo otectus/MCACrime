@@ -19,5 +19,10 @@ public enum FriskSlotKind {
     /** The off hand. */
     OFFHAND,
     /** Anything a provider surfaces that is none of the above — MCA clothing, a mod's curio. */
-    EQUIPMENT
+    EQUIPMENT,
+    /**
+     * Property a thief is carrying for somebody else (0.7.7): a stolen-goods ledger record, never on the
+     * subject's body, shown so its owner can take it back.
+     */
+    STOLEN
 }

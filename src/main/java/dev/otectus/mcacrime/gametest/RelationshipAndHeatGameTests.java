@@ -141,6 +141,12 @@ public final class RelationshipAndHeatGameTests {
         var sent = new ArrayList<Packet<?>>();
         var player = player(helper, sent);
         var origin = villager.position();
+        // 0.7.7: the first light hit is forgiven as minor friendly fire, which would leave nothing to
+        // apologize for. This regression is about the apology, so the grace is off for its duration.
+        var grace = McaCrimeConfig.COMMON.enableMinorHarmForgiveness;
+        boolean gracePrevious = grace.get();
+        grace.set(false);
+        try {
         // Inventory weapons must not count as drawn weapons.
         player.getInventory().setItem(1, new ItemStack(Items.DIAMOND_SWORD));
         helper.assertTrue(McaCrimeConfig.COMMON.requireWeaponForCrimeMenu.get(), "Regression needs the default weapon gate");
@@ -214,14 +220,246 @@ public final class RelationshipAndHeatGameTests {
                 helper.assertTrue(data.recordsForOffender(player.getUUID()).size() == 1
                         && data.recordsForOffender(player.getUUID()).getFirst().resolution()
                         == dev.otectus.mcacrime.ledger.Resolution.UNRESOLVED, "Apology erased the legal charge");
+                // 0.7.7: an accepted apology reopens ordinary conversation at once for something that
+                // is not grave. Before, fear and anger alone still refused this click, and the refusal
+                // told the player to apologize.
+                var afterApology = VictimMemoryService.memories(level.getServer(), villager.getUUID(), player.getUUID()).getFirst();
+                helper.assertTrue(afterApology.fear() >= 0.45 || afterApology.anger() >= 0.6,
+                        "The regression needs a memory still above the old refusal thresholds");
+                sent.clear();
+                var ordinary2 = new PlayerInteractEvent.EntityInteract(player, InteractionHand.MAIN_HAND, villager);
+                NeoForge.EVENT_BUS.post(ordinary2);
+                helper.assertTrue(!ordinary2.isCanceled(), "An accepted apology for one punch still refused conversation");
+                helper.assertTrue(sent.stream().noneMatch(RelationshipAndHeatGameTests::isRefusalChat),
+                        "The reopened conversation still sent a refusal or the apology hint");
                 helper.succeed();
             } finally {
+                grace.set(gracePrevious);
                 CrimeActionService.forgetMenu(player.getUUID());
                 ActionSessionManager.forgetActor(player.getUUID());
                 CrimeReactionService.clear(level, villager.getUUID());
                 villager.discard(); player.discard();
             }
         });
+        } catch (Throwable failure) {
+            grace.set(gracePrevious);
+            throw failure;
+        }
+    }
+
+    private static boolean isRefusalChat(Packet<?> packet) {
+        return packet instanceof ClientboundSystemChatPacket chat
+                && chat.content().getContents() instanceof TranslatableContents text
+                && (text.getKey().startsWith("mcacrime.apologize.") || text.getKey().startsWith("dialogue.mcacrime.memory_"));
+    }
+
+    private static boolean isChat(Packet<?> packet) {
+        return packet instanceof ClientboundSystemChatPacket;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Mob villagerAt(GameTestHelper helper, BlockPos at) {
+        var type = (EntityType<? extends Mob>) BuiltInRegistries.ENTITY_TYPE.getOptional(
+                ResourceLocation.fromNamespaceAndPath("mca", "male_villager")).orElseThrow();
+        var mob = helper.spawn(type, at);
+        ((Villager) mob).setAge(0);
+        mob.setNoAi(true);
+        mob.setOnGround(true);
+        return mob;
+    }
+
+    /** 0.7.7: a villager refuses only the player it remembers; a bystander's click is ordinary. */
+    @GameTest(template = "cell_parity")
+    public static void aSecondPlayerIsNeverRefusedForAnotherPlayersCrime(GameTestHelper helper) {
+        var level = helper.getLevel();
+        var villager = villager(helper);
+        var offender = player(helper, new ArrayList<>());
+        var bystanderPackets = new ArrayList<Packet<?>>();
+        var bystander = player(helper, bystanderPackets);
+        position(helper, bystander, 3);
+        var data = CrimeWorldData.get(level.getServer());
+        var grace = McaCrimeConfig.COMMON.enableMinorHarmForgiveness;
+        boolean previous = grace.get();
+        try {
+            grace.set(false);
+            helper.assertTrue(villager.hurt(level.damageSources().playerAttack(offender), 1), "The punch did no damage");
+            DamageIncidentService.flush(level.getServer());
+            helper.assertTrue(!VictimMemoryService.memories(level.getServer(), villager.getUUID(), offender.getUUID()).isEmpty(),
+                    "The offender's punch left no memory, so the regression proves nothing");
+            var click = new PlayerInteractEvent.EntityInteract(bystander, InteractionHand.MAIN_HAND, villager);
+            NeoForge.EVENT_BUS.post(click);
+            helper.assertTrue(!click.isCanceled(), "A bystander was refused for another player's crime");
+            helper.assertTrue(bystanderPackets.stream().noneMatch(RelationshipAndHeatGameTests::isChat),
+                    "A bystander was messaged about another player's crime");
+            helper.assertTrue(data.recordsForOffender(bystander.getUUID()).isEmpty(), "A bystander was blamed");
+            var own = new PlayerInteractEvent.EntityInteract(offender, InteractionHand.MAIN_HAND, villager);
+            NeoForge.EVENT_BUS.post(own);
+            helper.assertTrue(own.isCanceled(), "The actual offender was not refused");
+        } finally {
+            grace.set(previous);
+            CrimeReactionService.clear(level, villager.getUUID());
+            villager.discard(); offender.discard(); bystander.discard();
+        }
+        helper.succeed();
+    }
+
+    /** 0.7.7: a line carries dialogue.speechRadius and no farther, and never into another dimension. */
+    @GameTest(template = "cell_parity")
+    public static void aListenerFortyBlocksAwayReceivesNothing(GameTestHelper helper) {
+        var level = helper.getLevel();
+        var villager = villager(helper);
+        var nearPackets = new ArrayList<Packet<?>>();
+        var near = player(helper, nearPackets);
+        var farPackets = new ArrayList<Packet<?>>();
+        var far = player(helper, farPackets);
+        var origin = helper.absolutePos(new BlockPos(4, 1, 4));
+        far.setPos(origin.getX() + 40.5, origin.getY(), origin.getZ() + 0.5);
+        var nether = level.getServer().getLevel(net.minecraft.world.level.Level.NETHER);
+        var elsewherePackets = new ArrayList<Packet<?>>();
+        var profile = new GameProfile(UUID.randomUUID(), "crime-077-nether");
+        var elsewhere = new ServerPlayer(level.getServer(), nether, profile, ClientInformation.createDefault());
+        elsewhere.connection = new ServerGamePacketListenerImpl(level.getServer(), new Connection(PacketFlow.SERVERBOUND),
+                elsewhere, CommonListenerCookie.createInitial(profile, false)) {
+            @Override public void send(Packet<?> packet) { elsewherePackets.add(packet); }
+            @Override public void send(Packet<?> packet, PacketSendListener listener) { elsewherePackets.add(packet); }
+        };
+        elsewhere.setPos(villager.getX(), villager.getY(), villager.getZ());
+        var event = dev.otectus.mcacrime.dialogue.DialogueEvents.MUG_RECOVERY;
+        try {
+            helper.assertTrue(dev.otectus.mcacrime.dialogue.CrimeDialogueService.speak(villager, near, event,
+                    dev.otectus.mcacrime.dialogue.CrimeDialogueService.context(level, villager, near, villager.getUUID(), event)),
+                    "A listener beside the villager heard nothing, so the regression proves nothing");
+            helper.assertTrue(nearPackets.stream().anyMatch(RelationshipAndHeatGameTests::isChat), "The near listener got no line");
+            helper.assertTrue(!dev.otectus.mcacrime.dialogue.CrimeDialogueService.speak(villager, far, event,
+                    dev.otectus.mcacrime.dialogue.CrimeDialogueService.context(level, villager, far, villager.getUUID(), event)),
+                    "A listener forty blocks away was spoken to");
+            helper.assertTrue(farPackets.stream().noneMatch(RelationshipAndHeatGameTests::isChat),
+                    "A listener forty blocks away received a line");
+            helper.assertTrue(!dev.otectus.mcacrime.dialogue.CrimeDialogueService.speak(villager, elsewhere, event,
+                    dev.otectus.mcacrime.dialogue.CrimeDialogueService.context(level, villager, elsewhere, villager.getUUID(), event)),
+                    "A listener in another dimension was spoken to");
+            helper.assertTrue(elsewherePackets.stream().noneMatch(RelationshipAndHeatGameTests::isChat),
+                    "A listener in another dimension received a line");
+            // A line nobody could hear must not have stamped the pair cooldown.
+            far.setPos(near.getX(), near.getY(), near.getZ());
+            helper.assertTrue(dev.otectus.mcacrime.dialogue.CrimeDialogueService.speak(villager, far, event,
+                    dev.otectus.mcacrime.dialogue.CrimeDialogueService.context(level, villager, far, villager.getUUID(), event)),
+                    "An unheard line consumed the pair's dialogue cooldown");
+        } finally {
+            dev.otectus.mcacrime.dialogue.CrimeDialogueService.forget(villager.getUUID());
+            villager.discard(); near.discard(); far.discard(); elsewhere.discard();
+        }
+        helper.succeed();
+    }
+
+    /**
+     * 0.7.7 murder hearts. MCA charges twenty hearts to every villager within 32 blocks of a killing with
+     * no sight check. With the native hooks applied, a neighbour behind a wall keeps its hearts, a
+     * witness who saw it loses MCA's twenty exactly once (MCA: Crime adds no loss of its own on top), and
+     * with murderHeartPenalty off nobody loses any.
+     *
+     * <p>Its own batch, because MCA's own 32-block scan reaches villagers in neighbouring test plots.
+     */
+    @GameTest(template = "cell_parity", batch = "mcacrime_murder_hearts", timeoutTicks = 100)
+    public static void anUnseenKillingLeavesAWalledNeighboursHearts(GameTestHelper helper) {
+        var level = helper.getLevel();
+        var server = level.getServer();
+        helper.assertTrue(dev.otectus.mcacrime.compat.mca.NativeJusticeCapabilities.combatComplete(),
+                "The native heart hooks did not apply: applied=" + dev.otectus.mcacrime.mixin.mca.McaJusticeMixinPlugin.APPLIED
+                        + " degraded=" + dev.otectus.mcacrime.mixin.mca.McaJusticeMixinPlugin.DEGRADED);
+        for (int x = 0; x < 13; x++) for (int z = 0; z < 13; z++) {
+            helper.setBlock(new BlockPos(x, 0, z), Blocks.STONE);
+            for (int y = 1; y < 5; y++) helper.setBlock(new BlockPos(x, y, z), x == 9 ? Blocks.STONE : Blocks.AIR);
+        }
+        var victim = villagerAt(helper, new BlockPos(4, 1, 4));
+        var witness = villagerAt(helper, new BlockPos(4, 1, 7));
+        var neighbour = villagerAt(helper, new BlockPos(11, 1, 4));
+        var player = player(helper, new ArrayList<>());
+        var penalty = McaCrimeConfig.COMMON.murderHeartPenalty;
+        var witnessRule = McaCrimeConfig.COMMON.murderHeartsRequireWitness;
+        boolean penaltyBefore = penalty.get(), ruleBefore = witnessRule.get();
+        Mob second = null;
+        try {
+            penalty.set(true);
+            witnessRule.set(true);
+            helper.assertTrue(witness.hasLineOfSight(player) && !neighbour.hasLineOfSight(player)
+                    && !neighbour.hasLineOfSight(victim), "The fixture's sight lines are wrong");
+            int witnessBefore = McaCompat.getHearts(player, witness);
+            int neighbourBefore = McaCompat.getHearts(player, neighbour);
+            victim.hurt(level.damageSources().playerAttack(player), 1000F);
+            helper.assertTrue(victim.isDeadOrDying(), "The victim survived the killing blow");
+            DamageIncidentService.flush(server);
+            helper.assertTrue(CrimeWorldData.get(server).recordsForOffender(player.getUUID()).size() == 1,
+                    "The killing was not recorded exactly once");
+            helper.assertTrue(McaCompat.getHearts(player, neighbour) == neighbourBefore,
+                    "A walled-off neighbour lost " + (neighbourBefore - McaCompat.getHearts(player, neighbour)) + " hearts");
+            helper.assertTrue(McaCompat.getHearts(player, witness) == witnessBefore - 20,
+                    "The sighted witness lost " + (witnessBefore - McaCompat.getHearts(player, witness))
+                            + " hearts, not MCA's twenty exactly once");
+
+            penalty.set(false);
+            second = villagerAt(helper, new BlockPos(5, 1, 6));
+            int witnessMid = McaCompat.getHearts(player, witness);
+            int neighbourMid = McaCompat.getHearts(player, neighbour);
+            second.hurt(level.damageSources().playerAttack(player), 1000F);
+            helper.assertTrue(second.isDeadOrDying(), "The second victim survived the killing blow");
+            DamageIncidentService.flush(server);
+            helper.assertTrue(McaCompat.getHearts(player, witness) == witnessMid
+                            && McaCompat.getHearts(player, neighbour) == neighbourMid,
+                    "Hearts moved with murderHeartPenalty off");
+        } finally {
+            penalty.set(penaltyBefore);
+            witnessRule.set(ruleBefore);
+            CrimeReactionService.clear(level, witness.getUUID());
+            CrimeReactionService.clear(level, neighbour.getUUID());
+            victim.discard(); witness.discard(); neighbour.discard(); player.discard();
+            if (second != null) second.discard();
+        }
+        helper.succeed();
+    }
+
+    /** 0.7.7 minor friendly fire: one fist hit leaves no charge, a second inside the window is charged once. */
+    @GameTest(template = "cell_parity", timeoutTicks = 100)
+    public static void oneFistHitLeavesNoChargeAndASecondIsChargedOnce(GameTestHelper helper) {
+        var level = helper.getLevel();
+        var server = level.getServer();
+        helper.assertTrue(dev.otectus.mcacrime.compat.mca.NativeJusticeCapabilities.combatComplete(),
+                "The native heart hooks did not apply, so MCA's hurt hearts cannot be held back");
+        var villager = villager(helper);
+        var sent = new ArrayList<Packet<?>>();
+        var player = player(helper, sent);
+        var data = CrimeWorldData.get(server);
+        var grace = McaCrimeConfig.COMMON.enableMinorHarmForgiveness;
+        boolean previous = grace.get();
+        try {
+            grace.set(true);
+            long karmaBefore = CrimeState.getKarma(player);
+            int heartsBefore = McaCompat.getHearts(player, villager);
+            helper.assertTrue(villager.hurt(level.damageSources().playerAttack(player), 1), "The first punch did no damage");
+            DamageIncidentService.flush(server);
+            helper.assertTrue(data.recordsForOffender(player.getUUID()).isEmpty(), "A forgiven punch created a case");
+            helper.assertTrue(VictimMemoryService.memories(server, villager.getUUID(), player.getUUID()).isEmpty(),
+                    "A forgiven punch created a victim memory");
+            helper.assertTrue(CrimeState.getKarma(player) == karmaBefore, "A forgiven punch cost Karma");
+            helper.assertTrue(McaCompat.getHearts(player, villager) == heartsBefore, "A forgiven punch cost MCA hearts");
+            helper.assertTrue(sent.stream().anyMatch(packet -> packet instanceof ClientboundSystemChatPacket chat
+                            && chat.content().getContents() instanceof TranslatableContents text
+                            && text.getKey().equals("mcacrime.minor_harm.warned")),
+                    "The attacker was not warned that the next hit counts");
+            villager.invulnerableTime = 0;
+            helper.assertTrue(villager.hurt(level.damageSources().playerAttack(player), 1), "The second punch did no damage");
+            DamageIncidentService.flush(server);
+            helper.assertTrue(data.recordsForOffender(player.getUUID()).size() == 1, "The second punch was not charged exactly once");
+            helper.assertTrue(VictimMemoryService.memories(server, villager.getUUID(), player.getUUID()).size() == 1,
+                    "The charged punch did not leave one memory");
+            helper.assertTrue(CrimeState.getKarma(player) < karmaBefore, "The charged punch cost no Karma");
+            helper.assertTrue(McaCompat.getHearts(player, villager) < heartsBefore, "The charged punch did not cost MCA's hearts");
+        } finally {
+            grace.set(previous);
+            CrimeReactionService.clear(level, villager.getUUID());
+            villager.discard(); player.discard();
+        }
+        helper.succeed();
     }
 
     @GameTest(template = "cell_parity")

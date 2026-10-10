@@ -38,7 +38,9 @@ public final class CrimeNameRenderHandlers {
      */
     @SubscribeEvent(priority = EventPriority.HIGHEST)
     public static void onMaskedNameTag(RenderNameTagEvent event) {
-        if (!McaCrimeConfig.CLIENT.maskHidesNameTag.get()) {
+        // A name tag can be drawn outside a world (an entity in a screen), so the config's loaded state
+        // is asked before its value (0.7.7, McaCrimeConfig.clientLoaded).
+        if (!McaCrimeConfig.clientLoaded() || !McaCrimeConfig.CLIENT.maskHidesNameTag.get()) {
             return;
         }
         if (event.getEntity() instanceof AbstractClientPlayer player
@@ -52,7 +54,7 @@ public final class CrimeNameRenderHandlers {
         if (event.canRender() == TriState.FALSE) {
             return; // something (a mask, or another mod) has already said this name is not drawn
         }
-        if (!McaCrimeConfig.CLIENT.nameColorEnabled.get()) {
+        if (!McaCrimeConfig.clientLoaded() || !McaCrimeConfig.CLIENT.nameColorEnabled.get()) {
             return;
         }
         if (!(event.getEntity() instanceof AbstractClientPlayer player)) {

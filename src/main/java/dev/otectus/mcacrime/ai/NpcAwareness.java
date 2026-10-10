@@ -185,7 +185,8 @@ public final class NpcAwareness {
     public static void settleSleeping(LivingEntity entity) {
         if (!entity.isSleeping() || !(entity instanceof Mob mob)
                 || !(McaCompat.isMcaVillager(entity) || EntitySelectors.isResponder(entity))) return;
-        McaCompat.releaseVillagerControl(entity);
+        // Every order, not just this mod's: a sleeper fights nobody, whoever told them to (0.7.7).
+        McaCompat.releaseAllControl(entity);
         ReactionSpeedModifier.remove(entity);
         entity.stopUsingItem(); // Abandon a drawn bow without releasing an arrow.
         mob.setAggressive(false);

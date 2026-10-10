@@ -38,6 +38,9 @@ import org.jetbrains.annotations.Nullable;
  *
  * All anchor/dimension resolution is fail-safe; a vanished dimension just disables confinement (the
  * captivity cap / login reconcile free the player), never a crash.
+ *
+ * <p>The mode is the live setting ({@link #mode}, 0.7.7), and the confinement never pulls back a prisoner
+ * who has escaped, whatever the mode became afterwards; only a recapture or a surrender returns them.
  */
 public final class JailConfine {
 
@@ -55,13 +58,43 @@ public final class JailConfine {
         return mode == JailContainmentMode.PHYSICAL || breached;
     }
 
+    /**
+     * The containment mode in force for a sentence right now (0.7.7): the server's live
+     * {@code jailContainmentMode}.
+     *
+     * <p>It used to be the mode snapshotted at intake, so an operator who switched a server to
+     * {@code PHYSICAL} changed nothing for anybody already serving, while the villager side read the live
+     * setting and the two disagreed about the same jail. One setting now decides for everybody, every
+     * time it is asked. The snapshot is still written, and is read only when no config is loaded (a unit
+     * test, a save opened by a tool). What the snapshot used to protect -- a prisoner surprised by a
+     * mid-term change -- is kept where it matters: the confinement never pulls an escaped prisoner back,
+     * whatever the mode became after they got out.
+     */
+    public static JailContainmentMode mode(@Nullable JailState jail) {
+        try {
+            return dev.otectus.mcacrime.McaCrimeConfig.COMMON.jailContainmentMode.get();
+        } catch (IllegalStateException notLoaded) {
+            return jail == null ? JailContainmentMode.CONTAINMENT : jail.getModeSnapshot();
+        }
+    }
+
     public static void tick(ServerPlayer player, PlayerCrimeData data) {
         JailState jail = data.getJail();
         if (jail == null || !jail.hasValidAnchor()) {
             return;
         }
-        if (jail.isCuffEscape()) return; // Recapture/surrender, not proximity, resumes this sentence.
         MinecraftServer server = player.getServer();
+        if (jail.isCuffEscape()) {
+            // Recapture or surrender resumes a cuff escape, never simply walking near the jail -- unless the
+            // prisoner is back inside it and still in the law's lawful custody (0.7.7). A stale flag on
+            // somebody physically serving their sentence used to pause it for good.
+            if (backInLawfulCustody(server, player, jail)) {
+                jail.setEscaped(false);
+                CrimeNetwork.sendSelfStatus(player);
+                player.sendSystemMessage(Component.translatable("mcacrime.jail.resumed"));
+            }
+            return;
+        }
         ServerLevel level = JailService.resolveLevel(server, jail.getJailDim());
         if (level == null) {
             return; // dimension gone — cap/reconcile handles release
@@ -85,37 +118,82 @@ public final class JailConfine {
         }
         // Player is OUTSIDE the jail region.
         boolean breached = cell != null && server != null && cell.breached(CrimeWorldData.get(server));
-        if (exitIsEscape(jail.getModeSnapshot(), breached)) {
-            if (!jail.isEscaped()) {
-                jail.setEscaped(true); // becomes a Legal Target (escaped prisoner)
-                if (player.level() instanceof ServerLevel here) {
-                    // Mark the cases this sentence was being served for as ESCAPED. That is a status,
-                    // not a resolution: an escaped case stays fully actionable and can still be fined
-                    // or served later. What it buys is that the ledger can now say why it is open.
-                    //
-                    // This runs BEFORE the jailbreak charge is filed, and the order is load-bearing:
-                    // the sweep takes every actionable case, so filing first would immediately mark
-                    // the brand-new jailbreak charge as escaped by its own escape.
-                    if (here.getServer() != null) {
-                        SentenceResolutionService.markEscaped(here.getServer(), player.getUUID(),
-                                jail.getSentenceId());
-                    }
-                    // Witnessed by the authority itself, with no villager named: nobody has to have
-                    // seen a prisoner leave for the jail to know they are gone.
-                    CrimeDetector.commitDirect(player, CrimeIds.JAILBREAK, null, here,
-                            WitnessResult.official(), "jailbreak");
+        Outside found = outside(mode(jail), breached, jail.isEscaped());
+        if (found == Outside.ESCAPE) {
+            jail.setEscaped(true); // becomes a Legal Target (escaped prisoner)
+            if (player.level() instanceof ServerLevel here) {
+                // Mark the cases this sentence was being served for as ESCAPED. That is a status,
+                // not a resolution: an escaped case stays fully actionable and can still be fined
+                // or served later. What it buys is that the ledger can now say why it is open.
+                //
+                // This runs BEFORE the jailbreak charge is filed, and the order is load-bearing:
+                // the sweep takes every actionable case, so filing first would immediately mark
+                // the brand-new jailbreak charge as escaped by its own escape.
+                if (here.getServer() != null) {
+                    SentenceResolutionService.markEscaped(here.getServer(), player.getUUID(),
+                            jail.getSentenceId());
                 }
-                if (cell != null) {
-                    // The cell is over, the sentence is not. No teleport: the prisoner is already
-                    // outside, which is the one time restoring the cell around them is safe.
-                    HoldingCellService.dismantle(server, player.getUUID());
-                }
-                CrimeNetwork.sendSelfStatus(player);
-                player.sendSystemMessage(Component.translatable("mcacrime.jail.escaped"));
+                // Witnessed by the authority itself, with no villager named: nobody has to have
+                // seen a prisoner leave for the jail to know they are gone.
+                CrimeDetector.commitDirect(player, CrimeIds.JAILBREAK, null, here,
+                        WitnessResult.official(), "jailbreak");
             }
+            if (cell != null) {
+                // The cell is over, the sentence is not. No teleport: the prisoner is already
+                // outside, which is the one time restoring the cell around them is safe.
+                HoldingCellService.dismantle(server, player.getUUID());
+            }
+            CrimeNetwork.sendSelfStatus(player);
+            player.sendSystemMessage(Component.translatable("mcacrime.jail.escaped"));
             return; // legitimate escape; sentence credit pauses while outside
         }
-        // CONTAINMENT / REINFORCED, and the door still holds: soft-confine back to the anchor.
-        JailService.teleportToAnchor(player, jail);
+        if (found == Outside.RETURN) {
+            // CONTAINMENT / REINFORCED, and the door still holds: soft-confine back to the anchor.
+            JailService.teleportToAnchor(player, jail);
+        }
+    }
+
+    /** What a prisoner found outside their jail region is (0.7.7). */
+    public enum Outside {
+        /** Out now, and allowed to be: a new escape, charged once. */
+        ESCAPE,
+        /**
+         * Already escaped. Through a PHYSICAL wall under a mode that has since changed, or a door that has
+         * since been locked again: the escape happened and was charged, only a recapture or a surrender
+         * resumes the term, and pulling them back now is the snap-back an escape is not.
+         */
+        ALREADY_OUT,
+        /** Strayed past a containment that still holds -- an ender pearl, a shove: put back. */
+        RETURN
+    }
+
+    /**
+     * Pure: what to do about a prisoner found outside the region. An escape is never undone by a
+     * teleport, whatever the mode is now; otherwise leaving is an escape exactly when
+     * {@link #exitIsEscape} says so.
+     */
+    public static Outside outside(@Nullable JailContainmentMode mode, boolean breached, boolean alreadyEscaped) {
+        if (alreadyEscaped) {
+            return Outside.ALREADY_OUT;
+        }
+        return exitIsEscape(mode, breached) ? Outside.ESCAPE : Outside.RETURN;
+    }
+
+    /**
+     * Whether an escaped prisoner is in fact back where the sentence holds them (0.7.7): inside the jail
+     * region, inside the built cell when the sentence has one, and held in lawful custody.
+     */
+    static boolean backInLawfulCustody(@Nullable MinecraftServer server, ServerPlayer player, JailState jail) {
+        if (server == null || jail == null || !jail.hasValidAnchor()
+                || JailService.resolveLevel(server, jail.getJailDim()) == null) {
+            return false;
+        }
+        if (jail.isTemporaryCell() && HoldingCellService.existingFor(server, player.getUUID()) == null) {
+            return false;
+        }
+        boolean inRegion = JailRegion.contains(jail.getJailAnchor(), jail.getJailRadius(), jail.getJailDim(),
+                player.blockPosition(), player.level().dimension().location());
+        var custody = CrimeWorldData.get(server).getCustody(player.getUUID());
+        return inRegion && custody != null && custody.isLawful();
     }
 }

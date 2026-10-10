@@ -125,6 +125,9 @@ public final class TetherLifecycleGameTests {
         helper.assertTrue(subject.position().x == before.x + 8.0D,
                 "the subject was teleported rather than pulled");
 
+        // Back inside this platform before the chain comes off: eight blocks out is inside the next
+        // test's bounds, and a chain dropped there is counted by whichever test the grid put beside us.
+        subject.setPos(before.x, before.y, before.z);
         cleanUp(helper, data, holder, subject);
         helper.succeed();
     }

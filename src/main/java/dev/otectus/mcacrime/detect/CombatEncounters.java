@@ -28,6 +28,20 @@ public final class CombatEncounters {
 
     public Decision record(UUID attacker, UUID victim, long now, boolean lethal,
                            boolean lawfulForce, boolean raidAccident) {
+        return record(attacker, victim, now, lethal, lawfulForce, raidAccident, false);
+    }
+
+    /**
+     * The same, for an attacker who may be answering a threat (0.7.7).
+     *
+     * <p>A mugging is aggression that never lands a blow, so without this the victim's first punch
+     * opened the encounter and made the victim its initiator. With {@code answersThreat} a new
+     * encounter is opened as the thief's: the victim's force is self-defence, and lethal force is
+     * excessive defensive force rather than an unprovoked killing. An encounter already open keeps the
+     * initiator it has.
+     */
+    public Decision record(UUID attacker, UUID victim, long now, boolean lethal,
+                           boolean lawfulForce, boolean raidAccident, boolean answersThreat) {
         if (lastSweep == Long.MIN_VALUE || now < lastSweep || now - lastSweep >= 20) expire(now);
         Pair pair = Pair.of(attacker, victim);
         Encounter encounter = encounters.get(pair);
@@ -39,7 +53,7 @@ public final class CombatEncounters {
         if (first) {
             if (encounters.size() >= MAX_ENCOUNTERS)
                 return new Decision(null, null, Basis.UNTRACKED, lawfulForce);
-            encounter = new Encounter(attacker, lawfulForce, now);
+            encounter = answersThreat ? new Encounter(victim, false, now) : new Encounter(attacker, lawfulForce, now);
             encounters.put(pair, encounter);
         }
         encounter.lastAt = now;

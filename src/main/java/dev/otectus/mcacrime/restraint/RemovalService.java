@@ -200,6 +200,58 @@ public final class RemovalService {
         return new Result(true, Refusal.NONE, worn, returned);
     }
 
+    /**
+     * Empties one slot of a subject nobody can see, and settles its item the way an untied chain is
+     * settled (0.7.7).
+     *
+     * <p>A custody can end while its captive's chunk is asleep: the captor went, the captivity cap ran
+     * out, an operator ran {@code /crime release}. Nothing can be dropped where the subject stands,
+     * because nobody is anywhere near them, so an item the gear still owes goes to the player who applied
+     * it when they are online, and to nobody when nobody is loaded to hand it to -- the rule
+     * {@code tether/TetherService} applies to a chain. The store write comes first and is the gate, so
+     * the item is handed over at most once however many paths reach here.
+     *
+     * @return whether this call emptied the slot
+     */
+    public static boolean removeUnloaded(@Nullable net.minecraft.server.MinecraftServer server,
+                                         @Nullable CrimeWorldData data, @Nullable java.util.UUID subject,
+                                         @Nullable RestraintSlot slot) {
+        if (data == null || subject == null || slot == null) {
+            return false;
+        }
+        PhysicalRestraintState state = data.physicalRestraint(subject);
+        AppliedRestraint worn = state == null ? null : state.slot(slot).orElse(null);
+        if (worn == null || !data.putPhysicalRestraint(state.without(slot))) {
+            return false;
+        }
+        SessionRegistry.server().cancelForTarget(subject, SessionCancelCause.TARGET_REMOVED);
+        returnToApplier(server, worn);
+        return true;
+    }
+
+    /** The owed item, to the player who applied it when they are online; nothing otherwise. */
+    private static ItemStack returnToApplier(@Nullable net.minecraft.server.MinecraftServer server,
+                                             AppliedRestraint worn) {
+        if (server == null || worn.applier().kind() != RestraintApplier.Kind.PLAYER
+                || !returnsItem(worn.provenance(), worn.returnPolicy(), Reason.ADMINISTRATIVE, false)) {
+            return ItemStack.EMPTY;
+        }
+        ServerPlayer applier = worn.applier().entityId()
+                .map(id -> server.getPlayerList().getPlayer(id))
+                .orElse(null);
+        if (applier == null) {
+            return ItemStack.EMPTY; // nobody loaded to hand it to: the chain rule, not a drop into the void
+        }
+        ItemStack stack = worn.stack(server.registryAccess());
+        if (stack.isEmpty()) {
+            return ItemStack.EMPTY;
+        }
+        if (!applier.getInventory().add(stack.copy())) {
+            applier.drop(stack.copy(), false);
+        }
+        return stack;
+    }
+
     /** How a removal reads to a companion mod: the public cause behind our own reason (M6.4). */
     private static dev.otectus.mcacrime.api.event.RestraintRemovedEvent.Cause cause(Reason reason) {
         return switch (reason) {

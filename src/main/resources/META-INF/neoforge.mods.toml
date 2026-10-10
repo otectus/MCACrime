@@ -32,6 +32,13 @@ description='''${mod_description}'''
 [[mixins]]
     config="mcacrime.townstead.mixins.json"
 
+# MCA's native heart penalties (0.7.7), the third config and as optional as the second. Its plugin
+# matches each MCA target by name and exact descriptor before changing anything and refuses a build
+# whose shape differs, so an MCA release that moved a member degrades the gate (reported once at setup
+# and by /crime validate) instead of stopping the game. The two markers name MCA only as dotted strings.
+[[mixins]]
+    config="mcacrime.mca.mixins.json"
+
 [[dependencies.${mod_id}]]
     modId="neoforge"
     type="required"

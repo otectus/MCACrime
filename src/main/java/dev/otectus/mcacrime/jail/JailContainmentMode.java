@@ -12,6 +12,11 @@ package dev.otectus.mcacrime.jail;
  *       (the resistance raise is deferred).</li>
  * </ul>
  *
+ * <p>The live setting applies to every sentence, including those already being served (0.7.7,
+ * {@code JailConfine.mode}). It decides only what the jail itself does about a break or a walk-out: worn
+ * restraints that forbid mining, a lock on the block, and the {@code prison} reinforced-block policies
+ * still refuse a break on their own in every mode.
+ *
  * Lives in the {@code jail} package (not nested in the config class) so the pure jail logic and its unit
  * tests don't pull in {@code ModConfigSpec} static initialization.
  */

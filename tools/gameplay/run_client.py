@@ -35,6 +35,15 @@ def main():
     parser.add_argument('--extra-mod', action='append', type=Path, default=[])
     parser.add_argument('--display', default=':97')
     parser.add_argument('--java', default='/usr/lib/jvm/java-17-openjdk/bin/java')
+    # 0.7.7: the two-client scenarios. A role selects a scripted part (offender, bystander,
+    # offender-resume, smoke); the sync directory is where concurrent clients leave marker files.
+    parser.add_argument('--username', default='CrimeQa')
+    parser.add_argument('--role', default='')
+    parser.add_argument('--sync', type=Path)
+    parser.add_argument('--timeout', type=int, default=300)
+    parser.add_argument('--heap', default='3G')
+    parser.add_argument('--common-config', type=Path, help='Partial common TOML copied into this disposable run')
+    parser.add_argument('--client-config', type=Path, help='Partial client TOML copied into this disposable run')
     args = parser.parse_args()
     work, install = args.work.resolve(), args.install.resolve()
     if work.exists():
@@ -43,6 +52,10 @@ def main():
     (work / 'mods').mkdir()
     (work / 'natives').mkdir()
     (work / 'config').mkdir()
+    for key in ('common', 'client'):
+        source = getattr(args, key + '_config')
+        if source:
+            shutil.copy2(source.resolve(strict=True), work / 'config' / ('mcacrime-' + key + '.toml'))
     (work / 'config/mca.json').write_text(json.dumps({'version': 1 if args.minecraft == '1.20.1' else 2, 'launchIntoDestiny': False, 'enableVillagerPlayerModel': False, 'enablePlayerShaders': False}))
     artifact_names = {
         'crime': 'mcacrime-under-test.jar',
@@ -76,9 +89,9 @@ def main():
             classpath.append(str((install / 'libraries' / artifact['path']).resolve(strict=True)))
     classpath.append(str(install / 'versions' / args.minecraft / (args.minecraft + '.jar')))
     values = {
-        'auth_player_name': 'CrimeQa', 'version_name': args.loader, 'game_directory': str(work),
+        'auth_player_name': args.username, 'version_name': args.loader, 'game_directory': str(work),
         'assets_root': str(install / 'assets'), 'assets_index_name': vanilla['assetIndex']['id'],
-        'auth_uuid': uuid.UUID(bytes=hashlib.md5(b'OfflinePlayer:CrimeQa').digest(), version=3).hex,
+        'auth_uuid': uuid.UUID(bytes=hashlib.md5(('OfflinePlayer:' + args.username).encode()).digest(), version=3).hex,
         'auth_access_token': '0', 'clientid': '', 'auth_xuid': '', 'user_type': 'legacy',
         'version_type': 'release', 'natives_directory': str(work / 'natives'),
         'launcher_name': 'CrimeGameplayAcceptance', 'launcher_version': '1', 'classpath': ':'.join(classpath),
@@ -99,12 +112,15 @@ def main():
                 result.append(value)
         return result
 
-    command = [args.java, '-Xmx3G', '-Dcrime.gameplay.output=' + str(work),
+    command = [args.java, '-Xmx' + args.heap, '-Dcrime.gameplay.output=' + str(work),
                '-Dcrime.gameplay.law=' + str(args.law).lower(), '-Dcrime.gameplay.server=' + args.server, '-Dcrime.gameplay.resume=' + str(args.resume).lower(),
+               '-Dcrime.gameplay.role=' + args.role, '-Dcrime.gameplay.sync=' + (str(args.sync.resolve()) if args.sync else ''),
+               '-Dcrime.gameplay.deadline=' + str(max(60, args.timeout - 20)),
                *expand(vanilla['arguments']['jvm'] + forge['arguments']['jvm']), forge['mainClass'],
                *expand(vanilla['arguments']['game'] + forge['arguments']['game']), '--width', '1600', '--height', '1000']
     (work / 'launch-command.json').write_text(json.dumps(command, indent=2))
-    environment = dict(os.environ, DISPLAY=args.display, LIBGL_ALWAYS_SOFTWARE='1')
+    environment = dict(os.environ, DISPLAY=args.display, LIBGL_ALWAYS_SOFTWARE='1', LP_NUM_THREADS='2')
+    (work / 'launch-environment.json').write_text(json.dumps({key: environment[key] for key in ('DISPLAY', 'LIBGL_ALWAYS_SOFTWARE', 'LP_NUM_THREADS')}, indent=2))
     with (work / 'display.log').open('w') as display_log, (work / 'client.log').open('w') as log:
         display = subprocess.Popen([str(args.xvfb.resolve()), args.display, '-screen', '0', '1600x1000x24', '-nolisten', 'tcp', '-ac'], stdout=display_log, stderr=display_log)
         process = None
@@ -112,7 +128,7 @@ def main():
         try:
             time.sleep(1)
             process = subprocess.Popen(command, cwd=work, env=environment, stdout=log, stderr=subprocess.STDOUT)
-            code = process.wait(timeout=300)
+            code = process.wait(timeout=args.timeout)
         finally:
             if process is not None and process.poll() is None:
                 process.terminate()

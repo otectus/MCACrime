@@ -10,6 +10,14 @@ public record VictimCrimeMemory(UUID perpetrator, UUID incident, UUID victim, Cr
                                double fear, double anger, int repeatCount, boolean indirect,
                                boolean apologized, boolean restitutionPaid, boolean sentenceServed,
                                long apologyAt) {
+    /**
+     * Severity at and above which a memory is grave (0.7.7): it keeps a small residual, an apology
+     * softens it only slightly, and an accepted apology does not by itself reopen conversation.
+     * One constant because those three rules used to read two different numbers, 0.8 and 0.7, and a
+     * single punch (severity 0.7) fell on the wrong side of the second one.
+     */
+    public static final double GRAVE_SEVERITY = 0.8;
+
     public VictimCrimeMemory {
         severity = clamp(severity); fear = clamp(fear); anger = clamp(anger);
         repeatCount = Math.max(1, Math.min(100, repeatCount));
@@ -21,8 +29,29 @@ public record VictimCrimeMemory(UUID perpetrator, UUID incident, UUID victim, Cr
     private double decay(double value, long now, double multiplier) {
         double elapsed = Math.max(0, now - updatedAt) * Math.max(0, multiplier);
         // Severe memories retain a small, non-blocking residual; lesser memories can fade entirely.
-        double floor = severity >= 0.8 ? 0.08 * severity : 0;
+        double floor = floor();
         return Math.min(value, floor + Math.max(0, value - floor) * Math.pow(0.05, elapsed / duration));
+    }
+    private double floor() { return severity >= GRAVE_SEVERITY ? 0.08 * severity : 0; }
+    /**
+     * Game ticks from {@code now} until both fear and anger have decayed below these thresholds, 0 when
+     * they already have, and {@link Long#MAX_VALUE} when they never will (a decay multiplier of 0, or a
+     * residual floor at or above a threshold).
+     */
+    public long ticksUntilCalm(long now, double multiplier, double fearThreshold, double angerThreshold) {
+        return Math.max(ticksUntilBelow(fear, now, multiplier, fearThreshold),
+                ticksUntilBelow(anger, now, multiplier, angerThreshold));
+    }
+    private long ticksUntilBelow(double value, long now, double multiplier, double threshold) {
+        if (decay(value, now, multiplier) < threshold) return 0L;
+        double floor = floor();
+        if (!(multiplier > 0) || threshold <= floor || value <= floor) return Long.MAX_VALUE;
+        // Solve floor + (value - floor) * 0.05^(e / duration) < threshold for the decay time e, then turn
+        // decay time back into game ticks from now.
+        double decayNeeded = duration * Math.log((threshold - floor) / (value - floor)) / Math.log(0.05);
+        double ticks = decayNeeded / multiplier - Math.max(0, now - updatedAt);
+        if (!Double.isFinite(ticks) || ticks >= Long.MAX_VALUE) return Long.MAX_VALUE;
+        return Math.max(1L, (long) Math.ceil(ticks) + 1L);
     }
     public double fearAt(long now, double multiplier) { return decay(fear, now, multiplier); }
     public double angerAt(long now, double multiplier) { return decay(anger, now, multiplier); }
@@ -43,7 +72,7 @@ public record VictimCrimeMemory(UUID perpetrator, UUID incident, UUID victim, Cr
     public VictimCrimeMemory reconcile(long now, double multiplier, boolean apology, boolean restitution, boolean served) {
         double fearFactor = served && !sentenceServed ? 0.8 : 1;
         double angerFactor = restitution && !restitutionPaid ? 0.65 : served && !sentenceServed ? 0.8 : 1;
-        if (apology && !apologized) angerFactor *= severity >= 0.7 || repeatCount > 2 ? 0.97 : 0.85;
+        if (apology && !apologized) angerFactor *= severity >= GRAVE_SEVERITY || repeatCount > 2 ? 0.97 : 0.85;
         return new VictimCrimeMemory(perpetrator, incident, victim, category, timestamp, now, duration, severity,
                 fearAt(now, multiplier) * fearFactor, angerAt(now, multiplier) * angerFactor, repeatCount, indirect,
                 apologized || apology, restitutionPaid || restitution, sentenceServed || served, apology ? now : apologyAt);

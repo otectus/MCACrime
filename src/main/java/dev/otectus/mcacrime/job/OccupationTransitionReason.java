@@ -28,6 +28,8 @@ public enum OccupationTransitionReason {
     PROTECTED_NPC,
     /** The villager already holds another profession and this route may not overwrite one. */
     ALREADY_EMPLOYED,
+    /** Unemployed, but with trading XP, a level or a used offer an automatic route may not erase (0.7.7). */
+    ESTABLISHED_TRADER,
     /** The feature is switched off in config. */
     DISABLED,
     /** A station claim was required and none could be reserved or adopted. */

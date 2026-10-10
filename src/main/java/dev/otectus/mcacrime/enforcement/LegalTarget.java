@@ -98,10 +98,33 @@ public final class LegalTarget {
      * — being Wanted is a live pursuit, not a reputation.
      */
     public static boolean redTargetingAllowed(ServerPlayer player) {
+        return McaCrimeConfig.COMMON.redIsLegalTarget.get() && !redBandHiddenByMask(player);
+    }
+
+    /**
+     * Whether a mask keeps this player's Red band from counting against them right now.
+     *
+     * <p>One rule for both Red-band terms: the law's {@code redIsLegalTarget} and the private
+     * {@code outlawCombatLegal} (0.7.7). Nobody can tell that a masked figure is an outlaw, so neither
+     * the guards nor a passing player may act on it.
+     */
+    public static boolean redBandHiddenByMask(ServerPlayer player) {
         var c = McaCrimeConfig.COMMON;
-        return c.redIsLegalTarget.get()
-                && !(c.maskEnabled.get() && c.maskSuppressesRedBandTargeting.get()
-                     && dev.otectus.mcacrime.mask.Masks.isMasked(player));
+        return c.maskEnabled.get() && c.maskSuppressesRedBandTargeting.get()
+                && dev.otectus.mcacrime.mask.Masks.isMasked(player);
+    }
+
+    /**
+     * Whether attacking or killing this player is legal because they are an outlaw (0.7.7).
+     *
+     * <p>{@code outlawCombatLegal}: a Red-band player may be fought, and killed, by anybody without a
+     * charge, with no Wanted status or bounty behind it. Separate from {@link #isLegalTarget}, which is
+     * what makes the guards hunt somebody: an outlaw anybody may fight is not somebody the guards must.
+     */
+    public static boolean outlawCombatLegal(ServerPlayer player) {
+        return McaCrimeConfig.COMMON.outlawCombatLegal.get()
+                && CrimeState.getBand(player) == Band.RED
+                && !redBandHiddenByMask(player);
     }
 
     /** True while the player's refusal of a guard challenge is still standing (spec §13.2). */
