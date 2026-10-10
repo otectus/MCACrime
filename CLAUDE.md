@@ -42,6 +42,8 @@ mug/npc    NPC mugging sessions, theft planning, stolen-goods recovery
 economy/fence  contraband pricing, goods registry, trading UI
 compat integration locksreforged mcaquests numismatic  optional companions; degrade at runtime
 compat/townstead  the reflective Townstead adapter; nothing outside it may name a Townstead type
+compat/capitals  the reflective MCA Capitals adapter (0.7.8); nothing outside it may name a Capitals type
+decree     royal decrees: a capital ruler's local wanted order, read through compat/CapitalsBridge
 activity   enforcement claims over a villager and which operations they yield (work start, navigation)
 facility   civic facilities: building refs, roles, assignments, cell reservations, custody care
 civic      read-only village security projection, plus civic work: tasks, service contracts,
@@ -69,6 +71,8 @@ checked by `ApiJarClosureTest` and `verifyApiJar`).
   its api jar. This mod's `api/CrimeDialogueHooks` is what MCA: Conversations voices guard lines through.
 - **Townstead** - optional settlement companion, resolved entirely by reflection through
   `compat/TownsteadBridge`; absent is the silent, normal path.
+- **MCA Capitals** - optional monarchy companion, resolved entirely by reflection through
+  `compat/CapitalsBridge`; absent is the silent, normal path. No sibling api jar exists for it.
 - **Architectury** - MCA's own runtime requirement; deliberately not declared in `mods.toml`.
 
 ## Conventions
@@ -107,6 +111,17 @@ checked by `ApiJarClosureTest` and `verifyApiJar`).
   named anywhere in the mod. Client-only `client/EpicFightInteractShim` forwards an armed or
   restraint right-click that Epic Fight's battle mode cancelled at the use key, so MCA: Crime's
   menu still opens; MCA's own screen is left to Epic Fight.
+- MCA Capitals is reached only through `compat/CapitalsBridge` -> `compat/capitals/` (`CapitalsBinding`
+  manifest, one capability per member group, `ReflectiveCapitalsBridge`); every query returns a
+  `CapitalsQueryResult` and anything unconfirmed denies. `NoCapitalsStaticLinkTest` and
+  `OptionalClassloadTest` keep Capitals types out of everything else; `capitalsProbeTest
+  -PcapitalsJar=<jar>` replays the manifest against a real jar paired with MCA 7.7.1-beta.2. A royal
+  decree is a legal basis (`LegalDecision.Basis.ROYAL_DECREE`), never a `CrimeRecord`, `Warrant`, Heat
+  or Karma change; `DecreeIsolationTest` forbids those calls in `decree/`. The only Capitals write is
+  the optional chronicle line. `tools/capitals` is the production-server harness (two runs, one world).
+- `data/mca/tags/blocks/iron_bars.json` and `iron_doors.json` (`replace: false`) put the reinforced bars
+  and the cell door in MCA's prison tags; `McaPrisonDefinitionProbeTest` pins MCA's prison definition
+  across the probe fleet and `PrisonTagJsonTest` the tag files.
 - `testRuntimeClasspath` excludes MCA on purpose, so "MCA absent" is genuinely exercised.
 - `tools/gui/generate_gui_sheet.py` is a hand-run author tool (`--check` verifies the committed
   PNG); the build must keep working with no Python installed.

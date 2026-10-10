@@ -118,6 +118,13 @@ public final class CrimeClientHandlers {
         minecraft.setScreen(new dev.otectus.mcacrime.client.screen.PlayerReportScreen(msg, minecraft.screen));
     }
 
+    /** The royal decree screen (0.7.8), opened over whatever the ruler was looking at. */
+    public static void onDecreeMenu(dev.otectus.mcacrime.network.DecreeMenuS2CPacket msg) {
+        Minecraft minecraft = Minecraft.getInstance();
+        TownsteadDialogueState.markExternalClose(minecraft.screen);
+        minecraft.setScreen(new dev.otectus.mcacrime.client.screen.RoyalDecreeScreen(msg, minecraft.screen));
+    }
+
     public static void onPlayerReports(dev.otectus.mcacrime.network.PlayerReportsS2CPacket msg) {
         Minecraft.getInstance().setScreen(new dev.otectus.mcacrime.client.screen.PlayerReportsScreen(msg));
     }

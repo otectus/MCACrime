@@ -77,6 +77,13 @@ public final class CrimeMaintenanceSweep {
 
         Result result = sweep(CrimeWorldData.get(server), gameTime / 24000L, gameTime,
                 activeThieves(), loadedEntities(server), Policy.fromConfig());
+        // Royal decrees end on the same cadence: lapsed, capital gone, or the target raised to Noble
+        // (0.7.8). Their enforcement checks the same rules on every read, so this is bookkeeping and
+        // telling the target, never the thing that keeps an ended decree from being enforced.
+        int decrees = dev.otectus.mcacrime.decree.DecreeService.sweep(server);
+        if (decrees > 0) {
+            CrimeDebug.crime("maintenance sweep: {} royal decree(s) ended", decrees);
+        }
         if (!result.isEmpty()) {
             CrimeDebug.crime("maintenance sweep: {} stolen record(s), {} criminal(s), {} claim(s), "
                             + "{} contract(s), {} restock day(s) dropped", result.stolenGoods(),

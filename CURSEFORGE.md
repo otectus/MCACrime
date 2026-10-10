@@ -119,6 +119,18 @@ One balancing difference is intentional: MCA: Reputation alone may fold an assau
 
 ---
 
+## MCA Capitals: royal decrees
+
+MCA Capitals is optional and reached entirely by reflection. With it installed, the player who rules a capital can issue a **royal decree**: another player, below Noble status in that capital, is wanted in that village and nowhere else. The ruler chooses **Royal decree** from the Crime menu on one of the village's guards or court officers, or uses `/crime decree issue <player> [reason]`, and no operator permission is involved. Capitals is asked on the server for every action, and anything it cannot confirm is refused.
+
+The village's guards then stop that player inside the village to pay a fine or surrender, and serving a decree's term or paying its fine ends it. A decree is not a crime: it touches no Heat, Karma, band, bounty, case or reputation, guards never use force on a decree alone, and it lapses on its own after three in-game days by default. Knights, lords, dukes, princes, the Hand, the Lord Commander and the throne are protected, and a title from another capital counts for nothing.
+
+## Blueprint prisons
+
+MCA's Blueprint counts MCA: Crime's reinforced bars, the gapped bars and the cell door exactly like iron bars and an iron door, so a cell built from them, with one vanilla bed, is an MCA prison, and Capitals' prison too when Capitals is installed. Vanilla materials still count, and mixed materials count together. No companion is needed.
+
+---
+
 ## Player information and presentation
 
 - The inventory reputation card shows Karma, band, Heat, Wanted state, sentence time, lawful-target state, and captivity status.
@@ -142,6 +154,8 @@ All commands are under **/crime**. Players can inspect and act on their own stat
 /crime payransom                             pay a ransom for a held relative
 /crime escape                                begin or continue timed escape work
 /crime releasecaptive                        release unlawful captive records you own
+/crime decree issue|withdraw <player>        as a capital's ruler, decree or withdraw (MCA Capitals)
+/crime decree pay|list                       pay a decree against you, or list decrees
 
 /crime query <player>                        inspect another player                 (level 2)
 /crime ledger <player>                       inspect another player's cases         (level 2)
@@ -237,6 +251,7 @@ For an existing world, make a backup before upgrading. When the world loads, sav
 | Required | MCA Reborn 7.6.x or 7.7.x (version range [7.6,8)), plus GeckoLib for Forge 1.20.1 |
 | Optional | MCA: Reputation 0.3.0+ (the integration itself requires 0.3.0; older versions degrade to the built-in store) |
 | Optional | Townstead, reached entirely by reflection and silently absent without it |
+| Optional | MCA Capitals 1.3.5–1.3.7, reached entirely by reflection, for royal decrees; silently absent without it |
 | Optional | Locks Reforged, for its own locks and for fence stock. **Not required**: since 0.7.5 lockpicking is native. On a block Locks Reforged already owns, MCA: Crime refuses to place a second lock. |
 | Not required | **Cuffed.** 0.7.5 absorbs its feature set natively. Installed alongside, it is detected by mod id and MCA: Crime logs one startup warning; a config option can additionally stop MCA: Crime applying new restraints. No Cuffed data is ever read, cleared or disabled, and there is no world-import tool. |
 | Java | Java 17 |

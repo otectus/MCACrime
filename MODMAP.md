@@ -23,17 +23,17 @@ Machine-generated map of this mod. Read this first when picking the project up.
 ```
 dev.otectus.mcacrime                                 2 files
 dev.otectus.mcacrime.action                          25 files
-dev.otectus.mcacrime.action.handler                  20 files
+dev.otectus.mcacrime.action.handler                  21 files
 dev.otectus.mcacrime.activity                        4 files
 dev.otectus.mcacrime.ai                              16 files
 dev.otectus.mcacrime.ai.thief                        10 files
 dev.otectus.mcacrime.api                             6 files
-dev.otectus.mcacrime.api.event                       31 files
+dev.otectus.mcacrime.api.event                       32 files
 dev.otectus.mcacrime.api.jurisdiction                3 files
-dev.otectus.mcacrime.api.model                       19 files
+dev.otectus.mcacrime.api.model                       20 files
 dev.otectus.mcacrime.api.result                      1 file
 dev.otectus.mcacrime.audio                           2 files
-dev.otectus.mcacrime.block                           7 files
+dev.otectus.mcacrime.block                           8 files
 dev.otectus.mcacrime.block.entity                    8 files
 dev.otectus.mcacrime.block.prison                    11 files
 dev.otectus.mcacrime.bounty                          9 files
@@ -44,10 +44,11 @@ dev.otectus.mcacrime.client.hud                      4 files
 dev.otectus.mcacrime.client.render                   4 files
 dev.otectus.mcacrime.client.render.mask              3 files
 dev.otectus.mcacrime.client.render.restraint         3 files
-dev.otectus.mcacrime.client.screen                   16 files
+dev.otectus.mcacrime.client.screen                   17 files
 dev.otectus.mcacrime.client.screen.widget            3 files
-dev.otectus.mcacrime.command                         3 files
-dev.otectus.mcacrime.compat                          46 files
+dev.otectus.mcacrime.command                         4 files
+dev.otectus.mcacrime.compat                          53 files
+dev.otectus.mcacrime.compat.capitals                 2 files
 dev.otectus.mcacrime.compat.inventory                1 file
 dev.otectus.mcacrime.compat.locksreforged            1 file
 dev.otectus.mcacrime.compat.mana                     1 file
@@ -62,9 +63,10 @@ dev.otectus.mcacrime.compat.townstead.client         1 file
 dev.otectus.mcacrime.config                          5 files
 dev.otectus.mcacrime.crime                           3 files
 dev.otectus.mcacrime.crime.type                      6 files
-dev.otectus.mcacrime.detect                          17 files
+dev.otectus.mcacrime.decree                          10 files
+dev.otectus.mcacrime.detect                          18 files
 dev.otectus.mcacrime.detention                       5 files
-dev.otectus.mcacrime.dialogue                        6 files
+dev.otectus.mcacrime.dialogue                        7 files
 dev.otectus.mcacrime.economy                         17 files
 dev.otectus.mcacrime.economy.account                 6 files
 dev.otectus.mcacrime.economy.fence                   12 files
@@ -72,10 +74,10 @@ dev.otectus.mcacrime.effect                          11 files
 dev.otectus.mcacrime.enchantment                     9 files
 dev.otectus.mcacrime.enforcement                     41 files
 dev.otectus.mcacrime.engine                          3 files
-dev.otectus.mcacrime.entity                          4 files
+dev.otectus.mcacrime.entity                          5 files
 dev.otectus.mcacrime.event                           3 files
 dev.otectus.mcacrime.facility                        7 files
-dev.otectus.mcacrime.frisk                           16 files
+dev.otectus.mcacrime.frisk                           18 files
 dev.otectus.mcacrime.incident                        4 files
 dev.otectus.mcacrime.integration                     9 files
 dev.otectus.mcacrime.item                            11 files
@@ -85,15 +87,15 @@ dev.otectus.mcacrime.item.lock                       6 files
 dev.otectus.mcacrime.item.restraint                  1 file
 dev.otectus.mcacrime.item.tool                       1 file
 dev.otectus.mcacrime.item.weapon                     7 files
-dev.otectus.mcacrime.jail                            16 files
-dev.otectus.mcacrime.job                             26 files
+dev.otectus.mcacrime.jail                            18 files
+dev.otectus.mcacrime.job                             27 files
 dev.otectus.mcacrime.justice                         5 files
 dev.otectus.mcacrime.ledger                          15 files
 dev.otectus.mcacrime.lockpick                        6 files
 dev.otectus.mcacrime.locks                           14 files
 dev.otectus.mcacrime.loot                            3 files
 dev.otectus.mcacrime.mask                            7 files
-dev.otectus.mcacrime.memory                          17 files
+dev.otectus.mcacrime.memory                          18 files
 dev.otectus.mcacrime.menu                            10 files
 dev.otectus.mcacrime.mixin                           13 files
 dev.otectus.mcacrime.mixin.client                    1 file
@@ -101,14 +103,14 @@ dev.otectus.mcacrime.mixin.mca                       4 files
 dev.otectus.mcacrime.mixin.townstead                 5 files
 dev.otectus.mcacrime.mixin.townstead.client          1 file
 dev.otectus.mcacrime.mug                             1 file
-dev.otectus.mcacrime.mug.npc                         12 files
-dev.otectus.mcacrime.network                         46 files
+dev.otectus.mcacrime.mug.npc                         13 files
+dev.otectus.mcacrime.network                         48 files
 dev.otectus.mcacrime.news                            2 files
 dev.otectus.mcacrime.property                        15 files
 dev.otectus.mcacrime.ransom                          8 files
 dev.otectus.mcacrime.recipe                          8 files
 dev.otectus.mcacrime.recipe.lock                     8 files
-dev.otectus.mcacrime.relationship                    5 files
+dev.otectus.mcacrime.relationship                    6 files
 dev.otectus.mcacrime.report                          6 files
 dev.otectus.mcacrime.restraint                       42 files
 dev.otectus.mcacrime.stat                            2 files
@@ -456,3 +458,23 @@ _Bugs you know about but have not fixed, with the symptom and any lead._
   property escrow. Keys, key rings, key molds, padlocks, the safe, the cell door and lockpicking stay.
   `docs/0.7.5/CUFFED_INTEGRATION.md` records the dropped set.
 - Stage records for the 0.7.5 work: `docs/0.7.5/`.
+
+## 0.7.8 notes (hand-maintained)
+
+- MCA Capitals is the fourth reflective companion beside Townstead: `compat/CapitalsBridge` (always
+  loadable), `compat/capitals/CapitalsBinding` (22-member manifest in six capabilities: registry,
+  authority, titles, court, chronicle, player_warrants) and `ReflectiveCapitalsBridge`. Bound at server
+  start, released at stop, re-bound on a COMMON config reload. `capitalsProbeTest -PcapitalsJar=<jar>`
+  pairs the jar with MCA 7.7.1-beta.2, because Capitals' descriptors name `forge.net.conczin.mca`.
+- `decree/` is the royal decree system: `Decree` rows in `CrimeWorldData` (max 1024, ended ones kept 30
+  in-game days), pure rules in `DecreeRules`, the server wiring in `DecreeService`, the screen session in
+  `DecreeMenuService`. A decree reaches enforcement only as `LegalDecision.Basis.ROYAL_DECREE` through
+  `JusticeService.forGuard`; it is never a case, a `Warrant`, Heat or Karma (`DecreeIsolationTest`).
+- "Noble" is Capitals' own vocabulary per capital: rank not `STRANGER`/`COMMONER`, or any non-`COMMONER`
+  title (knights and dames have no rank of their own). MCA's native rank is overridden inside a capital
+  and never yields `NOBLE` there.
+- World schema 17 (stamp-only `v16to17`), network protocol `"20"` (`DecreeMenuS2CPacket`,
+  `DecreeActionC2SPacket`).
+- Blueprint prisons are two additive `data/mca/tags/blocks` files and nothing else. MCA 7.7.1 asks
+  prison-or-house for a barred cell with a bed (its polymorph prompt); 7.6 picks by itself.
+- `tools/capitals` is the production-server harness (`run_runtime.py --restart`, Capitals optional).

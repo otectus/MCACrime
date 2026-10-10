@@ -54,6 +54,8 @@ class ModsTomlOrderingTest {
         assertEquals("AFTER", ordering.get("mcareputation"));
         assertEquals("AFTER", ordering.get("mcaquests"));
         assertEquals("AFTER", ordering.get("townstead"));
+        // MCA Capitals is read, never a reader of ours (0.7.8): AFTER, and no cycle.
+        assertEquals("AFTER", ordering.get("mcacapitals"));
         // A consumer of this mod loads after it; AFTER here would be a cycle with its own declaration.
         assertEquals("BEFORE", ordering.get("mcakingdoms"),
                 "MCA: Kingdoms declares mcacrime AFTER; declaring it AFTER here stops Forge sorting mods");

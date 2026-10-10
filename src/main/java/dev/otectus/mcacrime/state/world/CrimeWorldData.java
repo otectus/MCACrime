@@ -164,6 +164,10 @@ public final class CrimeWorldData extends SavedData {
      * one would quietly forgive a case while leaving the offender believing they still owed the work.
      */
     private static final int MAX_SERVICE_CONTRACTS = 512;
+    /** Royal decrees (0.7.8): open ones plus the recently ended, kept for the cooldown and history. */
+    private static final int MAX_DECREES = 1024;
+    /** How long an ended decree is kept: thirty in-game days, the transaction receipts' window. */
+    private static final long DECREE_RETENTION_TICKS = 30L * 24000L;
     private static final int MAX_QUARANTINE = 256;
     /** Ticks in a Minecraft day, the unit terminal-receipt retention is expressed in. */
     private static final long TICKS_PER_DAY = 24000L;
@@ -292,6 +296,8 @@ public final class CrimeWorldData extends SavedData {
      * a fact about a case's history and cannot be re-derived from anything else in the store.
      */
     private final Map<UUID, ServiceContract> serviceContracts = new LinkedHashMap<>();
+    /** Royal decrees by id (0.7.8, schema 17). Never a crime record: see {@code decree/Decree}. */
+    private final Map<UUID, dev.otectus.mcacrime.decree.Decree> decrees = new LinkedHashMap<>();
     // --- 0.7.5 (schema 15): the physical-restraint half of the model (§1.5) -----------------------
 
     /**
@@ -2115,6 +2121,117 @@ public final class CrimeWorldData extends SavedData {
         return false;
     }
 
+    // --- royal decrees (0.7.8) ---
+
+    /**
+     * Stores a decree, replacing the row with the same id. A new id is refused once the table is full;
+     * an existing one may always be updated, so a full table can still end the decrees it holds.
+     */
+    public boolean putDecree(dev.otectus.mcacrime.decree.Decree decree) {
+        if (decree == null || frozen() || atCapacity(decrees, decree.id(), MAX_DECREES, "decree")) {
+            return false;
+        }
+        decrees.put(decree.id(), decree);
+        setDirty();
+        return true;
+    }
+
+    @Nullable
+    public dev.otectus.mcacrime.decree.Decree decree(@Nullable UUID id) {
+        return id == null ? null : decrees.get(id);
+    }
+
+    /** Every decree, open and ended, in issue order. A copy. */
+    public List<dev.otectus.mcacrime.decree.Decree> decrees() {
+        return new ArrayList<>(decrees.values());
+    }
+
+    /** Every decree naming {@code offender}, in issue order. A copy. */
+    public List<dev.otectus.mcacrime.decree.Decree> decreesOf(@Nullable UUID offender) {
+        List<dev.otectus.mcacrime.decree.Decree> out = new ArrayList<>();
+        if (offender == null) {
+            return out;
+        }
+        for (dev.otectus.mcacrime.decree.Decree decree : decrees.values()) {
+            if (offender.equals(decree.offender())) {
+                out.add(decree);
+            }
+        }
+        return out;
+    }
+
+    /** Whether {@code offender} has any open decree anywhere; the cheap first question a guard scan asks. */
+    public boolean hasOpenDecree(@Nullable UUID offender) {
+        if (offender == null || decrees.isEmpty()) {
+            return false;
+        }
+        for (dev.otectus.mcacrime.decree.Decree decree : decrees.values()) {
+            if (decree.open() && offender.equals(decree.offender())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** The one open decree against {@code offender} in {@code community}, if any. */
+    public Optional<dev.otectus.mcacrime.decree.Decree> openDecree(@Nullable UUID offender,
+                                                                   @Nullable CrimeCommunityKey community) {
+        if (offender == null || community == null) {
+            return Optional.empty();
+        }
+        for (dev.otectus.mcacrime.decree.Decree decree : decrees.values()) {
+            if (decree.open() && offender.equals(decree.offender()) && community.equals(decree.community())) {
+                return Optional.of(decree);
+            }
+        }
+        return Optional.empty();
+    }
+
+    /** How many decrees one capital holds open. */
+    public int openDecreeCount(@Nullable UUID capitalId) {
+        int count = 0;
+        for (dev.otectus.mcacrime.decree.Decree decree : decrees.values()) {
+            if (decree.open() && decree.capitalId().equals(capitalId)) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    /** When the most recent ended decree against {@code offender} in {@code community} ended; MIN_VALUE if none. */
+    public long lastDecreeEndedAt(@Nullable UUID offender, @Nullable CrimeCommunityKey community) {
+        long last = Long.MIN_VALUE;
+        if (offender == null || community == null) {
+            return last;
+        }
+        for (dev.otectus.mcacrime.decree.Decree decree : decrees.values()) {
+            if (!decree.open() && offender.equals(decree.offender()) && community.equals(decree.community())) {
+                last = Math.max(last, decree.resolvedAt());
+            }
+        }
+        return last;
+    }
+
+    /** Whether a new decree id would be refused. */
+    public boolean decreeTableFull() {
+        return frozen() || decrees.size() >= MAX_DECREES;
+    }
+
+    /** Drops ended decrees past the retention window; returns how many went. Open ones are never pruned. */
+    public int pruneDecrees(long gameTime) {
+        if (frozen() || decrees.isEmpty()) {
+            return 0;
+        }
+        int before = decrees.size();
+        decrees.values().removeIf(decree -> !decree.open()
+                && gameTime - decree.resolvedAt() > DECREE_RETENTION_TICKS);
+        int removed = before - decrees.size();
+        if (removed > 0) {
+            setDirty();
+        }
+        return removed;
+    }
+
     /**
      * Drops reservations whose lease has run out.
      *
@@ -2608,6 +2725,10 @@ public final class CrimeWorldData extends SavedData {
         ListTag serviceContractList = new ListTag();
         serviceContracts.values().forEach(contract -> serviceContractList.add(contract.save()));
         tag.put("serviceContracts", serviceContractList);
+        // 0.7.8 (schema 17). Absent in every world written before this release, and absent reads as empty.
+        ListTag decreeList = new ListTag();
+        decrees.values().forEach(decree -> decreeList.add(decree.save()));
+        tag.put("decrees", decreeList);
 
         // 0.7.5 (schema 15) physical state. Each list is skipped when a newer jar's unrecognised shape
         // for it was stashed into `reserved` on load -- that copy is re-emitted verbatim below instead,
@@ -3077,6 +3198,19 @@ public final class CrimeWorldData extends SavedData {
             }
         }
         warnOverflow("service contract", data.serviceContracts.size(), MAX_SERVICE_CONTRACTS);
+
+        ListTag decreeList = tag.getList("decrees", Tag.TAG_COMPOUND);
+        for (int i = 0; i < decreeList.size(); i++) {
+            dev.otectus.mcacrime.decree.Decree decree = dev.otectus.mcacrime.decree.Decree.load(decreeList.getCompound(i));
+            if (decree != null) {
+                data.decrees.put(decree.id(), decree);
+            } else {
+                // Quarantined, not dropped: an unreadable decree may still be why a guard stopped someone,
+                // and an operator has to be able to see that it existed.
+                data.quarantine("decree", decreeList.getCompound(i));
+            }
+        }
+        warnOverflow("decree", data.decrees.size(), MAX_DECREES);
 
         // 0.7.5 (schema 15). Absent reads as empty in every world written before this release.
         readPhysicalTable(data, tag, "physicalRestraints", PhysicalRestraintState::load,

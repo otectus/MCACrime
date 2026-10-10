@@ -37,8 +37,8 @@ public final class CrimeNetwork {
 
     // 17 added bounded player-report menus, submission and private receipt status; 18 drops the
     // warden-guide and identity-projection packets, which shifts every later message index; 19 adds
-    // the paused-sentence flag to the self status.
-    private static final String PROTOCOL_VERSION = "19";
+    // the paused-sentence flag to the self status; 20 (0.7.8) appends the royal decree menu and its answer.
+    private static final String PROTOCOL_VERSION = "20";
 
     public static final SimpleChannel CHANNEL = NetworkRegistry.newSimpleChannel(
             new ResourceLocation(McaCrime.MOD_ID, "main"),
@@ -158,6 +158,18 @@ public final class CrimeNetwork {
         toClient(PlayerReportsS2CPacket.class,
                 PlayerReportsS2CPacket::encode, PlayerReportsS2CPacket::decode,
                 PlayerReportsS2CPacket::handle);
+        // 0.7.8, protocol 20: the royal decree screen and its answer.
+        toClient(DecreeMenuS2CPacket.class,
+                DecreeMenuS2CPacket::encode, DecreeMenuS2CPacket::decode, DecreeMenuS2CPacket::handle);
+        toServer(DecreeActionC2SPacket.class,
+                DecreeActionC2SPacket::encode, DecreeActionC2SPacket::decode, DecreeActionC2SPacket::handle);
+    }
+
+    /** The decree screen, to the ruler who asked for it and nobody else. */
+    public static void sendDecreeMenu(ServerPlayer player, dev.otectus.mcacrime.decree.DecreeMenuService.Menu menu) {
+        if (player != null && menu != null) {
+            CHANNEL.send(PacketDistributor.PLAYER.with(() -> player), new DecreeMenuS2CPacket(menu));
+        }
     }
 
     public static void sendReportMenu(ServerPlayer player,

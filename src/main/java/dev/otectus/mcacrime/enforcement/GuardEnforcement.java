@@ -102,6 +102,8 @@ public final class GuardEnforcement {
         // minutes: nothing it drops is urgent, and a pass that walks every loaded entity is not free.
         CrimeMaintenanceSweep.tick(server);
         respondToIncidents(server);
+        // A player entering a village that holds a royal decree against them is told so once (0.7.8).
+        dev.otectus.mcacrime.decree.DecreeService.tickNotices(server);
 
         long serverTime = server.overworld().getGameTime();
         LawHold.prune(serverTime);
@@ -130,7 +132,10 @@ public final class GuardEnforcement {
                     // escort had just taken -- once per scan, every scan, handing the guard back to the
                     // reaction ticker in the middle of walking somebody to a cell.
                     EscortService.noteOwned(player);
-                } else if (legalTarget || alert != null || hasKnownCases(server, player, level.getGameTime())) {
+                } else if (legalTarget || alert != null || hasKnownCases(server, player, level.getGameTime())
+                        || dev.otectus.mcacrime.decree.DecreeService.anyInForce(server, player.getUUID())) {
+                    // A decree only opens the door: pursue() still asks each guard for its own decision,
+                    // and a guard from any other village finds no decree in it (0.7.8).
                     pursue(level, player, alert, legalTarget, radius);
                 } else {
                     standDown(level, player, radius);

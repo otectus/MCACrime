@@ -1,0 +1,19 @@
+modLoader="javafml"
+loaderVersion="[47,)"
+license="GPL-3.0-only"
+[[mods]]
+modId="crime_capitals_checks"
+version="1"
+displayName="MCA Crime Capitals and Blueprint fixtures"
+[[dependencies.crime_capitals_checks]]
+modId="mcacrime"
+mandatory=true
+versionRange="[0,)"
+ordering="AFTER"
+side="SERVER"
+[[dependencies.crime_capitals_checks]]
+modId="mcacapitals"
+mandatory=false
+versionRange="[0,)"
+ordering="AFTER"
+side="SERVER"

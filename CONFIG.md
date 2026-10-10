@@ -1098,6 +1098,45 @@ but `enabled` false, any `[townstead]` switch still left on is reported too — 
 anything until `enabled` is true. With Townstead **absent**, no capability is ever reported as
 missing; the two ordering checks above are pure number checks and still apply.
 
+## `[capitals]` (0.7.8)
+
+Every setting here is a no-op when [MCA Capitals](https://www.curseforge.com/minecraft/mc-mods/mca-capitals)
+is absent. MCA: Crime only reads Capitals (who rules a village, what titles a player holds there) and,
+when `chronicle` is on, writes one line into a capital's chronicle. It never writes Capitals' own justice,
+warrants, titles or succession. `/crime debug capitals` prints the bridge state, each capability and the
+capital at your feet; `/crime validate` reports a switch that is on while the Capitals surface behind it is
+missing as `DEGRADED`.
+
+| Option | Default | Range | What it does |
+|---|---|---|---|
+| `enabled` | `true` | — | Master switch for the whole Capitals integration. Off means MCA: Crime never asks Capitals anything and no royal decree can be issued or enforced. |
+| `readPlayerWarrants` | `true` | — | Mention in `/crime status` that Capitals itself holds a warrant against you in the capital you are standing in. Read only: such a warrant never makes MCA: Crime's guards challenge anybody. Needs `player_warrants`. |
+
+### `[capitals.decrees]`
+
+A **royal decree** lets the player who rules a village through Capitals declare another player wanted in
+that village, provided the target holds less than Noble status there. It is a local order, not a crime
+record: it never changes Heat, Karma, the Outlaw band, the global Wanted flag or any bounty, and it names no
+victim. That village's guards challenge the target there; paying the fine or serving the term answers it,
+and refusing the guard is resisting arrest, as with any charge. A decree needs the `registry`, `authority`
+and `titles` capabilities together.
+
+| Option | Default | Range | What it does |
+|---|---|---|---|
+| `enabled` | `true` | — | Whether a ruler may issue royal decrees at all. |
+| `durationTicks` | `72000` | `1200 … 2400000` | How long a decree stands, in overworld game ticks, counted whether or not the target is online (72000 is three in-game days). A decree that a running sentence answers does not lapse while that sentence runs. |
+| `cooldownTicks` | `24000` | `0 … 2400000` | How long after a decree against one player in one village ends (withdrawn, paid, served, lapsed or voided) before another may be issued against them there. `0` allows it at once. |
+| `maxOpenPerCapital` | `8` | `1 … 64` | How many decrees one capital may hold open at once. |
+| `sentenceTicks` | `6000` | `20 … 2400000` | The custody term, in online ticks, an arrest on a decree carries at least: the five minutes Capitals itself sentences a player to. An arrest that also has charges serves the longer of this and their sentence, clamped to `maxJailCommandTicks`. |
+| `fineAmount` | `32` | `0 … 1000000` | The fine, in the active currency, that settles a decree at the guard's challenge or with `/crime decree pay`. `0` means a decree can only be answered by surrender. Never offered while `jail.enableFines` is off. |
+| `chronicle` | `false` | — | Write one line into the capital's chronicle when a decree is issued or withdrawn. The line names the ruler, the target, the village and the reason, and nothing else. Needs `chronicle`. |
+| `chronicleHerald` | `false` | — | Let the capital's herald announce that chronicle line. Only used while `chronicle` is on. |
+
+`/crime validate` reports `chronicleHerald` on while `chronicle` is off, `sentenceTicks` longer than
+`maxJailCommandTicks`, and a positive `fineAmount` while `jail.enableFines` is off. Capability checks run
+only once the bridge has bound for a running server, so a config read during mod setup is never reported as
+degraded, and nothing at all is said about capabilities when Capitals is not installed.
+
 ## The physical restraint system (0.7.5)
 
 Everything from here to `[sentencing.capitalPunishment]` is new in 0.7.5, when MCA: Crime absorbed

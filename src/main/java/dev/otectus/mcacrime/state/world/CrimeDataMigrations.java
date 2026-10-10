@@ -130,7 +130,17 @@ public final class CrimeDataMigrations {
      * pins for any schema newer than the build's own.
      */
     public static final int SCHEMA_VILLAGE_JUSTICE = 16;
-    public static final int CURRENT_SCHEMA = SCHEMA_VILLAGE_JUSTICE;
+    /**
+     * The 0.7.8 royal-decree schema: the bounded {@code decrees} table ({@code decree/Decree}), the
+     * local wanted orders a village's ruler issues through MCA Capitals.
+     *
+     * <p>Additive only, so {@link #v16to17} writes nothing but the version. {@code decrees} is absent in
+     * every world written before this release and absent reads as an empty table: no decree existed
+     * before the feature did, and nothing in the case ledger is one. A schema-16 build that opens a world
+     * stamped 17 takes the from-the-future path and holds the store read-only, exactly as for 16.
+     */
+    public static final int SCHEMA_DECREES = 17;
+    public static final int CURRENT_SCHEMA = SCHEMA_DECREES;
 
     /** Root NBT key holding the schema integer. Absent means 0. */
     public static final String TAG_SCHEMA = "schema";
@@ -201,6 +211,9 @@ public final class CrimeDataMigrations {
         }
         if (schema < 16) {
             working = v15to16(working);
+        }
+        if (schema < 17) {
+            working = v16to17(working);
         }
         working.putInt(TAG_SCHEMA, CURRENT_SCHEMA);
         return working;
@@ -638,6 +651,18 @@ public final class CrimeDataMigrations {
     public static CompoundTag v15to16(CompoundTag tag) {
         CompoundTag out = tag.copy();
         out.putInt(TAG_SCHEMA, SCHEMA_VILLAGE_JUSTICE);
+        return out;
+    }
+
+    // ------------------------------------------------------------------ 16 -> 17
+
+    /**
+     * Royal decrees: stamps the version and nothing else. {@link #SCHEMA_DECREES} says why an absent
+     * {@code decrees} table is the right starting state.
+     */
+    public static CompoundTag v16to17(CompoundTag tag) {
+        CompoundTag out = tag.copy();
+        out.putInt(TAG_SCHEMA, SCHEMA_DECREES);
         return out;
     }
 

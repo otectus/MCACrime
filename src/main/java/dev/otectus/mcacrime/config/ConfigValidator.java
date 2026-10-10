@@ -1968,6 +1968,14 @@ public final class ConfigValidator {
                 c.holdingCellSearchRadius.get()));
         problems.addAll(validateCommunityService(c.townsteadEnabled.get(),
                 c.townsteadCommunityService.get(), c.enableFines.get()));
+        problems.addAll(validateCapitals(
+                dev.otectus.mcacrime.compat.CapitalsBridge.installed(),
+                dev.otectus.mcacrime.compat.CapitalsBridge.state() != dev.otectus.mcacrime.compat.CapitalsBridge.State.ABSENT,
+                c.capitalsEnabled.get(), c.decreesEnabled.get(), c.decreesChronicle.get(),
+                c.decreesChronicleHerald.get(), c.capitalsReadPlayerWarrants.get(),
+                dev.otectus.mcacrime.compat.CapitalsBridge::has,
+                c.decreesSentenceTicks.get(), c.maxJailCommandTicks.get(), c.decreesFineAmount.get(),
+                c.enableFines.get()));
 
         // Surface crime-definition JSON parse errors from the last datapack load (spec §12.3).
         for (String crimeError : CrimeTypeRegistry.lastErrors()) {
@@ -2095,6 +2103,63 @@ public final class ConfigValidator {
                     + "not provide " + String.join(", ", missing) + "; the feature is DEGRADED (not running), "
                     + "not off. " + requirement.summary() + " — until then MCA: Crime uses its own "
                     + "behaviour unchanged.");
+        }
+        return problems;
+    }
+
+    /**
+     * The {@code [capitals]} section (0.7.8), as a pure function of its values and of what bound.
+     *
+     * <p>The Townstead rule applies: a switch that is on while the capability behind it is missing is
+     * reported as degraded, never left to read as off. Capability questions are only asked once the
+     * bridge has bound at server start, so a config read during mod setup is not reported as degraded
+     * merely because no server exists yet, and nothing at all is said when Capitals is not installed.
+     *
+     * @param bound whether the bridge has bound (or tried to) for the running server
+     */
+    public static List<String> validateCapitals(boolean installed, boolean bound, boolean enabled,
+                                                boolean decreesEnabled, boolean chronicle, boolean chronicleHerald,
+                                                boolean readPlayerWarrants,
+                                                Predicate<dev.otectus.mcacrime.compat.CapitalsCapability> available,
+                                                long sentenceTicks, long maxJailCommandTicks, long fineAmount,
+                                                boolean finesEnabled) {
+        List<String> problems = new ArrayList<>();
+        if (chronicleHerald && !chronicle) {
+            problems.add("capitals.decrees.chronicleHerald is on while chronicle is off; the herald only "
+                    + "announces a line that is written, so nothing is announced.");
+        }
+        if (maxJailCommandTicks > 0 && sentenceTicks > maxJailCommandTicks) {
+            problems.add("capitals.decrees.sentenceTicks (" + sentenceTicks + ") is longer than maxJailCommandTicks ("
+                    + maxJailCommandTicks + "); a decree's term is clamped to " + maxJailCommandTicks + ".");
+        }
+        if (decreesEnabled && fineAmount > 0 && !finesEnabled) {
+            problems.add("capitals.decrees.fineAmount is " + fineAmount + " while enableFines is off; a decree "
+                    + "can then only be answered by surrender, never paid.");
+        }
+        if (!installed || !enabled || !bound) {
+            return problems;
+        }
+        if (decreesEnabled) {
+            List<String> missing = new ArrayList<>();
+            for (dev.otectus.mcacrime.compat.CapitalsCapability capability
+                    : dev.otectus.mcacrime.compat.CapitalsBridge.DECREE_CAPABILITIES) {
+                if (!available.test(capability)) {
+                    missing.add(capability.id());
+                }
+            }
+            if (!missing.isEmpty()) {
+                problems.add("capitals.decrees.enabled is on but the installed MCA Capitals does not provide "
+                        + String.join(", ", missing) + "; royal decrees are DEGRADED (none can be issued or "
+                        + "enforced), not off. Run /crime debug capitals.");
+            }
+        }
+        if (decreesEnabled && chronicle && !available.test(dev.otectus.mcacrime.compat.CapitalsCapability.CHRONICLE)) {
+            problems.add("capitals.decrees.chronicle is on but the installed MCA Capitals does not provide "
+                    + "chronicle; no chronicle line is written.");
+        }
+        if (readPlayerWarrants && !available.test(dev.otectus.mcacrime.compat.CapitalsCapability.PLAYER_WARRANTS)) {
+            problems.add("capitals.readPlayerWarrants is on but the installed MCA Capitals does not provide "
+                    + "player_warrants; /crime status cannot mention Capitals' own warrants.");
         }
         return problems;
     }

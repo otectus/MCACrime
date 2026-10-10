@@ -41,6 +41,9 @@ class OptionalClassloadTest {
             // therefore to the relocated MCA types Townstead's own descriptors carry -- ever reaches
             // this mod's constant pool.
             "com/aetherianartificer/townstead/",
+            // MCA Capitals (0.7.8), for the same reason as Townstead: its descriptors carry relocated MCA
+            // types, so the adapter names it only as a dotted string and nothing else names it at all.
+            "com/majesttyx/mcacapitals/",
             "melonslise/locks/",
             "dev/architectury/",
             "me/shedaniel/");
@@ -90,6 +93,9 @@ class OptionalClassloadTest {
             new String[] {"dev/otectus/mcacrime/compat/revive/",
                     "dev/otectus/mcacrime/compat/ReviveCompat.class",
                     "dev.otectus.mcacrime.compat.revive.PlayerReviveAdapter"},
+            new String[] {"dev/otectus/mcacrime/compat/capitals/",
+                    "dev/otectus/mcacrime/compat/CapitalsBridge.class",
+                    "dev.otectus.mcacrime.compat.capitals.ReflectiveCapitalsBridge"},
             new String[] {"dev/otectus/mcacrime/compat/townstead/",
                     "dev/otectus/mcacrime/compat/TownsteadBridge.class",
                     "dev.otectus.mcacrime.compat.townstead.ReflectiveTownsteadBridge",

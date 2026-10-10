@@ -219,6 +219,25 @@ class LangCoverageTest {
             require(lang, missing, reason.messageKey());
         }
 
+        // Royal decrees (0.7.8) explain every refusal, reason and state through a messageKey/labelKey of
+        // their own enums, the shape the literal scan above cannot see.
+        for (dev.otectus.mcacrime.decree.DecreeRefusal refusal : dev.otectus.mcacrime.decree.DecreeRefusal.values()) {
+            require(lang, missing, refusal.messageKey());
+        }
+        for (dev.otectus.mcacrime.decree.DecreeReason reason : dev.otectus.mcacrime.decree.DecreeReason.values()) {
+            require(lang, missing, reason.labelKey());
+        }
+        for (dev.otectus.mcacrime.decree.DecreeState state : dev.otectus.mcacrime.decree.DecreeState.values()) {
+            require(lang, missing, state.labelKey());
+        }
+        for (String key : List.of("mcacrime.challenge.decree", "mcacrime.challenge.decree_unpayable",
+                "mcacrime.decree.notice.issued", "mcacrime.decree.notice.issued_unpayable",
+                "mcacrime.command.status.decree", "mcacrime.command.status.decree_unpayable",
+                "mcacrime.decree.chronicle.issued", "mcacrime.decree.chronicle.withdrawn",
+                "mcacrime.decree.released")) {
+            require(lang, missing, key);
+        }
+
         assertTrue(missing.isEmpty(),
                 "These translation keys are built by concatenation and have no entry in en_us.json:\n  "
                         + String.join("\n  ", missing));

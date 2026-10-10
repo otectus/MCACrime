@@ -6,6 +6,34 @@ the second one, because that is what changes shape between versions.
 
 ---
 
+## 0.7.8
+
+**Network protocol 20.** `network/CrimeNetwork.PROTOCOL_VERSION` is `"20"`: the royal decree screen
+adds two packets (`DecreeMenuS2CPacket`, `DecreeActionC2SPacket`). Update the client and the server
+together; a 0.7.7 client fails the handshake cleanly instead of misreading a packet.
+
+**World schema 17, stamp-only.** `CrimeDataMigrations.v16to17` rewrites nothing. It stamps the save so
+that an older jar knows it is newer. The royal decree table (`decrees` in `mcacrime.dat`) is new, and a
+save without it loads with no decrees. A row that cannot be read is quarantined rather than dropped, as
+in every other table. The table holds at most 1024 decrees, and an ended decree is forgotten 30 in-game
+days after it ends.
+
+**MCA Capitals added or removed later.** Both are safe. Without Capitals, or with `capitals.enabled` or
+`capitals.decrees.enabled` off, decrees are kept but not enforced and none can be issued; they lapse on
+their own clock in the meantime, and the rest come back into force once Capitals binds again. A decree
+whose capital is no longer in Capitals' registry when it binds again is voided by the next maintenance
+sweep.
+
+**The Blueprint tags need no migration.** MCA keeps the type it recorded for each building. To have a
+cell that was recorded before the upgrade counted with Crime's blocks, remove it in the Blueprint and add
+the room again.
+
+**Rollback.** A 0.7.7 jar reads schema 17 as a save from the future: it leaves `mcacrime.dat` untouched
+and writes no crime state for the session (`state/world/ServerMutationGate`). Restore the backup taken
+before the upgrade, or stay on 0.7.8.
+
+---
+
 ## 0.7.7
 
 No world schema or network protocol change: a 0.7.6 world and client keep working. One player-data

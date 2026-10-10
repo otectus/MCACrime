@@ -29,7 +29,9 @@ class GuardChallengeTextTest {
     @AfterEach void restoreLanguage() { Language.inject(original); }
 
     private static LegalDecision decision(LegalDecision.Basis... basis) {
-        return new LegalDecision(UUID.randomUUID(), null, List.of(), Set.of(basis));
+        // A royal decree basis names its decree (0.7.8); every other basis stands on its own.
+        boolean decree = Set.of(basis).contains(LegalDecision.Basis.ROYAL_DECREE);
+        return new LegalDecision(UUID.randomUUID(), null, List.of(), Set.of(basis), decree ? UUID.randomUUID() : null);
     }
 
     private static void language(Map<String, String> translations) {

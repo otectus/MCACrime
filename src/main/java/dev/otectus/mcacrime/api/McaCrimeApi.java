@@ -178,9 +178,14 @@ public final class McaCrimeApi {
             boolean resisting = target instanceof ServerPlayer player && LegalTarget.isResistingArrest(player);
             boolean wanted = target instanceof ServerPlayer player && cooperation
                     && JurisdictionPolicies.allowsStandaloneWanted(evidence) && CrimeState.isWanted(player);
+            // A royal decree of this responder's own village is a local ground like a local case (0.7.8).
+            UUID decree = target instanceof ServerPlayer
+                    ? dev.otectus.mcacrime.decree.DecreeService.inForce(level.getServer(), target.getUUID(), community)
+                            .map(dev.otectus.mcacrime.decree.Decree::id).orElse(null)
+                    : null;
             var decision = dev.otectus.mcacrime.justice.JusticeService.evaluate(
                     CrimeWorldData.get(level.getServer()), target.getUUID(), community, level.getGameTime(),
-                    settings, escaped, captive, wanted, resisting, false);
+                    settings, escaped, captive, wanted, resisting, false, decree);
             // Wearing a mask is grounds to challenge, never force. An active witnessed masked pursuit is different.
             return decision.mayChallenge() || target instanceof ServerPlayer player
                     && LegalTarget.isMaskedPursuit(player);
@@ -353,6 +358,22 @@ public final class McaCrimeApi {
         } catch (Throwable t) {
             McaCrime.LOGGER.debug("MCA: Crime — sentence lookup failed; returning empty", t);
             return Optional.empty();
+        }
+    }
+
+    /**
+     * Every royal decree naming this player, open and recently ended, oldest first (0.7.8).
+     *
+     * <p>A decree is a village ruler's local wanted order through MCA Capitals, and is not a crime record:
+     * it appears in no case ledger, changes no Heat or band and opens no bounty. Whether an open one is
+     * enforced right now also depends on its capital, which {@link DecreeView#open()} does not say.
+     */
+    public static List<dev.otectus.mcacrime.api.model.DecreeView> decrees(MinecraftServer server, UUID offender) {
+        try {
+            return List.copyOf(dev.otectus.mcacrime.decree.DecreeService.views(server, offender));
+        } catch (Throwable t) {
+            McaCrime.LOGGER.debug("MCA: Crime — decree lookup failed; returning empty", t);
+            return List.of();
         }
     }
 

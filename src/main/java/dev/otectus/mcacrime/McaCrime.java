@@ -100,6 +100,8 @@ public final class McaCrime {
             dev.otectus.mcacrime.restraint.SessionReloadPolicy.cancelAll(running);
             if (running != null) {
                 dev.otectus.mcacrime.compat.TownsteadBridge.reload();
+                // Capitals re-binds for the same reason: [capitals] enabled may have changed either way.
+                dev.otectus.mcacrime.compat.CapitalsBridge.reload();
             }
             ConfigValidator.validateCurrentConfig().forEach(problem ->
                     LOGGER.warn("MCA: Crime config reload: {}", problem));

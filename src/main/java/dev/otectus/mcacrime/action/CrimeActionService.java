@@ -77,7 +77,8 @@ public final class CrimeActionService {
             CrimeActionIds.ASK_DISTRACTION,
             CrimeActionIds.ASK_ESCAPE_HELP,
             CrimeActionIds.PAY_BAIL,
-            CrimeActionIds.REPORT_CRIME);
+            CrimeActionIds.REPORT_CRIME,
+            CrimeActionIds.ROYAL_DECREE);
 
     /** Actions offered to a player about their own situation — the captive panel and the player card. */
     private static final List<ResourceLocation> SELF_MENU = List.of(
@@ -111,6 +112,8 @@ public final class CrimeActionService {
         ActionHandlerRegistry.register(CrimeActionIds.CIVIC_SERVICE, new CivicServiceActionHandler());
         ActionHandlerRegistry.register(CrimeActionIds.REPORT_CRIME, new ReportCrimeActionHandler());
         ActionHandlerRegistry.register(CrimeActionIds.FRISK, new FriskActionHandler());
+        ActionHandlerRegistry.register(CrimeActionIds.ROYAL_DECREE,
+                new dev.otectus.mcacrime.action.handler.RoyalDecreeActionHandler());
         bootstrapped = true;
     }
 

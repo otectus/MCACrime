@@ -89,6 +89,11 @@ public final class OptionalMods {
         adapted("playerrevive", "PlayerRevive",
                 "a downed player counts as vulnerable for application and is never executed while downed");
 
+        // The monarchy companion (0.7.8): a real adapter, because who rules a village is Capitals' to say.
+        adapted("mcacapitals", "MCA Capitals",
+                "royal decrees: a village's player ruler may declare a non-noble player wanted there; read "
+                        + "through compat/capitals, version-probed; Capitals' own justice is never written");
+
         // No stable server hook. Named anyway, so "unsupported" is visible rather than inferred.
         noClaim("voicechat", "Simple Voice Chat",
                 "its plugin API requires a compile-time registered plugin class; head tape mutes no "

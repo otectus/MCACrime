@@ -259,6 +259,16 @@ public final class JailService {
     // ------------------------------------------------------------------ release (idempotent)
 
     public static void release(ServerPlayer player, ReleaseReason reason) {
+        release(player, reason, null);
+    }
+
+    /**
+     * The same release, telling the prisoner {@code messageKey} instead of the reason's own line (0.7.8).
+     * A royal decree that is lifted while it is the only thing holding somebody ends their term through
+     * the {@link ReleaseReason#ADMIN} disposition -- nothing forgiven, nothing served -- but "released by
+     * an administrator" would not be true, so the decree supplies its own sentence.
+     */
+    public static void release(ServerPlayer player, ReleaseReason reason, @Nullable String messageKey) {
         Optional<PlayerCrimeData> opt = CrimeCapabilities.get(player);
         if (opt.isEmpty()) {
             return;
@@ -294,6 +304,17 @@ public final class JailService {
             }
             case NONE -> { }
         }
+        // A royal decree this sentence answered ends with it, or is released from it unanswered (0.7.8).
+        // Called here rather than from the release event because the sentence id is gone by then, and
+        // guarded on its own like every step below.
+        if (server != null && finished != null) {
+            try {
+                dev.otectus.mcacrime.decree.DecreeService.sentenceEnded(server, player, finished.getSentenceId(), reason);
+            } catch (RuntimeException failure) {
+                McaCrime.LOGGER.error("Ending the royal decree(s) answered by {}'s sentence failed; the release "
+                        + "itself continues", player.getGameProfile().getName(), failure);
+            }
+        }
         // The custody instance ends here, not in a listener (0.7.7): a listener that throws stops the event
         // for every listener after it, which used to be able to leave a prisoner in a standing cell with
         // an open custody record. Each step is guarded on its own.
@@ -310,7 +331,7 @@ public final class JailService {
                     player.getGameProfile().getName(), reason, failure);
         }
         CrimeNetwork.sendSelfStatus(player);
-        player.sendSystemMessage(Component.translatable(releaseKey(reason)));
+        player.sendSystemMessage(Component.translatable(messageKey == null ? releaseKey(reason) : messageKey));
     }
 
     /**

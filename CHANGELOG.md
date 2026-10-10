@@ -11,7 +11,60 @@ dropped it. Optional: MCA: Reputation `[0.2,)`; the integration itself needs `0.
 unlocks receipted delivery and read-only lookup, `0.6.0` unlocks public profiles, and every older
 companion degrades to the surface it does have rather than failing the load. Also optional:
 Townstead, reached only by reflection and a plugin-gated mixin config, and silently absent on an
-install that does not have it.
+install that does not have it. MCA Capitals is optional the same way: bound by name, verified against
+1.3.5, 1.3.6 and 1.3.7, and silently absent without it.
+
+## [0.7.8] — 2026-10-10
+
+Network protocol `"20"`: client and server must update together. World schema 17, a stamp-only step:
+nothing is rewritten, and a save from 0.7.7 loads with an empty decree table. New COMMON keys in
+`[capitals]` and `[capitals.decrees]`, all documented in `CONFIG.md`; nothing changes for a server
+without MCA Capitals beyond the Blueprint tags below.
+
+- **The Blueprint recognises a cell built from Crime's blocks as an MCA prison.** `mcacrime:reinforced_bars`
+  and `mcacrime:reinforced_bars_gap` join `#mca:iron_bars`, and `mcacrime:cell_door` joins
+  `#mca:iron_doors`, both additively (`"replace": false`). MCA's own prison definition, eight
+  `#mca:iron_bars`, one `#mca:iron_doors` and one `#minecraft:beds`, is unchanged, and it is the only
+  MCA building type that reads either tag, so no other classification moves. Vanilla iron bars and iron
+  doors count exactly as before and mixed materials count together: five iron bars and three reinforced
+  bars are eight. An open, closed or locked cell door is still the cell's door. A Crime-only cell still
+  needs one vanilla bed, because a bunk is not a bed. On MCA 7.7.1 a barred cell with a bed fits both
+  "prison" and "house", so the Blueprint asks which one, exactly as it does for a vanilla iron-bar cell;
+  choose prison. MCA 7.6 records the prison by itself. A recognised prison survives `/reload` and a
+  restart. With MCA Capitals installed it also counts as the capital's prison. A datapack that redefines
+  either tag with `"replace": true` drops the Crime blocks; see `DATAPACK.md`.
+- **Royal decrees (MCA Capitals).** The player who currently rules an active capital may declare a
+  player below Noble status wanted in that village and nowhere else. The ruler opens the Crime menu on
+  one of the village's guards or court officers (the Hand, the Lord Commander, the Master of Laws, the
+  Herald, a royal guard) and chooses **Royal decree**, or uses `/crime decree issue <player> [reason]`.
+  Neither needs an operator level: authority is read from Capitals on the server for every action, and
+  anything Capitals cannot confirm is refused (`mcacrime.decree.refused.*`, one message per reason).
+  "Below Noble" is Capitals' own vocabulary in that capital: a knight or dame, a lord or lady, a duke,
+  a prince, the Hand, the Lord Commander, a consort and the throne itself are protected, while a title
+  held in another capital counts for nothing here. One decree stands per player per village, so a second answers
+  that one already stands and changes nothing.
+  - The village's guards challenge a decreed player as they would for a local case: pay the fine
+    (`fineAmount`, 32 in the active currency, when fines are on) or surrender. An arrest on a decree
+    alone carries a term of at least `sentenceTicks` (6000). Paying or serving it ends the decree, and an
+    operator's release hands it back unanswered. A local case the same guard can act on is settled first.
+  - It changes nothing else: no Heat, Karma or band, no Wanted flag, no bounty warrant or contract, no
+    case, no MCA: Reputation incident and no hearts. Guards use force only through the existing
+    resisting-arrest rules, and attacking a decreed player is still a crime.
+  - It lapses after `durationTicks` of overworld time (72000, three in-game days, offline included);
+    another against the same player in the same village waits `cooldownTicks` (24000). Only the current
+    ruler can withdraw one, so after a succession the decrees stand and the new ruler may withdraw them.
+    Raising the target to Noble, or the capital leaving its village, voids it. While Capitals is missing,
+    unbound or switched off, decrees are kept but not enforced. `/crime decree void <player>`
+    (permission 3) clears one without asking Capitals. Decrees persist across restarts.
+  - `/crime decree list` shows the decrees against you and, for a ruler, every decree standing in
+    their village;
+    `/crime decree pay` pays the one where you stand; `/crime status` lists them, and shows a warrant
+    MCA Capitals itself holds against you, which Crime's guards never enforce. `/crime debug capitals`
+    and `/crime validate` report the binding. An optional chronicle line (`chronicle`, off) records
+    issue and withdrawal in the capital's chronicle.
+  - API: `McaCrimeApi.decrees(server, player)`, `api/model/DecreeView` and
+    `api/event/DecreeChangedEvent`; `McaCrimeApi.mayEnforce` treats a decree of the responder's own
+    village as a local basis, like a local case. See `API.md`.
 
 ## [0.7.7] — 2026-10-10
 

@@ -385,6 +385,28 @@ the player already has. Crime keeps case and completion authority. No contract i
 `townstead.communityService` is off, so on a server that has never enabled it the list is always
 empty; contracts created earlier remain listed.
 
+### `DecreeView` (0.7.8)
+
+One royal decree: the order, made through MCA Capitals by the player who rules a capital, that one
+player is wanted in that village.
+
+```java
+record DecreeView(UUID decreeId, UUID offender, CrimeCommunityKey community, UUID capitalId,
+                  UUID issuedBy, String reason, long issuedAt, long expiresAt, String state,
+                  long endedAt, Optional<UUID> answeringSentence)
+```
+
+`state` is one of `open`, `withdrawn`, `fined`, `served`, `expired`, `void`, and `reason` one of
+`trespass`, `disorder`, `defiance`, `treason`, `other`. Both are lowercase strings rather than enums, so
+a value added later widens the vocabulary instead of breaking a consumer's switch. Times are overworld
+game ticks. `expiresAt` does not apply while `answeringSentence` is present, because a decree being
+answered by custody does not lapse under the prisoner. `open()` says only that the decree has not
+ended; whether it is enforced right now also depends on its capital, which Capitals is asked each time.
+
+**A decree is not a crime.** It has no victim and no evidence, changes no Heat, Karma or band, opens no
+bounty warrant, and appears in no case ledger, public view or `CrimeRecordView`. A companion that says
+something about a player's record should keep the two apart, as MCA: Crime does.
+
 ### `CrimeMutationStatus`
 
 One enum shared by every mutation result rather than one per operation: `APPLIED`, `DUPLICATE`,
@@ -452,7 +474,16 @@ static void unregisterJurisdictionPolicyProvider(MinecraftServer server, Jurisdi
 static Optional<JurisdictionSnapshot> jurisdictionPolicy(MinecraftServer server, CrimeCommunityKey community,
                                                          @Nullable UUID subject);
 static boolean mayEnforce(LivingEntity responder, LivingEntity target);
+
+// royal decrees through MCA Capitals (0.7.8)
+static List<DecreeView> decrees(MinecraftServer server, UUID offender);
 ```
+
+`decrees` returns every royal decree naming the player, open and recently ended, oldest first; an
+ended decree is kept for 30 in-game days. It is read-only: decrees are issued and withdrawn only by a
+ruler in game, under the checks the server applies. It answers an empty list on bad input or an
+internal failure, and with MCA Capitals absent it still lists stored decrees. The API version stays
+2, since everything 0.7.8 adds is additive.
 
 `serviceRefusal` answers the same question MCA: Crime asks itself before a villager serves somebody,
 so a companion does not re-implement the rule from a band and a wanted flag. An unrecognised service
@@ -581,7 +612,8 @@ flags, a sequence number, an `Availability` and an explanation.
   target. Occupation, political hostility or a global Heat value alone is never enough. Unless the
   evidence is available with `Cooperation.CONFIGURED`, only reports from the responder's own
   community count and a Wanted flag is ignored. Callers must still apply server protection,
-  friendly-fire and attack-capability rules.
+  friendly-fire and attack-capability rules. From 0.7.8 a royal decree in force in the responder's own
+  community is a local basis too, exactly like a local case; a decree of any other community is not.
 - A provider that throws or answers for a different community is treated as absent.
 
 ## Deprecations
@@ -621,6 +653,7 @@ which carries `getPlayer()`.
 | `CapitalSentenceAssignedEvent` (0.7.5) | An arrest bound a capital sentence | Not a countdown: with no usable device the subject serves the holding term in a cell. |
 | `ExecutionCarriedOutEvent` (0.7.5) | A capital sentence was carried out | Only on a **confirmed** death. A totem, PlayerRevive or a cancelled damage event raises nothing at all. |
 | `SentenceCommutedEvent` (0.7.5) | Clemency ended a capital sentence | `isPardon()` tells a commutation (keeps the term and the cases) from a pardon (closes the cases too). |
+| `DecreeChangedEvent` (0.7.8) | A royal decree was issued or ended | **Extends `Event`, not `CrimeEvent`**, like `WarrantChangedEvent`: the offender is a UUID, because a decree can lapse, be withdrawn or be voided while they are offline. Carries the `DecreeView` as it now stands and a `Change`: `ISSUED`, `WITHDRAWN`, `FINED`, `SERVED`, `EXPIRED`, `VOIDED`. |
 
 ### Choosing between the two crime events
 

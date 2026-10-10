@@ -1,0 +1,21 @@
+// MCA Capitals and Blueprint-prison fixtures (0.7.8). They run in a disposable production server, never in
+// the release jar.
+allprojects {
+    afterEvaluate {
+        sourceSets {
+            capitalsRuntime {
+                java.srcDir 'tools/capitals/java'
+                compileClasspath = sourceSets.main.compileClasspath + sourceSets.main.output
+            }
+        }
+        tasks.register('capitalsRuntimeJar', Jar) {
+            dependsOn tasks.named('capitalsRuntimeClasses')
+            archiveBaseName = 'crime-capitals-runtime-checks'
+            from sourceSets.capitalsRuntime.output
+            from('tools/capitals/resources')
+            doFirst { manifest.attributes.remove('MixinConfigs') }
+        }
+        reobf { capitalsRuntimeJar {} }
+        tasks.named('capitalsRuntimeJar').configure { finalizedBy 'reobfCapitalsRuntimeJar' }
+    }
+}

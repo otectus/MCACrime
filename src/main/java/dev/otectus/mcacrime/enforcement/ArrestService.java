@@ -139,12 +139,22 @@ public final class ArrestService {
                 && !JailService.isJailed(player)) return Outcome.REFUSED;
 
         List<CrimeRecord> assessed = CrimeWorldData.get(server).actionableFor(player.getUUID());
+        // The royal decree this arrest answers (0.7.8): the arresting guard's own village's, or with no
+        // guard, the decree of the village the player is giving themselves up in.
+        UUID decree = null;
         if (arrestingResponder != null) {
-            assessed = dev.otectus.mcacrime.justice.JusticeService.forGuard(level, arrestingResponder, player).cases();
+            var decision = dev.otectus.mcacrime.justice.JusticeService.forGuard(level, arrestingResponder, player);
+            assessed = decision.cases();
+            decree = decision.decree();
+        } else {
+            decree = dev.otectus.mcacrime.decree.DecreeService.inForce(server, player.getUUID(),
+                    dev.otectus.mcacrime.decree.DecreeService.communityOf(player).orElse(null))
+                    .map(dev.otectus.mcacrime.decree.Decree::id).orElse(null);
         }
         List<UUID> assessedCaseIds = assessed.stream().map(CrimeRecord::id).toList();
         int charges = assessedCaseIds.size();
-        if (cause == Cause.GUARD_INITIATED && !hasBasis(server, level, player, arrestingResponder, charges)) {
+        if (cause == Cause.GUARD_INITIATED && decree == null
+                && !hasBasis(server, level, player, arrestingResponder, charges)) {
             return abort(player, Outcome.REFUSED, null);
         }
         // Who, if anybody, is owed a bounty for this arrest -- read before anything below can rewrite
@@ -163,6 +173,11 @@ public final class ArrestService {
         if (voluntary) {
             // The waiver belongs in the number, not in an edit applied to a sentence afterwards.
             sentence = SentenceCalculator.afterSurrender(sentence, c.surrenderSentenceReductionPct.get());
+        }
+        if (decree != null) {
+            // A decree's term is the Crown's, and is the floor however the arrest came about (0.7.8).
+            sentence = Math.max(sentence, Math.min(c.maxJailCommandTicks.get(),
+                    dev.otectus.mcacrime.decree.DecreeSettings.fromConfig().sentenceTicks()));
         }
         // A sentence already running is resumed, never re-priced. Recapture puts the prisoner back in
         // the jail they left; when that jail was a built cell, it came down with the escape, so there
@@ -183,7 +198,7 @@ public final class ArrestService {
             // JAILED leads nowhere but out. The arrest record starts over for the walk to the new cell.
             ArrestStates.clear(player);
         }
-        if (resuming == null && charges <= 0 && heat <= 0L) {
+        if (resuming == null && charges <= 0 && heat <= 0L && decree == null) {
             return abort(player, Outcome.NO_SENTENCE, null);
         }
 
@@ -255,6 +270,8 @@ public final class ArrestService {
             return abort(player, Outcome.NO_CELL, "mcacrime.arrest.no_cell");
         }
         player.sendSystemMessage(Component.translatable("mcacrime.arrest.taken"));
+        // Serving this term answers the decree; recorded only now that the arrest is real (0.7.8).
+        dev.otectus.mcacrime.decree.DecreeService.bindSentence(server, player.getUUID(), decree, sentenceId);
         // The arrest search runs here rather than on the challenge or at the cell: this is the point an
         // arrest is known to have succeeded, and a search that fired earlier would pat down players
         // whose arrest was then refused (0.7.0).

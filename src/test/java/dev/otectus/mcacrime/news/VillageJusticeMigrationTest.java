@@ -8,7 +8,7 @@ class VillageJusticeMigrationTest {
         CompoundTag old = new CompoundTag(); old.putInt("schema", CrimeDataMigrations.SCHEMA_CUFFED_PHYSICAL);
         old.putString("sentinel", "existing data");
         CompoundTag migrated = CrimeDataMigrations.migrate(old);
-        assertEquals(16, migrated.getInt("schema")); assertEquals("existing data", migrated.getString("sentinel"));
+        assertEquals(CrimeDataMigrations.CURRENT_SCHEMA, migrated.getInt("schema")); assertEquals("existing data", migrated.getString("sentinel"));
         assertFalse(migrated.contains("crimeNews")); assertEquals(15, old.getInt("schema"));
         var world = CrimeWorldData.load(migrated); assertTrue(world.news().facts.isEmpty());
         assertTrue(world.news().subscriptions.isEmpty()); assertTrue(world.news().envelopes.isEmpty());
