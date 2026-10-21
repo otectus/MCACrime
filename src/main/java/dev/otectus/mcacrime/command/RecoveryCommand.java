@@ -43,6 +43,12 @@ public final class RecoveryCommand {
         }
         root.then(Commands.literal("resolve").then(Commands.argument("receipt", UuidArgument.uuid()).then(token)));
         root.then(Commands.literal("export").executes(RecoveryCommand::export));
+        // The physical-state recovery tool (0.7.5 §3.14, M6.5). Everything else in this tree is
+        // financial; this one exists for the same reason they do -- something went wrong and an
+        // operator needs a way to put it right that is visible, bounded and not a release.
+        root.then(Commands.literal("restraints")
+                .then(Commands.argument("target", net.minecraft.commands.arguments.EntityArgument.entity())
+                        .executes(RecoveryCommand::recoverRestraints)));
         return root;
     }
 
@@ -134,5 +140,43 @@ public final class RecoveryCommand {
             ctx.getSource().sendFailure(Component.literal("Could not export recovery data: " + failure.getMessage()));
             return 0;
         }
+    }
+
+    /**
+     * Clears every physical claim on one subject: worn gear, holds and any device occupancy.
+     *
+     * <p><b>Not a release.</b> The custody record, the sentence and every case behind it are left
+     * exactly as they are, which is the entire difference between this and {@code /crime release}: a
+     * prisoner whose gear is stuck is freed from the gear, not from the law. That is also why it is
+     * reported item by item rather than as a single success — an operator running a recovery tool
+     * should be able to see what it actually did.
+     */
+    private static int recoverRestraints(CommandContext<CommandSourceStack> ctx)
+            throws com.mojang.brigadier.exceptions.CommandSyntaxException {
+        var target = net.minecraft.commands.arguments.EntityArgument.getEntity(ctx, "target");
+        var server = ctx.getSource().getServer();
+        CrimeWorldData data = data(ctx);
+        int removed = 0;
+        if (target instanceof net.minecraft.world.entity.LivingEntity subject) {
+            for (var slot : dev.otectus.mcacrime.restraint.RestraintSlot.values()) {
+                if (dev.otectus.mcacrime.restraint.RemovalService.remove(subject, slot,
+                        dev.otectus.mcacrime.restraint.RemovalService.Reason.ADMINISTRATIVE, null)
+                        .removed()) {
+                    removed++;
+                }
+            }
+        }
+        int holds = dev.otectus.mcacrime.tether.TetherService.detachAll(server, target.getUUID(),
+                dev.otectus.mcacrime.tether.TetherService.DetachReason.ADMINISTRATIVE);
+        boolean device = dev.otectus.mcacrime.detention.DetentionService.releaseSubject(server, data,
+                target.getUUID(), dev.otectus.mcacrime.detention.DetentionService.ReleaseReason
+                        .ADMINISTRATIVE).isPresent();
+        boolean escort = dev.otectus.mcacrime.enforcement.CondemnedEscortService.cancel(server,
+                target.getUUID(), "an operator recovered the subject's physical state");
+        say(ctx.getSource(), "Recovered " + target.getDisplayName().getString() + ": " + removed
+                + " restraint(s), " + holds + " hold(s)" + (device ? ", one device" : "")
+                + (escort ? ", one escort" : "")
+                + ". Custody, sentence and cases are untouched.");
+        return removed + holds;
     }
 }

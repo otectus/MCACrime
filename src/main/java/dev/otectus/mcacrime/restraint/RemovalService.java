@@ -177,6 +177,7 @@ public final class RemovalService {
         if (!data.putPhysicalRestraint(next)) {
             return Result.refused(Refusal.STORE_REFUSED);
         }
+        EscapeService.forget(subject.getUUID(), worn.instanceId());
         // Cancel any struggle work against the slot that no longer holds anything, so a late input
         // cannot break a restraint that has already come off.
         SessionRegistry.server().cancelForTarget(subject.getUUID(), SessionCancelCause.TARGET_REMOVED);
@@ -224,6 +225,7 @@ public final class RemovalService {
         if (worn == null || !data.putPhysicalRestraint(state.without(slot))) {
             return false;
         }
+        EscapeService.forget(subject, worn.instanceId());
         SessionRegistry.server().cancelForTarget(subject, SessionCancelCause.TARGET_REMOVED);
         returnToApplier(server, worn);
         return true;

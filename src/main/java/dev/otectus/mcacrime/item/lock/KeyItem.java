@@ -63,16 +63,27 @@ public class KeyItem extends Item {
     public void appendHoverText(ItemStack stack, TooltipContext context, List<Component> tooltip,
                                 TooltipFlag flag) {
         super.appendHoverText(stack, context, tooltip, flag);
+        // What the key is and what to do with it (0.8.0); nothing here claims it still fits, which only
+        // the server can tell from the lock's current revision.
         Optional<KeyBinding> binding = binding(stack);
         if (binding.isEmpty()) {
-            tooltip.add(Component.translatable("item.mcacrime.key.tooltip.blank")
-                    .withStyle(ChatFormatting.DARK_GRAY));
+            dev.otectus.mcacrime.help.TooltipHelp.append(tooltip, Component.translatable("item.mcacrime.key.tooltip.blank"),
+                    List.of(Component.translatable("item.mcacrime.key.tooltip.blank.1"),
+                            Component.translatable("item.mcacrime.key.tooltip.blank.2")),
+                    dev.otectus.mcacrime.help.CrimeHelpTopic.KEYS);
             return;
         }
-        tooltip.add(Component.translatable("item.mcacrime.key.tooltip.bound",
-                        binding.get().displayName()
-                                .map(Component::literal)
-                                .orElseGet(() -> Component.translatable("item.mcacrime.key.tooltip.unnamed")))
-                .withStyle(ChatFormatting.GRAY));
+        dev.otectus.mcacrime.help.TooltipHelp.append(tooltip,
+                Component.translatable("item.mcacrime.key.tooltip.bound", label(binding.get())),
+                List.of(Component.translatable("item.mcacrime.key.tooltip.bound.1"),
+                        Component.translatable("item.mcacrime.key.tooltip.bound.2"),
+                        Component.translatable("item.mcacrime.key.tooltip.bound.3")),
+                dev.otectus.mcacrime.help.CrimeHelpTopic.KEYMOLD);
+    }
+
+    /** A binding's readable name, or "an unnamed lock". Never an id or a lock code. */
+    public static Component label(KeyBinding binding) {
+        return binding.displayName().<Component>map(Component::literal)
+                .orElseGet(() -> Component.translatable("item.mcacrime.key.tooltip.unnamed"));
     }
 }

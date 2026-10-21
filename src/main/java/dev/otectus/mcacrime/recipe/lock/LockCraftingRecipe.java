@@ -64,9 +64,11 @@ public abstract class LockCraftingRecipe extends CustomRecipe {
     /** The lock components on one stack, as the value the logic layer works in. */
     protected static KeyCraftLogic.State stateOf(KeyCraftLogic.Kind kind, ItemStack stack) {
         return switch (kind) {
-            case KEY -> KeyCraftLogic.State.ofKey(KeyBinding.read(stack).orElse(null));
-            case RING -> KeyCraftLogic.State.ofRing(KeyRingBindings.read(stack));
-            case RAW_MOLD -> KeyCraftLogic.State.ofMold(KeyMoldItem.recorded(stack).orElse(null), 0);
+            case KEY -> KeyCraftLogic.State.ofKey(KeyBinding.read(stack).orElse(null),
+                    stack.get(net.minecraft.core.component.DataComponents.CUSTOM_NAME));
+            case RING -> KeyCraftLogic.State.ofRing(KeyRingBindings.read(stack), KeyRingBindings.labels(stack));
+            case RAW_MOLD -> KeyCraftLogic.State.ofMold(KeyMoldItem.recorded(stack).orElse(null), 0,
+                    stack.get(net.minecraft.core.component.DataComponents.CUSTOM_NAME));
             case BAKED_MOLD -> KeyCraftLogic.State.ofMold(KeyMoldItem.recorded(stack).orElse(null),
                     BakedKeyMoldItem.quality(stack));
             default -> KeyCraftLogic.State.EMPTY;
@@ -114,11 +116,20 @@ public abstract class LockCraftingRecipe extends CustomRecipe {
         }
         stack.remove(CrimeDataComponents.LOCK_BINDING.get());
         stack.remove(CrimeDataComponents.KEY_RING_CONTENTS.get());
+        stack.remove(CrimeDataComponents.KEY_RING_LABELS.get());
         stack.remove(CrimeDataComponents.KEY_MOLD_BINDING.get());
         stack.remove(CrimeDataComponents.KEY_MOLD_QUALITY.get());
+        // A name a result carries is set; a result without one leaves the stack's own name alone, so a
+        // remainder copied from an input never loses the name it came in with (0.8.0).
+        if (state.name() != null && (kind == KeyCraftLogic.Kind.KEY || kind == KeyCraftLogic.Kind.RAW_MOLD)) {
+            stack.set(net.minecraft.core.component.DataComponents.CUSTOM_NAME, state.name());
+        }
         switch (kind) {
             case KEY -> state.bound().ifPresent(binding -> binding.writeTo(stack));
-            case RING -> KeyRingBindings.write(stack, state.ring());
+            case RING -> {
+                KeyRingBindings.write(stack, state.ring());
+                KeyRingBindings.writeLabels(stack, state.labels());
+            }
             case RAW_MOLD -> state.bound().ifPresent(binding -> KeyMoldItem.store(stack, binding));
             case BAKED_MOLD -> {
                 state.bound().ifPresent(binding -> KeyMoldItem.store(stack, binding));

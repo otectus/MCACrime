@@ -135,7 +135,7 @@ public final class DamageIncidentService {
         if (!(CrimeGate.responsibleActor(source) instanceof LivingEntity actor) || actor == victim
                 || actor instanceof FakePlayer || victim instanceof FakePlayer) return null;
         boolean playerActor = actor instanceof ServerPlayer;
-        boolean playerVictim = victim instanceof ServerPlayer && McaCrimeConfig.COMMON.pvpCountsAsCrime.get();
+        boolean playerVictim = victim instanceof ServerPlayer && dev.otectus.mcacrime.config.CrimeWorldSettings.resolve((ServerLevel) victim.level()).pvpCrime();
         if (playerActor && (playerVictim || EntitySelectors.isProtected(victim))) return actor;
         return victim instanceof ServerPlayer && (EntitySelectors.isProtected(actor) || EntitySelectors.isResponder(actor))
                 ? actor : null;
@@ -171,7 +171,7 @@ public final class DamageIncidentService {
                 if (outcome == DamageFinality.Outcome.NONE) continue;
                 if (outcome == DamageFinality.Outcome.KILL && runtime.confirmedDeaths.putIfAbsent(hit.victim, true) != null) continue;
                 boolean[] forgiven = {false};
-                if (McaCrimeConfig.COMMON.enableCrimeDetection.get() && ServerMutationGate.allows(server)) {
+                if (dev.otectus.mcacrime.config.CrimeWorldSettings.resolve(server).crimeDetection() && ServerMutationGate.allows(server)) {
                     dev.otectus.mcacrime.incident.IncidentNotifications.safely(() ->
                             forgiven[0] = reconcile(runtime, hit, outcome, cooldown, grace) == CombatIncidentProcessor.Completion.FORGIVEN);
                 }
@@ -204,9 +204,11 @@ public final class DamageIncidentService {
     /**
      * Whether a hit landing now could be forgiven as minor friendly fire, changing nothing (0.7.7).
      *
-     * <p>Asked by the native hurt hook, with the raw damage, to decide whether MCA's hearts are held
-     * back until the hit is decided at the end of the tick. The answer can be wrong only in the safe
-     * direction, because the hearts are settled against the real decision at flush.
+     * <p>Asked twice before the hit is decided at the end of the tick: by the native hurt hook, with the
+     * raw damage, to decide whether MCA's hearts are held back until then; and by MCA: Reputation's
+     * exemption query, with the final damage, so a forgiven hit is not charged there either. Either
+     * answer can be wrong only in the safe direction, because the hearts are settled against the real
+     * decision at flush.
      */
     public static boolean minorHarmCandidate(LivingEntity victim, DamageSource source, double amount) {
         if (victim == null || source == null || !(victim.level() instanceof ServerLevel level)) return false;
@@ -301,7 +303,7 @@ public final class DamageIncidentService {
                                             Map<String, String> context,
                                             dev.otectus.mcacrime.incident.ObservationSnapshot snapshot) {
         if (level == null || actor == null || victim == null || actor == victim
-                || !McaCrimeConfig.COMMON.enableCrimeDetection.get()
+                || !dev.otectus.mcacrime.config.CrimeWorldSettings.resolve(level).crimeDetection()
                 || !ServerMutationGate.allows(level.getServer())) {
             return false;
         }

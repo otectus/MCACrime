@@ -167,14 +167,7 @@ public final class RestraintMigrationReconciler {
                 AppliedRestraint.Provenance.SYSTEM_ISSUED,
                 AppliedRestraint.ReturnPolicy.NONE,
                 record == null ? null : record.getCustodyId(), gameTime, 1L);
-        if (!data.putPhysicalRestraint(base.with(RestraintSlot.ARMS, applied))) {
-            return false;
-        }
-        // Converted, so the row stops carrying a second answer to the same question. From here the
-        // gear is the physical instance and nothing else (§3.2).
-        record.setLegacyRestraint(dev.otectus.mcacrime.captivity.RestraintType.NONE);
-        data.putCustody(record);
-        return true;
+        return data.putPhysicalRestraint(base.with(RestraintSlot.ARMS, applied));
     }
 
     /** The definition a pre-0.7.5 {@link RestraintType} becomes, empty for {@code NONE}. */
@@ -220,7 +213,14 @@ public final class RestraintMigrationReconciler {
                 record.getCustodyId(),
                 gameTime,
                 1L);
-        return data.putPhysicalRestraint(base.with(RestraintSlot.ARMS, applied));
+        if (!data.putPhysicalRestraint(base.with(RestraintSlot.ARMS, applied))) {
+            return false;
+        }
+        // Converted, so the row stops carrying a second answer to the same question. From here the
+        // gear is the physical instance and nothing else (§3.2).
+        record.setLegacyRestraint(dev.otectus.mcacrime.captivity.RestraintType.NONE);
+        data.putCustody(record);
+        return true;
     }
 
     private static boolean createLegacyHold(CrimeWorldData data, CustodyRecord record) {

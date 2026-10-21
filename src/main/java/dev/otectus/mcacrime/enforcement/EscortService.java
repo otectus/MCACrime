@@ -277,14 +277,14 @@ public final class EscortService {
             return null;
         }
         ArrestStates.reassignGuard(prisoner, best.getUUID());
+        // The hold moves with the custody. An escort that already names this pair is renewed, so a
+        // reassignment on every scan cannot stack tethers.
+        dev.otectus.mcacrime.tether.TetherService.escort(best, prisoner);
         MinecraftServer server = level.getServer();
         if (server != null && ArrestService.inLawfulCustody(server, prisoner.getUUID())) {
             CustodyService.transferLawfulCustody(server, prisoner.getUUID(),
                     CustodyOwner.guard(best.getUUID()));
         }
-        // The hold moves with the custody. An escort that already names this pair is renewed, so a
-        // reassignment on every scan cannot stack tethers.
-        dev.otectus.mcacrime.tether.TetherService.escort(best, prisoner);
         prisoner.sendSystemMessage(Component.translatable("mcacrime.arrest.escort_reassigned",
                 ArrestService.nameOf(best)));
         return best;

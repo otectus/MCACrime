@@ -230,6 +230,56 @@ public final class RestraintSlotGameTests {
         helper.succeed();
     }
 
+    /**
+     * 0.7.9: a restrained player's own client receives their delta, removal and rig at once; a player
+     * out of tracking range receives none of them. Entity tracking alone excludes the wearer's own
+     * connection, which left their local restraint state stale until they reconnected.
+     *
+     * <p>Both players join the level, because tracking-and-self reaches nobody for an entity the chunk
+     * map does not track; a batch of its own keeps them out of every other test's world.
+     */
+    @GameTest(template = "platform", timeoutTicks = 100, batch = "restraint_recipients")
+    public static void aRestrainedPlayerReceivesTheirOwnUpdates(GameTestHelper helper) {
+        ServerLevel level = helper.getLevel();
+        List<Packet<?>> wearerSent = new ArrayList<>();
+        List<Packet<?>> distantSent = new ArrayList<>();
+        ServerPlayer wearer = player(level, helper, new BlockPos(1, 1, 1), wearerSent);
+        ServerPlayer distant = player(level, helper, new BlockPos(1, 1, 1), distantSent);
+        distant.setPos(wearer.getX() + 1024, wearer.getY(), wearer.getZ() + 1024);
+        level.addNewPlayer(wearer);
+        level.addNewPlayer(distant);
+        try {
+            PhysicalRestraintView view = new PhysicalRestraintView(wearer.getUUID(), 1L, 1L,
+                    java.util.Map.of(RestraintSlot.ARMS, new PhysicalRestraintView.SlotView(
+                            RestraintDefinitions.HANDCUFFS_ARMS, 1F, false)), -1, false);
+            List<Runnable> updates = List.of(
+                    () -> dev.otectus.mcacrime.network.CrimeNetwork.broadcastPhysicalStateDelta(wearer,
+                            new PhysicalStateDeltaS2CPacket(view)),
+                    () -> RestraintSyncService.broadcastRemoval(wearer, 2L),
+                    () -> dev.otectus.mcacrime.network.CrimeNetwork.broadcastRestraintRig(wearer, true, "player"));
+            List<Class<?>> kinds = List.of(PhysicalStateDeltaS2CPacket.class,
+                    dev.otectus.mcacrime.network.PhysicalStateRemoveS2CPacket.class,
+                    dev.otectus.mcacrime.network.RestraintRigSyncS2CPacket.class);
+            for (int i = 0; i < updates.size(); i++) {
+                wearerSent.clear();
+                distantSent.clear();
+                updates.get(i).run();
+                helper.assertTrue(payloads(wearerSent, kinds.get(i)) == 1, "The wearer missed update " + i);
+                helper.assertTrue(payloads(distantSent, kinds.get(i)) == 0,
+                        "Update " + i + " leaked to a player who is not tracking the wearer");
+            }
+        } finally {
+            level.removePlayerImmediately(wearer, net.minecraft.world.entity.Entity.RemovalReason.DISCARDED);
+            level.removePlayerImmediately(distant, net.minecraft.world.entity.Entity.RemovalReason.DISCARDED);
+        }
+        helper.succeed();
+    }
+
+    private static long payloads(List<Packet<?>> sent, Class<?> kind) {
+        return sent.stream().filter(packet -> packet instanceof ClientboundCustomPayloadPacket custom
+                && kind.isInstance(custom.payload())).count();
+    }
+
     private static ServerPlayer player(ServerLevel level, GameTestHelper helper, BlockPos at) {
         return player(level, helper, at, null);
     }

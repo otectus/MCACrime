@@ -43,6 +43,31 @@ public class PilloryBlockEntity extends BlockEntity {
     private boolean occupantWasCrouching;
     private int sweepCounter;
 
+    /**
+     * Who last worked the boards and when (0.8.0), so a second player's click in the same moment does
+     * not undo the first one's capture. Transient: it only spans a couple of ticks.
+     */
+    @Nullable
+    private java.util.UUID lastToggleActor;
+    private long lastToggleTick = Long.MIN_VALUE;
+
+    /** How long a capture is protected from another player's click undoing it. Half a second. */
+    public static final long TOGGLE_GUARD_TICKS = 10L;
+
+    /**
+     * Whether {@code actor} clicking the boards now would be a different player undoing somebody else's
+     * click from a moment ago. The same player may always change their mind.
+     */
+    public boolean recentlyToggledByOther(@Nullable java.util.UUID actor, long now) {
+        return lastToggleActor != null && !lastToggleActor.equals(actor)
+                && now >= lastToggleTick && now - lastToggleTick < TOGGLE_GUARD_TICKS;
+    }
+
+    public void noteToggle(@Nullable java.util.UUID actor, long now) {
+        lastToggleActor = actor;
+        lastToggleTick = now;
+    }
+
     public PilloryBlockEntity(BlockPos pos, BlockState state) {
         super(CrimeBlockEntities.PILLORY.get(), pos, state);
     }

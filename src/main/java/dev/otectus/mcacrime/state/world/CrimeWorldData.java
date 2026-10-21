@@ -102,6 +102,8 @@ public final class CrimeWorldData extends SavedData {
      * store that has to be walked every time anybody looks at them.
      */
     private static final int MAX_PENDING_OBSERVATIONS_PER_OBSERVER = 8;
+    /** Player accounts are selected in a bounded UI and retain more history without enlarging NPC AI memory. */
+    private static final int MAX_PENDING_PLAYER_OBSERVATIONS = 32;
     /** Global ceiling on stored observations, oldest-resolved-first evicted. */
     private static final int MAX_OBSERVATIONS = 4096;
     /** Global ceiling on stored reports. */
@@ -341,6 +343,8 @@ public final class CrimeWorldData extends SavedData {
      */
     private transient boolean reconciliationAttempted;
 
+    private transient boolean legacyStolenGoodsCustody;
+
     /**
      * Rows that could not be read, kept verbatim beside the reason (0.6.0).
      *
@@ -353,6 +357,9 @@ public final class CrimeWorldData extends SavedData {
     private int quarantineDropped;
     /** Verbatim copy of any reserved later-phase tags found on disk, re-emitted untouched on save. */
     private final CompoundTag reserved = new CompoundTag();
+    private dev.otectus.mcacrime.news.CrimeNewsData news = new dev.otectus.mcacrime.news.CrimeNewsData();
+    public dev.otectus.mcacrime.news.CrimeNewsData news() { return news; }
+
 
     /** True when the file came from a newer jar and nothing was parsed. */
     private boolean fromTheFuture;
@@ -390,7 +397,34 @@ public final class CrimeWorldData extends SavedData {
         ServerLevel overworld = server.overworld();
         CrimeWorldData data = overworld.getDataStorage().computeIfAbsent(FACTORY, DATA_NAME);
         data.reconcilePhysicalState(overworld.getGameTime());
+        data.reconcileStolenGoodsCustody(server);
         return data;
+    }
+
+    private void reconcileStolenGoodsCustody(MinecraftServer server) {
+        if (!legacyStolenGoodsCustody || !ServerMutationGate.allows(this)) return;
+        legacyStolenGoodsCustody = false; // retry after reload on I/O failure, not on every world-data read
+        // Include offline players: absence from the loaded entity list is not evidence of an NPC.
+        Set<UUID> players = new java.util.HashSet<>();
+        server.getPlayerList().getPlayers().forEach(player -> players.add(player.getUUID()));
+        java.nio.file.Path directory = server.getWorldPath(net.minecraft.world.level.storage.LevelResource.PLAYER_DATA_DIR);
+        try {
+            if (!java.nio.file.Files.notExists(directory)) {
+                try (var files = java.nio.file.Files.list(directory)) {
+                    files.forEach(path -> {
+                        String name = path.getFileName().toString();
+                        if (name.endsWith(".dat") || name.endsWith(".dat_old")) {
+                            try { players.add(UUID.fromString(name.substring(0, name.indexOf('.')))); }
+                            catch (IllegalArgumentException ignored) { /* Not a player save. */ }
+                        }
+                    });
+                }
+            }
+            dev.otectus.mcacrime.mug.npc.StolenGoodsLedger.reconcileLegacyCustody(this, players);
+        } catch (java.io.IOException | java.io.UncheckedIOException | SecurityException failure) {
+            // Leave legacy property unclaimable and intact until its custody can be determined.
+            McaCrime.LOGGER.error("MCA: Crime could not classify legacy stolen property from player saves", failure);
+        }
     }
 
     /**
@@ -914,11 +948,20 @@ public final class CrimeWorldData extends SavedData {
      *         villager may still be walking to a guard about.
      */
     public boolean addObservation(CrimeObservation observation) {
+        return addObservation(observation, MAX_PENDING_OBSERVATIONS_PER_OBSERVER);
+    }
+
+    /** Player-aware observation insertion with its own retention ceiling (§8). */
+    public boolean addPlayerObservation(CrimeObservation observation) {
+        return addObservation(observation, MAX_PENDING_PLAYER_OBSERVATIONS);
+    }
+
+    private boolean addObservation(CrimeObservation observation, int pendingLimit) {
         if (observation == null || frozen() || observations.containsKey(observation.observationId())) {
             return false;
         }
         if (observation.pending() && pendingObservationCount(observation.observerId())
-                >= MAX_PENDING_OBSERVATIONS_PER_OBSERVER) {
+                >= pendingLimit) {
             return false;
         }
         observations.put(observation.observationId(), observation);
@@ -2771,6 +2814,7 @@ public final class CrimeWorldData extends SavedData {
         quarantine.forEach(entry -> quarantineList.add(entry.copy()));
         tag.put("quarantine", quarantineList);
 
+        tag.put("crimeNews", news.save());
         // Re-emit reserved later-phase slots untouched (bounties, plus any stashed-for-forward-compat tag).
         for (String key : reserved.getAllKeys()) {
             tag.put(key, reserved.get(key).copy());
@@ -3038,6 +3082,7 @@ public final class CrimeWorldData extends SavedData {
         for (int i = 0; i < stolenList.size(); i++) {
             try {
                 StolenGoodsRecord record = StolenGoodsRecord.load(provider, stolenList.getCompound(i));
+                data.legacyStolenGoodsCustody |= record.custody() == StolenGoodsRecord.Custody.LEGACY;
                 data.stolenGoods.put(record.transactionId(), record);
                 data.indexStolen(record);
             } catch (RuntimeException e) {
@@ -3266,6 +3311,7 @@ public final class CrimeWorldData extends SavedData {
             data.quarantine.add(quarantineList.getCompound(i).copy());
         }
 
+        data.news = dev.otectus.mcacrime.news.CrimeNewsData.load(tag.getCompound("crimeNews"));
         // Capture reserved later-phase slots verbatim for forward compatibility.
         for (String key : RESERVED_KEYS) {
             if (tag.contains(key)) {

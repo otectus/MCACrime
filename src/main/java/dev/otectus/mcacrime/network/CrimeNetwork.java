@@ -41,8 +41,11 @@ public final class CrimeNetwork {
 
     // 15 added the 0.7.5 physical-restraint messages: a full snapshot, a per-subject delta and an
     // explicit removal; 16 drops the warden-guide payload; 17 adds the paused-sentence flag to the self
-    // status; 18 (0.7.8) adds the royal decree menu and its answer. Update clients and server together.
-    private static final String PROTOCOL_VERSION = "18";
+    // status; 18 (0.7.8) adds the royal decree menu and its answer. 20 (0.7.9) adds the player-report
+    // menu, submission, receipt request and receipt projection, and is the number the Forge 1.20.1 build
+    // uses for the same payload set (it never used 19 here). 21 (0.8.0) adds the server-rules payload the
+    // key ring tooltip quotes its capacity from, as on Forge. Update clients and server together.
+    private static final String PROTOCOL_VERSION = "21";
 
     private CrimeNetwork() {
     }
@@ -141,6 +144,30 @@ public final class CrimeNetwork {
                 CrimeClientPayloadRouter::handleDecreeMenu);
         registrar.playToServer(DecreeActionC2SPacket.TYPE, DecreeActionC2SPacket.STREAM_CODEC,
                 DecreeActionC2SPacket::handle);
+        // 0.8.0, protocol 21: the server settings a tooltip quotes.
+        registrar.playToClient(ServerRulesS2CPacket.TYPE, ServerRulesS2CPacket.STREAM_CODEC,
+                CrimeClientPayloadRouter::handleServerRules);
+        // Player crime reports (0.7.5 on Forge, 0.7.9 here): the guard's picker, the submission, and the
+        // reporter's own receipts. Both C2S handlers spend the REPORT budget through ServerPacketGuard.
+        registrar.playToClient(ReportMenuS2CPacket.TYPE, ReportMenuS2CPacket.STREAM_CODEC,
+                CrimeClientPayloadRouter::handleReportMenu);
+        registrar.playToServer(SubmitPlayerReportC2SPacket.TYPE, SubmitPlayerReportC2SPacket.STREAM_CODEC,
+                SubmitPlayerReportC2SPacket::handle);
+        registrar.playToServer(RequestPlayerReportsC2SPacket.TYPE, RequestPlayerReportsC2SPacket.STREAM_CODEC,
+                RequestPlayerReportsC2SPacket::handle);
+        registrar.playToClient(PlayerReportsS2CPacket.TYPE, PlayerReportsS2CPacket.STREAM_CODEC,
+                CrimeClientPayloadRouter::handlePlayerReports);
+    }
+
+    /** The report picker, to the reporter alone. */
+    public static void sendReportMenu(ServerPlayer player,
+                                      dev.otectus.mcacrime.report.PlayerCrimeReportService.Menu menu) {
+        if (player != null && menu != null) PacketDistributor.sendToPlayer(player, new ReportMenuS2CPacket(menu));
+    }
+
+    /** The reporter's own receipts. Never anybody else's. */
+    public static void sendPlayerReports(ServerPlayer player, PlayerReportsS2CPacket packet) {
+        if (player != null && packet != null) PacketDistributor.sendToPlayer(player, packet);
     }
 
     /** The decree screen, to the ruler who asked for it and nobody else. */
@@ -221,14 +248,14 @@ public final class CrimeNetwork {
     /**
      * Tells everybody tracking this subject what changed about them.
      *
-     * <p>Tracking rather than everybody: gear is drawn by the people who can see the person wearing
-     * it, and a server-wide broadcast would hand every client the whole prison roster.
+     * <p>The wearer and their trackers need the update. Entity tracking alone excludes a player's own
+     * connection, leaving their movement/UI state stale until a full resync.
      */
     public static void broadcastPhysicalStateDelta(Entity subject, PhysicalStateDeltaS2CPacket packet) {
         if (subject == null) {
             return;
         }
-        PacketDistributor.sendToPlayersTrackingEntity(subject, packet);
+        PacketDistributor.sendToPlayersTrackingEntityAndSelf(subject, packet);
     }
 
     /** Sends one client a removal for a subject nobody can track any more. */
@@ -236,12 +263,12 @@ public final class CrimeNetwork {
         PacketDistributor.sendToPlayer(to, packet);
     }
 
-    /** Tells everybody tracking this subject to forget their physical state. */
+    /** Tells the subject and everybody tracking them to forget their physical state. */
     public static void broadcastPhysicalStateRemoval(Entity subject, PhysicalStateRemoveS2CPacket packet) {
         if (subject == null) {
             return;
         }
-        PacketDistributor.sendToPlayersTrackingEntity(subject, packet);
+        PacketDistributor.sendToPlayersTrackingEntityAndSelf(subject, packet);
     }
 
     /**
@@ -255,12 +282,12 @@ public final class CrimeNetwork {
         PacketDistributor.sendToPlayer(to, new RestraintRigSyncS2CPacket(subject, humanoid, rig));
     }
 
-    /** Tells everybody tracking this subject what body their restraint is being drawn on. */
+    /** Tells the subject and their trackers what body their restraint is being drawn on. */
     public static void broadcastRestraintRig(Entity subject, boolean humanoid, String rig) {
         if (subject == null) {
             return;
         }
-        PacketDistributor.sendToPlayersTrackingEntity(subject,
+        PacketDistributor.sendToPlayersTrackingEntityAndSelf(subject,
                 new RestraintRigSyncS2CPacket(subject.getUUID(), humanoid, rig));
     }
 
@@ -406,6 +433,19 @@ public final class CrimeNetwork {
      */
     public static void sendWeaponPolicy(ServerPlayer player) {
         PacketDistributor.sendToPlayer(player, new WeaponPolicyS2CPacket(WeaponPolicySnapshot.fromConfig()));
+    }
+
+    /** Tells one client the server settings its tooltips quote (0.8.0). Login, beside the weapon policy. */
+    public static void sendServerRules(ServerPlayer player) {
+        PacketDistributor.sendToPlayer(player, ServerRulesS2CPacket.fromConfig());
+    }
+
+    /** Re-sends them to everybody after a config reload. */
+    public static void broadcastServerRules(MinecraftServer server) {
+        if (server == null) {
+            return;
+        }
+        PacketDistributor.sendToAllPlayers(ServerRulesS2CPacket.fromConfig());
     }
 
     /** Re-sends the policy to everybody after a config reload, rather than at their next login. */

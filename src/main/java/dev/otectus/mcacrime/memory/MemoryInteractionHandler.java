@@ -6,6 +6,7 @@ import dev.otectus.mcacrime.action.ActionResult;
 import dev.otectus.mcacrime.action.ActionSessionManager;
 import dev.otectus.mcacrime.action.CrimeActionIds;
 import dev.otectus.mcacrime.action.CrimeActionService;
+import dev.otectus.mcacrime.action.McaVillagerClicks;
 import dev.otectus.mcacrime.ai.CrimeReactionService;
 import dev.otectus.mcacrime.ai.VictimReactionState;
 import dev.otectus.mcacrime.captivity.CustodyRegistry;
@@ -16,7 +17,9 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
+import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.player.Player;
 import net.neoforged.bus.api.EventPriority;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
@@ -41,6 +44,9 @@ import net.neoforged.neoforge.event.entity.player.PlayerInteractEvent;
  * claimed the click (restraint, capture, the armed menu trigger at LOW) keeps it, and invariant 16
  * means nothing here ever un-cancels another mod's event. Every routing decision lives in the pure
  * {@link ApologyInteractionPolicy}; this class only observes the world and obeys.
+ *
+ * <p>Port-only (0.7.9): MCA 1.21.1 opens its screen from {@code interactAt}, so the precise
+ * {@code EntityInteractSpecific} is routed here as well, once per click ({@link McaVillagerClicks}).
  */
 @EventBusSubscriber(modid = McaCrime.MOD_ID)
 public final class MemoryInteractionHandler {
@@ -51,23 +57,45 @@ public final class MemoryInteractionHandler {
 
     @SubscribeEvent(priority = EventPriority.LOWEST)
     public static void onInteract(PlayerInteractEvent.EntityInteract event) {
-        if (!(event.getEntity() instanceof ServerPlayer player) || !(event.getTarget() instanceof LivingEntity villager)
-                || !McaCompat.isMcaVillager(villager)) return;
+        var echo = McaVillagerClicks.echo(McaVillagerClicks.Route.MEMORY, event.getEntity(), event.getTarget(),
+                event.getHand());
+        if (echo != null ? echo.consumed()
+                : route(event.getEntity(), event.getTarget(), event.getHand(), event.isCanceled())) {
+            event.setCanceled(true);
+            event.setCancellationResult(InteractionResult.SUCCESS);
+        }
+    }
+
+    /** The precise half, which is the one that decides for an MCA villager on this port. */
+    @SubscribeEvent(priority = EventPriority.LOWEST)
+    public static void onInteractSpecific(PlayerInteractEvent.EntityInteractSpecific event) {
+        if (!McaVillagerClicks.decidesHere(event)) return;
+        boolean consumed = route(event.getEntity(), event.getTarget(), event.getHand(), event.isCanceled());
+        McaVillagerClicks.decided(McaVillagerClicks.Route.MEMORY, event.getEntity(), event.getTarget(),
+                event.getHand(), consumed ? InteractionResult.SUCCESS : null);
+        if (consumed) {
+            event.setCanceled(true);
+            event.setCancellationResult(InteractionResult.SUCCESS);
+        }
+    }
+
+    /** Routes one click, and answers whether it is consumed. */
+    private static boolean route(Player clicker, Entity target, InteractionHand hand, boolean eventCanceled) {
+        if (!(clicker instanceof ServerPlayer player) || !(target instanceof LivingEntity villager)
+                || !McaCompat.isMcaVillager(villager)) return false;
         // 0.7.7: a click is only a conversation with a villager the player can actually reach. Another
         // mod posting this event for a distant or cross-dimension villager must not be refused, blamed or
         // turned into an apology on that player's behalf.
-        if (!withinReach(player, villager)) return;
+        if (!withinReach(player, villager)) return false;
         long now = player.serverLevel().getGameTime();
         // Invariant 11: the companion hand path of a click already claimed is consumed, not re-routed.
         if (ApologyClaimLedger.isCompanionPath(player.getUUID(), villager.getUUID(), now)) {
-            event.setCanceled(true);
-            event.setCancellationResult(InteractionResult.SUCCESS);
-            return;
+            return true;
         }
         var memories = VictimMemoryService.memories(player.getServer(), villager.getUUID(), player.getUUID());
-        if (memories.isEmpty()) return;
+        if (memories.isEmpty()) return false;
 
-        var decision = ApologyInteractionPolicy.route(facts(event, player, villager, now, true));
+        var decision = ApologyInteractionPolicy.route(facts(eventCanceled, player, villager, now, true));
         String reasonKey = null;
         switch (decision.route()) {
             case EXECUTE -> {
@@ -76,9 +104,7 @@ public final class MemoryInteractionHandler {
                     // The handler already said the apology was heard. Claim the click and stop here, so
                     // the next ordinary click behaves normally.
                     ApologyClaimLedger.claim(player.getUUID(), villager.getUUID(), now);
-                    event.setCanceled(true);
-                    event.setCancellationResult(InteractionResult.SUCCESS);
-                    return;
+                    return true;
                 }
                 // A refusal the facts could not see: say which one, then let the villager's own
                 // reaction below have the last word.
@@ -88,13 +114,12 @@ public final class MemoryInteractionHandler {
             case NOT_CLAIMED, PASS_THROUGH -> { }
         }
 
-        if (dev.otectus.mcacrime.detect.EntitySelectors.isResponder(villager)) return;
+        if (dev.otectus.mcacrime.detect.EntitySelectors.isResponder(villager)) return false;
         // 0.7.7: the gate reads the apology flag. Before, fear and anger alone refused, so an accepted
         // apology for one punch still cancelled every later click.
         var gate = VictimMemoryService.conversation(player.getServer(), villager.getUUID(), player.getUUID());
-        if (gate.allows() || gate.deciding() == null) return;
-        event.setCanceled(true); event.setCancellationResult(InteractionResult.SUCCESS);
-        if (event.getHand() != InteractionHand.MAIN_HAND) return;
+        if (gate.allows() || gate.deciding() == null) return false;
+        if (hand != InteractionHand.MAIN_HAND) return true;
         VictimCrimeMemory strongest = gate.deciding();
         double decay = McaCrimeConfig.COMMON.memoryDecayMultiplier.get();
         boolean afraid = strongest.fearAt(player.getServer().overworld().getGameTime(), decay)
@@ -123,6 +148,7 @@ public final class MemoryInteractionHandler {
         }
         if (afraid && CrimeReactionService.stateOf(villager.getUUID()) == VictimReactionState.CALM)
             CrimeReactionService.trigger(player.serverLevel(), villager, player.getUUID(), VictimReactionState.FLEEING, null);
+        return true;
     }
 
     /**
@@ -150,7 +176,7 @@ public final class MemoryInteractionHandler {
     }
 
     /** Live world state, reduced to the plain facts the routing table is written against. */
-    private static ApologyInteractionPolicy.Facts facts(PlayerInteractEvent.EntityInteract event, ServerPlayer player,
+    private static ApologyInteractionPolicy.Facts facts(boolean eventCanceled, ServerPlayer player,
                                                         LivingEntity villager, long now, boolean hasGrievance) {
         // A sword in the backpack is not a drawn weapon and an off-hand torch is not a threat, so only
         // the off-hand stack itself is classified here; the main hand has to be empty anyway.
@@ -161,7 +187,7 @@ public final class MemoryInteractionHandler {
                 || CustodyRegistry.isCaptive(player.getServer(), player.getUUID());
         boolean activeThreat = ActionSessionManager.activeCoerciveAgainst(villager.getUUID()).isPresent();
         return new ApologyInteractionPolicy.Facts(
-                event.isCanceled(),
+                eventCanceled,
                 player.isShiftKeyDown(),
                 player.getMainHandItem().isEmpty(),
                 offhandWeapon,

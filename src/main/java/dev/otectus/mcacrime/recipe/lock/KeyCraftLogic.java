@@ -3,10 +3,14 @@ package dev.otectus.mcacrime.recipe.lock;
 import dev.otectus.mcacrime.locks.KeyBinding;
 import dev.otectus.mcacrime.locks.KeyRingBindings;
 
+import net.minecraft.network.chat.Component;
 import org.jetbrains.annotations.Nullable;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 
 /**
  * Every key-crafting rule, as arithmetic over values (M3.2).
@@ -47,43 +51,57 @@ public final class KeyCraftLogic {
      * @param ring    a ring's bindings, in order
      * @param quality a fired mold's remaining casts
      */
-    public record State(@Nullable KeyBinding binding, List<KeyBinding> ring, int quality) {
+    public record State(@Nullable KeyBinding binding, List<KeyBinding> ring, int quality,
+                        @Nullable Component name, Map<UUID, Component> labels) {
 
         public static final State EMPTY = new State(null, List.of(), 0);
 
         public State {
             ring = ring == null ? List.of() : List.copyOf(ring);
             quality = Math.max(0, quality);
+            labels = labels == null ? Map.of() : Map.copyOf(labels);
+        }
+
+        public State(@Nullable KeyBinding binding, List<KeyBinding> ring, int quality) {
+            this(binding, ring, quality, null, Map.of());
         }
 
         public static State ofKey(@Nullable KeyBinding binding) {
             return new State(binding, List.of(), 0);
         }
 
+        /** A key with its own custom name (0.8.0): the name follows it onto a ring and back. */
+        public static State ofKey(@Nullable KeyBinding binding, @Nullable Component name) {
+            return new State(binding, List.of(), 0, name, Map.of());
+        }
+
         public static State ofRing(@Nullable List<KeyBinding> bindings) {
             return new State(null, bindings, 0);
+        }
+
+        /** A ring with the custom names of the keys that went onto it, keyed by lock (0.8.0). */
+        public static State ofRing(@Nullable List<KeyBinding> bindings, @Nullable Map<UUID, Component> labels) {
+            return new State(null, bindings, 0, null, labels);
         }
 
         public static State ofMold(@Nullable KeyBinding binding, int quality) {
             return new State(binding, List.of(), quality);
         }
 
+        /** A mold that keeps its own custom name through an impression (0.8.0). */
+        public static State ofMold(@Nullable KeyBinding binding, int quality, @Nullable Component name) {
+            return new State(binding, List.of(), quality, name, Map.of());
+        }
+
         public Optional<KeyBinding> bound() {
             return Optional.ofNullable(binding);
         }
 
-        /** Whether this state carries nothing at all, so a copied stack needs no components. */
         public boolean isEmpty() {
             return binding == null && ring.isEmpty() && quality == 0;
         }
     }
 
-    /**
-     * One occupied grid slot.
-     *
-     * @param kind  what it is
-     * @param state the lock components it carries, never null
-     */
     public record Input(Kind kind, State state) {
         public Input {
             state = state == null ? State.EMPTY : state;
@@ -131,6 +149,7 @@ public final class KeyCraftLogic {
             return Optional.empty();
         }
         List<KeyBinding> bindings = new ArrayList<>();
+        Map<UUID, Component> labels = new HashMap<>();
         for (Input input : grid) {
             if (input.kind() != Kind.KEY) {
                 return Optional.empty();
@@ -140,11 +159,15 @@ public final class KeyCraftLogic {
                 return Optional.empty();
             }
             bindings.add(binding.get());
+            if (input.state().name() != null) {
+                labels.put(binding.get().lockId(), input.state().name());
+            }
         }
         if (bindings.size() > KeyRingBindings.clampCapacity(capacity)) {
             return Optional.empty();
         }
-        return Optional.of(new Result(Kind.RING, State.ofRing(bindings), 1, consumeAll(grid)));
+        // Each key's custom name travels with the ring (0.8.0) and comes back on disassembly.
+        return Optional.of(new Result(Kind.RING, State.ofRing(bindings, labels), 1, consumeAll(grid)));
     }
 
     /**
@@ -158,6 +181,7 @@ public final class KeyCraftLogic {
         List<Input> grid = clean(inputs);
         Input ring = null;
         List<KeyBinding> added = new ArrayList<>();
+        Map<UUID, Component> addedLabels = new HashMap<>();
         for (Input input : grid) {
             switch (input.kind()) {
                 case RING -> {
@@ -172,6 +196,9 @@ public final class KeyCraftLogic {
                         return Optional.empty();
                     }
                     added.add(binding.get());
+                    if (input.state().name() != null) {
+                        addedLabels.put(binding.get().lockId(), input.state().name());
+                    }
                 }
                 default -> {
                     return Optional.empty();
@@ -189,7 +216,10 @@ public final class KeyCraftLogic {
                 return Optional.empty(); // over capacity, or already there: refuse rather than drop it
             }
         }
-        return Optional.of(new Result(Kind.RING, State.ofRing(result), 1, consumeAll(grid)));
+        // Adding never strips the names already on the ring (0.8.0).
+        Map<UUID, Component> labels = new HashMap<>(ring.state().labels());
+        labels.putAll(addedLabels);
+        return Optional.of(new Result(Kind.RING, State.ofRing(result, labels), 1, consumeAll(grid)));
     }
 
     /**
@@ -208,9 +238,12 @@ public final class KeyCraftLogic {
         if (removed.isEmpty()) {
             return Optional.empty();
         }
+        // The key comes back as it went on: its binding, and its custom name if it had one (0.8.0).
+        Map<UUID, Component> labels = new HashMap<>(grid.get(0).state().labels());
+        Component name = labels.remove(removed.get().lockId());
         List<Optional<Input>> remaining = new ArrayList<>();
-        remaining.add(Optional.of(new Input(Kind.RING, State.ofRing(ring))));
-        return Optional.of(new Result(Kind.KEY, State.ofKey(removed.get()), 1, remaining));
+        remaining.add(Optional.of(new Input(Kind.RING, State.ofRing(ring, labels))));
+        return Optional.of(new Result(Kind.KEY, State.ofKey(removed.get(), name), 1, remaining));
     }
 
     // --- molds ---------------------------------------------------------------------------------------
@@ -245,6 +278,37 @@ public final class KeyCraftLogic {
      * <p>A mold on its last cast is consumed rather than returned empty, so "spent" is a state the
      * player never has to reason about.
      */
+    /**
+     * A blank raw mold plus one bound key becomes that mold with the key's impression (0.8.0).
+     *
+     * <p>The same impression {@link #moldCopy} takes from clay, for the blank molds the creative tab
+     * and loot hand out: the key is handed back, the binding is recorded whole (identity, revision and
+     * name), and the mold keeps its own custom name. Only an actually blank raw mold qualifies -- a mold
+     * that already records a key is never overwritten, a baked mold never takes a new impression, and a
+     * blank or foreign key gives nothing to copy.
+     */
+    public static Optional<Result> moldImprint(@Nullable List<Input> inputs) {
+        List<Input> grid = clean(inputs);
+        Input mold = single(grid, Kind.RAW_MOLD);
+        Input key = single(grid, Kind.KEY);
+        if (mold == null || key == null || grid.size() != 2) {
+            return Optional.empty();
+        }
+        if (mold.state().bound().isPresent()) {
+            return Optional.empty();
+        }
+        Optional<KeyBinding> binding = key.state().bound();
+        if (binding.isEmpty()) {
+            return Optional.empty();
+        }
+        List<Optional<Input>> remaining = new ArrayList<>();
+        for (Input input : grid) {
+            remaining.add(input.kind() == Kind.KEY ? Optional.of(input) : Optional.empty());
+        }
+        return Optional.of(new Result(Kind.RAW_MOLD, State.ofMold(binding.get(), 0, mold.state().name()), 1,
+                remaining));
+    }
+
     public static Optional<Result> bakedMoldCopy(@Nullable List<Input> inputs, int quality) {
         List<Input> grid = clean(inputs);
         Input mold = single(grid, Kind.BAKED_MOLD);

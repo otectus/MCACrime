@@ -47,6 +47,7 @@ public final class NpcArrestService {
         MinecraftServer server = level == null ? null : level.getServer();
         if (server == null || thief == null || !thief.isAlive() || !validGuard(level, guard)
                 || thief.level() != level || thief == guard || thief.isInvisible()
+                || !arrestableSuspect(server, thief)
                 || !guard.hasLineOfSight(thief) || guard.distanceToSqr(thief) > 4.0D
                 || !ServerMutationGate.allows(server)) return false;
         UUID thiefId = thief.getUUID();
@@ -89,7 +90,7 @@ public final class NpcArrestService {
         dev.otectus.mcacrime.state.world.AccompliceRecord accomplice = data.accomplice(thiefId);
         boolean asAccomplice = accomplice != null && accomplice.wanted();
         record.setRemainingJailTicks(npcSentenceTicks(accomplice,
-                McaCrimeConfig.COMMON.thiefJailTicks.get(),
+                dev.otectus.mcacrime.config.CrimeWorldSettings.resolve(server).thiefJailTicks(),
                 McaCrimeConfig.COMMON.accompliceJailTicks.get()));
         if (asAccomplice) {
             // The warrant is spent on the arrest and the arrest is counted, which is what makes bailing
@@ -161,14 +162,13 @@ public final class NpcArrestService {
                 || guard.distanceToSqr(thief) > radius * radius) return Optional.empty();
         // Consume the live incident before callbacks; a reentrant or second guard cannot record it again.
         ActiveIncidentRegistry.close(thief.getUUID());
-        var committed = dev.otectus.mcacrime.incident.IncidentService.commitNpc(
-                session.transactionId(), thief, CrimeIds.ATTEMPTED_MUGGING, victim, level, "guard",
-                EnumSet.of(CrimeFlag.NPC_OFFENDER, CrimeFlag.CAUGHT_IN_ACT, CrimeFlag.MANDATORY_CUSTODY));
-        NpcMuggingService.abort(victim.getUUID(), NpcMugAbortReason.GUARD_INTERVENTION);
-        return committed.map(view -> new ActiveIncidentRegistry.ActiveIncident(view.id(), thief.getUUID(),
-                victim.getUUID(), level.dimension(), level.getGameTime(),
-                EnumSet.of(CrimeFlag.NPC_OFFENDER, CrimeFlag.CAUGHT_IN_ACT, CrimeFlag.MANDATORY_CUSTODY),
-                ActiveIncidentRegistry.Phase.COMMITTED));
+        NpcMuggingService.abortObserved(victim.getUUID(), NpcMugAbortReason.GUARD_INTERVENTION,
+                guard.getUUID());
+        return CrimeWorldData.get(level.getServer()).recordById(session.transactionId())
+                .map(record -> new ActiveIncidentRegistry.ActiveIncident(record.id(), record.offender(),
+                        record.victim(), level.dimension(), record.timeCommitted(),
+                        CrimeFlag.decode(record.context().get(CrimeFlag.CONTEXT_KEY)),
+                        ActiveIncidentRegistry.Phase.COMMITTED));
     }
 
     static Optional<CrimeRecord> admissibleCase(ServerLevel level, LivingEntity guard,
@@ -185,6 +185,15 @@ public final class NpcArrestService {
         return guard != null && guard.isAlive() && guard.level() == level
                 && EntitySelectors.isAvailableResponder(guard) && !McaCompat.isVillagerSleeping(guard)
                 && !guard.hasEffect(MobEffects.BLINDNESS);
+    }
+
+    /** Case authority survives a job change, but children, law, and unreadable roles are never arrested. */
+    public static boolean arrestableSuspect(MinecraftServer server, LivingEntity suspect) {
+        if (server == null || suspect == null) return false;
+        var jobs = dev.otectus.mcacrime.job.WorldCriminalJobService.of(server);
+        var facts = dev.otectus.mcacrime.job.WorldCriminalJobService.facts(suspect, jobs.get(suspect.getUUID()));
+        return facts.loaded() && facts.classifiable() && facts.mcaVillager()
+                && facts.adult() && !facts.responder();
     }
 
     private static void announce(ServerLevel level, LivingEntity thief) {

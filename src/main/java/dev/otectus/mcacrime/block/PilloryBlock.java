@@ -141,13 +141,15 @@ public class PilloryBlock extends BaseEntityBlock implements EntityBlock {
         DoubleBlockHalf half = state.getValue(HALF);
         if (direction.getAxis() == Direction.Axis.Y
                 && (half == DoubleBlockHalf.LOWER) == (direction == Direction.UP)) {
-            // The other half is what this one mirrors. A guillotine is an allowed upper neighbour:
-            // it replaces the board rather than the device, and the base must not vanish under it.
+            // The other half is what this one mirrors. When it is gone, this half goes too, either way
+            // round, as a door's does. Before 0.8.0 only the lower half followed: breaking the lower half
+            // left the upper one floating, and a guillotine on it kept standing over nothing. The frame
+            // now loses its support with the boards and comes down through its own canSurvive.
             if (otherState.is(this) && otherState.getValue(HALF) != half) {
                 return state.setValue(FACING, otherState.getValue(FACING))
                         .setValue(CLOSED, otherState.getValue(CLOSED));
             }
-            return half == DoubleBlockHalf.LOWER ? Blocks.AIR.defaultBlockState() : state;
+            return Blocks.AIR.defaultBlockState();
         }
         return half == DoubleBlockHalf.LOWER && direction == Direction.DOWN
                 && !state.canSurvive(level, pos) ? Blocks.AIR.defaultBlockState() : state;
@@ -252,6 +254,12 @@ public class PilloryBlock extends BaseEntityBlock implements EntityBlock {
         if (!deviceState.is(this)) {
             return InteractionResult.PASS;
         }
+        if (player.getMainHandItem().is(dev.otectus.mcacrime.item.CrimeItems.GUILLOTINE.get())) {
+            // Somebody holding the guillotine means to place it, and working the boards here would
+            // release whoever they hold. The click passes through to the item, which places the frame
+            // on the pillory's top or explains why it cannot (0.8.0).
+            return InteractionResult.PASS;
+        }
         return toggle(level, device, deviceState, player) ? InteractionResult.CONSUME
                 : InteractionResult.PASS;
     }
@@ -270,7 +278,17 @@ public class PilloryBlock extends BaseEntityBlock implements EntityBlock {
         }
         var dimension = level.dimension().location();
         var existing = DetentionService.at(data, dimension, device);
+        PilloryBlockEntity entity = level.getBlockEntity(device) instanceof PilloryBlockEntity pillory ? pillory : null;
+        long now = level.getGameTime();
         if (existing.isPresent()) {
+            if (entity != null && actor != null && entity.recentlyToggledByOther(actor.getUUID(), now)) {
+                // Two players reached for the same boards at once: the capture stands, and the second
+                // player is told who holds the device rather than silently undoing it.
+                dev.otectus.mcacrime.detention.DeviceFeedback.say(actor, device, Component.translatable(
+                        "mcacrime.device.pillory.busy", occupantName(level, existing.get())));
+                return true;
+            }
+            Component released = occupantName(level, existing.get());
             DetentionService.release(level.getServer(), data, existing.get().id(),
                     DetentionService.ReleaseReason.OPENED);
             dev.otectus.mcacrime.restraint.CustodyTransitionService.onDetentionEnded(
@@ -278,15 +296,34 @@ public class PilloryBlock extends BaseEntityBlock implements EntityBlock {
             level.setBlock(device, state.setValue(CLOSED, Boolean.FALSE), Block.UPDATE_ALL);
             setUpperClosed(level, device, false);
             CrimeSounds.pilloryUsed(level, device, false);
+            if (entity != null) {
+                entity.noteToggle(actor == null ? null : actor.getUUID(), now);
+            }
+            if (actor != null) {
+                // Physical release only: a sentence, a case or a custody record is untouched, and the
+                // line says so, because "the boards are open" is easy to read as "they are free".
+                dev.otectus.mcacrime.detention.DeviceFeedback.say(actor, device,
+                        Component.translatable("mcacrime.device.pillory.released", released));
+            }
             return true;
         }
         LivingEntity subject = subjectAt(level, state, device);
         if (subject == null) {
-            return false; // nobody to hold; the boards stay as they are rather than clacking at air
+            // Nobody to hold; the boards stay as they are rather than clacking at air. Said rather than
+            // silent (0.8.0), unless the player holds a block, whose own placement this click becomes.
+            if (actor != null && !(actor.getMainHandItem().getItem() instanceof net.minecraft.world.item.BlockItem)) {
+                dev.otectus.mcacrime.detention.DeviceFeedback.say(actor, device,
+                        Component.translatable("mcacrime.device.pillory.empty"));
+            }
+            return false;
         }
         DetentionKind kind = kindAbove(level, device);
         DetentionService.Refusal refusal = DetentionService.claim(data, subject, kind, dimension,
-                device, kind.id());
+                device, kind.id(), actor == null ? null : actor.getUUID(),
+                // Closing the boards on somebody already in lawful custody is the law continuing, not
+                // a stranger taking hold of them (M6.3, disposition D03).
+                dev.otectus.mcacrime.captivity.CustodyRegistry.get(level.getServer(), subject.getUUID())
+                        .map(dev.otectus.mcacrime.captivity.CustodyRecord::isLawful).orElse(false));
         if (refusal != DetentionService.Refusal.NONE) {
             if (actor != null && refusal != DetentionService.Refusal.NO_SUBJECT) {
                 actor.displayClientMessage(
@@ -299,7 +336,24 @@ public class PilloryBlock extends BaseEntityBlock implements EntityBlock {
         level.setBlock(device, state.setValue(CLOSED, Boolean.TRUE), Block.UPDATE_ALL);
         setUpperClosed(level, device, true);
         CrimeSounds.pilloryUsed(level, device, true);
+        if (entity != null) {
+            entity.noteToggle(actor == null ? null : actor.getUUID(), now);
+        }
+        if (actor != null) {
+            // Names who was actually secured: the device takes whoever stands at the spot, which is
+            // not always who the player meant.
+            dev.otectus.mcacrime.detention.DeviceFeedback.say(actor, device, Component.translatable(
+                    kind == DetentionKind.GUILLOTINE ? "mcacrime.device.guillotine.secured"
+                            : "mcacrime.device.pillory.secured", subject.getDisplayName()));
+        }
         return true;
+    }
+
+    /** The occupant's name for a message, or a neutral word when they are not loaded. */
+    private static Component occupantName(Level level, dev.otectus.mcacrime.detention.DetentionRecord record) {
+        var entity = level.getServer() == null ? null
+                : dev.otectus.mcacrime.tether.TetherService.find(level.getServer(), record.subject());
+        return entity == null ? Component.translatable("mcacrime.device.occupant.unknown") : entity.getDisplayName();
     }
 
     /** Whether the device at this position is capped by a guillotine rather than by boards. */

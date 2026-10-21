@@ -26,15 +26,15 @@ import java.util.Map;
  * on — cloth and leather rustle, clay clicks, iron clanks — which is flavour, not a stat.
  *
  * <p>One registered material per <em>style</em>, rather than one per family, because 1.21.1 resolves
- * the worn-armour texture from {@link ArmorMaterial.Layer} rather than from a {@code getArmorTexture}
+ * an armour texture from {@link ArmorMaterial.Layer} rather than from a {@code getArmorTexture}
  * override — the layer's asset name is what names {@code textures/models/armor/<style>_layer_1.png},
- * so two styles cannot share one material even when everything else about them is identical.
+ * so two styles cannot share one material even when everything else about them is identical. The worn
+ * mask itself is the shaped GeckoLib model ({@code client/render/mask}), which reads that same texture
+ * and takes its tint from {@code MaskItem#colorOf}; the layer keeps any vanilla texture lookup inside
+ * this mod's namespace.
  *
  * <p>Every layer is declared dyeable ({@code new ArmorMaterial.Layer(id, "", true)}, the shape vanilla
- * leather uses), which is what makes the worn half of a dyed mask follow the inventory half. The
- * undyed default is white rather than vanilla's leather brown; that correction lives in the client
- * item extension, because {@code IClientItemExtensions#getDefaultDyeColor} is the only place vanilla
- * asks the question.
+ * leather uses), matching the {@code minecraft:dyeable} tag the masks carry.
  */
 public final class MaskArmorMaterial {
 

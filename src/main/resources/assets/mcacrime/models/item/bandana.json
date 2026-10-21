@@ -2,5 +2,13 @@
   "parent": "item/generated",
   "textures": {
     "layer0": "mcacrime:item/bandana"
-  }
+  },
+  "overrides": [
+    {
+      "predicate": {
+        "mcacrime:dyed": 1
+      },
+      "model": "mcacrime:item/bandana_dyed"
+    }
+  ]
 }

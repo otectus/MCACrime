@@ -50,6 +50,86 @@ cp -r world world-backup-pre-0.2.0
 That is the entire mitigation, and it is the only complete one. Everything below explains what the
 migration does and what safety nets exist, but none of them replace the copy.
 
+## 0.8.0
+
+**Coming from 0.7.8.** 0.7.9 was never published, so a server moving from 0.7.8, the last published
+release, also takes every 0.7.9 step below: the network protocol moves from this port's `"18"`, GeckoLib
+becomes required, the per-world game rules and four COMMON keys arrive, and the world migrates to schema
+18. Back up the world first. A 0.7.8 jar treats a schema-18 save as one from the future and holds Crime
+state read-only, so going back to 0.7.8 means restoring that backup.
+
+**Network protocol 21.** `network/CrimeNetwork.PROTOCOL_VERSION` is `"21"`: one clientbound payload,
+`mcacrime:server_rules` (`ServerRulesS2CPacket`), sends the server's effective `locks.maxKeysPerRing` at login and on config reload,
+so a key ring's tooltip shows the server's capacity rather than the client's own setting. Update the client
+and the server together; an older client fails the handshake cleanly instead of misreading a packet.
+
+**World schema 18 is unchanged from 0.7.9.** 0.8.0 adds no step of its own and `mcacrime.dat` keeps its
+0.7.9 shape. This was checked by reopening, on 0.8.0, worlds saved by 0.7.9 and by the published 0.7.8 (which
+migrates to 18 on load), each holding bound keys, a ring, a raw and a baked mold, dyed and undyed masks, an
+armour stand wearing one, and a condemned villager in a pillory with the guillotine blade mid-fall: every
+binding, every mask's data, custody, the sentence and the occupancy survive, and the old, transient
+execution order is not resumed (`docs/0.8.0/VALIDATION.md`).
+
+**Item data.** One new optional data component, `mcacrime:key_ring_labels` (lock id to name), is written
+only on a ring holding a renamed key, so the name comes back when the key is taken off. A ring written by an
+older release has no labels and keeps working. Masks keep `minecraft:dyed_color`; dyeing, washing and restyling
+touch only that component and never the name, lore, damage, enchantments, custom data or another mod's
+components.
+
+**Config.** No key is added or removed. `sentencing.capitalPunishment.executionDelayTicks` and
+`detention.guillotineActivationDelayTicks` keep their names and ranges; their descriptions are corrected.
+When the order window is not longer than the blade's fall plus 3 ticks, `/crime validate` and the startup
+log say so, and the order is kept for that long instead of expiring before the blade lands.
+
+**Resource packs.** Dyed masks draw new art (`textures/item/<style>_dyed*.png`,
+`textures/models/armor/<style>_dyed*.png`, `models/item/<style>_dyed.json`, selected by the `mcacrime:dyed`
+predicate in each style's model). A pack that retextured the original masks still applies to undyed masks;
+dyed masks show the shipped dyed art until the pack adds its own.
+
+**Rollback.** Restore the pre-upgrade backup. The schema is the same, but a 0.7.9 jar does not know the
+`mcacrime:key_ring_labels` component, and 1.21.1 refuses to load an item stack carrying a component it does
+not know, so a ring holding a renamed key would be lost by swapping jars. Without such rings a 0.7.9 jar
+opens the world; a 0.7.8 jar cannot use a schema-18 world at all (see "Coming from 0.7.8" above). Roll the
+client back with the server either way, because the protocol differs.
+
+---
+
+## 0.7.9
+
+**World schema 18: stolen-property custody.** Back up the world before upgrading. The schema step
+preserves existing theft rows; when the server opens the store, it classifies their holders using
+online players and saved offline player identities. A player's row becomes inventory provenance,
+which expires without creating owner escrow. An NPC's row remains the backing store for recoverable
+property. New thefts record that distinction explicitly, and it survives save/reload.
+
+If player-save identities cannot be read, unresolved legacy rows stay intact and cannot be claimed or
+expired into escrow. The server logs the failure and retries classification after the store is reloaded.
+
+**Schema 16 now carries village news on this port.** Until 0.7.9 the port stamped 16 without the news
+table. The table (`crimeNews` in `mcacrime.dat`) is additive and absent reads as empty, so a 0.7.8 world
+needs no step of its own: news starts with what happens after the upgrade, and no existing case is turned
+into back-dated news. Player reports and threat receipts live in their own saved data,
+`<world>/data/mcacrime_player_reports.dat`, versioned on its own; it is created the first time it is needed.
+
+**Network protocol 20.** `network/CrimeNetwork.PROTOCOL_VERSION` moves from this port's `"18"` to `"20"`,
+the same payload set as the Forge build: player reports add `mcacrime:report_menu`,
+`mcacrime:player_reports`, `mcacrime:request_player_reports` and `mcacrime:submit_player_report`. Update
+the client and the server together. The restraint fix changes packet recipients, not packet formats.
+
+**Per-world game rules.** Seventeen settings can now be owned by the world (`mcaCrime*` game rules,
+`/crime rules`). `mcaCrimeUseWorldRules` defaults to false, so an upgraded world keeps using the COMMON
+config until an operator runs `/crime rules import` or `/crime rules defaults`. Four COMMON keys are new
+under `[villageJustice]`: `enablePlayerReports`, `enableCrimeNews`, `crimeNewsIntervalDays` and
+`crimeNewsMaxStories`.
+
+**GeckoLib is now required.** Masks are drawn by GeckoLib's shaped armour models, as on Forge. Install
+the GeckoLib build for NeoForge 1.21.1 that `neoforge.mods.toml` names; without it the game refuses to
+start. Mask items and their saved data are unchanged.
+
+**Rollback.** A 0.7.8 jar reads schema 18 as a save from the future and holds Crime state read-only,
+preserving `mcacrime.dat`. Restore the pre-upgrade world backup to roll back; do not lower the schema
+number by hand, because an older reader would treat player inventory provenance as recoverable loot.
+
 ## 0.7.8
 
 **Network protocol 18.** `network/CrimeNetwork.PROTOCOL_VERSION` is `"18"` on this port (the Forge build

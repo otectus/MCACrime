@@ -6,6 +6,8 @@ import dev.otectus.mcacrime.block.CrimeBlocks;
 import dev.otectus.mcacrime.block.GuillotineBlock;
 import dev.otectus.mcacrime.block.PilloryBlock;
 import dev.otectus.mcacrime.block.entity.GuillotineBlockEntity;
+import dev.otectus.mcacrime.captivity.CustodyOwner;
+import dev.otectus.mcacrime.captivity.CustodyRecord;
 import dev.otectus.mcacrime.detention.BunkRespawnPolicy;
 import dev.otectus.mcacrime.detention.DetentionKind;
 import dev.otectus.mcacrime.detention.DetentionRecord;
@@ -215,40 +217,61 @@ public final class DetentionDeviceGameTests {
     /**
      * A bunk gives a respawn point back only while this system still owns the override.
      *
-     * <p>The snapshot rule from M4.7, against a real {@code ServerPlayer}'s actual respawn state: a
-     * prisoner who has since chosen a newer spawn keeps it, and one who has not gets their old one
-     * back. Both halves, because the wrong one is a mod silently rewriting somebody's bed.
+     * <p>The persisted custody-episode rule (0.7.5 M4.7, reworked on Forge): the first home a bunk
+     * displaces during one custody episode is kept on the player, repeated bunk sleeps keep that home
+     * rather than the bunk, and the home comes back with its angle and forced flag once the episode
+     * ends. A prisoner who chose a newer spawn after their last bunk sleep keeps it; the snapshot is
+     * consumed either way. Both halves, because the wrong one is a mod silently rewriting somebody's bed.
      */
     @GameTest(template = "platform", timeoutTicks = 200, batch = "detention_devices")
     public static void aBunkReturnsTheOldSpawnOnlyWhileItStillOwnsIt(GameTestHelper helper) {
         ServerLevel level = helper.getLevel();
+        CrimeWorldData data = CrimeWorldData.get(level.getServer());
         BlockPos bunkPos = helper.absolutePos(new BlockPos(1, 1, 1));
         BlockPos ownBed = helper.absolutePos(new BlockPos(3, 1, 3));
+        UUID holder = UUID.randomUUID();
 
         ServerPlayer prisoner = mockPlayer(helper);
-        prisoner.setRespawnPosition(level.dimension(), ownBed, 0.0F, false, false);
+        try {
+            prisoner.setRespawnPosition(level.dimension(), ownBed, 73.0F, true, false);
+            helper.assertTrue(!BunkRespawnPolicy.take(prisoner, bunkPos, BunkRespawnPolicy.current(prisoner)),
+                    "a sleeper in no custody episode was given a snapshot");
+            data.putCustody(new CustodyRecord(prisoner.getUUID(), true, false, CustodyOwner.kidnapper(holder),
+                    level.getGameTime(), null, null));
+            for (int sleep = 0; sleep < 2; sleep++) {
+                BunkRespawnPolicy.take(prisoner, bunkPos, BunkRespawnPolicy.current(prisoner));
+                prisoner.setRespawnPosition(level.dimension(), bunkPos, 0.0F, false, false);
+            }
+            helper.assertTrue(ownBed.equals(BunkRespawnPolicy.snapshotFor(prisoner).orElseThrow().pos()),
+                    "a repeated bunk sleep replaced the prisoner's own bed with the bunk");
+            helper.assertTrue(!BunkRespawnPolicy.release(prisoner),
+                    "the bunk gave the spawn back while the custody episode was still running");
+            data.removeCustody(prisoner.getUUID());
+            helper.assertTrue(BunkRespawnPolicy.release(prisoner),
+                    "the bunk did not give back a spawn point it still owned");
+            helper.assertTrue(ownBed.equals(prisoner.getRespawnPosition()), "the prisoner's own bed was not restored");
+            helper.assertTrue(prisoner.getRespawnAngle() == 73.0F && prisoner.isRespawnForced(),
+                    "the restored bed lost its angle or forced flag");
+            helper.assertTrue(BunkRespawnPolicy.snapshotFor(prisoner).isEmpty(), "the released snapshot was kept");
 
-        BunkRespawnPolicy.take(prisoner, bunkPos);
-        prisoner.setRespawnPosition(level.dimension(), bunkPos, 0.0F, false, false);
-        helper.assertTrue(BunkRespawnPolicy.release(prisoner),
-                "the bunk did not give back a spawn point it still owned");
-        helper.assertTrue(ownBed.equals(prisoner.getRespawnPosition()),
-                "the prisoner's own bed was not restored");
-
-        // Now the prisoner chooses a newer spawn while in the bunk: the snapshot is discarded.
-        BlockPos newerBed = helper.absolutePos(new BlockPos(4, 1, 4));
-        BunkRespawnPolicy.take(prisoner, bunkPos);
-        prisoner.setRespawnPosition(level.dimension(), bunkPos, 0.0F, false, false);
-        prisoner.setRespawnPosition(level.dimension(), newerBed, 0.0F, false, false);
-        helper.assertTrue(!BunkRespawnPolicy.release(prisoner),
-                "the bunk overwrote a spawn point the player had chosen since");
-        helper.assertTrue(newerBed.equals(prisoner.getRespawnPosition()),
-                "the newer bed did not survive the release");
-        helper.assertTrue(BunkRespawnPolicy.snapshot(prisoner.getUUID()).isEmpty(),
-                "the discarded snapshot was kept for a later release to apply");
-
-        BunkRespawnPolicy.forget(prisoner.getUUID());
-        prisoner.discard();
+            // Now the prisoner chooses a newer spawn after their last bunk sleep: release leaves it alone.
+            BlockPos newerBed = helper.absolutePos(new BlockPos(4, 1, 4));
+            data.putCustody(new CustodyRecord(prisoner.getUUID(), true, false, CustodyOwner.kidnapper(holder),
+                    level.getGameTime(), null, null));
+            BunkRespawnPolicy.take(prisoner, bunkPos, BunkRespawnPolicy.current(prisoner));
+            prisoner.setRespawnPosition(level.dimension(), bunkPos, 0.0F, false, false);
+            prisoner.setRespawnPosition(level.dimension(), newerBed, 20.0F, true, false);
+            data.removeCustody(prisoner.getUUID());
+            helper.assertTrue(!BunkRespawnPolicy.release(prisoner),
+                    "the bunk overwrote a spawn point the player had chosen since");
+            helper.assertTrue(newerBed.equals(prisoner.getRespawnPosition()),
+                    "the newer bed did not survive the release");
+            helper.assertTrue(BunkRespawnPolicy.snapshotFor(prisoner).isEmpty(),
+                    "the obsolete snapshot was kept for a later release to apply");
+        } finally {
+            data.removeCustody(prisoner.getUUID());
+            prisoner.discard();
+        }
         helper.succeed();
     }
 

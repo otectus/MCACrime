@@ -204,6 +204,11 @@ public class ChainKnotEntity extends BlockAttachedEntity implements IEntityWithC
         if (data == null) {
             return InteractionResult.PASS;
         }
+        if (interactor instanceof net.minecraft.server.level.ServerPlayer actor
+                && !dev.otectus.mcacrime.enforcement.RestraintHandlers.permits(actor,
+                        dev.otectus.mcacrime.restraint.RestraintAction.INTERACT_ENTITY)) {
+            return InteractionResult.PASS;
+        }
         int transferred = transferFrom(data, interactor);
         if (transferred > 0) {
             playSound(SoundEvents.CHAIN_PLACE, 1.0F, 1.0F);
@@ -243,14 +248,24 @@ public class ChainKnotEntity extends BlockAttachedEntity implements IEntityWithC
             }
             UUID owner = tether.chainOwner();
             boolean owed = tether.returnOnRelease();
+            if (TetherService.evaluateAnchorTransfer(data, subject, this, holder.getUUID())
+                    != TetherService.Refusal.NONE) {
+                continue;
+            }
             // Carried across: the row is removed without paying the chain back, then re-made against
             // the knot with the same owner, so exactly one chain exists throughout.
             if (!data.removeTether(tether.id())) {
                 continue;
             }
             TetherService.index(data).remove(tether.id());
-            if (TetherService.attachToAnchor(data, subject, this, this.pos, owner, owed).isPresent()) {
+            if (TetherService.attachToAnchor(data, subject, this, this.pos, holder.getUUID(), owner,
+                    owed).isPresent()) {
                 moved++;
+            } else {
+                // The preflight passed but the store refused the replacement. Restore the paid-for
+                // chain row; the subject state still points at its id because no detach occurred.
+                data.putTether(tether);
+                TetherService.index(data).put(tether);
             }
         }
         return moved;

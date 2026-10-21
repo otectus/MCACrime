@@ -143,7 +143,7 @@ public final class TetherServerEvents {
         dev.otectus.mcacrime.enforcement.CondemnedEscortService.cancelByGuard(server, player.getUUID(),
                 "the guard logged out");
         dev.otectus.mcacrime.enchantment.RestraintEffects.forget(player.getUUID());
-        BunkRespawnPolicy.forget(player.getUUID());
+        dev.otectus.mcacrime.restraint.EscapeService.forget(player.getUUID());
     }
 
     /**
@@ -177,6 +177,9 @@ public final class TetherServerEvents {
             return;
         }
         Entity subject = event.getEntityMounting();
+        if (MountTransfer.trustedTransfer(subject)) {
+            return;
+        }
         Entity vehicle = event.getEntityBeingMounted();
         if (subject == null || vehicle == null || !vehicle.isAlive() || vehicle.isRemoved()) {
             return; // the vehicle is going away: this is the emergency, and it always wins
@@ -195,6 +198,7 @@ public final class TetherServerEvents {
         dev.otectus.mcacrime.enforcement.ExecutionSiteRegistry.clear();
         dev.otectus.mcacrime.enchantment.RestraintEffects.clearAll();
         dev.otectus.mcacrime.enchantment.ImbueIndex.clear();
+        dev.otectus.mcacrime.restraint.EscapeService.resetBudgets();
         ExecutionAuthorization.clearAll();
         BunkRespawnPolicy.clearAll();
     }

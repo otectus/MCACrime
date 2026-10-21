@@ -105,14 +105,44 @@ public final class ImbueHandler {
             return; // no damage type, no transfer, and the captor keeps every point of it
         }
         TRANSFERRING.set(true);
+        float accepted = 0.0F;
         try {
             for (int i = 0; i < split.recipients() && i < recipients.size(); i++) {
-                recipients.get(i).hurt(source, split.perRecipient());
+                LivingEntity recipient = recipients.get(i);
+                float healthBefore = recipient.getHealth();
+                float absorptionBefore = recipient.getAbsorptionAmount();
+                recipient.hurt(source, split.perRecipient());
+                accepted += acceptedTransfer(split.perRecipient(), healthBefore,
+                        recipient.getHealth(), absorptionBefore, recipient.getAbsorptionAmount());
             }
         } finally {
             TRANSFERRING.set(false);
         }
-        event.setNewDamage(split.retained());
+        // Immunity, another mod, invulnerability frames or a cancelled damage event can refuse an
+        // individual transfer. Relief is granted only for shares hurt(...) actually accepted.
+        event.setNewDamage(Math.max(0.0F, Math.min(original, original - accepted)));
+    }
+
+    /**
+     * Effective health actually consumed by one offered share.
+     *
+     * <p>{@code hurt}'s result means the outer attack path accepted the hit; a later
+     * {@code LivingIncomingDamageEvent} or {@code LivingDamageEvent.Pre} may still cancel or zero it,
+     * and armour, resistance and absorption may reduce it. Health plus absorption is the observable
+     * committed result after the whole nested pipeline. The offered share is still the ceiling,
+     * including for lethal hits and totem recovery.
+     */
+    static float acceptedTransfer(float offered, float healthBefore, float healthAfter,
+                                  float absorptionBefore, float absorptionAfter) {
+        if (!Float.isFinite(offered) || offered <= 0.0F
+                || !Float.isFinite(healthBefore) || !Float.isFinite(healthAfter)
+                || !Float.isFinite(absorptionBefore) || !Float.isFinite(absorptionAfter)) {
+            return 0.0F;
+        }
+        float healthLoss = Math.max(0.0F, healthBefore - healthAfter);
+        float absorptionLoss = Math.max(0.0F, absorptionBefore - absorptionAfter);
+        float applied = healthLoss + absorptionLoss;
+        return Float.isFinite(applied) ? Math.min(offered, applied) : 0.0F;
     }
 
     /** Whether Imbue is switched on at all. */

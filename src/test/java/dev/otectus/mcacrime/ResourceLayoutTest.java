@@ -62,7 +62,11 @@ class ResourceLayoutTest {
                 String name = dir.getFileName().toString();
                 Path parent = dir.getParent();
                 boolean underTags = parent != null && parent.getFileName().toString().equals("tags");
-                if (name.equals("recipes") || (underTags && (name.equals("items") || name.equals("blocks")))) {
+                // advancement/recipes/ is vanilla 1.21.1's own home for recipe-unlock advancements (0.8.0),
+                // not a surviving 1.20.1 recipes/ folder.
+                boolean recipeUnlocks = parent != null && parent.getFileName().toString().equals("advancement");
+                if ((name.equals("recipes") && !recipeUnlocks)
+                        || (underTags && (name.equals("items") || name.equals("blocks")))) {
                     plural.add(relative(dir));
                 }
             });
@@ -100,6 +104,8 @@ class ResourceLayoutTest {
             "mcacrime:key_ring_disassemble",
             "mcacrime:key_mold_copy",
             "mcacrime:baked_key_mold_copy",
+            // 0.8.0: a blank mold and a bound key make a recorded mold; the binding is the key's.
+            "mcacrime:key_mold_imprint",
             // 0.7.5 M5.8: crafting a poster alone advances it to the next design, so its output is a
             // function of its input and there is no stack to declare either.
             "mcacrime:poster_change");

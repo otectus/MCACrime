@@ -78,6 +78,8 @@ final class ScenarioChecks {
     private long karmaAfterCharge;
     private BlockPos spawn;
     private ExtendedScenarioChecks extended;
+    /** 0.8.0: the mask rendering evidence (contact sheets, two-client observation, restart). */
+    private MaskScenarioChecks masks;
 
     ScenarioChecks(Minecraft mc, String role, Path output, Consumer<String> pass, Consumer<String> note, Runnable finish) {
         this.mc = mc;
@@ -91,10 +93,15 @@ final class ScenarioChecks {
     }
 
     int step() {
-        return extended == null ? step : extended.step();
+        return masks != null ? masks.step() : extended == null ? step : extended.step();
     }
 
     void tick(int now) {
+        if (role.startsWith("masks-")) {
+            if (masks == null) masks = new MaskScenarioChecks(mc, role, output, sync, pass, finish);
+            masks.tick(now);
+            return;
+        }
         if (role.startsWith("extended-")) {
             if (extended == null) extended = new ExtendedScenarioChecks(mc, role, output, pass, finish);
             extended.tick(now);

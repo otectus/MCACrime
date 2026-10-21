@@ -5,6 +5,226 @@ All notable changes to MCA: Crime.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); this project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] — 2026-10-21
+
+The NeoForge 1.21.1 port of Forge 0.8.0: commands find the villager you mean, the guillotine says what it is
+doing, key copying is teachable, and every mask takes every dye. **Network protocol `"21"`** (from `"20"`):
+one new payload, `mcacrime:server_rules`, carries the server's effective key-ring capacity, so client and
+server must update together. **0.7.9 was never published on its own**, so coming from 0.7.8, the last
+published release, this release also carries everything in 0.7.9 below: the protocol moves from this port's
+`"18"`, GeckoLib becomes required, four COMMON keys are added, and the world migrates to **schema 18**, so
+back up the world first and roll back to 0.7.8 only from that backup. 0.8.0 adds no schema step of its own;
+worlds saved by 0.7.8 and by 0.7.9 were both reopened on 0.8.0 (`docs/0.8.0/VALIDATION.md`). **One new item
+data component**, `mcacrime:key_ring_labels`, optional and written only on a ring holding a renamed key: an older
+jar does not know it, so roll back with the pre-upgrade backup rather than by swapping jars. 0.8.0 itself
+adds or removes no config key; two descriptions are corrected and one validation warning is new. New recipe
+serializer `mcacrime:key_mold_imprint`, new creative tab `mcacrime:masks`, and new dyed-mask art that
+resource packs retexturing masks should also cover. See `docs/MIGRATION.md`.
+
+From Forge 0.8.0:
+
+### Fixed
+
+- **`/crime mug` and `/crime report` could not select anybody.** The gameplay ray passed the squared reach
+  to `ProjectileUtil` as a box inflation, which put the player's eyes inside every hitbox, so an aimed
+  villager was never hit and the commands answered "no target" or "no guard available" (reproduced on
+  Forge 0.7.9 with a villager three blocks away; the NeoForge 0.7.9 jar makes the same call). Both now
+  take the entity under the crosshair within the 4-block gameplay reach, clipped against blocks, and the
+  action re-checks the same reach before it commits.
+- **Operator villager commands changed the wrong villager.** `/crime job assign`, `/crime job clear` and
+  `/crime debug villager` picked the nearest MCA villager in an 8-block box: a closer bystander beat the
+  one being looked at, a box corner 10.6 blocks away counted as in range, and a villager behind a wall was
+  chosen. They now use the villager under the crosshair, or, when nothing is aimed at, the only visible
+  candidate within a true 8-block sphere; with several, they ask you to look at one or name it.
+- **"No villager nearby" covered every failure.** Aiming at a vanilla villager, an MCA zombie villager or
+  another mob, a target behind a wall, several candidates, a console sender and a missing MCA binding now
+  each get their own message, and an ineligible villager (a child, say) gets the job service's own reason.
+- **A guillotine whose blade fall was not shorter than the order window never executed.** With
+  `detention.guillotineActivationDelayTicks` at or above `sentencing.capitalPunishment.executionDelayTicks`
+  the order expired before the blade landed, for the lever and for guard-led executions alike. An order
+  now lasts at least the blade's fall plus 3 ticks, and `/crime validate` says when it had to be stretched.
+- **A blade could use the wrong order.** A fall persisted from an earlier order could land under a newer
+  order for the same subject and device. Each release now carries the order it was armed with, and the
+  blow lands only if that exact order, device, occupant, actor and live capital sentence still hold.
+- **Breaking a pillory's lower half left its upper half floating**; both halves and any frame now go.
+- **Two players could secure the same pillory in the same moment.** A second toggle inside half a second
+  of another player's is refused as busy.
+- **Comments and config descriptions described execution behaviour that does not exist**: an
+  unauthorised drop opening the device, an unload keeping an execution alive, and a no-device shortcut in
+  `/crime capital execute`. They now describe what the code does: an unload or restart cancels the order,
+  and a cancelled order harms nobody and frees nobody.
+- **Key rings showed the client's own capacity setting.** The tooltip now shows the server's value, or says
+  the capacity is unknown before the server has sent it.
+- **Binding a key could fail silently.** A full ring, a lock whose first key was already issued and a lock
+  that is not yours now each say so, and a wrong key, a key from before a rekey and a ring holding no key
+  for the lock are told apart.
+- **A key renamed at an anvil lost its name on a ring.** The name now travels with the ring, in the new
+  optional `mcacrime:key_ring_labels` component, and comes back when the key is taken off.
+- **Dyeing an undyed mask white counted as no change** (an undyed mask also reads as white). Whether a mask
+  carries a `minecraft:dyed_color` component now counts, not only the number.
+- **Most dyes barely showed on dark or strongly coloured masks, and dye flooded lenses, eyes and straps.**
+  A dyed mask now draws a neutral dyeable base under its original details (see Added).
+
+### Added
+
+- **`/crime help [topic]`**: `commands`, `targeting`, `guillotine`, `keys`, `keyring`, `keymold` and
+  `masks` (with aliases such as `key_ring`, `mold`, `pillory` and `dye`), read-only, for every player and
+  from the console. `/crime` alone opens the overview. Links to mutating commands suggest the command
+  instead of running it, and operator lines are shown only to players allowed to use them.
+- **Explicit targets**: `/crime job assign thief [target]`, `/crime job assign fence [target]`,
+  `/crime job clear [target]` (level 3) and `/crime debug villager [target]` (level 2) take one entity and
+  work from the console. **`/crime debug target [target]`** (level 2) reports how a target was chosen, its
+  registry id, distance, sight line, MCA recognition and binding state, and the rejection.
+  **`/crime debug mca`** (level 2) reports the MCA binding.
+- **The pillory and guillotine say what happened** on the action bar, once per change: an empty pillory and
+  where the subject stands, who was secured or released, an occupied device, a blade armed (with its delay),
+  an order that became void and why, a disabled feature, and why a placement was refused (place the
+  guillotine on a pillory, blocked, too high, no room, no ground). Holding a block still places it.
+- **Tooltips that teach**, with Shift for details and a pointer to the matching help topic, on the pillory,
+  guillotine, keys, key rings, key molds, baked key molds, handcuffs and shackles keys, and masks. A blank
+  baked mold says it cannot cast; a ring lists its keys by name.
+- **Blank-mold impression**: a blank Key Mold and a bound Key in a crafting grid make a recorded Key Mold
+  and return the key. The clay-ball impression is unchanged.
+- **Every mask in every dye.** All 16 styles take all 16 dyes at the Mask Station, and a style recolours
+  itself through its own restyle recipe. A standard colour names the mask ("Blue Plague Doctor Mask"); a
+  blend or custom colour shows "Custom colour", with its hex code in advanced tooltips. A **Masks** creative
+  tab holds each style's original followed by its 16 colours (272 stacks), and creative search finds them
+  by colour. A dyed mask washes clean in a water cauldron, which removes only the colour and uses one level
+  of water. The Mask Station has a help button and its preview names the colour and whether a restyle keeps
+  the mask's wear and name.
+- **Dyed mask art**: each style's dyed look is a neutral base the dye tints with its original details drawn
+  untinted on top, in the inventory, in the hand, on the ground and worn. Undyed masks draw exactly the
+  art they always did. Generated by `tools/art/build_mask_dye_layers.py` (author tool, `--check`).
+- **Recipe-book unlocks** for the 32 fixed recipes: picking up an ingredient (an iron nugget, say) adds the
+  recipes that use it to the vanilla recipe book. Key copies, molds, rings and Mask Station recipes depend
+  on the item's data and are taught by `/crime help` instead.
+
+### For pack authors
+
+- A dyed mask's item model is `models/item/<style>_dyed.json` (layer 0 tinted base, layer 1 untinted
+  detail; the Highwayman's Domino keeps its hand-built model with a matching element pair), selected by the
+  `mcacrime:dyed` predicate added to each `models/item/<style>.json`. Its textures are
+  `textures/item/<style>_dyed.png`, `textures/item/<style>_dyed_detail.png`,
+  `textures/models/armor/<style>_dyed.png` and `textures/models/armor/<style>_dyed_detail.png`. A pack that
+  retextures a mask's original art should retexture these too, or dyed copies keep the shipped look.
+- New recipe type `mcacrime:key_mold_imprint` (see `DATAPACK.md`) and 32 recipe-unlock advancements under
+  `data/mcacrime/advancement/recipes/` (1.21.1's folder name).
+
+### Port notes
+
+- The washing interaction is vanilla's `CauldronInteraction.DYED_ITEM`, registered for every mask in
+  `CauldronInteraction.WATER`; masks were already in `minecraft:dyeable`, which 1.21.1's dye blend and
+  washing both require.
+- New GameTests: `gametest/MaskMatrixGameTests` (the 16 x 16 matrix, recolouring, blending, no-ops, washing,
+  restyling, unsupported data, legal state, two players, preview, shift-click, a recipe-generation change and
+  the creative tab) and the recipe-book unlock in `gametest/UsabilityGameTests`. New
+  `tools/usability` production-server harness carrying the upgrade test the GameTests cannot run.
+
+## [0.7.9] — unreleased
+
+Prepared on 2026-10-11 and never published on its own: these changes first ship in 0.8.0.
+
+The NeoForge 1.21.1 port of Forge 0.7.9, and the release that closes the port's parity ledger: every
+feature the Forge build has is now here, and `docs/PORT_PARITY.md` lists only loader adaptations and
+build tooling. **Network protocol `"20"`** (from this port's `"18"`): client and server must update
+together. **World schema 18** adds explicit custody to stolen-goods records; schema 16 now carries the
+village-news table. Back up the world before upgrading. A 0.7.8 jar treats schema 18 as a save from the
+future and holds Crime state read-only; rolling back requires the pre-upgrade backup. **GeckoLib is now a
+required dependency.** Four new COMMON keys under `[villageJustice]`. See `docs/MIGRATION.md`.
+
+From Forge 0.7.9:
+
+- **Items taken from a thief no longer become a second copy in owner escrow.** Both taking another
+  victim's loot from a thief (`frisk/StolenGoodsTransfer`) and an ordinary criminal search
+  (`frisk/SeizureLedger`) now file provenance for the item handed to the player, not another recoverable
+  item. The default seven-day expiry retires that trail without recreating the goods; claims, arrest
+  and death recovery cannot cash it out either. NPC-held property still recovers once, including the
+  remainder of a partly taken stack. Legacy records whose custody cannot yet be determined stay intact
+  and unclaimable until migration can complete.
+- **Royal decrees stop at their village's boundary.** A guard's home village alone no longer authorises
+  enforcement wherever the player goes. Guard challenges, arrest and the public `McaCrimeApi.mayEnforce`
+  query check the player's current community. Leaving closes a decree-only challenge without counting
+  as a refusal; returning restores the decree's local authority. Independent grounds for enforcement
+  keep their existing rules.
+- **Paying a decree in prison releases a sentence held solely by that decree.** Successful payment now
+  runs the same sentence cleanup as withdrawal and voiding, clearing its custody and restraints. An
+  independent case or another decree bound to the sentence still keeps the prisoner in custody. The
+  fine changes neither Heat nor Karma, and a failed or repeated payment grants no release or extra debit.
+- **Restrained players receive their own state changes immediately.** Physical-state updates, removals
+  and restraint rig updates now reach the wearer as well as the players tracking them
+  (`PacketDistributor.sendToPlayersTrackingEntityAndSelf`), fixing stale local restraint state until
+  reconnect, the defect recorded in `docs/0.7.7/VALIDATION.md`. Distant players receive no additional
+  broadcast, and the packet format is unchanged.
+
+Forge features this port had not taken, now ported:
+
+- **Player crime reports.** After a robbery or a witnessed attempt, a player can approach a guard
+  peacefully and choose **Report a crime**, or use `/crime report`; `/crime reports` lists accepted
+  reports. The server supplies the accounts, an unknown suspect stays unknown, and acceptance either
+  dispatches a guard or waits for one. Threat and report receipts live in their own saved data
+  (`mcacrime_player_reports`). Four payloads, two screens, `action/handler/ReportCrimeActionHandler`,
+  `report/*`.
+- **Village news through MCA's mailbox.** Relevant public outcomes and personal report and recovery
+  updates arrive as digests through `/mca mail`; `/crime news on|off|status` manages a subscription. On
+  1.21.1 MCA's inbox holds `PlayerSaveData$Letter` records rather than NBT, so a Crime letter is marked
+  by its title (`mcacrime:news/<edition>`), which MCA saves and never shows, and its pages are parsed
+  against the server's registries only at delivery. Delivery receipts are saved with MCA's own mailbox
+  through `MailboxMarker`, a third marker in the optional, plugin-gated `mcacrime.mca.mixins.json`,
+  matched by exact descriptor on every build in `mca_probe_versions`.
+- **Per-world game rules.** Seventeen settings can be owned by the world: `mcaCrimeUseWorldRules` and the
+  `mcaCrime*` rules, edited in Create World or with `/gamerule`, plus `/crime rules status|import|defaults`
+  (`config/CrimeGameRules`, `CrimeWorldSettings`, `CrimeSettingsTransitions`, and the accessor mixin
+  `GameRuleTypeAccessor`, the thirteenth common mixin). Overrides default off, so an upgraded world keeps
+  its COMMON config.
+- **Jurisdiction and institutional-service APIs** for MCA: Kingdoms: `api/JurisdictionPolicyApi`,
+  `api/jurisdiction/*`, `api/InstitutionalServiceApi`, `civic/InstitutionalWorkshopPolicy`, and
+  `McaCrimeApi.mayEnforce` with the decree basis. `neoforge.mods.toml` orders `mcakingdoms` and
+  `ultima_kingdoms` BEFORE, as on Forge.
+- **GeckoLib mask models.** Every mask style is worn as its shaped GeckoLib model with the Forge build's
+  art, tinted by its dye (`client/render/mask`). GeckoLib for NeoForge reads the worn model from the
+  item's `GeoRenderProvider`, installed from the client entrypoint so common code names no client class.
+  New item art for all sixteen masks, the padlock (drawn on a diagonal and turned upright where it
+  hangs, as on Forge), duct tape and the Sand Bottle; the Highwayman's Domino has a 3D item model. The
+  Raven Mask is now the **Plague Doctor Mask** and the Iron Skull Mask the **Balaclava**; ids are unchanged.
+- **Deceased case resolution.** The confirmed death of an MCA villager suspect closes their open cases
+  as `DECEASED`, shown in the case ledger.
+
+Port fixes that bring behaviour back in line with Forge:
+
+- **Real right-clicks reach Crime before MCA's screen.** Every MCA 1.21.1 build opens its interaction
+  screen from `interactAt` and answers SUCCESS on both sides, so a real client's click on an MCA villager
+  arrived only as `EntityInteractSpecific` and the plain `EntityInteract` never followed. The victim-memory
+  refusal gate and empty-hand apology, the armed Crime-menu trigger, Sand Bottle throws and chain tethers
+  all listened to the plain event only, so on this port MCA's screen opened instead. They now also take
+  the precise event for an MCA villager, at their usual priorities, and `action/McaVillagerClicks`
+  remembers each decision so a click whose plain half also arrives is decided once.
+- **A newly placed lock issues its first key.** The owner (or an operator) binds the first blank key
+  exactly once; rekeying reopens that window; a lock saved before this release counts as already issued.
+  This was the "newly placed padlock refuses its first blank key" defect. Two-block doors and chests
+  resolve to one canonical lock.
+- **Bunks are real beds and remember the right home.** The bunk answers NeoForge's `isBed`, so a sleeper
+  is no longer woken the next tick, and answers a respawn there with vanilla's safe stand-up search. The home it
+  displaces is kept on the player for the whole custody episode (`bunkRespawn` in player data), repeated
+  bunk sleeps keep that home, and it comes back with its angle and forced flag when the episode ends,
+  also at the next login after an offline release. A newer spawn the prisoner chose is left alone.
+- Struggle clocks belong to the worn restraint, so switching slots cannot reset them; a forced chain
+  mount or dismount is no longer refused as the subject's own action; an escort's tether moves with the
+  custody and is renewed rather than stacked; Imbue damage is never treated as the captor's own attack;
+  a restricted subject's actions are checked against the full restraint policy, including the profile of
+  a pillory or guillotine holding them; guards pursue an NPC criminal only while it is an arrestable suspect; a village's
+  security view counts only identified reports accepted in that village; an identified accepted report
+  makes its case public to the receiving authority, including a wilderness case; and the arrest-phase
+  restraint pass no longer touches a custody row that may be absent.
+- Language: 80 keys added and four corrected, matching Forge (`Leg Handcuffs`, the locked-restraint
+  rescue message, and the two renamed masks). The Safe's loot table has no explosion-survival roll, as
+  on Forge, so an explosion that breaks a Safe drops it like any other qualifying break.
+
+Tests: `StolenGoodsCustodyTest` and every other Forge-only suite (world settings and `/crime rules`,
+jurisdiction and workshop policy, reports, news, first-key initialization, bunk persistence, the 15→16
+and 16→17 steps, `ModsTomlOrderingTest`), plus GameTests for real right-clicks, the armed trigger, restraint
+recipients, legacy property custody, the re-theft and seizure custody checks, and a news letter through
+MCA's real mailbox; `McaJusticeTargetTest` now checks the mailbox hooks on all five fleet jars.
+
 ## [0.7.8] — 2026-10-10
 
 The NeoForge 1.21.1 port of Forge 0.7.8. Network protocol `"18"` on this port: client and server must

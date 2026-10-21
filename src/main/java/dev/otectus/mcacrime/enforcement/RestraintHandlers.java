@@ -4,7 +4,7 @@ import dev.otectus.mcacrime.McaCrime;
 import dev.otectus.mcacrime.McaCrimeConfig;
 import dev.otectus.mcacrime.action.ActionSessionManager;
 import dev.otectus.mcacrime.action.CancelReason;
-import dev.otectus.mcacrime.restraint.PhysicalRestraintState;
+import dev.otectus.mcacrime.enchantment.ImbueDamage;
 import dev.otectus.mcacrime.restraint.RestraintAction;
 import dev.otectus.mcacrime.restraint.RestraintAttributes;
 import dev.otectus.mcacrime.restraint.RestraintService;
@@ -156,6 +156,12 @@ public final class RestraintHandlers {
         if (!restrictionsEnabled()) {
             return;
         }
+        // Imbue is passive damage redirected by a restraint, not an attack the captor chose to make.
+        // Treating it as a hand action lets the captor's own cuffs cancel the transfer after the
+        // damage handler has already budgeted it.
+        if (ImbueDamage.isImbue(event.getSource())) {
+            return;
+        }
         if (!(event.getSource().getEntity() instanceof ServerPlayer attacker)) {
             return;
         }
@@ -243,6 +249,9 @@ public final class RestraintHandlers {
         if (!(event.getEntityMounting() instanceof ServerPlayer player) || !restrictionsEnabled()) {
             return;
         }
+        if (dev.otectus.mcacrime.tether.MountTransfer.trustedTransfer(player)) {
+            return;
+        }
         RestrictionPolicy policy = policy(player);
         boolean denied = event.isMounting()
                 ? !policy.permits(RestraintAction.STEER_VEHICLE)
@@ -287,8 +296,11 @@ public final class RestraintHandlers {
         if (!(player instanceof ServerPlayer server)) {
             return RestrictionPolicy.unrestricted();
         }
-        PhysicalRestraintState state = RestraintService.state(server);
-        return RestrictionResolver.resolve(state, null, ArrestStates.isRestrained(server));
+        RestrictionPolicy physical = RestraintService.policy(server);
+        return ArrestStates.isRestrained(server)
+                ? physical.and(RestrictionResolver.of(
+                        dev.otectus.mcacrime.restraint.RestraintDefinitions.HANDCUFFS_ARMS))
+                : physical;
     }
 
     /** The config-aware answer used by handlers that run before this class's LOW backstop. */
@@ -308,7 +320,7 @@ public final class RestraintHandlers {
         if (!(player instanceof ServerPlayer server) || !restrictionsEnabled()) {
             return;
         }
-        if (policy(server).permits(action)) {
+        if (permits(server, action)) {
             return;
         }
         event.setCanceled(true);

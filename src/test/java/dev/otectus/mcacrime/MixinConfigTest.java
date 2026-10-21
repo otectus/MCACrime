@@ -63,10 +63,16 @@ class MixinConfigTest {
      * <p>The exact list matters more than its length: a mixin that drifted from {@code mixins} to
      * {@code client} would apply on a single-player world and be absent from the dedicated server that
      * actually owns the decision, which is the failure mode this file was written for.
+     *
+     * <p>The three 0.7.5 restraint mixins are in the same list for the same reason, and it matters
+     * more for them than for anything else here: each one is the server-side answer to an action a
+     * modified client can send whatever its own screen says, so listed under {@code client} they would
+     * enforce nothing on the only side that counts.
      */
     @Test
     void everyOccupationMixinIsCommonAndOnlyRenderingIsClient() {
         assertEquals(List.of(
+                "GameRuleTypeAccessor",
                 "HopperLockMixin",
                 "MaskStationAcquisitionMixin",
                 "MerchantOffersAccessor",
@@ -80,6 +86,25 @@ class MixinConfigTest {
                 "ThiefGossipMixin",
                 "ThiefPoiValidationMixin"), mixins(CONFIG, "mixins"));
         assertEquals(List.of("client.RestraintPoseMixin"), mixins(CONFIG, "client"));
+    }
+
+    /**
+     * The three restraint mixins are common, and each one is there because no NeoForge event is.
+     *
+     * <p>Named individually rather than counted, because each covers a different hole and losing any
+     * one of them turns a server-enforced restriction back into a client-side suggestion: the jump
+     * (no cancellable jump event exists), the inventory click (handled below every event) and the
+     * off-hand swap (a player-action packet with no event at all).
+     */
+    @Test
+    void theThreeRestraintMixinsAreCommon() {
+        List<String> common = mixins(CONFIG, "mixins");
+        List<String> client = mixins(CONFIG, "client");
+        for (String mixin : List.of("RestraintJumpMixin", "RestraintContainerClickMixin",
+                "RestraintPlayerActionMixin")) {
+            assertTrue(common.contains(mixin), mixin + " must enforce on the dedicated server");
+            assertFalse(client.contains(mixin), mixin + " is not a rendering mixin");
+        }
     }
 
     /**
@@ -201,8 +226,8 @@ class MixinConfigTest {
     }
 
     /**
-     * The MCA heart-hook config's own shape (0.7.7): optional, plugin-gated, same toolchain, no refmap,
-     * and markers that name MCA only as dotted strings.
+     * The MCA config's own shape (0.7.7 heart hooks, 0.7.9 mailbox marker): optional, plugin-gated,
+     * same toolchain, no refmap, and markers that name MCA only as dotted strings.
      *
      * <p>Optional because an MCA build whose shape differs must degrade one capability rather than stop
      * the game; the plugin matches every target by exact descriptor before changing anything.
@@ -216,11 +241,12 @@ class MixinConfigTest {
         assertFalse(config.get("required").getAsBoolean(),
                 "an MCA release that moved a member must not stop the game from starting");
         assertEquals("dev.otectus.mcacrime.mixin.mca.McaJusticeMixinPlugin", config.get("plugin").getAsString());
-        assertEquals(List.of("TragedyPenaltyMarker", "VillagerPenaltyMarker"), mixins(MCA_CONFIG, "mixins"));
+        assertEquals(List.of("MailboxMarker", "TragedyPenaltyMarker", "VillagerPenaltyMarker"),
+                mixins(MCA_CONFIG, "mixins"));
         assertTrue(mixins(MCA_CONFIG, "client").isEmpty(), "the heart hooks decide on the server");
         for (String marker : allMixins(MCA_CONFIG)) {
             String text = read(MIXIN_SOURCE_ROOT.resolve("mca").resolve(marker + ".java"));
-            Matcher matcher = Pattern.compile("\"([a-z][A-Za-z0-9_.]*\\.(?:VillagerEntityMCA|Relationship))\"").matcher(text);
+            Matcher matcher = Pattern.compile("\"([a-z][A-Za-z0-9_.]*\\.(?:VillagerEntityMCA|Relationship|PlayerSaveData))\"").matcher(text);
             assertTrue(matcher.find(), marker + " names no MCA target");
             do {
                 assertFalse(matcher.group(1).contains("/"), marker + " names an MCA class in internal form");
@@ -364,8 +390,10 @@ class MixinConfigTest {
     }
 
     private static boolean importsVanilla(String text, String simpleName) {
+        // A nested target such as GameRules.Type is reached through its outer class's import.
+        String outer = simpleName.contains(".") ? simpleName.substring(0, simpleName.indexOf('.')) : simpleName;
         return text.contains("import net.minecraft.") && text.matches("(?s).*import net\\.minecraft\\.[A-Za-z0-9_.]*"
-                + Pattern.quote(simpleName) + ";.*");
+                + Pattern.quote(outer) + ";.*");
     }
 
     /** Where the mixins of {@code config} live on disk. */

@@ -119,6 +119,16 @@ public final class CrimeClientHandlers {
         ClientCaseData.update(msg);
     }
 
+    public static void onReportMenu(dev.otectus.mcacrime.network.ReportMenuS2CPacket msg) {
+        Minecraft minecraft = Minecraft.getInstance();
+        TownsteadDialogueState.markExternalClose(minecraft.screen);
+        minecraft.setScreen(new dev.otectus.mcacrime.client.screen.PlayerReportScreen(msg, minecraft.screen));
+    }
+
+    public static void onPlayerReports(dev.otectus.mcacrime.network.PlayerReportsS2CPacket msg) {
+        Minecraft.getInstance().setScreen(new dev.otectus.mcacrime.client.screen.PlayerReportsScreen(msg));
+    }
+
     /**
      * The body a restrained subject is drawn on, as the server sees it.
      *

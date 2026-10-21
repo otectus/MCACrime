@@ -8,12 +8,15 @@ import org.spongepowered.asm.mixin.extensibility.IMixinInfo;
 import java.util.*;
 
 /**
- * Narrow native compatibility instrumentation for MCA's two heart penalties (0.7.7, ported from Forge).
+ * Narrow native compatibility instrumentation for MCA's two heart penalties (0.7.7) and its mailbox
+ * (village news, 0.7.9 on this port; both from the Forge tree).
  *
  * <p>All MCA owners are taken from verified bytecode and every member is matched by name and exact
  * descriptor before anything is changed; no MCA class is resolved or linked here, and no MCA package is
- * ever written in internal form. Only the heart hooks are ported: the Forge layer's mailbox
- * instrumentation belongs to village news, which this port has not taken (see docs/PORT_PARITY.md).
+ * ever written in internal form. The mailbox hooks match MCA's 1.21.1 shape: the inbox holds
+ * {@code PlayerSaveData$Letter} records, {@code sendMail} takes one, and {@code save} takes the
+ * registry lookup 1.21.1 hands every {@code SavedData}. The letter type is matched by its simple name,
+ * so no MCA package root appears here either.
  *
  * <p>NeoForge 1.21.1 runs on Mojang names in production, so the vanilla members are matched by their
  * readable names ({@code hurt}, {@code die}) and there is no refmap. A target whose shape differs from
@@ -23,7 +26,10 @@ import java.util.*;
 public final class McaJusticeMixinPlugin implements IMixinConfigPlugin, Opcodes {
     private static final String CONTEXT = "dev/otectus/mcacrime/compat/mca/NativeCombatContext";
     private static final String SCOPE = "L" + CONTEXT + "$Scope;";
+    private static final String MAIL = "dev/otectus/mcacrime/compat/McaMailBridge";
     private static final String DAMAGE = "Lnet/minecraft/world/damagesource/DamageSource;";
+    private static final String TAG = "Lnet/minecraft/nbt/CompoundTag;";
+    private static final String LOOKUP = "Lnet/minecraft/core/HolderLookup$Provider;";
     /** The relationship's own villager, the mourner a killing penalty is charged to. */
     private static final String MOURNER_FIELD = "entity";
     private static final String MOB = "Lnet/minecraft/world/entity/Mob;";
@@ -47,7 +53,7 @@ public final class McaJusticeMixinPlugin implements IMixinConfigPlugin, Opcodes 
             if (stream == null) return false;
             ClassNode node = new ClassNode(); new ClassReader(stream).accept(node, 0);
             boolean supported = supported(node);
-            if (!supported && DEGRADED.add(target)) LOGGER.warn("MCA native heart hooks unavailable for {}; MCA's own heart penalties stay ungated", target);
+            if (!supported && DEGRADED.add(target)) LOGGER.warn("MCA native justice capability unavailable for {}; heart gating or news mail is degraded", target);
             return supported;
         } catch (Exception failure) { if (DEGRADED.add(target)) LOGGER.warn("MCA native heart hook probe failed for {}", target, failure); return false; }
     }
@@ -58,7 +64,20 @@ public final class McaJusticeMixinPlugin implements IMixinConfigPlugin, Opcodes 
         }
         if (node.name.endsWith("/Relationship")) return node.fields.stream().anyMatch(f -> f.name.equals(MOURNER_FIELD) && f.desc.equals(MOB))
                 && node.methods.stream().anyMatch(m -> tragedy(node, m) && count(m, "modHearts", "(I)V") == 1);
+        if (node.name.endsWith("/PlayerSaveData")) return node.fields.stream().anyMatch(f -> f.name.equals("inbox") && f.desc.equals("Ljava/util/List;"))
+                && node.methods.stream().anyMatch(m -> mailConstructor(m))
+                && node.methods.stream().anyMatch(m -> m.name.equals("sendMail") && m.desc.equals("(L" + node.name + "$Letter;)V"))
+                && node.methods.stream().anyMatch(m -> m.name.equals("getMail") && m.desc.equals("()Lnet/minecraft/world/item/ItemStack;"))
+                && node.methods.stream().anyMatch(m -> mailSave(m));
         return false;
+    }
+    private static boolean mailConstructor(MethodNode method) {
+        return method.name.equals("<init>") && method.desc.equals(
+                "(Lnet/minecraft/server/level/ServerLevel;Ljava/util/UUID;" + TAG + ")V");
+    }
+    private static boolean mailSave(MethodNode method) {
+        return (method.access & ACC_STATIC) == 0 && method.name.equals("save")
+                && method.desc.equals("(" + TAG + LOOKUP + ")" + TAG);
     }
     private static boolean hurtSite(MethodNode method) {
         return (method.access & ACC_STATIC) == 0 && method.name.equals("hurt")
@@ -81,7 +100,7 @@ public final class McaJusticeMixinPlugin implements IMixinConfigPlugin, Opcodes 
     @Override public void preApply(String target, ClassNode node, String mixin, IMixinInfo info) {}
     @Override public void postApply(String target, ClassNode node, String mixin, IMixinInfo info) {
         if (!supported(node)) {
-            if (DEGRADED.add(target)) LOGGER.warn("MCA native heart hook target changed after probe: {}; capability disabled", target);
+            if (DEGRADED.add(target)) LOGGER.warn("MCA native justice target changed after probe: {}; capability disabled", target);
             return;
         }
         boolean guardAlert = guardAlertSite(node);
@@ -116,6 +135,28 @@ public final class McaJusticeMixinPlugin implements IMixinConfigPlugin, Opcodes 
                         method.instructions.insertBefore(insn, code);
                     }
                     wrap(node, method, true);
+                }
+            } else if (node.name.endsWith("/PlayerSaveData")) {
+                if (mailSave(method)) {
+                    for (var insn : method.instructions.toArray()) if (insn.getOpcode() == ARETURN) {
+                        InsnList code = new InsnList(); code.add(new VarInsnNode(ALOAD, 0)); code.add(new InsnNode(SWAP));
+                        code.add(new MethodInsnNode(INVOKESTATIC, MAIL, "saveReceipts", "(Ljava/lang/Object;" + TAG + ")" + TAG, false));
+                        method.instructions.insertBefore(insn, code);
+                    }
+                } else if (mailConstructor(method)) {
+                    for (var insn : method.instructions.toArray()) if (insn.getOpcode() == RETURN) {
+                        InsnList code = new InsnList(); code.add(new VarInsnNode(ALOAD, 0)); code.add(new VarInsnNode(ALOAD, 3));
+                        code.add(new MethodInsnNode(INVOKESTATIC, MAIL, "loadReceipts", "(Ljava/lang/Object;" + TAG + ")V", false));
+                        method.instructions.insertBefore(insn, code);
+                    }
+                } else if (method.name.equals("getMail") && method.desc.equals("()Lnet/minecraft/world/item/ItemStack;")) {
+                    // MCA removes the letter without marking its own save dirty, so a normal save could
+                    // bring collected mail back. One dirty mark on every return path closes that.
+                    for (var insn : method.instructions.toArray()) if (insn.getOpcode() == ARETURN) {
+                        InsnList code = new InsnList(); code.add(new InsnNode(DUP)); code.add(new VarInsnNode(ALOAD, 0));
+                        code.add(new MethodInsnNode(INVOKESTATIC, MAIL, "collected", "(Ljava/lang/Object;Ljava/lang/Object;)V", false));
+                        method.instructions.insertBefore(insn, code);
+                    }
                 }
             } else if (node.name.endsWith("/Relationship") && tragedy(node, method)) {
                 for (var insn : method.instructions.toArray()) if (insn instanceof MethodInsnNode call && call.name.equals("modHearts") && call.desc.equals("(I)V")) {

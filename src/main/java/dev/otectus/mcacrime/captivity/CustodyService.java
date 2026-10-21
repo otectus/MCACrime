@@ -374,7 +374,13 @@ public final class CustodyService {
         if (record == null) {
             return; // the guard that makes double-release a no-op
         }
+        ServerPlayer captivePlayer = record.isCaptivePlayer()
+                ? server.getPlayerList().getPlayer(captiveUuid) : null;
         data.removeCustody(captiveUuid);
+        // The authoritative episode is gone before respawn restoration is considered. An offline
+        // player retains the persisted snapshot for login reconciliation; a jail sentence that is
+        // still active keeps owning it until its own release event.
+        dev.otectus.mcacrime.detention.BunkRespawnPolicy.release(captivePlayer);
         // Unconditional rather than generation-scoped, and one of only two places that is right: the
         // custody record is gone, so every claim that existed because of it is meaningless, whoever
         // took it.
@@ -411,7 +417,6 @@ public final class CustodyService {
             }
         }
 
-        ServerPlayer captivePlayer = record.isCaptivePlayer() ? server.getPlayerList().getPlayer(captiveUuid) : null;
         if (record.isLawful() && (!record.isCaptivePlayer()
                 || (captivePlayer != null && !JailService.isJailed(captivePlayer)))) {
             SentenceAssignmentService.cancel(data, captiveUuid, record.getSentenceId());

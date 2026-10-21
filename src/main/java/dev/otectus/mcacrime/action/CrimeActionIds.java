@@ -21,6 +21,7 @@ public final class CrimeActionIds {
     public static final ResourceLocation ASK_ESCAPE_HELP = McaCrime.id("ask_escape_help");
     public static final ResourceLocation PAY_BAIL = McaCrime.id("pay_bail");
     public static final ResourceLocation CIVIC_SERVICE = McaCrime.id("civic_service");
+    public static final ResourceLocation REPORT_CRIME = McaCrime.id("report_crime");
     public static final ResourceLocation FRISK = McaCrime.id("frisk");
     /** A village ruler's royal decree, handed to a guard or court officer of their capital (0.7.8). */
     public static final ResourceLocation ROYAL_DECREE = McaCrime.id("royal_decree");

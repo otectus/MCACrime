@@ -1,0 +1,13 @@
+modLoader="javafml"
+loaderVersion="[4,)"
+license="GPL-3.0-only"
+[[mods]]
+modId="crime_usability_checks"
+version="1"
+displayName="MCA Crime upgrade fixtures (test only)"
+[[dependencies.crime_usability_checks]]
+modId="mcacrime"
+type="required"
+versionRange="[0,)"
+ordering="AFTER"
+side="SERVER"

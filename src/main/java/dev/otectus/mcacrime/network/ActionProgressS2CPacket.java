@@ -92,6 +92,10 @@ public record ActionProgressS2CPacket(UUID sessionId, String actionLabelKey, int
     }
 
     /** A bar that ended, one way or the other. */
+    public static ActionProgressS2CPacket ended(UUID sessionId, String labelKey, Phase phase, String outcomeKey) {
+        return ended(sessionId, labelKey, phase, outcomeKey, Component.empty());
+    }
+
     public static ActionProgressS2CPacket ended(UUID sessionId, String labelKey, Phase phase,
                                                 String outcomeKey, Component outcomeText) {
         return new ActionProgressS2CPacket(sessionId, labelKey, 1, 1, phase, outcomeKey, outcomeText);

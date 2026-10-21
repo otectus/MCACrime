@@ -30,6 +30,7 @@ public final class ClientCaches {
             ClientPhysicalRestraintData::clear,
             ClientRestraintRig::clear,
             ClientWeaponPolicy::clear,
+            dev.otectus.mcacrime.network.ServerRulesView::clear,
             ClientCriminalJobData::clear,
             ClientVillageSecurityData::clear,
             // The datapack layer belongs to the server that sent it (§3.13). Keeping it would predict

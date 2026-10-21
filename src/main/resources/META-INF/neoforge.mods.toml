@@ -9,7 +9,7 @@ displayName="${mod_name}"
 authors="${mod_authors}"
 description='''${mod_description}'''
 
-# The required config ships twelve narrowly scoped vanilla mixins -- eleven common and client-only
+# The required config ships fourteen narrowly scoped vanilla mixins -- thirteen common and client-only
 # client.RestraintPoseMixin, which poses a restrained player's arms because
 # PlayerRenderer.setModelProperties and HumanoidModel.setupAnim both run after
 # RenderPlayerEvent.Pre and overwrite whatever it set. Everything else reaches Minecraft through
@@ -65,6 +65,14 @@ description='''${mod_description}'''
 # NOTE: Architectury is deliberately NOT declared. MCA's 1.21.1 NeoForge artifact does not use it at
 # all and MCA: Crime names no Architectury type, so declaring it would only block users who do not
 # have it installed.
+
+# Shaped mask armor models.
+[[dependencies.${mod_id}]]
+    modId="geckolib"
+    type="required"
+    versionRange="${geckolib_version_range}"
+    ordering="AFTER"
+    side="BOTH"
 
 # MCA: Reputation - OPTIONAL. When present it owns public/community standing and MCA: Crime becomes
 # the single producer for villager assault/death; when absent Crime uses its own fallback store.

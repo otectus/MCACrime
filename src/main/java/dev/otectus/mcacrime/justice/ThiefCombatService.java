@@ -15,13 +15,11 @@ import net.neoforged.neoforge.common.util.FakePlayer;
 import java.util.UUID;
 
 /**
- * One sampled decision about a player's act against a villager under the Thief combat policy (0.7.7 on
- * this port; the Forge 1.20.1 tree has had it since 0.7.5).
+ * One sampled decision about a player's act against a villager under the Thief combat policy.
  *
- * <p>The same rule as Forge, in the same order: the mugging threat ({@code MuggingThreats}) first, then
- * the policy, then the target's protection, then evidence. The policy is read from
- * {@code villageJustice.thiefCombatPolicy} because this port has no per-world game rules
- * (docs/PORT_PARITY.md); a Forge server's world-rule override has no equivalent here.
+ * <p>0.7.7 adds the mugging threat ({@code MuggingThreats}) as an input every policy honours: the
+ * victim of a hold-up may fight it off, and under {@code NORMAL_LAW} only lethal force is still
+ * charged. Age, law identity and restraint are read live and still protect whoever they protect.
  *
  * <p>MCA's Outlaw is the other input every policy honours (0.7.7): with {@code outlawCombatLegal} on,
  * fighting or killing an adult Outlaw who is not restrained or held is exempt, so it files nothing and
@@ -37,7 +35,7 @@ public final class ThiefCombatService {
                 || player.getServer() != level.getServer() || player.isSpectator()) return null;
         var server = level.getServer();
         var data = CrimeWorldData.get(server);
-        var policy = McaCrimeConfig.COMMON.thiefCombatPolicy.get();
+        var policy = dev.otectus.mcacrime.config.CrimeWorldSettings.resolve(server).thiefCombatPolicy();
         var facts = WorldCriminalJobService.facts(target, WorldCriminalJobService.of(server).get(target.getUUID()));
         var physical = data.physicalRestraint(target.getUUID());
         boolean held = data.isCaptive(target.getUUID()) || physical != null && physical.restrained();
@@ -58,9 +56,9 @@ public final class ThiefCombatService {
         boolean report = ReportService.warrantExists(server, target.getUUID(), community, now);
         boolean currentThief = dev.otectus.mcacrime.job.CriminalProfessions.THIEF_ID.equals(
                 dev.otectus.mcacrime.compat.McaCompat.getProfessionId(target).orElse(null));
-        // The mugging this target opened on this player, live or within the recovery window. Read from
-        // the threat ledger, never from the session: by the time a blow is classified the punch, the
-        // drawn weapon, the sand or the death has already ended the session.
+        // The mugging this target opened on this player, live or within the recovery window (0.7.7).
+        // Read from the threat ledger, never from the session: by the time a blow is classified the
+        // punch, the drawn weapon, the sand or the death has already ended the session.
         boolean threatened = dev.otectus.mcacrime.mug.npc.MuggingThreats.threatens(target.getUUID(),
                 player.getUUID(), now, McaCrimeConfig.COMMON.thiefDefenseGraceTicks.get());
         boolean livingAdult = facts.loaded() && facts.mcaVillager() && facts.adult();

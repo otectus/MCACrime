@@ -59,12 +59,33 @@ public class KeyRingItem extends Item {
     public void appendHoverText(ItemStack stack, TooltipContext context, List<Component> tooltip,
                                 TooltipFlag flag) {
         super.appendHoverText(stack, context, tooltip, flag);
-        int count = count(stack);
-        tooltip.add(Component.translatable("item.mcacrime.key_ring.tooltip.count", count,
-                LockInteractions.maxKeysPerRing()).withStyle(ChatFormatting.GRAY));
-        for (KeyBinding binding : bindings(stack)) {
-            binding.displayName().ifPresent(name ->
-                    tooltip.add(Component.literal(" " + name).withStyle(ChatFormatting.DARK_GRAY)));
+        // The capacity is the server's (ServerRulesS2CPacket, 0.8.0); until the server has said, the line
+        // gives the count and says the limit is the server's. Names are bounded to TOOLTIP_LABELS.
+        List<KeyBinding> keys = bindings(stack);
+        java.util.Map<java.util.UUID, Component> labels = KeyRingBindings.labels(stack);
+        java.util.OptionalInt capacity = dev.otectus.mcacrime.network.ServerRulesView.maxKeysPerRing();
+        tooltip.add((capacity.isPresent()
+                ? Component.translatable("item.mcacrime.key_ring.tooltip.count", keys.size(), capacity.getAsInt())
+                : Component.translatable("item.mcacrime.key_ring.tooltip.count_unknown", keys.size()))
+                .withStyle(ChatFormatting.GRAY));
+        for (int i = 0; i < keys.size() && i < TOOLTIP_LABELS; i++) {
+            Component name = labels.get(keys.get(i).lockId());
+            tooltip.add(Component.literal(" - ").append(name != null ? name : KeyItem.label(keys.get(i)))
+                    .withStyle(ChatFormatting.DARK_GRAY));
         }
+        if (keys.size() > TOOLTIP_LABELS) {
+            tooltip.add(Component.translatable("item.mcacrime.key_ring.tooltip.more", keys.size() - TOOLTIP_LABELS)
+                    .withStyle(ChatFormatting.DARK_GRAY));
+        }
+        dev.otectus.mcacrime.help.TooltipHelp.append(tooltip, Component.translatable(keys.isEmpty()
+                        ? "item.mcacrime.key_ring.tooltip.empty" : "item.mcacrime.key_ring.tooltip.use"),
+                List.of(Component.translatable("item.mcacrime.key_ring.tooltip.add"),
+                        Component.translatable("item.mcacrime.key_ring.tooltip.remove"),
+                        Component.translatable("item.mcacrime.key_ring.tooltip.first"),
+                        Component.translatable("item.mcacrime.key_ring.tooltip.not_master")),
+                dev.otectus.mcacrime.help.CrimeHelpTopic.KEYRING);
     }
+
+    /** How many key names a tooltip lists before it summarises the rest. */
+    public static final int TOOLTIP_LABELS = 6;
 }

@@ -211,6 +211,8 @@ public final class OutlawRansomJailbreakGameTests {
         try {
             legal.set(true);
             pvp.set(true);
+            // pvpCountsAsCrime is a world-rule-mapped setting, resolved once per tick.
+            dev.otectus.mcacrime.config.CrimeWorldSettings.invalidate();
             McaCompat.setVillagerProfession(guard, ResourceLocation.fromNamespaceAndPath("mca", "guard"));
             CrimeState.setKarma(outlaw, -500L, KarmaSource.ADMIN);
             helper.assertTrue(CrimeState.getBand(outlaw) == Band.RED, "The outlaw fixture is not Red");
@@ -240,6 +242,7 @@ public final class OutlawRansomJailbreakGameTests {
         } finally {
             legal.set(legalBefore);
             pvp.set(pvpBefore);
+            dev.otectus.mcacrime.config.CrimeWorldSettings.invalidate();
             CrimeState.setHeat(attacker, 0);
             guard.discard();
             close(onlineA);
@@ -255,13 +258,18 @@ public final class OutlawRansomJailbreakGameTests {
      * come off with one item each, the chain is paid back once, and a repeated settlement pays nothing.
      */
     @GameTest(template = "cell_parity", timeoutTicks = 100)
-    public static void aPaidRansomTakesOffTheKidnappingsGearAndSettlesOnce(GameTestHelper helper) {
+    public static void aPaidRansomTakesOffTheKidnappingsGearAndSettlesOnce(GameTestHelper helper) throws Exception {
         floor(helper);
         ServerLevel level = helper.getLevel();
         ServerPlayer captor = player(helper, 5);
         AutoCloseable online = online(helper, captor);
         Mob victim = villagerAt(helper, new BlockPos(6, 1, 5));
         CrimeWorldData data = CrimeWorldData.get(level.getServer());
+        // The village fallback pays from the overworld's unincorporated treasury, which lives in the
+        // persisted GameTest world: start it at the configured balance and put it back afterwards, so a
+        // run neither depends on nor drains what earlier runs left.
+        Map<String, Long> treasuries = treasuries(data);
+        Long treasuryBefore = treasuries.remove(UNINCORPORATED_TREASURY);
         try {
             captor.setItemInHand(InteractionHand.MAIN_HAND, new ItemStack(CrimeItems.RESTRAINT_CUFFS.get()));
             var cuffs = RestraintService.apply(captor, victim, InteractionHand.MAIN_HAND, RestraintSlot.ARMS,
@@ -300,6 +308,11 @@ public final class OutlawRansomJailbreakGameTests {
                     && itemsNear(level, victim.blockPosition()) == drops + owed, "A repeated settlement moved money or items");
             helper.succeed();
         } finally {
+            if (treasuryBefore == null) {
+                treasuries.remove(UNINCORPORATED_TREASURY);
+            } else {
+                treasuries.put(UNINCORPORATED_TREASURY, treasuryBefore);
+            }
             CustodyService.release(level.getServer(), victim.getUUID(), CustodyReleaseReason.ADMIN);
             CrimeState.setHeat(captor, 0);
             victim.discard();
@@ -540,6 +553,17 @@ public final class OutlawRansomJailbreakGameTests {
         player.setPos(pos.getX() + .5, pos.getY(), pos.getZ() + .5);
         player.setGameMode(GameType.SURVIVAL);
         return player;
+    }
+
+    /** The treasury key a ransom of a captive held in the overworld outside any village pays from. */
+    private static final String UNINCORPORATED_TREASURY = "minecraft:overworld:unincorporated";
+
+    /** The world's treasury balances; only the ransom fixture touches them, and puts back what it found. */
+    @SuppressWarnings("unchecked")
+    private static Map<String, Long> treasuries(CrimeWorldData data) throws ReflectiveOperationException {
+        java.lang.reflect.Field field = CrimeWorldData.class.getDeclaredField("villageTreasuries");
+        field.setAccessible(true);
+        return (Map<String, Long>) field.get(data);
     }
 
     /** Only the fixture touches the login indexes; getPlayers() is an unmodifiable view in NeoForge. */

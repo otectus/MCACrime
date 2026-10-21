@@ -78,7 +78,7 @@ public final class PanelColours {
             case UNRESOLVED -> 0xFF5555;
             case ESCAPED -> 0xFFAA00;
             case SERVED, FINED, PARDONED -> 0x55FF55;
-            case EXPIRED -> 0xAAAAAA;
+            case EXPIRED, DECEASED -> 0xAAAAAA;
         };
     }
 

@@ -10,23 +10,30 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.TooltipFlag;
 import net.minecraft.world.item.component.DyedItemColor;
 import org.jetbrains.annotations.Nullable;
+import software.bernie.geckolib.animatable.GeoItem;
+import software.bernie.geckolib.animatable.client.GeoRenderProvider;
+import software.bernie.geckolib.animatable.instance.AnimatableInstanceCache;
+import software.bernie.geckolib.animation.AnimatableManager;
+import software.bernie.geckolib.util.GeckoLibUtil;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.function.Consumer;
+import java.util.function.Supplier;
 
 /**
  * A wearable mask (0.7.0, sixteen styles in 0.7.2): one class, sixteen registrations, {@link
  * MaskVariant} for the constants and {@link MaskFamily} for everything that is not the picture.
  *
  * <p>Extending {@link ArmorItem} rather than inventing an equippable is what buys right-click equip,
- * dispenser equip and worn rendering with no client code at all. The worn texture comes with it: each
- * style's {@link MaskArmorMaterial} carries a layer naming this mod's own asset, so vanilla resolves
- * {@code textures/models/armor/<style>_layer_1.png} without an override.
+ * dispenser equip. The client's GeckoLib render provider supplies the shaped armour model; each style's
+ * {@link MaskArmorMaterial} layer still names this mod's own asset, so a vanilla armour texture lookup
+ * stays inside this mod's namespace.
  *
  * <p>Non-enchantable on purpose: Unbreaking on a disguise is a durability setting by another route,
  * and the durability setting is already {@code mask.maskDurabilityEnabled}.
  */
-public class MaskItem extends ArmorItem {
+public class MaskItem extends ArmorItem implements GeoItem {
 
     /**
      * Opaque white, the identity for both tints. Fully qualified with its alpha because that is the
@@ -35,7 +42,39 @@ public class MaskItem extends ArmorItem {
      */
     public static final int OPAQUE_WHITE = 0xFFFFFFFF;
 
+    /**
+     * Makes one worn-model provider per mask, installed by the client entrypoint. GeckoLib asks for it
+     * only on the physical client, through {@link #createGeoRenderer}, the first time the mask is drawn;
+     * a dedicated server keeps this empty default, and this class names no client type (the same seam as
+     * {@code CrimeClientPayloadRouter}).
+     */
+    private static volatile Supplier<? extends GeoRenderProvider> renderProviders = () -> null;
+
     private final MaskVariant variant;
+    private final AnimatableInstanceCache animationCache = GeckoLibUtil.createInstanceCache(this);
+
+    /** Installed by the client entrypoint before any mask can be drawn. */
+    public static void installRenderProviders(Supplier<? extends GeoRenderProvider> providers) {
+        renderProviders = Objects.requireNonNull(providers, "providers");
+    }
+
+    @Override
+    public void createGeoRenderer(Consumer<GeoRenderProvider> consumer) {
+        GeoRenderProvider provider = renderProviders.get();
+        if (provider != null) {
+            consumer.accept(provider);
+        }
+    }
+
+    @Override
+    public void registerControllers(AnimatableManager.ControllerRegistrar controllers) {
+        // The supplied models are static; head movement comes from the wearer's armor pose.
+    }
+
+    @Override
+    public AnimatableInstanceCache getAnimatableInstanceCache() {
+        return animationCache;
+    }
 
     public MaskItem(MaskVariant variant) {
         super(MaskArmorMaterial.of(variant), ArmorItem.Type.HELMET,
@@ -65,19 +104,56 @@ public class MaskItem extends ArmorItem {
      * <p>Deliberately <em>not</em> a default component on {@code Item.Properties}: a default
      * {@code dyed_color} of white would be averaged in by {@code DyedItemColor.applyDyes}, and the
      * first dye a player applied would come out washed rather than the colour on the dye.
+     *
+     * <p>Whether a mask is dyed at all is {@code MaskColors.hasColor}, never this value: a mask dyed white
+     * answers the same white and still draws its dyed art (0.8.0).
      */
     public static int colorOf(ItemStack stack) {
         return DyedItemColor.getOrDefault(stack, OPAQUE_WHITE);
     }
 
     /**
+     * A mask dyed one of the sixteen standard colours carries it in its name -- "Blue Plague Doctor Mask"
+     * (0.8.0). Only the canonical colour counts: a blend or a custom colour keeps the plain style name
+     * and is described in the tooltip instead, and a player's own name always wins, because the
+     * {@code minecraft:custom_name} component is read before this.
+     */
+    @Override
+    public Component getName(ItemStack stack) {
+        return dev.otectus.mcacrime.mask.MaskColors.standardOf(stack)
+                .<Component>map(dye -> Component.translatable("item.mcacrime.mask.colored",
+                        Component.translatable(dev.otectus.mcacrime.mask.MaskColors.colorNameKey(dye)),
+                        Component.translatable(variant.displayKey())))
+                .orElseGet(() -> super.getName(stack));
+    }
+
+    /**
      * Names the family and says the thing a collection of sixteen faces otherwise invites players to
-     * guess wrongly: the scary one is not the good one (0.7.2 section 4.2).
+     * guess wrongly: the scary one is not the good one (0.7.2 section 4.2). Then the colour, in words
+     * (0.8.0): a standard colour by name, anything else as a custom colour with its hex value in advanced
+     * tooltips only, and where to change or wash it.
      */
     @Override
     public void appendHoverText(ItemStack stack, Item.TooltipContext context, List<Component> tooltip,
                                 TooltipFlag flag) {
         tooltip.add(Component.translatable(variant.family().displayKey()).withStyle(ChatFormatting.GRAY));
+        java.util.Optional<Integer> color = dev.otectus.mcacrime.mask.MaskColors.storedColor(stack);
+        if (color.isPresent()) {
+            java.util.Optional<net.minecraft.world.item.DyeColor> standard =
+                    dev.otectus.mcacrime.mask.MaskColors.standardOf(color.get());
+            Component line = standard.<Component>map(dye -> Component.translatable("item.mcacrime.mask.color",
+                            Component.translatable(dev.otectus.mcacrime.mask.MaskColors.colorNameKey(dye))))
+                    .orElseGet(() -> flag.isAdvanced()
+                            ? Component.translatable("item.mcacrime.mask.color.custom_hex",
+                                    dev.otectus.mcacrime.mask.MaskColors.hex(color.get()))
+                            : Component.translatable("item.mcacrime.mask.color.custom"));
+            tooltip.add(line.copy().withStyle(ChatFormatting.GRAY));
+        }
+        dev.otectus.mcacrime.help.TooltipHelp.append(tooltip,
+                Component.translatable("item.mcacrime.mask.tooltip"),
+                List.of(Component.translatable("item.mcacrime.mask.tooltip.1"),
+                        Component.translatable("item.mcacrime.mask.tooltip.2")),
+                dev.otectus.mcacrime.help.CrimeHelpTopic.MASKS);
     }
 
     @Override

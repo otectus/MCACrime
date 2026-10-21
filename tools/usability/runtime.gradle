@@ -1,0 +1,18 @@
+// Upgrade fixtures (0.8.0) run in a disposable production server, never in the release jar.
+// Test-only mod compiled against the NeoForge/Mojang production namespace.
+allprojects {
+    afterEvaluate {
+        sourceSets {
+            usabilityRuntime {
+                java.srcDir 'tools/usability/java'
+                compileClasspath = sourceSets.main.compileClasspath + sourceSets.main.output
+            }
+        }
+        tasks.register('usabilityRuntimeJar', Jar) {
+            dependsOn tasks.named('usabilityRuntimeClasses')
+            archiveBaseName = 'crime-usability-runtime-checks'
+            from sourceSets.usabilityRuntime.output
+            from('tools/usability/resources')
+        }
+    }
+}

@@ -105,7 +105,10 @@ public final class StolenGoodsReturn {
             if (player == null) {
                 continue; // logged out between the distance check and here; the claim survives
             }
-            returned += StolenGoodsLedger.escrowForOwner(CrimeWorldData.get(server), thief, owner, level.getGameTime());
+            int moved = StolenGoodsLedger.escrowForOwner(CrimeWorldData.get(server), thief, owner, level.getGameTime());
+            returned += moved;
+            if (moved > 0) for (StolenGoodsRecord entry : held) if (entry.owner().equals(owner) && CrimeWorldData.get(server).stolenGoods(entry.transactionId()) == null)
+                dev.otectus.mcacrime.news.CrimeNewsService.recovered(server, entry.transactionId(), thief, owner);
             dev.otectus.mcacrime.engine.CrimeReconciler.deliverEscrow(player, server);
         }
         if (returned > 0) {

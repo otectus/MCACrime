@@ -164,7 +164,10 @@ public final class MaskCustomization {
         if (from == null || to == null || from != to) {
             return MaskRestyleRejection.NONE;
         }
-        boolean colorChanges = dye != null && colorOf(tint(source.copy(), dye)) != colorOf(source);
+        // Presence as well as value (0.8.0): "no colour" and "a stored colour" draw differently, so a dye
+        // that lands an undyed mask on a stored colour is a change even where the numbers would match.
+        boolean colorChanges = dye != null && !MaskColors.storedColor(tint(source.copy(), dye))
+                .equals(MaskColors.storedColor(source));
         return decide(from, to, source.getComponentsPatch(), colorChanges);
     }
 

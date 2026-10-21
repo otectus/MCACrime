@@ -25,6 +25,7 @@ import java.util.UUID;
  * @param authorityVillage the village that owns it, when an authority does
  * @param locked          whether it is locked right now
  * @param reinforced      whether it has been reinforced (a harder pick profile)
+ * @param keyInitialized  whether the one-time key for this binding revision has been issued
  * @param revision        bumped on every change
  */
 public record LockRecord(
@@ -35,6 +36,7 @@ public record LockRecord(
         int authorityVillage,
         boolean locked,
         boolean reinforced,
+        boolean keyInitialized,
         long revision) {
 
     public LockRecord {
@@ -43,9 +45,21 @@ public record LockRecord(
         revision = Math.max(0L, revision);
     }
 
+    /**
+     * Source-compatible constructor for established records created before first-key state existed.
+     *
+     * <p>Such a record must be treated as already initialized. Assuming otherwise would let the first
+     * player holding a blank key copy an established lock after an upgrade.
+     */
+    public LockRecord(UUID lockId, long bindingRevision, LockTarget target, @Nullable UUID owner,
+                      int authorityVillage, boolean locked, boolean reinforced, long revision) {
+        this(lockId, bindingRevision, target, owner, authorityVillage, locked, reinforced, true,
+                revision);
+    }
+
     /** A new lock, locked, bound at revision 1. */
     public static LockRecord of(UUID lockId, LockTarget target, @Nullable UUID owner) {
-        return new LockRecord(lockId, 1L, target, owner, 0, true, false, 1L);
+        return new LockRecord(lockId, 1L, target, owner, 0, true, false, false, 1L);
     }
 
     public Optional<UUID> ownerId() {
@@ -65,7 +79,16 @@ public record LockRecord(
      */
     public LockRecord rekeyed() {
         return new LockRecord(lockId, bindingRevision + 1L, target, owner, authorityVillage, locked,
-                reinforced, revision + 1L);
+                reinforced, false, revision + 1L);
+    }
+
+    /** Marks the one key-initialization window for this binding revision as consumed. */
+    public LockRecord markKeyInitialized() {
+        if (keyInitialized) {
+            return this;
+        }
+        return new LockRecord(lockId, bindingRevision, target, owner, authorityVillage, locked,
+                reinforced, true, revision + 1L);
     }
 
     public LockRecord locked(boolean value) {
@@ -73,7 +96,7 @@ public record LockRecord(
             return this;
         }
         return new LockRecord(lockId, bindingRevision, target, owner, authorityVillage, value,
-                reinforced, revision + 1L);
+                reinforced, keyInitialized, revision + 1L);
     }
 
     public LockRecord reinforced(boolean value) {
@@ -81,13 +104,13 @@ public record LockRecord(
             return this;
         }
         return new LockRecord(lockId, bindingRevision, target, owner, authorityVillage, locked, value,
-                revision + 1L);
+                keyInitialized, revision + 1L);
     }
 
     /** This lock pointed at a new target; the binding is untouched, so keys keep working. */
     public LockRecord movedTo(LockTarget newTarget) {
         return new LockRecord(lockId, bindingRevision, newTarget == null ? LockTarget.none() : newTarget,
-                owner, authorityVillage, locked, reinforced, revision + 1L);
+                owner, authorityVillage, locked, reinforced, keyInitialized, revision + 1L);
     }
 
     public CompoundTag save() {
@@ -99,6 +122,7 @@ public record LockRecord(
         tag.putInt("village", authorityVillage);
         tag.putBoolean("locked", locked);
         tag.putBoolean("reinforced", reinforced);
+        tag.putBoolean("keyInitialized", keyInitialized);
         tag.putLong("revision", revision);
         return tag;
     }
@@ -115,6 +139,7 @@ public record LockRecord(
                 tag.getInt("village"),
                 tag.getBoolean("locked"),
                 tag.getBoolean("reinforced"),
+                !tag.contains("keyInitialized") || tag.getBoolean("keyInitialized"),
                 tag.getLong("revision")));
     }
 }

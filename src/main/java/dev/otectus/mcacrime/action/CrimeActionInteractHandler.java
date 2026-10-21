@@ -8,6 +8,8 @@ import dev.otectus.mcacrime.item.weapon.WeaponDetector;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.neoforged.neoforge.event.entity.player.PlayerInteractEvent;
 import net.neoforged.bus.api.EventPriority;
@@ -34,6 +36,10 @@ import net.neoforged.fml.common.EventBusSubscriber;
  *
  * <p>Documented side effect: while the trigger is on, right-click gifting a weapon to an MCA villager
  * is pre-empted. Blacklist the item under {@code [weapons]} or turn the trigger off to gift it.
+ *
+ * <p>Port-only (0.7.9): MCA 1.21.1 opens its screen from {@code interactAt}, so on the server the
+ * precise {@code EntityInteractSpecific} is routed here as well, once per click
+ * ({@link McaVillagerClicks}).
  */
 @EventBusSubscriber(modid = McaCrime.MOD_ID)
 public final class CrimeActionInteractHandler {
@@ -41,20 +47,12 @@ public final class CrimeActionInteractHandler {
 
     @SubscribeEvent(priority = EventPriority.LOW)
     public static void onInteract(PlayerInteractEvent.EntityInteract event) {
-        McaCrimeConfig.Common c = McaCrimeConfig.COMMON;
-        if (!c.weaponTriggerEnabled.get()) return;
-        if (event.getHand() == InteractionHand.OFF_HAND && !c.weaponTriggerAllowOffHand.get()) return;
-        if (c.weaponTriggerRequireSneak.get() && !event.getEntity().isShiftKeyDown()) return;
-        if (!McaCompat.isMcaVillager(event.getTarget())) return;
-
-        ItemStack stack = event.getItemStack();
-        // Defer to restraint/RestraintInteractHandler: a restraint item aimed at a villager is an
-        // application, never a weapon threat, and the two handlers must not both claim it.
-        if (CrimeItems.familyFor(stack).isPresent()) return;
-        if (!WeaponDetector.isWeapon(stack)) return;
+        if (!triggers(event.getEntity(), event.getTarget(), event.getHand(), event.getItemStack())) return;
 
         if (event.getEntity() instanceof ServerPlayer player) {
-            if (CrimeActionService.openMenu(player, event.getTarget().getUUID())) {
+            var echo = McaVillagerClicks.echo(McaVillagerClicks.Route.ARMED_MENU, player, event.getTarget(),
+                    event.getHand());
+            if (echo != null ? echo.consumed() : CrimeActionService.openMenu(player, event.getTarget().getUUID())) {
                 event.setCanceled(true);
                 event.setCancellationResult(InteractionResult.SUCCESS);
             }
@@ -64,5 +62,32 @@ public final class CrimeActionInteractHandler {
             event.setCanceled(true);
             event.setCancellationResult(InteractionResult.SUCCESS);
         }
+    }
+
+    /** The precise half, which is the one that decides for an MCA villager on this port. */
+    @SubscribeEvent(priority = EventPriority.LOW)
+    public static void onInteractSpecific(PlayerInteractEvent.EntityInteractSpecific event) {
+        if (!McaVillagerClicks.decidesHere(event)
+                || !triggers(event.getEntity(), event.getTarget(), event.getHand(), event.getItemStack())) return;
+        boolean opened = CrimeActionService.openMenu((ServerPlayer) event.getEntity(), event.getTarget().getUUID());
+        McaVillagerClicks.decided(McaVillagerClicks.Route.ARMED_MENU, event.getEntity(), event.getTarget(),
+                event.getHand(), opened ? InteractionResult.SUCCESS : null);
+        if (opened) {
+            event.setCanceled(true);
+            event.setCancellationResult(InteractionResult.SUCCESS);
+        }
+    }
+
+    /** Whether this click is the armed trigger at all, on either side. */
+    private static boolean triggers(Player player, Entity target, InteractionHand hand, ItemStack stack) {
+        McaCrimeConfig.Common c = McaCrimeConfig.COMMON;
+        if (!c.weaponTriggerEnabled.get()) return false;
+        if (hand == InteractionHand.OFF_HAND && !c.weaponTriggerAllowOffHand.get()) return false;
+        if (c.weaponTriggerRequireSneak.get() && !player.isShiftKeyDown()) return false;
+        if (!McaCompat.isMcaVillager(target)) return false;
+        // Defer to restraint/RestraintInteractHandler: a restraint item aimed at a villager is an
+        // application, never a weapon threat, and the two handlers must not both claim it.
+        if (CrimeItems.familyFor(stack).isPresent()) return false;
+        return WeaponDetector.isWeapon(stack);
     }
 }

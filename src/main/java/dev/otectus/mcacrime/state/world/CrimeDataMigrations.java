@@ -112,11 +112,23 @@ public final class CrimeDataMigrations {
      */
     public static final int SCHEMA_CUFFED_PHYSICAL = 15;
     /**
-     * The Forge build's village-justice schema, adopted here as a stamp only (0.7.8) so that the two
-     * trees agree on what 16 and 17 mean. On Forge, 16 adds the village-news projection {@code crimeNews},
-     * which this port has not taken yet (docs/PORT_PARITY.md); there it is additive and absent reads as
-     * empty, so {@link #v15to16} writes nothing but the version here too, and porting the news later
-     * needs no step of its own.
+     * The 0.7.5 village-justice schema: the bounded village-news projection {@code crimeNews}
+     * ({@code news/CrimeNewsData}), holding published case facts, per-player mailbox subscriptions and
+     * the letters waiting to be delivered.
+     *
+     * <p>Additive only, so {@link #v15to16} writes nothing but the version. {@code crimeNews} is absent
+     * in every world written before this release, and absent reads as an empty projection (a fresh
+     * world id, sequence zero, no facts, no subscribers, no letters), which is the right starting state:
+     * news is published from what happens after the upgrade, and a migration that turned the existing
+     * case ledger into back-dated news would be inventing reports nobody made. Player reports and threat
+     * receipts are not part of this schema; they live in their own {@code mcacrime_player_reports} saved
+     * data, versioned on its own.
+     *
+     * <p>A world stamped 16 and then opened by a schema-15 build takes the from-the-future path: the
+     * whole store is held unparsed, every write is refused, and the file is written back byte for byte,
+     * as {@code QuarantineAndFutureSchemaTest} pins for any schema newer than the build's own. (Until
+     * 0.7.9 this port stamped 16 without carrying the news table; it was additive then and is read
+     * here now, so a world from those builds needs no step of its own.)
      */
     public static final int SCHEMA_VILLAGE_JUSTICE = 16;
     /**
@@ -125,11 +137,13 @@ public final class CrimeDataMigrations {
      *
      * <p>Additive only, so {@link #v16to17} writes nothing but the version. {@code decrees} is absent in
      * every world written before this release and absent reads as an empty table: no decree existed
-     * before the feature did, and nothing in the case ledger is one. An older build that opens a world
-     * stamped 17 takes the from-the-future path and holds the store read-only.
+     * before the feature did, and nothing in the case ledger is one. A schema-16 build that opens a world
+     * stamped 17 takes the from-the-future path and holds the store read-only, exactly as for 16.
      */
     public static final int SCHEMA_DECREES = 17;
-    public static final int CURRENT_SCHEMA = SCHEMA_DECREES;
+    /** Stolen property has explicit custody; older readers would recover player inventory twice. */
+    public static final int SCHEMA_STOLEN_CUSTODY = 18;
+    public static final int CURRENT_SCHEMA = SCHEMA_STOLEN_CUSTODY;
 
     /** Root NBT key holding the schema integer. Absent means 0. */
     public static final String TAG_SCHEMA = "schema";
@@ -203,6 +217,9 @@ public final class CrimeDataMigrations {
         }
         if (schema < 17) {
             working = v16to17(working);
+        }
+        if (schema < 18) {
+            working = v17to18(working);
         }
         working.putInt(TAG_SCHEMA, CURRENT_SCHEMA);
         return working;
@@ -630,28 +647,12 @@ public final class CrimeDataMigrations {
         return out;
     }
 
-    /** A custody table key as a UUID, or null when the key is not one. */
-    @Nullable
-    private static UUID parseUuid(String key) {
-        try {
-            return UUID.fromString(key);
-        } catch (IllegalArgumentException e) {
-            return null;
-        }
-    }
-
-    // ------------------------------------------------------------------ helpers
-
-    private static CrimeCommunityKey overworld(int villageId) {
-        return new CrimeCommunityKey(ResourceLocation.parse(ASSUMED_DIMENSION), villageId);
-    }
-
-    /** Adds one context entry to a record tag, creating the compound if needed. */
     // ------------------------------------------------------------------ 15 -> 16
 
     /**
-     * Village justice: stamps the version and nothing else. {@link #SCHEMA_VILLAGE_JUSTICE} says why
-     * that is the whole step, here as on Forge.
+     * Village justice: stamps the version and nothing else. {@link #SCHEMA_VILLAGE_JUSTICE} says why an
+     * absent {@code crimeNews} is the correct starting state and seeding it from existing cases would be
+     * a fabrication.
      */
     public static CompoundTag v15to16(CompoundTag tag) {
         CompoundTag out = tag.copy();
@@ -671,6 +672,30 @@ public final class CrimeDataMigrations {
         return out;
     }
 
+    /** A custody table key as a UUID, or null when the key is not one. */
+    @Nullable
+    private static UUID parseUuid(String key) {
+        try {
+            return UUID.fromString(key);
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
+    }
+
+    /** Custody cannot be inferred from a tag alone; the server resolves old rows against player saves. */
+    public static CompoundTag v17to18(CompoundTag in) {
+        CompoundTag out = in.copy();
+        out.putInt(TAG_SCHEMA, SCHEMA_STOLEN_CUSTODY);
+        return out;
+    }
+
+    // ------------------------------------------------------------------ helpers
+
+    private static CrimeCommunityKey overworld(int villageId) {
+        return new CrimeCommunityKey(ResourceLocation.parse(ASSUMED_DIMENSION), villageId);
+    }
+
+    /** Adds one context entry to a record tag, creating the compound if needed. */
     private static void stampContext(CompoundTag record, String key, String value) {
         CompoundTag context = record.contains("context", Tag.TAG_COMPOUND)
                 ? record.getCompound("context")

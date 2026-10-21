@@ -3,18 +3,20 @@ package dev.otectus.mcacrime.locks;
 import dev.otectus.mcacrime.McaCrime;
 import dev.otectus.mcacrime.McaCrimeConfig;
 import dev.otectus.mcacrime.item.creative.CreativeAuthorization;
+import dev.otectus.mcacrime.state.world.CrimeWorldData;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.Level;
-import net.neoforged.bus.api.EventPriority;
-import net.neoforged.bus.api.SubscribeEvent;
-import net.neoforged.fml.common.EventBusSubscriber;
+import net.minecraft.world.level.block.ChestBlock;
 import net.neoforged.neoforge.event.entity.player.PlayerInteractEvent;
 import net.neoforged.neoforge.event.level.BlockEvent;
 import net.neoforged.neoforge.event.level.ExplosionEvent;
 import net.neoforged.neoforge.event.level.PistonEvent;
+import net.neoforged.bus.api.EventPriority;
+import net.neoforged.bus.api.SubscribeEvent;
+import net.neoforged.fml.common.EventBusSubscriber;
 
 import org.jetbrains.annotations.Nullable;
 import java.util.ArrayList;
@@ -99,6 +101,64 @@ public final class LockProtectionHandlers {
         if (event.getPlayer() instanceof ServerPlayer player) {
             player.displayClientMessage(Component.translatable("mcacrime.lock.protected"), true);
         }
+    }
+
+    /**
+     * Rejects joining two independently locked chests. There can be one lock identity for the new
+     * double chest, never whichever one a lookup happens to find first.
+     */
+    @SubscribeEvent(priority = EventPriority.HIGHEST)
+    public static void onChestJoinValidate(BlockEvent.EntityPlaceEvent event) {
+        if (!(event.getLevel() instanceof Level level) || level.isClientSide()
+                || !(event.getPlacedBlock().getBlock() instanceof ChestBlock)) {
+            return;
+        }
+        BlockPos partner = LockTargetNormalizer.partner(event.getPos(), event.getPlacedBlock());
+        if (partner == null) {
+            return;
+        }
+        CrimeWorldData data = LockService.data(level);
+        if (LockService.atBlockMembers(data, level.dimension().location(), event.getPos(), partner)
+                .size() <= 1) {
+            return;
+        }
+        event.setCanceled(true);
+        if (event.getEntity() instanceof ServerPlayer player) {
+            player.displayClientMessage(Component.translatable("mcacrime.lock.already_locked"), true);
+        }
+    }
+
+    /** Moves a single chest's lock when a newly placed neighbour changes the canonical half. */
+    @SubscribeEvent(priority = EventPriority.LOWEST)
+    public static void onChestJoinCommit(BlockEvent.EntityPlaceEvent event) {
+        if (event.isCanceled() || !(event.getLevel() instanceof Level level) || level.isClientSide()
+                || !(event.getPlacedBlock().getBlock() instanceof ChestBlock)) {
+            return;
+        }
+        BlockPos partner = LockTargetNormalizer.partner(event.getPos(), event.getPlacedBlock());
+        if (partner != null) {
+            LockService.reconcileBlockGroup(LockService.data(level), level.dimension().location(),
+                    event.getPos(), partner);
+        }
+    }
+
+    /**
+     * Before one half of a double chest is removed, point its lock at the surviving half. This runs
+     * after cancellation policy, so another handler refusing the break cannot move the lock.
+     */
+    @SubscribeEvent(priority = EventPriority.LOWEST)
+    public static void onChestSplit(BlockEvent.BreakEvent event) {
+        if (event.isCanceled() || !(event.getLevel() instanceof Level level) || level.isClientSide()
+                || !(event.getState().getBlock() instanceof ChestBlock)) {
+            return;
+        }
+        BlockPos partner = LockTargetNormalizer.partner(event.getPos(), event.getState());
+        if (partner == null) {
+            return;
+        }
+        Optional<LockRecord> lock = LockProtection.lockAt(level, event.getPos());
+        lock.ifPresent(record -> LockService.moveTo(LockService.data(level), record.lockId(),
+                LockTarget.block(level.dimension().location(), partner)));
     }
 
     /**

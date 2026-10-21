@@ -64,9 +64,13 @@ public final class McaCrimeConfig {
             dev.otectus.mcacrime.effect.SandExposurePolicy.DEFAULT_RECOVERY_TICKS;
 
     public static final class Common {
-        // villageJustice (0.7.7 on this port) -- the Thief combat policy and the mugging-defence window
+        public final ModConfigSpec.BooleanValue enablePlayerReports;
+        public final ModConfigSpec.BooleanValue enableCrimeNews;
+        public final ModConfigSpec.IntValue crimeNewsIntervalDays;
+        public final ModConfigSpec.IntValue crimeNewsMaxStories;
         public final ModConfigSpec.IntValue thiefDefenseGraceTicks;
         public final ModConfigSpec.EnumValue<dev.otectus.mcacrime.justice.ThiefCombatPolicy> thiefCombatPolicy;
+
         // bands (§1.1) — read by the engine + validator
         public final ModConfigSpec.IntValue karmaBlueThreshold;
         public final ModConfigSpec.IntValue karmaRedThreshold;
@@ -654,10 +658,11 @@ public final class McaCrimeConfig {
         public final ModConfigSpec.BooleanValue decreesChronicleHerald;
 
         Common(ModConfigSpec.Builder b) {
-            // The same section and keys as the Forge build. Forge's [villageJustice] also carries player
-            // reports and village news, which this port has not taken (docs/PORT_PARITY.md); only the two
-            // keys the Thief combat policy reads are declared here.
             b.push("villageJustice");
+            enablePlayerReports = b.comment("Players may report server-recorded robbery evidence to nearby guards.").define("enablePlayerReports", true);
+            enableCrimeNews = b.comment("Deliver relevant factual village news through MCA mail; MCA mailing and personal preference still apply.").define("enableCrimeNews", true);
+            crimeNewsIntervalDays = b.defineInRange("crimeNewsIntervalDays", 1, 1, 30);
+            crimeNewsMaxStories = b.defineInRange("crimeNewsMaxStories", 4, 1, 8);
             thiefDefenseGraceTicks = b.comment(
                     "How long, in ticks, being held up by a thief keeps justifying the victim's force after the",
                     "mugging ends -- a mugger running off with the purse is still the aggressor to the player",
@@ -1137,6 +1142,11 @@ public final class McaCrimeConfig {
                     "requirement, and upstream's destructive lock picking. BALANCED_VILLAGE adds an",
                     "application duration, vulnerability requirements, stricter player-capture",
                     "permissions and non-destructive picking.",
+                    "One deliberate exception: lockpicking.destructiveOutcome ships false while",
+                    "CUFFED_PARITY holds true, so the shipped defaults are this preset apart from that",
+                    "one key. Selecting CUFFED_PARITY explicitly -- that is, switching back to it from",
+                    "BALANCED_VILLAGE -- turns destructive picking on, which is what asking for parity",
+                    "means. A file that has never recorded a preset is left alone.",
                     "A preset is never imposed silently. Nothing is rewritten while this matches",
                     "appliedPreset below; changing it rewrites exactly the keys the preset owns, once,",
                     "and every change is named in the log. Editing one of those keys afterwards is",
@@ -1296,11 +1306,14 @@ public final class McaCrimeConfig {
                     "What a successful pick does to a door or a safe. False unlocks it, which is the",
                     "default. True reproduces the source outcome and destroys the block -- a safe moves its",
                     "contents out exactly once before it goes. Padlocks and restraints are unaffected:",
-                    "picking those always removes the lock and leaves the block or the prisoner intact.")
+                    "picking those always removes the lock and leaves the block or the prisoner intact.",
+                    "This is the one key the shipped defaults hold differently from the CUFFED_PARITY",
+                    "preset (restraints.preset): destroying a player's safe is not an outcome anybody",
+                    "should arrive at by accident, so it is off until an operator asks for parity.")
                     .define("destructiveOutcome", false);
             b.pop();
 
-            b.comment("Prison fittings and construction (0.7.5 M3.5, M5.4-M5.7).")
+            b.comment("Prison fittings (0.7.5 M3.5).")
                     .push("prison");
             safeSlots = b.comment(
                     "How many slots a safe holds. 36 is the source-derived value the specification asks",
@@ -1493,8 +1506,9 @@ public final class McaCrimeConfig {
                     "fabricates a player head whatever this says.")
                     .define("guillotineDropsHead", true);
             guillotineActivationDelayTicks = b.comment(
-                    "Ticks between the blade being released and the blow landing. Persisted, so an unload",
-                    "inside the window neither cancels nor repeats the execution.")
+                    "Ticks between the blade being released and the blow landing. The fall is persisted so a",
+                    "reload neither repeats a blow nor freezes the blade, but the execution order is not: an",
+                    "unload or restart inside this delay cancels the order and the blade then harms nobody.")
                     .defineInRange("guillotineActivationDelayTicks", 5, 1, 200);
             bunkSetsRespawn = b.comment(
                     "Whether sleeping in a bunk sets the sleeper's respawn point. The previous point is",
@@ -1516,9 +1530,12 @@ public final class McaCrimeConfig {
                     "to players only.")
                     .define("guardMayExecute", true);
             executionDelayTicks = b.comment(
-                    "The ceremony window between arming the device and the blade. This is the rescue and",
-                    "pardon window: clemency, rescue, escape, guard death, device destruction or a chunk",
-                    "unload inside it returns the condemned to custody rather than to freedom.")
+                    "How long an execution order stays valid once armed. A guard arms it on placing the",
+                    "condemned in the device and drops the blade at the end of this window (the ceremony,",
+                    "the rescue and pardon window); a player's lever arms it and releases the blade at once,",
+                    "with no ceremony. Clemency, rescue, escape, guard death, device destruction or a chunk",
+                    "unload inside it cancels the order and returns the condemned to custody, never to",
+                    "freedom. Never shorter in effect than the blade's fall plus 3 ticks.")
                     .defineInRange("executionDelayTicks", 1200, 0, 72000);
             requiresExecutionDevice = b.comment(
                     "Whether a capital sentence needs a real device to be carried out. May only be false",
@@ -1554,8 +1571,8 @@ public final class McaCrimeConfig {
                     "a fine never clears a capital case either way.")
                     .define("refuseBail", true);
             dropPossessionsOnExecution = b.comment(
-                    "Whether the condemned's possessions box spills at the device. Off banks the contents",
-                    "instead, so an operator can return them to a family or to the village.")
+                    "Whether the possessions held in escrow for the condemned spill at the device. Off",
+                    "banks them instead, so an operator can return them to a family or to the village.")
                     .define("dropPossessionsOnExecution", true);
             b.pop();
             b.pop();
@@ -2256,9 +2273,10 @@ public final class McaCrimeConfig {
                     "taking the economy offline.")
                     .define("currencyId", "mcacrime:emerald");
             currencyItem = b.comment(
-                    "The item 'mcacrime:item' pays in, as a registry id. Only read when currencyId is",
-                    "'mcacrime:item'; ignored otherwise. Any registered item works, and one item counts",
-                    "as one unit. An unknown or absent item falls back to emeralds with one warning.")
+                    "The item 'mcacrime:item' pays in, as a registry id. Only paid in when currencyId",
+                    "is 'mcacrime:item'; validated regardless. Any registered item works, and one item",
+                    "counts as one unit. An unknown or absent item falls back to emeralds with one",
+                    "warning.")
                     .define("currencyItem", "minecraft:emerald");
             locksReforgedFenceTrades = b.comment(
                     "Let fences stock Locks Reforged locks, picks and keys when that mod is installed.",

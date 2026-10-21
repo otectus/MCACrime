@@ -11,15 +11,15 @@ import java.util.jar.JarFile;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * The native heart hooks against every MCA build in {@code mca_probe_versions} (0.7.7, ported from the
- * Forge test with the heart targets only).
+ * The native heart and mailbox hooks against every MCA build in {@code mca_probe_versions} (0.7.7 for the
+ * heart targets, 0.7.9 for the mailbox, ported from the Forge test).
  *
- * <p>Each jar must carry exactly the two targets with exactly the probed shape, a changed shape must
+ * <p>Each jar must carry exactly the three targets with exactly the probed shape, a changed shape must
  * degrade before injection, and the transformed classes must verify. The jars travel as paths in
  * {@code mcacrime.probe.jars}; nothing is loaded, so no MCA class links into the test JVM.
  */
 class McaJusticeTargetTest {
-    @Test void everyFleetJarHasExactHeartSitesAndValidTransformedStacks() throws Exception {
+    @Test void everyFleetJarHasExactHeartAndMailboxSitesAndValidTransformedStacks() throws Exception {
         String paths = System.getProperty("mcacrime.probe.jars", "");
         assertFalse(paths.isBlank(), "Required MCA target fleet was not supplied");
         int jars = 0, supplied = 0;
@@ -31,7 +31,8 @@ class McaJusticeTargetTest {
                 for (var entry : Collections.list(jar.entries())) {
                     String name = entry.getName();
                     if (name.startsWith("forge/") || name.startsWith("fabric/")
-                            || !(name.endsWith("/entity/VillagerEntityMCA.class") || name.endsWith("/entity/ai/Relationship.class"))) continue;
+                            || !(name.endsWith("/entity/VillagerEntityMCA.class") || name.endsWith("/entity/ai/Relationship.class")
+                            || name.endsWith("/server/world/data/PlayerSaveData.class"))) continue;
                     ClassNode node = new ClassNode(); new ClassReader(jar.getInputStream(entry)).accept(node, 0);
                     assertTrue(McaJusticeMixinPlugin.supported(node), path + ": missing required hook in " + name);
                     if (name.endsWith("/Relationship.class")) {
@@ -46,6 +47,14 @@ class McaJusticeTargetTest {
                         node.fields.remove(mourner);
                         assertFalse(McaJusticeMixinPlugin.supported(node), "a missing mourner field must degrade");
                         node.fields.add(mourner);
+                    } else if (name.endsWith("/PlayerSaveData.class")) {
+                        // 0.7.9: the receipt load must run on the same object MCA reads its tag into.
+                        MethodNode load = node.methods.stream().filter(m -> m.name.equals("<init>")
+                                && m.desc.endsWith("Lnet/minecraft/nbt/CompoundTag;)V")).findFirst().orElseThrow();
+                        String original = load.desc;
+                        load.desc = "(Lnet/minecraft/nbt/CompoundTag;)V";
+                        assertFalse(McaJusticeMixinPlugin.supported(node), "missing exact same-object load path must degrade");
+                        load.desc = original;
                     } else {
                         MethodNode hurt = node.methods.stream().filter(m -> m.name.equals("hurt")
                                 && m.desc.equals("(Lnet/minecraft/world/damagesource/DamageSource;F)Z")).findFirst().orElseThrow();
@@ -63,6 +72,7 @@ class McaJusticeTargetTest {
                         catch (AnalyzerException failure) { fail(path + ": " + method.name + method.desc, failure); }
                     }
                     if (name.endsWith("/Relationship.class")) assertMournerPassed(path, node);
+                    else if (name.endsWith("/PlayerSaveData.class")) assertMailboxHooked(path, node);
                     else {
                         assertRawAmountPassed(path, node);
                         assertGuardAlertHooked(path, node);
@@ -70,11 +80,48 @@ class McaJusticeTargetTest {
                     ClassWriter writer = new ClassWriter(0); node.accept(writer);
                     assertTrue(writer.toByteArray().length > 0); targets++;
                 }
-                assertEquals(2, targets, path); jars++;
+                assertEquals(3, targets, path); jars++;
             }
         }
         assertEquals(supplied, jars, "every supplied fleet jar must be verified");
         assertTrue(jars >= 5, "all five mca_probe_versions builds must be verified, found " + jars);
+    }
+
+    /**
+     * The receipts ride on MCA's own mailbox object: saved by its {@code save}, loaded by the constructor
+     * that reads its tag, and a collected letter marks it dirty (0.7.9).
+     */
+    private static void assertMailboxHooked(String path, ClassNode node) {
+        int saves = 0, loads = 0, collections = 0;
+        for (MethodNode method : node.methods) {
+            for (var insn : method.instructions.toArray()) {
+                if (!(insn instanceof MethodInsnNode call) || !call.owner.equals("dev/otectus/mcacrime/compat/McaMailBridge")) continue;
+                switch (call.name) {
+                    case "saveReceipts" -> {
+                        assertEquals(0, method.access & Opcodes.ACC_STATIC, path + ": mail receipt owner must be the saved object");
+                        assertEquals("save", method.name, path);
+                        assertTrue(call.getPrevious() != null && call.getPrevious().getOpcode() == Opcodes.SWAP
+                                && call.getPrevious().getPrevious() instanceof VarInsnNode self && self.var == 0,
+                                path + ": the save hook must hand over this object and the returned tag");
+                        saves++;
+                    }
+                    case "loadReceipts" -> {
+                        assertEquals("<init>", method.name, path);
+                        assertTrue(call.getPrevious() instanceof VarInsnNode tag && tag.var == 3,
+                                path + ": the load hook must read the tag MCA was constructed from");
+                        loads++;
+                    }
+                    case "collected" -> {
+                        assertEquals("getMail", method.name, path);
+                        collections++;
+                    }
+                    default -> fail(path + ": unexpected mailbox hook " + call.name);
+                }
+            }
+        }
+        assertEquals(1, saves, path + ": exactly one native save hook");
+        assertTrue(loads >= 1, path + ": no receipt load in the mailbox constructor");
+        assertTrue(collections >= 1, path + ": a collected letter does not mark the mailbox dirty");
     }
 
     /** The killing hook receives delta, source, deceased and this relationship's own villager. */

@@ -16,8 +16,6 @@ import net.minecraft.world.phys.AABB;
 import net.neoforged.neoforge.event.tick.ServerTickEvent;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
-import net.neoforged.neoforge.event.server.ServerStartedEvent;
-import net.neoforged.neoforge.event.server.ServerStoppingEvent;
 import net.neoforged.neoforge.server.ServerLifecycleHooks;
 
 import org.jetbrains.annotations.Nullable;
@@ -132,7 +130,7 @@ public final class GuardEnforcement {
                     // reaction ticker in the middle of walking somebody to a cell.
                     EscortService.noteOwned(player);
                 } else if (legalTarget || alert != null || hasKnownCases(server, player, level.getGameTime())
-                        || dev.otectus.mcacrime.decree.DecreeService.anyInForce(server, player.getUUID())) {
+                        || dev.otectus.mcacrime.decree.DecreeService.inForceHere(player).isPresent()) {
                     // A decree only opens the door: pursue() still asks each guard for its own decision,
                     // and a guard from any other village finds no decree in it (0.7.8).
                     pursue(level, player, alert, legalTarget, radius);
@@ -246,7 +244,7 @@ public final class GuardEnforcement {
 
     /** Case-based activation supplements Wanted status; responders still select local cases below. */
     private static boolean hasKnownCases(MinecraftServer server, ServerPlayer player, long now) {
-        var configured = dev.otectus.mcacrime.justice.JusticeService.Settings.fromConfig();
+        var configured = dev.otectus.mcacrime.justice.JusticeService.Settings.resolve(server);
         var publicScope = new dev.otectus.mcacrime.justice.JusticeService.Settings(
                 configured.observations(), true, configured.confidence());
         return dev.otectus.mcacrime.justice.JusticeService.evaluate(
@@ -407,7 +405,7 @@ public final class GuardEnforcement {
      * <p>Two conditions, and the second is the one the spec is emphatic about: the incident has to be
      * at {@link ActiveIncidentRegistry.Phase#THREAT} or later, and a guard has to actually be able to
      * see the offender. A thief that is scouting or approaching has committed nothing observable and
-     * opens no incident at all, so it is invisible here -- spec §"Guard intervention" ends on exactly
+     * opens no incident at all, so it is invisible here — spec §"Guard intervention" ends on exactly
      * that test, because guard-avoidance AI is worthless against psychic guards.
      */
     private static void respondToIncidents(MinecraftServer server) {
@@ -458,12 +456,12 @@ public final class GuardEnforcement {
      * Custody itself is in world data and needs neither.
      */
     @SubscribeEvent
-    public static void onServerStarted(ServerStartedEvent event) {
+    public static void onServerStarted(net.neoforged.neoforge.event.server.ServerStartedEvent event) {
         NpcCustodyService.reconcile(event.getServer());
     }
 
     @SubscribeEvent
-    public static void onServerStopping(ServerStoppingEvent event) {
+    public static void onServerStopping(net.neoforged.neoforge.event.server.ServerStoppingEvent event) {
         NpcCriminalPursuit.clearAll();
         NpcCustodyService.clearAll();
         BountyService.clearAll();

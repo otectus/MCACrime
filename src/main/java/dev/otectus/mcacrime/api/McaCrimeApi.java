@@ -12,6 +12,9 @@ import dev.otectus.mcacrime.api.model.ServiceRefusalView;
 import dev.otectus.mcacrime.api.model.CustodyView;
 import dev.otectus.mcacrime.api.model.JailSentenceView;
 import dev.otectus.mcacrime.api.model.OutlawStatusView;
+import dev.otectus.mcacrime.api.jurisdiction.JurisdictionPolicies;
+import dev.otectus.mcacrime.api.jurisdiction.JurisdictionPolicyProvider;
+import dev.otectus.mcacrime.api.jurisdiction.JurisdictionSnapshot;
 import dev.otectus.mcacrime.captivity.CustodyRecord;
 import dev.otectus.mcacrime.captivity.CustodyService;
 import dev.otectus.mcacrime.crime.Band;
@@ -24,12 +27,14 @@ import dev.otectus.mcacrime.jail.JailState;
 import dev.otectus.mcacrime.ledger.CrimeCaseService;
 import dev.otectus.mcacrime.ledger.CrimeRecord;
 import dev.otectus.mcacrime.state.CrimeAttachments;
+import dev.otectus.mcacrime.state.PlayerCrimeData;
 import dev.otectus.mcacrime.state.world.CrimeWorldData;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.entity.LivingEntity;
 
 import org.jetbrains.annotations.Nullable;
-
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -40,7 +45,7 @@ import java.util.UUID;
  * Stable public surface for MCA: Crime (spec §16). Other mods can read a player's standing and case
  * history without touching internals; mutation stays server-internal through {@link CrimeState} and
  * the case service, with the two named exceptions of {@link #commuteCapitalSentence} and
- * {@link #pardonCapitalSentence} - clemency over a capital sentence, which 0.7.5 §3.19 requires to be
+ * {@link #pardonCapitalSentence} -- clemency over a capital sentence, which 0.7.5 §3.19 requires to be
  * reachable as an explicit privileged transaction rather than only from an operator's keyboard. To
  * react to changes, subscribe to the events in {@code dev.otectus.mcacrime.api.event} on the game
  * event bus.
@@ -71,7 +76,7 @@ public final class McaCrimeApi {
      *
      * <p>Two in 0.7.5: the physical-restraint surface, the capital-sentence surface and their events
      * are added, and {@code CustodyView.custodyId} finally carries a real value. Every addition is
-     * additive - no existing method changed shape - so a v1 consumer keeps working, which is why this
+     * additive — no existing method changed shape — so a v1 consumer keeps working, which is why this
      * is a version bump rather than a deprecation.
      */
     private static final int API_VERSION = 2;
@@ -125,6 +130,69 @@ public final class McaCrimeApi {
 
     public static boolean isWanted(ServerPlayer player) {
         return CrimeState.isWanted(player);
+    }
+
+    // ------------------------------------------------------------------ jurisdiction policy extension
+
+    /** Installs one server-scoped source of immutable sovereignty, control and treaty evidence. */
+    public static void registerJurisdictionPolicyProvider(MinecraftServer server,
+                                                           JurisdictionPolicyProvider provider) {
+        JurisdictionPolicies.attach(server, provider);
+    }
+
+    public static void unregisterJurisdictionPolicyProvider(MinecraftServer server,
+                                                             JurisdictionPolicyProvider provider) {
+        JurisdictionPolicies.detach(server, provider);
+    }
+
+    /** Explainable policy snapshot only; it exposes no private case, report, mask or Heat state. */
+    public static Optional<JurisdictionSnapshot> jurisdictionPolicy(MinecraftServer server,
+                                                                    CrimeCommunityKey community,
+                                                                    @Nullable UUID subject) {
+        return JurisdictionPolicies.resolve(server, community, subject);
+    }
+
+    /**
+     * Whether this responder has a Crime-owned local basis to use force against this target.
+     * Occupation, political hostility and a global Heat value alone are insufficient. Callers must
+     * still apply Minecraft/server protection, friendly-fire and attack-capability rules.
+     */
+    public static boolean mayEnforce(LivingEntity responder, LivingEntity target) {
+        if (responder == null || target == null || responder == target || !responder.isAlive()
+                || !target.isAlive() || responder.level() != target.level()
+                || !(responder.level() instanceof ServerLevel level) || !level.getServer().isSameThread())
+            return false;
+        try {
+            CrimeCommunityKey community = JurisdictionPolicies.jurisdictionOf(level, responder).orElse(null);
+            if (community == null) return false;
+            Optional<JurisdictionSnapshot> evidence = JurisdictionPolicies.resolve(
+                    level.getServer(), community, target.getUUID());
+            if (!JurisdictionPolicies.civilianLawContinues(evidence)) return false;
+            var configured = dev.otectus.mcacrime.justice.JusticeService.Settings.resolve(level.getServer());
+            boolean cooperation = evidence.filter(e -> e.availability() == JurisdictionSnapshot.Availability.AVAILABLE
+                    && e.cooperation() == JurisdictionSnapshot.Cooperation.CONFIGURED).isPresent();
+            var settings = new dev.otectus.mcacrime.justice.JusticeService.Settings(
+                    configured.observations(), configured.globalPropagation() && cooperation, configured.confidence());
+            boolean escaped = target instanceof ServerPlayer player && LegalTarget.isEscapedPrisoner(player);
+            boolean captive = target instanceof ServerPlayer player && LegalTarget.isHoldingCaptive(player);
+            boolean resisting = target instanceof ServerPlayer player && LegalTarget.isResistingArrest(player);
+            boolean wanted = target instanceof ServerPlayer player && cooperation
+                    && JurisdictionPolicies.allowsStandaloneWanted(evidence) && CrimeState.isWanted(player);
+            // A royal decree of this responder's own village is a local ground like a local case (0.7.8).
+            UUID decree = target instanceof ServerPlayer subject
+                    ? dev.otectus.mcacrime.decree.DecreeService.enforceableHere(subject, community)
+                            .map(dev.otectus.mcacrime.decree.Decree::id).orElse(null)
+                    : null;
+            var decision = dev.otectus.mcacrime.justice.JusticeService.evaluate(
+                    CrimeWorldData.get(level.getServer()), target.getUUID(), community, level.getGameTime(),
+                    settings, escaped, captive, wanted, resisting, false, decree);
+            // Wearing a mask is grounds to challenge, never force. An active witnessed masked pursuit is different.
+            return decision.mayChallenge() || target instanceof ServerPlayer player
+                    && LegalTarget.isMaskedPursuit(player);
+        } catch (RuntimeException | LinkageError failure) {
+            McaCrime.LOGGER.debug("MCA: Crime local enforcement query failed closed", failure);
+            return false;
+        }
     }
 
     // ------------------------------------------------------------------ snapshots
@@ -401,7 +469,7 @@ public final class McaCrimeApi {
             List<CrimeRecordView> views = new ArrayList<>();
             data.recordsForOffender(subject).forEach(record -> views.add(record.view()));
 
-            boolean observations = dev.otectus.mcacrime.McaCrimeConfig.COMMON.enableObservations.get();
+            boolean observations = dev.otectus.mcacrime.config.CrimeWorldSettings.resolve(server).observations();
             double confidence =
                     dev.otectus.mcacrime.McaCrimeConfig.COMMON.reportConfidenceThreshold.get();
             // Built once from the report index rather than re-scanned per case: the projection is asked
@@ -409,7 +477,8 @@ public final class McaCrimeApi {
             // long-running world.
             Set<UUID> reported = new java.util.HashSet<>();
             data.reportsAgainst(subject).stream()
-                    .filter(report -> report.supportsArrest(confidence))
+                    .filter(report -> java.util.Objects.equals(report.jurisdiction(), community))
+                    .filter(report -> report.suspectId() != null && report.supportsArrest(confidence))
                     .forEach(report -> reported.add(report.incidentId()));
 
             ServerPlayer online = server.getPlayerList().getPlayer(subject);

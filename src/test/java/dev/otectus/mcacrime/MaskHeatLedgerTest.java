@@ -1,6 +1,15 @@
 package dev.otectus.mcacrime;
 
 import dev.otectus.mcacrime.mask.MaskHeatLedger;
+import net.minecraft.world.item.component.CustomData;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.core.component.DataComponents;
+import net.minecraft.core.component.DataComponentPatch;
+import dev.otectus.mcacrime.state.PlayerCrimeData;
+import dev.otectus.mcacrime.mask.MaskRestyleRejection;
+import dev.otectus.mcacrime.mask.MaskNbtTransfer;
+import dev.otectus.mcacrime.mask.MaskCustomization;
+import dev.otectus.mcacrime.item.MaskVariant;
 import dev.otectus.mcacrime.state.PlayerCrimeData.PendingMaskedHeat;
 import net.minecraft.resources.ResourceLocation;
 import org.junit.jupiter.api.Test;
@@ -82,6 +91,47 @@ class MaskHeatLedgerTest {
         MaskHeatLedger.defer(ledger, entry(5L, 0L), 32);
         MaskHeatLedger.prune(ledger, 1_000_000L, 0L);
         assertEquals(1, ledger.size());
+    }
+
+    /**
+     * MASK-12, and the structural reason it holds: a restyle cannot reach the ledger.
+     *
+     * <p>Deferred Heat, the pursuit clock and a witness's knowledge live on the player, never on the
+     * stack. {@code MaskCustomization} takes two item stacks and returns a third; it is handed no
+     * player, no ledger and no witness, so "changing style or colour after a witness identified the
+     * wearer does not clear what they know" is not a discipline anybody has to remember -- there is no
+     * expression in the customization path that could do it.
+     *
+     * <p>The test spends a whole restyle's worth of work between two reads of the ledger and asserts
+     * both halves are byte-identical. If somebody ever gives the customization path a player, this is
+     * the test that starts caring.
+     */
+    @Test
+    void restylingAMaskLeavesDeferredHeatAndPursuitExactlyWhereTheyWere() {
+        PlayerCrimeData player = new PlayerCrimeData();
+        player.setOnlineTicksLived(5_000L);
+        player.setMaskedPursuitUntilTick(6_400L);
+        MaskHeatLedger.defer(player.getPendingMaskedHeat(), entry(25L, 4_000L), 32);
+        MaskHeatLedger.defer(player.getPendingMaskedHeat(), entry(30L, 4_500L), 32);
+        CompoundTag before = player.save();
+
+        // The whole restyle, minus the stacks: the pairing decision and the item-history transfer.
+        CompoundTag mine = new CompoundTag();
+        mine.putString("provenance", "incident-a");
+        DataComponentPatch maskData = DataComponentPatch.builder()
+                .set(DataComponents.DAMAGE, 12)
+                .set(DataComponents.CUSTOM_DATA, CustomData.of(mine))
+                .build();
+        assertEquals(MaskRestyleRejection.NONE,
+                MaskCustomization.decide(MaskVariant.CLAY, MaskVariant.TRAGEDY, maskData, false));
+        DataComponentPatch restyled = MaskNbtTransfer.merge(maskData, null).orElseThrow();
+        assertEquals("incident-a", restyled.get(DataComponents.CUSTOM_DATA).orElseThrow()
+                .copyTag().getString("provenance"));
+
+        assertEquals(before, player.save(), "a restyle is not amnesty");
+        assertEquals(55L, MaskHeatLedger.total(player.getPendingMaskedHeat()));
+        assertEquals(6_400L, player.getMaskedPursuitUntilTick(), "the hunt for the masked figure goes on");
+        assertTrue(player.isMaskedPursuit());
     }
 
     @Test

@@ -56,9 +56,19 @@ public class KeyMoldItem extends Item {
     public void appendHoverText(ItemStack stack, TooltipContext context, List<Component> tooltip,
                                 TooltipFlag flag) {
         super.appendHoverText(stack, context, tooltip, flag);
-        tooltip.add(Component.translatable(recorded(stack).isPresent()
-                        ? "item.mcacrime.key_mold.tooltip.bound"
-                        : "item.mcacrime.key_mold.tooltip.blank")
-                .withStyle(ChatFormatting.GRAY));
+        // Whether the mold holds an impression, whose, and the next step (0.8.0).
+        java.util.Optional<KeyBinding> binding = recorded(stack);
+        if (binding.isPresent()) {
+            dev.otectus.mcacrime.help.TooltipHelp.append(tooltip, Component.translatable(
+                            "item.mcacrime.key_mold.tooltip.bound", KeyItem.label(binding.get())),
+                    List.of(Component.translatable("item.mcacrime.key_mold.tooltip.bound.1"),
+                            Component.translatable("item.mcacrime.key_mold.tooltip.bound.2")),
+                    dev.otectus.mcacrime.help.CrimeHelpTopic.KEYMOLD);
+            return;
+        }
+        dev.otectus.mcacrime.help.TooltipHelp.append(tooltip, Component.translatable("item.mcacrime.key_mold.tooltip.blank"),
+                List.of(Component.translatable("item.mcacrime.key_mold.tooltip.blank.1"),
+                        Component.translatable("item.mcacrime.key_mold.tooltip.blank.2")),
+                dev.otectus.mcacrime.help.CrimeHelpTopic.KEYMOLD);
     }
 }

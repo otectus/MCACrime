@@ -12,9 +12,10 @@ public record ThiefPolicy(int mugDurationTicks, int mugCooldownTicks, int scanIn
                           double targetSearchRadius, double guardAvoidRadius, double guardHardAbortRadius,
                           double guardRiskAbortThreshold) {
 
-    public static ThiefPolicy fromConfig() {
+    public static ThiefPolicy resolve(net.minecraft.server.MinecraftServer server) {
         McaCrimeConfig.Common c = McaCrimeConfig.COMMON;
-        return new ThiefPolicy(c.thiefMugDurationTicks.get(), c.thiefMugCooldownTicks.get(),
+        return new ThiefPolicy(c.thiefMugDurationTicks.get(),
+                dev.otectus.mcacrime.config.CrimeWorldSettings.resolve(server).thiefMugCooldownTicks(),
                 c.thiefScanIntervalTicks.get(), c.thiefTargetSearchRadius.get(),
                 c.thiefGuardAvoidRadius.get(), c.thiefGuardHardAbortRadius.get(),
                 c.thiefGuardRiskAbortThreshold.get());

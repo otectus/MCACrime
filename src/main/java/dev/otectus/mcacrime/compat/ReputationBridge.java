@@ -250,13 +250,13 @@ public final class ReputationBridge {
      * Claims ownership of villager assault and killing. Called after the first datapack load, because
      * the incident definitions we are about to produce do not exist before then.
      */
-    public static synchronized void claimAuthority() {
+    public static synchronized void claimAuthority(MinecraftServer server) {
         ReputationOps current = ops;
         if (current == null) {
             return;
         }
         try {
-            if (current.claimAuthority()) {
+            if (current.claimAuthority(server)) {
                 status = "ready (authority held)";
                 McaCrime.LOGGER.info("MCA: Crime now owns villager assault and killing detection; MCA: "
                         + "Reputation's own detector has stood down for those deeds.");

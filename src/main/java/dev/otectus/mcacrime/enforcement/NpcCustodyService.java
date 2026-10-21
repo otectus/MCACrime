@@ -185,7 +185,7 @@ public final class NpcCustodyService {
             ServerLevel level = JailService.resolveLevel(server, record.getHoldDim());
             if (level == null) {
                 CustodyService.release(server, record.getCaptive(), CustodyReleaseReason.ADMIN);
-                ThiefBehaviorService.markReleased(record.getCaptive());
+                ThiefBehaviorService.markReleased(server, record.getCaptive());
                 ESCORTS.remove(record.getCaptive());
                 CARE_HANDOVER_NEXT.remove(record.getCaptive());
                 JailEscortNavigation.forget(record.getCaptive());
@@ -326,7 +326,7 @@ public final class NpcCustodyService {
             CustodyService.release(server, captiveId, CustodyReleaseReason.ADMIN);
             HoldingCellService.releaseAndDismantle(server, captiveId);
             CrimeReactionService.endCaptive(level, captiveId);
-            ThiefBehaviorService.markReleased(captiveId);
+            ThiefBehaviorService.markReleased(server, captiveId);
             ESCORTS.remove(captiveId);
             JailEscortNavigation.forget(captiveId);
             return;
@@ -391,7 +391,7 @@ public final class NpcCustodyService {
         CrimeReactionService.endCaptive(level, captiveId);
         // The criminal job survives the sentence (spec §"Guards and thief arrests"): a thief comes out
         // of jail still a thief, and goes back to work after its ordinary cooldown.
-        ThiefBehaviorService.markReleased(captiveId);
+        ThiefBehaviorService.markReleased(server, captiveId);
         ESCORTS.remove(captiveId);
         CARE_HANDOVER_NEXT.remove(captiveId);
         JailEscortNavigation.forget(captiveId);
@@ -462,7 +462,7 @@ public final class NpcCustodyService {
         CrimeFacilityService.releaseFor(server, captiveId);
         HoldingCellService.dismantle(server, captiveId);
         CrimeReactionService.endCaptive(level, captiveId);
-        ThiefBehaviorService.markReleased(captiveId);
+        ThiefBehaviorService.markReleased(server, captiveId);
         ESCORTS.remove(captiveId);
         CARE_HANDOVER_NEXT.remove(captiveId);
         JailEscortNavigation.forget(captiveId);

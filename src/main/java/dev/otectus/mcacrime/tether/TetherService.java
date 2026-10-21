@@ -1,6 +1,7 @@
 package dev.otectus.mcacrime.tether;
 
 import dev.otectus.mcacrime.McaCrimeConfig;
+import dev.otectus.mcacrime.captivity.CustodyRecord;
 import dev.otectus.mcacrime.restraint.PhysicalRestraintState;
 import dev.otectus.mcacrime.restraint.RestraintService;
 import dev.otectus.mcacrime.state.world.CrimeWorldData;
@@ -200,6 +201,22 @@ public final class TetherService {
      */
     public static Refusal evaluate(@Nullable CrimeWorldData data, @Nullable Entity subject,
                                    @Nullable Entity holder, TetherKind kind) {
+        return evaluate(data, subject, holder, kind,
+                holder == null ? null : holder.getUUID(), false);
+    }
+
+    /** Permission check for moving an existing chain onto a fixed anchor. */
+    public static Refusal evaluateAnchorTransfer(@Nullable CrimeWorldData data,
+                                                 @Nullable Entity subject,
+                                                 @Nullable Entity anchorEntity,
+                                                 @Nullable UUID actor) {
+        return evaluate(data, subject, anchorEntity, TetherKind.ANCHOR, actor, true);
+    }
+
+    /** The full permission check, including the actor whose consent or authority is relevant. */
+    private static Refusal evaluate(@Nullable CrimeWorldData data, @Nullable Entity subject,
+                                    @Nullable Entity holder, TetherKind kind,
+                                    @Nullable UUID actor, boolean replacingSubjectHold) {
         if (data == null || !chainable(subject)) {
             return Refusal.NOT_CHAINABLE;
         }
@@ -213,10 +230,19 @@ public final class TetherService {
             return Refusal.WRONG_DIMENSION;
         }
         TetherIndex index = index(data);
-        if (!index.forSubject(subject.getUUID()).isEmpty()) {
+        List<TetherRecord> subjectTethers = index.forSubject(subject.getUUID());
+        if (!replacingSubjectHold && !subjectTethers.isEmpty()) {
             return Refusal.ALREADY_HELD;
         }
-        if (index.heldBy(holder.getUUID()) >= maxTethersPerHolder()) {
+        int heldBy = index.heldBy(holder.getUUID());
+        if (replacingSubjectHold) {
+            for (TetherRecord tether : subjectTethers) {
+                if (holder.getUUID().equals(tether.holder())) {
+                    heldBy--;
+                }
+            }
+        }
+        if (heldBy >= maxTethersPerHolder()) {
             return Refusal.HOLDER_FULL;
         }
         if (TetherPhysics.formsCycle(subject.getUUID(), holder.getUUID(), index::holderOf)) {
@@ -231,6 +257,28 @@ public final class TetherService {
         return Refusal.NONE;
     }
 
+    /** Whether this actor is the server-recognised authority currently holding the subject. */
+    private static boolean lawfulAuthority(CrimeWorldData data, Entity subject, @Nullable UUID actor) {
+        if (actor == null) {
+            return false;
+        }
+        if (subject.getServer() != null) {
+            net.minecraft.server.level.ServerPlayer player =
+                    subject.getServer().getPlayerList().getPlayer(actor);
+            if (player != null && player.hasPermissions(2)) {
+                return true;
+            }
+        }
+        if (subject instanceof net.minecraft.server.level.ServerPlayer player
+                && dev.otectus.mcacrime.enforcement.ArrestStates.inProgress(player)
+                && actor.equals(dev.otectus.mcacrime.enforcement.ArrestStates.owningGuard(player))) {
+            return true;
+        }
+        CustodyRecord custody = data.getCustody(subject.getUUID());
+        return custody != null && custody.isLawful()
+                && custody.getOwner().ownerUuid().filter(actor::equals).isPresent();
+    }
+
     // --- attaching -----------------------------------------------------------------------------------
 
     /**
@@ -243,13 +291,17 @@ public final class TetherService {
     public static Optional<TetherRecord> attach(@Nullable CrimeWorldData data, @Nullable Entity subject,
                                                 @Nullable Entity holder, TetherKind kind,
                                                 @Nullable UUID chainOwner, boolean returnOnRelease) {
-        if (evaluate(data, subject, holder, kind) != Refusal.NONE) {
+        UUID actor = holder == null ? null : holder.getUUID();
+        if (evaluate(data, subject, holder, kind, actor, false) != Refusal.NONE) {
             return Optional.empty();
         }
         TetherRecord tether = TetherRecord.toHolder(UUID.randomUUID(), subject.getUUID(), kind,
                 holder.getUUID(), subject.level().dimension().location(), maxChainLength(),
                 chainOwner, returnOnRelease);
-        return commit(data, subject, tether, kind == TetherKind.ESCORT);
+        boolean lawful = lawfulAuthority(data, subject, actor);
+        Optional<TetherRecord> attached = commit(data, subject, tether,
+                kind == TetherKind.ESCORT, lawful);
+        return attached;
     }
 
     /**
@@ -267,29 +319,47 @@ public final class TetherService {
                                                         @Nullable BlockPos anchorPos,
                                                         @Nullable UUID chainOwner,
                                                         boolean returnOnRelease) {
-        if (evaluate(data, subject, anchorEntity, TetherKind.ANCHOR) != Refusal.NONE) {
+        return attachToAnchor(data, subject, anchorEntity, anchorPos, chainOwner, chainOwner,
+                returnOnRelease);
+    }
+
+    /** Anchor attachment with the actual actor kept separate from the physical anchor entity. */
+    public static Optional<TetherRecord> attachToAnchor(@Nullable CrimeWorldData data,
+                                                        @Nullable Entity subject,
+                                                        @Nullable Entity anchorEntity,
+                                                        @Nullable BlockPos anchorPos,
+                                                        @Nullable UUID actor,
+                                                        @Nullable UUID chainOwner,
+                                                        boolean returnOnRelease) {
+        if (evaluate(data, subject, anchorEntity, TetherKind.ANCHOR, actor, false) != Refusal.NONE) {
             return Optional.empty();
         }
         TetherRecord tether = new TetherRecord(UUID.randomUUID(), subject.getUUID(), TetherKind.ANCHOR,
                 anchorEntity.getUUID(), subject.level().dimension().location(),
                 anchorPos == null ? anchorEntity.blockPosition() : anchorPos,
                 maxChainLength(), false, chainOwner, returnOnRelease, 1L);
-        return commit(data, subject, tether, false);
+        Optional<TetherRecord> attached = commit(data, subject, tether, false,
+                lawfulAuthority(data, subject, actor));
+        return attached;
     }
 
     /** The single write. Records the tether and points the subject's physical state at it. */
     private static Optional<TetherRecord> commit(CrimeWorldData data, Entity subject,
-                                                 TetherRecord tether, boolean escort) {
+                                                 TetherRecord tether, boolean escort, boolean lawful) {
         if (!data.putTether(tether)) {
             return Optional.empty();
         }
         index(data).put(tether);
-        link(data, subject, tether.id(), escort);
+        if (!link(data, subject, tether.id(), escort)) {
+            data.removeTether(tether.id());
+            index(data).remove(tether.id());
+            return Optional.empty();
+        }
         publish(subject, data);
         // Post-commit (M6.4): the hold exists, and a companion is told which kind it is and whether
         // it is the law's. Whether it is also a kidnapping is CustodyTransitionService's answer.
         dev.otectus.mcacrime.restraint.PhysicalApiEvents.seized(subject,
-                tether.holderId().orElse(null), tether.kind(), escort);
+                tether.holderId().orElse(null), tether.kind(), lawful);
         return Optional.of(tether);
     }
 
@@ -299,19 +369,19 @@ public final class TetherService {
      * <p>The row is what the client snapshot is built from, so without this a chain would exist in
      * the table and be drawn by nobody.
      */
-    private static void link(CrimeWorldData data, Entity subject, @Nullable UUID tetherId,
-                             boolean escort) {
+    private static boolean link(CrimeWorldData data, Entity subject, @Nullable UUID tetherId,
+                                boolean escort) {
         PhysicalRestraintState state = data.physicalRestraint(subject.getUUID());
         if (state == null) {
             if (tetherId == null) {
-                return;
+                return true;
             }
             state = PhysicalRestraintState.empty(subject.getUUID(),
                     subject instanceof net.minecraft.world.entity.player.Player,
                     subject.level().dimension().location());
         }
         PhysicalRestraintState next = escort ? state.withEscort(tetherId) : state.withTether(tetherId);
-        data.putPhysicalRestraint(next);
+        return data.putPhysicalRestraint(next);
     }
 
     // --- detaching -----------------------------------------------------------------------------------
@@ -525,10 +595,42 @@ public final class TetherService {
                 && guard.getUUID().equals(existing.get().holder())) {
             return existing;
         }
-        // A subject already held by something else is taken over: an arrest outranks a chain, and the
-        // chain is suspended rather than dropped so releasing the prisoner gives it back.
-        existing.ifPresent(tether -> suspend(data, tether.id(), true));
-        return attach(data, subject, guard, TetherKind.ESCORT, null, false);
+        List<TetherRecord> prior = index(data).forSubject(subject.getUUID());
+        // Another escort is an authority conflict, not a chain takeover. Its owner must hand custody
+        // over first; otherwise ending either escort could release the other one's hold.
+        if (prior.stream().anyMatch(tether -> tether.kind() == TetherKind.ESCORT)) {
+            return Optional.empty();
+        }
+        UUID actor = guard.getUUID();
+        if (evaluate(data, subject, guard, TetherKind.ESCORT, actor, true) != Refusal.NONE) {
+            return Optional.empty();
+        }
+
+        TetherRecord escort = TetherRecord.toHolder(UUID.randomUUID(), subject.getUUID(),
+                TetherKind.ESCORT, actor, subject.level().dimension().location(), maxChainLength(),
+                null, false);
+        // Commit the replacement before suspending the old chain. A failed insert or state link leaves
+        // the existing hold active, rather than stranding the subject with a suspended chain and no
+        // escort. The server thread serialises these writes, so this is one atomic takeover to callers.
+        if (!data.putTether(escort)) {
+            return Optional.empty();
+        }
+        index(data).put(escort);
+        if (!link(data, subject, escort.id(), true)) {
+            data.removeTether(escort.id());
+            index(data).remove(escort.id());
+            return Optional.empty();
+        }
+        for (TetherRecord tether : prior) {
+            if (!tether.suspended()) {
+                suspend(data, tether.id(), true);
+            }
+        }
+        publish(subject, data);
+        boolean lawful = lawfulAuthority(data, subject, actor);
+        dev.otectus.mcacrime.restraint.PhysicalApiEvents.seized(subject, actor,
+                TetherKind.ESCORT, lawful);
+        return Optional.of(escort);
     }
 
     /** Ends the escort holding {@code subject}, and resumes whatever it suspended. */

@@ -91,6 +91,14 @@ public record CrimeObservation(UUID observationId,
                 actionId, dimension, location, observedAt, confidence, sawActor, sawAct, heardAct, reportState, expiresAt, true);
     }
 
+    /** Promotes a visible threat to the terminal crime under the same evidence identity. */
+    public CrimeObservation withAction(ResourceLocation nextAction) {
+        return nextAction == null || nextAction.equals(actionId) ? this
+                : new CrimeObservation(observationId, incidentId, observerId, role, suspectedActorId,
+                victimId, nextAction, dimension, location, observedAt, confidence, sawActor, sawAct,
+                heardAct, reportState, expiresAt, relayed);
+    }
+
     public CompoundTag save() {
         CompoundTag tag = new CompoundTag();
         tag.putUUID("id", observationId);

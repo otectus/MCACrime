@@ -2,6 +2,8 @@ package dev.otectus.mcacrime.client;
 
 import dev.otectus.mcacrime.McaCrime;
 import dev.otectus.mcacrime.client.network.CrimeClientPayloadHandler;
+import dev.otectus.mcacrime.client.render.mask.MaskRenderProvider;
+import dev.otectus.mcacrime.item.MaskItem;
 import dev.otectus.mcacrime.network.CrimeClientPayloadRouter;
 import dev.otectus.mcacrime.client.screen.CrimeConfigScreen;
 import net.neoforged.api.distmarker.Dist;
@@ -27,5 +29,6 @@ public final class McaCrimeClient {
                 IConfigScreenFactory.class,
                 (ignored, parent) -> new CrimeConfigScreen(parent));
         CrimeClientPayloadRouter.install(new CrimeClientPayloadHandler());
+        MaskItem.installRenderProviders(MaskRenderProvider::new);
     }
 }

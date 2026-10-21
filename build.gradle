@@ -82,6 +82,12 @@ repositories {
         url = 'https://api.modrinth.com/maven'
         content { includeGroup 'maven.modrinth' }
     }
+    // GeckoLib, the shaped mask armour models' renderer. Scoped to its own group.
+    maven {
+        name = 'GeckoLib'
+        url = 'https://dl.cloudsmith.io/public/geckolib3/geckolib/maven/'
+        content { includeGroup 'software.bernie.geckolib' }
+    }
 }
 
 // Every MCA build McaBindingProbeTest verifies the manifest against, one configuration each. Two
@@ -144,6 +150,11 @@ dependencies {
     localRuntime("net.conczin.mca:mca-neoforge:${mca_version}") {
         transitive = false
     }
+
+    // GeckoLib - a hard dependency (neoforge.mods.toml), and the only third-party type src/main/java
+    // names: the worn mask is a GeoItem drawn by a GeoArmorRenderer. A mojmap NeoForge jar, so a plain
+    // `implementation` puts it on compile, dev-run and unit-test classpaths alike; never shaded.
+    implementation "software.bernie.geckolib:geckolib-neoforge-${minecraft_version}:${geckolib_version}"
 
     // ...and on the unit-test runtime as well, which the Forge build could not do. ModDevGradle's
     // unitTest runner boots the real NeoForge mod loader, and the loader enforces the `mca` dependency
@@ -391,6 +402,7 @@ tasks.named('processResources', ProcessResources).configure {
             loader_version_range   : loader_version_range,
             mca_version            : mca_version,
             mca_version_range      : mca_version_range,
+            geckolib_version_range : geckolib_version_range,
             mod_id                 : mod_id,
             mod_name               : mod_name,
             mod_license            : mod_license,
@@ -528,6 +540,7 @@ def apiReadModel = [
         'dev/otectus/mcacrime/memory/ReportState',
         'dev/otectus/mcacrime/memory/VictimCrimeMemory',
         'dev/otectus/mcacrime/memory/VillagerCrimeProfile',
+        'dev/otectus/mcacrime/news/CrimeNewsData',
         'dev/otectus/mcacrime/property/PropertyAccess',
         'dev/otectus/mcacrime/property/PropertyAccessRule',
         'dev/otectus/mcacrime/property/PropertyActor',
@@ -711,7 +724,9 @@ tasks.register('checkJarContents') {
                 problems << "${it} must not be packaged (Forge-era file)"
             }
         }
-        def plural = entries.findAll { it.contains('/recipes/') || it.contains('/tags/items/') }
+        // Matched at the data-directory level only: vanilla 1.21.1 itself keeps recipe-unlock advancements
+        // under data/<ns>/advancement/recipes/, and those are correct (0.8.0).
+        def plural = entries.findAll { it ==~ /data\/[^\/]+\/(recipes|tags\/items)\/.*/ }
         if (!plural.isEmpty()) {
             problems << "1.20.1 plural data director(ies): ${plural.take(5)}"
         }

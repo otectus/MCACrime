@@ -54,6 +54,36 @@ public final class KeyRingBindings {
         ring.set(CrimeDataComponents.KEY_RING_CONTENTS.get(), List.copyOf(bindings));
     }
 
+    /** The custom names of the keys on this ring, by lock (0.8.0). Empty for a ring saved before. */
+    public static java.util.Map<UUID, net.minecraft.network.chat.Component> labels(@Nullable ItemStack ring) {
+        if (ring == null || ring.isEmpty()) {
+            return java.util.Map.of();
+        }
+        java.util.Map<UUID, net.minecraft.network.chat.Component> stored = ring.get(CrimeDataComponents.KEY_RING_LABELS.get());
+        return stored == null ? java.util.Map.of() : java.util.Map.copyOf(stored);
+    }
+
+    /** Replaces the labels, keeping only those for locks the ring still holds; none clears the component. */
+    public static void writeLabels(@Nullable ItemStack ring, @Nullable java.util.Map<UUID, net.minecraft.network.chat.Component> labels) {
+        if (ring == null || ring.isEmpty()) {
+            return;
+        }
+        java.util.Map<UUID, net.minecraft.network.chat.Component> kept = new java.util.HashMap<>();
+        if (labels != null) {
+            for (KeyBinding binding : read(ring)) {
+                net.minecraft.network.chat.Component name = labels.get(binding.lockId());
+                if (name != null) {
+                    kept.put(binding.lockId(), name);
+                }
+            }
+        }
+        if (kept.isEmpty()) {
+            ring.remove(CrimeDataComponents.KEY_RING_LABELS.get());
+        } else {
+            ring.set(CrimeDataComponents.KEY_RING_LABELS.get(), java.util.Map.copyOf(kept));
+        }
+    }
+
     /** How many keys are on this ring. */
     public static int count(@Nullable ItemStack ring) {
         return read(ring).size();
@@ -89,6 +119,35 @@ public final class KeyRingBindings {
             return false;
         }
         write(ring, bindings);
+        return true;
+    }
+
+    /** Replaces the stale key for the same lock during an authorized post-rekey initialization. */
+    public static boolean replace(@Nullable ItemStack ring, @Nullable KeyBinding binding) {
+        if (ring == null || ring.isEmpty() || binding == null) {
+            return false;
+        }
+        List<KeyBinding> bindings = new ArrayList<>(read(ring));
+        int index = indexOf(bindings, binding.lockId());
+        if (index < 0) {
+            return false;
+        }
+        bindings.set(index, binding);
+        write(ring, bindings);
+        return true;
+    }
+
+    /** Removes the key for one lock from a ring stack, if it is there. */
+    public static boolean remove(@Nullable ItemStack ring, @Nullable UUID lockId) {
+        if (ring == null || ring.isEmpty()) {
+            return false;
+        }
+        List<KeyBinding> bindings = new ArrayList<>(read(ring));
+        if (!remove(bindings, lockId)) {
+            return false;
+        }
+        write(ring, bindings);
+        writeLabels(ring, labels(ring)); // a removed key takes its name with it
         return true;
     }
 

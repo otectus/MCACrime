@@ -155,7 +155,7 @@ public final class VillageSecurityService {
                                                                        CrimeCommunityKey community,
                                                                        long now, long windowTicks) {
         CrimeWorldData data = CrimeWorldData.get(server);
-        boolean observations = observationsEnabled();
+        boolean observations = observationsEnabled(server);
         double confidence = confidenceThreshold();
 
         // suspect -> case ids an accepted report names. Built lazily: most offenders in a long-lived
@@ -170,7 +170,7 @@ public final class VillageSecurityService {
             }
             Set<UUID> reported = observations
                     ? reportedBySuspect.computeIfAbsent(view.offenderId(),
-                            offender -> supportedCaseIds(data, offender, confidence))
+                            offender -> supportedCaseIds(data, offender, community, confidence))
                     : Set.of();
             if (!CrimePublicView.isPublic(view, community, observations, reported::contains)) {
                 continue;
@@ -184,10 +184,12 @@ public final class VillageSecurityService {
         return incidents;
     }
 
-    private static Set<UUID> supportedCaseIds(CrimeWorldData data, UUID offender, double confidence) {
+    private static Set<UUID> supportedCaseIds(CrimeWorldData data, UUID offender,
+                                               CrimeCommunityKey community, double confidence) {
         Set<UUID> ids = new HashSet<>();
         for (CrimeReport report : data.reportsAgainst(offender)) {
-            if (report.supportsArrest(confidence)) {
+            if (java.util.Objects.equals(report.jurisdiction(), community)
+                    && report.suspectId() != null && report.supportsArrest(confidence)) {
                 ids.add(report.incidentId());
             }
         }
@@ -211,9 +213,9 @@ public final class VillageSecurityService {
         return count;
     }
 
-    private static boolean observationsEnabled() {
+    private static boolean observationsEnabled(MinecraftServer server) {
         try {
-            return McaCrimeConfig.COMMON.enableObservations.get();
+            return dev.otectus.mcacrime.config.CrimeWorldSettings.resolve(server).observations();
         } catch (Throwable t) {
             return false;
         }

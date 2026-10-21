@@ -400,6 +400,78 @@ class RestraintReconcilerTest {
         assertFalse(RestraintMigrationReconciler.reconcile(null, 0L).ran());
     }
 
+    // ------------------------------------------------------------------ the wiring
+
+    /**
+     * A schema-14 store, as it would arrive from a pre-0.7.5 world: one cuffed kidnapping victim,
+     * no {@code custodyId}, no {@code generation}, and none of the five physical tables.
+     */
+    private static CompoundTag schema14(UUID captive) {
+        CompoundTag tag = new CompoundTag();
+        tag.putInt(CrimeDataMigrations.TAG_SCHEMA, CrimeDataMigrations.SCHEMA_PROPERTY_LAW);
+        tag.put("ledger", new ListTag());
+        CompoundTag row = kidnapping(captive, RestraintType.CUFFS, true).save();
+        row.remove("custodyId");
+        row.remove("generation");
+        CompoundTag custody = new CompoundTag();
+        custody.put(captive.toString(), row);
+        tag.put("custody", custody);
+        return tag;
+    }
+
+    /**
+     * The reconciliation has an executable call site, and it runs exactly once per world.
+     *
+     * <p>{@code CrimeWorldData.get} calls {@link CrimeWorldData#reconcilePhysicalState(long)} every
+     * time it hands the store out, which is constantly. Every assertion below is about that being
+     * safe: the first call converts, every later call in the session does nothing, and a call after a
+     * save and reload — which is what a login is — does nothing either, because the marker is durable.
+     *
+     * <p>Without a call site the conversion would never happen at all, and after the legacy engine is
+     * removed the old {@code RestraintType} on a custody row is only reachable through this path.
+     */
+    @Test
+    void theLoadPathReconcilesExactlyOnceAndMintsNoExtraItem() {
+        UUID captive = UUID.randomUUID();
+        CompoundTag saved = schema14(captive);
+
+        CrimeWorldData first = CrimeWorldData.load(saved, RegistryAccess.EMPTY);
+        assertTrue(first.physicalRestraints().isEmpty(),
+                "the pure migration invents no gear; only the reconciliation does");
+
+        first.reconcilePhysicalState(1000L);
+        AppliedRestraint afterFirst = arms(first, captive);
+        assertEquals(1, first.physicalRestraints().size());
+        assertEquals(CrimeDataMigrations.SCHEMA_CUFFED_PHYSICAL, first.reconciledSchema());
+
+        // Called again in the same session, the way every CrimeWorldData.get would.
+        first.reconcilePhysicalState(1001L);
+        first.reconcilePhysicalState(1002L);
+        assertEquals(1, first.physicalRestraints().size());
+        assertEquals(afterFirst, arms(first, captive), "the same instance, not a second pair of cuffs");
+
+        // And after a save and reload, which is the login the specification calls out.
+        CrimeWorldData reloaded = CrimeWorldData.load(first.save(new CompoundTag(), RegistryAccess.EMPTY), RegistryAccess.EMPTY);
+        reloaded.reconcilePhysicalState(2000L);
+        assertEquals(1, reloaded.physicalRestraints().size());
+        assertEquals(afterFirst, arms(reloaded, captive));
+        assertEquals(1, reloaded.tethersForSubject(captive).size());
+    }
+
+    @Test
+    void theLoadPathLeavesAQuarantinedStoreAlone() {
+        CompoundTag tag = new CompoundTag();
+        tag.putInt(CrimeDataMigrations.TAG_SCHEMA, CrimeDataMigrations.CURRENT_SCHEMA + 1);
+        tag.put("ledger", new ListTag());
+        CrimeWorldData data = CrimeWorldData.load(tag, RegistryAccess.EMPTY);
+
+        data.reconcilePhysicalState(1000L);
+
+        assertTrue(data.physicalRestraints().isEmpty());
+        assertEquals(0, data.reconciledSchema(),
+                "nothing was converted, so nothing may claim it was");
+    }
+
     // ------------------------------------------------------------------ the arrest-phase pass
 
     @Test

@@ -52,11 +52,16 @@ class ClientCachesTest {
      * Townstead mixin reads it and a mixin may name neither a client screen nor a Townstead type, so
      * the marker sits in {@code compat/} typed as {@code Object}.
      *
+     * <p>{@code ServerRulesView} (0.8.0) holds the rules the server sent at login, today its key-ring
+     * capacity. It is common code because the key ring's tooltip, which is item code, reads it, and a
+     * common class may not name a {@code client/} one; it belongs in the sweep because the value is the
+     * last server's, and keeping it would show the next server's rings against the wrong capacity.
+     *
      * <p>Named here rather than exempted by a looser assertion: the list still has to match exactly, so
      * an entry nobody justified still fails.
      */
     private static final Set<String> NON_CACHE_ENTRIES =
-            Set.of("TownsteadDialogueState", "RestraintProfileOverrides");
+            Set.of("TownsteadDialogueState", "RestraintProfileOverrides", "ServerRulesView");
 
     @Test
     void everyCacheWithAClearIsRegistered() {

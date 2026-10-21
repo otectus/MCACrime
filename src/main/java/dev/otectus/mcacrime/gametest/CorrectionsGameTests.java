@@ -259,6 +259,8 @@ public final class CorrectionsGameTests {
         boolean forgivenessBefore = forgiveness.get();
         policy.set(ThiefCombatPolicy.NORMAL_LAW);
         forgiveness.set(false);
+        // thiefCombatPolicy is a world-rule-mapped setting, resolved once per tick.
+        dev.otectus.mcacrime.config.CrimeWorldSettings.invalidate();
         CrimeWorldData data = CrimeWorldData.get(level.getServer());
         try {
             helper.assertTrue(NpcMuggingService.begin(level, thief, victim).isPresent(), "The mugging did not start");
@@ -287,6 +289,7 @@ public final class CorrectionsGameTests {
         } finally {
             policy.set(policyBefore);
             forgiveness.set(forgivenessBefore);
+            dev.otectus.mcacrime.config.CrimeWorldSettings.invalidate();
             CrimeState.setHeat(victim, 0);
             innocent.discard();
             cleanUp(level, thief, online);
@@ -409,6 +412,30 @@ public final class CorrectionsGameTests {
                 List<StolenGoodsRecord> refiled = data.stolenGoodsByThief(victim.getUUID());
                 helper.assertTrue(refiled.size() == 1 && other.equals(refiled.get(0).owner()),
                         "Taking another victim's property did not stay that victim's: " + refiled);
+                // 0.7.9: the two breads are in the searcher's inventory, so their provenance must never
+                // become a second, claimable copy; the three left with the thief still recover once.
+                helper.assertTrue(!refiled.get(0).recoverable(), "Re-theft recorded an extra claimable copy");
+                CrimeWorldData expiryData = new CrimeWorldData();
+                expiryData.putStolenGoods(refiled.get(0));
+                expiryData.putStolenGoods(rest);
+                expiryData = CrimeWorldData.load(expiryData.save(new net.minecraft.nbt.CompoundTag(), registries),
+                        registries);
+                helper.assertTrue(dev.otectus.mcacrime.mug.npc.StolenGoodsLedger.expire(expiryData,
+                        now / 24000L + 7, 7, java.util.Set.of()) == 2,
+                        "Re-theft provenance and the thief's remainder did not expire");
+                helper.assertTrue(count(victim, stack -> stack.is(Items.BREAD)) == 2, "The physical re-theft item was lost");
+                helper.assertTrue(expiryData.propertyEscrowFor(other).size() == 1
+                                && expiryData.propertyEscrowFor(other).get(0).stack(registries).getCount() == 3,
+                        "Expiry duplicated the two breads already held by the player");
+
+                CrimeWorldData seizureData = new CrimeWorldData();
+                var seized = dev.otectus.mcacrime.frisk.SeizureLedger.criminal(seizureData, registries,
+                        UUID.randomUUID(), victim.getUUID(), other, now, () -> new ItemStack(Items.DIAMOND));
+                helper.assertTrue(seized.committed(), "A criminal seizure was refused");
+                helper.assertTrue(dev.otectus.mcacrime.mug.npc.StolenGoodsLedger.expire(seizureData,
+                                now / 24000L + 7, 7, java.util.Set.of()) == 1
+                                && seizureData.propertyEscrowFor(other).isEmpty(),
+                        "An ordinary criminal seizure minted a recovery copy");
             } catch (RuntimeException | Error failure) {
                 tidy.run();
                 throw failure;
@@ -446,6 +473,60 @@ public final class CorrectionsGameTests {
                 });
             });
         });
+    }
+
+    /**
+     * 0.7.9: opening a schema-17 store classifies its theft rows by who holds the goods. An online
+     * player's and a saved offline player's rows become inventory provenance; an NPC's row stays the
+     * property's only backing store. Expiry then retires all three and escrows the NPC copy alone.
+     *
+     * <p>Swaps the server's own store for a scratch one, so it runs in a batch of its own.
+     */
+    @GameTest(template = "cell_parity", batch = "legacy_property_custody")
+    public static void legacyPropertyCustodyIsResolvedFromPlayerIdentities(GameTestHelper helper) throws Exception {
+        ServerLevel level = helper.getLevel();
+        var server = level.getServer();
+        HolderLookup.Provider registries = level.registryAccess();
+        ServerPlayer online = player(helper, new ArrayList<>(), 5);
+        AutoCloseable onlineFixture = online(helper, online);
+        UUID saved = UUID.randomUUID();
+        UUID npc = UUID.randomUUID();
+        UUID owner = UUID.randomUUID();
+        java.nio.file.Path playerData = server.getWorldPath(
+                net.minecraft.world.level.storage.LevelResource.PLAYER_DATA_DIR);
+        java.nio.file.Path savedFile = playerData.resolve(saved + ".dat");
+        CrimeWorldData original = CrimeWorldData.get(server);
+        try {
+            java.nio.file.Files.createDirectories(playerData);
+            net.minecraft.nbt.NbtIo.writeCompressed(new net.minecraft.nbt.CompoundTag(), savedFile);
+            CrimeWorldData scratch = new CrimeWorldData();
+            for (UUID thief : List.of(online.getUUID(), saved, npc)) {
+                scratch.putStolenGoods(StolenGoodsRecord.ofStack(registries, UUID.randomUUID(), thief, owner,
+                        new ItemStack(Items.DIAMOND), 0L, 0L));
+            }
+            net.minecraft.nbt.CompoundTag oldSave = scratch.save(new net.minecraft.nbt.CompoundTag(), registries);
+            oldSave.putInt(dev.otectus.mcacrime.state.world.CrimeDataMigrations.TAG_SCHEMA,
+                    dev.otectus.mcacrime.state.world.CrimeDataMigrations.SCHEMA_DECREES);
+            for (var row : oldSave.getList("stolenGoods", net.minecraft.nbt.Tag.TAG_COMPOUND)) {
+                ((net.minecraft.nbt.CompoundTag) row).remove("custody");
+            }
+            server.overworld().getDataStorage().set(CrimeWorldData.DATA_NAME, CrimeWorldData.load(oldSave, registries));
+            CrimeWorldData migrated = CrimeWorldData.get(server);
+            helper.assertTrue(!migrated.stolenGoodsByThief(online.getUUID()).get(0).recoverable(),
+                    "An online player's inventory became loot");
+            helper.assertTrue(!migrated.stolenGoodsByThief(saved).get(0).recoverable(),
+                    "A saved offline player's inventory became loot");
+            helper.assertTrue(migrated.stolenGoodsByThief(npc).get(0).recoverable(), "NPC loot lost its backing store");
+            helper.assertTrue(dev.otectus.mcacrime.mug.npc.StolenGoodsLedger.expire(migrated, 7, 7,
+                    java.util.Set.of()) == 3, "The migrated rows did not expire");
+            helper.assertTrue(migrated.propertyEscrowFor(owner).size() == 1, "Legacy inventory minted extra escrow");
+        } finally {
+            server.overworld().getDataStorage().set(CrimeWorldData.DATA_NAME, original);
+            java.nio.file.Files.deleteIfExists(savedFile);
+            close(onlineFixture);
+            online.discard();
+        }
+        helper.succeed();
     }
 
     /**

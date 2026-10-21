@@ -102,7 +102,7 @@ public final class CrimeIncidentMapping {
             case FINED -> Optional.of(normalise(fineStatus, "atoned"));
             case SERVED -> Optional.of(normalise(servedStatus, "atoned"));
             case PARDONED -> Optional.of("forgiven");
-            case UNRESOLVED, ESCAPED, EXPIRED -> Optional.empty();
+            case UNRESOLVED, ESCAPED, EXPIRED, DECEASED -> Optional.empty();
         };
     }
 

@@ -27,7 +27,7 @@ public final class CaseTransitions {
         return resolution == Resolution.SERVED
                 || resolution == Resolution.FINED
                 || resolution == Resolution.PARDONED
-                || resolution == Resolution.EXPIRED;
+                || resolution == Resolution.EXPIRED || resolution == Resolution.DECEASED;
     }
 
     /**
@@ -60,12 +60,12 @@ public final class CaseTransitions {
         }
         return switch (from) {
             case UNRESOLVED -> to == Resolution.FINED || to == Resolution.SERVED
-                    || to == Resolution.ESCAPED || to == Resolution.EXPIRED;
+                    || to == Resolution.ESCAPED || to == Resolution.EXPIRED || to == Resolution.DECEASED;
             // Escaping does not clear the case; any real disposition can still follow.
             case ESCAPED -> to == Resolution.FINED || to == Resolution.SERVED
-                    || to == Resolution.EXPIRED;
+                    || to == Resolution.EXPIRED || to == Resolution.DECEASED;
             // Already settled: only an operator may move it again.
-            case SERVED, FINED, PARDONED, EXPIRED -> privileged;
+            case SERVED, FINED, PARDONED, EXPIRED, DECEASED -> privileged;
         };
     }
 

@@ -2,7 +2,9 @@ package dev.otectus.mcacrime.item;
 
 import dev.otectus.mcacrime.McaCrime;
 import dev.otectus.mcacrime.McaCrimeConfig;
+import dev.otectus.mcacrime.action.McaVillagerClicks;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.item.ItemStack;
 import net.neoforged.bus.api.EventPriority;
@@ -20,6 +22,10 @@ import net.neoforged.neoforge.event.entity.player.PlayerInteractEvent;
  * <p>Priority LOW, matching {@code CrimeActionInteractHandler}: restraints and captures run at NORMAL
  * and keep their claim on the click, and a cancelled event is not delivered here at all, so nothing
  * this mod does un-cancels another mod's refusal (invariant 16).
+ *
+ * <p>Port-only (0.7.9): MCA 1.21.1 opens its screen from {@code interactAt}, so for an MCA villager the
+ * precise {@code EntityInteractSpecific} is routed here as well, once per click
+ * ({@code action/McaVillagerClicks}).
  */
 @EventBusSubscriber(modid = McaCrime.MOD_ID)
 public final class SandBottleInteractHandler {
@@ -37,8 +43,10 @@ public final class SandBottleInteractHandler {
             return;
         }
         if (event.getEntity() instanceof ServerPlayer player) {
-            InteractionResult result = SandThrowService.throwBottle(player, event.getHand());
-            if (result == InteractionResult.PASS) {
+            var echo = McaVillagerClicks.echo(McaVillagerClicks.Route.SAND_BOTTLE, player, event.getTarget(),
+                    event.getHand());
+            InteractionResult result = echo != null ? echo.result() : thrown(player, event.getHand());
+            if (result == null) {
                 return;
             }
             event.setCanceled(true);
@@ -51,5 +59,27 @@ public final class SandBottleInteractHandler {
             event.setCanceled(true);
             event.setCancellationResult(InteractionResult.SUCCESS);
         }
+    }
+
+    /** The precise half, which is the one that decides for an MCA villager on this port. */
+    @SubscribeEvent(priority = EventPriority.LOW)
+    public static void onInteractSpecific(PlayerInteractEvent.EntityInteractSpecific event) {
+        if (!McaVillagerClicks.decidesHere(event) || !McaCrimeConfig.COMMON.enableSandBottles.get()
+                || !(event.getItemStack().getItem() instanceof SandBottleItem)) {
+            return;
+        }
+        InteractionResult result = thrown((ServerPlayer) event.getEntity(), event.getHand());
+        McaVillagerClicks.decided(McaVillagerClicks.Route.SAND_BOTTLE, event.getEntity(), event.getTarget(),
+                event.getHand(), result);
+        if (result != null) {
+            event.setCanceled(true);
+            event.setCancellationResult(result);
+        }
+    }
+
+    /** Throws the bottle, and answers the result that consumes the click, or null when it was not thrown. */
+    private static InteractionResult thrown(ServerPlayer player, InteractionHand hand) {
+        InteractionResult result = SandThrowService.throwBottle(player, hand);
+        return result == InteractionResult.PASS ? null : result;
     }
 }

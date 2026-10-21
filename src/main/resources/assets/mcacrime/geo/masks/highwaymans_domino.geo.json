@@ -1,0 +1,209 @@
+{
+  "format_version": "1.12.0",
+  "minecraft:geometry": [
+    {
+      "description": {
+        "identifier": "geometry.highwaymans_domino",
+        "texture_width": 32,
+        "texture_height": 32,
+        "visible_bounds_width": 3,
+        "visible_bounds_height": 3,
+        "visible_bounds_offset": [
+          0,
+          1,
+          0
+        ]
+      },
+      "bones": [
+        {
+          "name": "bipedHead",
+          "pivot": [
+            0,
+            24,
+            0
+          ]
+        },
+        {
+          "name": "Head",
+          "pivot": [
+            0,
+            24,
+            0
+          ],
+          "parent": "bipedHead"
+        },
+        {
+          "name": "armorHead",
+          "pivot": [
+            0,
+            24,
+            0
+          ],
+          "parent": "bipedHead",
+          "cubes": [
+            {
+              "origin": [
+                -4.5,
+                26.5,
+                -4.4
+              ],
+              "size": [
+                8.9,
+                3.0,
+                8.9
+              ],
+              "uv": {
+                "north": {
+                  "uv": [
+                    8,
+                    8
+                  ],
+                  "uv_size": [
+                    8,
+                    3
+                  ]
+                },
+                "east": {
+                  "uv": [
+                    0,
+                    8
+                  ],
+                  "uv_size": [
+                    8,
+                    3
+                  ]
+                },
+                "south": {
+                  "uv": [
+                    24,
+                    8
+                  ],
+                  "uv_size": [
+                    8,
+                    3
+                  ]
+                },
+                "west": {
+                  "uv": [
+                    16,
+                    8
+                  ],
+                  "uv_size": [
+                    8,
+                    3
+                  ]
+                },
+                "up": {
+                  "uv": [
+                    8,
+                    0
+                  ],
+                  "uv_size": [
+                    8,
+                    8
+                  ]
+                },
+                "down": {
+                  "uv": [
+                    16,
+                    8
+                  ],
+                  "uv_size": [
+                    8,
+                    -8
+                  ]
+                }
+              },
+              "inflate": 0.15
+            },
+            {
+              "origin": [
+                -0.7,
+                24.50711,
+                4.4
+              ],
+              "size": [
+                2.0,
+                2.0,
+                1.0
+              ],
+              "uv": {
+                "north": {
+                  "uv": [
+                    27,
+                    12
+                  ],
+                  "uv_size": [
+                    2,
+                    2
+                  ]
+                },
+                "east": {
+                  "uv": [
+                    26,
+                    12
+                  ],
+                  "uv_size": [
+                    1,
+                    2
+                  ]
+                },
+                "south": {
+                  "uv": [
+                    30,
+                    12
+                  ],
+                  "uv_size": [
+                    2,
+                    2
+                  ]
+                },
+                "west": {
+                  "uv": [
+                    29,
+                    12
+                  ],
+                  "uv_size": [
+                    1,
+                    2
+                  ]
+                },
+                "up": {
+                  "uv": [
+                    27,
+                    11
+                  ],
+                  "uv_size": [
+                    2,
+                    1
+                  ]
+                },
+                "down": {
+                  "uv": [
+                    29,
+                    12
+                  ],
+                  "uv_size": [
+                    2,
+                    -1
+                  ]
+                }
+              },
+              "inflate": 0.5,
+              "pivot": [
+                -0.2,
+                25.00711,
+                4.4
+              ],
+              "rotation": [
+                16.32495,
+                15.69986,
+                -42.73421
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

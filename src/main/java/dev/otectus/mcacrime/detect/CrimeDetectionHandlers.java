@@ -59,7 +59,7 @@ public final class CrimeDetectionHandlers {
 
     @SubscribeEvent
     public static void onLivingHurt(LivingDamageEvent.Post event) {
-        // A channeling kidnapper who is hit breaks their capture — replaced in 0.7.5: damage interrupts whatever restraint, lockpicking or frisking work this actor had running.
+        // Damage interrupts whatever restraint, lockpicking or frisking work this actor had running.
         SessionRegistry.server().cancelForActor(event.getEntity().getUUID(), SessionCancelCause.DAMAGE);
         if (event.getEntity().level() instanceof ServerLevel hurtLevel) {
             ActionSessionManager.clearFor(event.getEntity().getUUID(), CancelReason.DAMAGED);
@@ -69,8 +69,8 @@ public final class CrimeDetectionHandlers {
 
     @SubscribeEvent(priority = EventPriority.LOWEST)
     public static void onLivingDamage(LivingDamageEvent.Pre event) {
-        if (McaCrimeConfig.COMMON.enableCrimeDetection.get()
-                && event.getEntity().level() instanceof ServerLevel level) {
+        if (event.getEntity().level() instanceof ServerLevel level
+                && dev.otectus.mcacrime.config.CrimeWorldSettings.resolve(level).crimeDetection()) {
             guarded("damage sampling", () -> DamageIncidentService.damage(event, level));
         }
     }
@@ -137,6 +137,7 @@ public final class CrimeDetectionHandlers {
     public static void onServerStopped(ServerStoppedEvent event) {
         DamageIncidentService.clear(event.getServer());
         dev.otectus.mcacrime.memory.ApologyClaimLedger.clear();
+        dev.otectus.mcacrime.action.McaVillagerClicks.clear();
         detectionDisabled = false;
     }
 
@@ -183,7 +184,9 @@ public final class CrimeDetectionHandlers {
         // replay cache and any open menu, neither of which any other path ever removes.
         ActionSessionManager.forgetActor(event.getEntity().getUUID());
         dev.otectus.mcacrime.action.CrimeActionService.forgetMenu(event.getEntity().getUUID());
+        dev.otectus.mcacrime.detention.DeviceFeedback.forget(event.getEntity().getUUID());
         dev.otectus.mcacrime.memory.ApologyClaimLedger.forget(event.getEntity().getUUID());
+        dev.otectus.mcacrime.action.McaVillagerClicks.forget(event.getEntity().getUUID());
         // Same class of leak, three more maps: a guard encounter, an enforcement alert, and a dossier
         // cooldown stamp all keyed by player and all previously removed by nothing.
         dev.otectus.mcacrime.enforcement.GuardChallengeService.forget(event.getEntity().getUUID());

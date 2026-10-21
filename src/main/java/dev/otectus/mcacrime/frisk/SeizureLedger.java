@@ -30,7 +30,7 @@ import java.util.function.Supplier;
  *       excuse to bypass the existing recovery ledger", made structural.</li>
  *   <li><b>Criminal seizure</b> puts the stack in the box and files the theft through the existing
  *       two-phase stolen-goods transaction, so provenance exists, witnesses can act on it, and the
- *       recovery path can take it back.</li>
+ *       item itself stays in that inventory. Its provenance must never mint a recovery copy.</li>
  *   <li><b>Voluntary transfer</b> puts the stack in the box and writes nothing. There is no loss to
  *       record.</li>
  * </ul>
@@ -108,6 +108,7 @@ public final class SeizureLedger {
         try {
             Optional<TheftExecutor.TheftResult> result = StolenGoodsLedger.commitTheft(
                     data, registries, transferId, thief, owner, "", now,
+                    dev.otectus.mcacrime.state.world.StolenGoodsRecord.Custody.INVENTORY,
                     () -> {
                         ItemStack taken = remove.get();
                         return taken == null || taken.isEmpty()

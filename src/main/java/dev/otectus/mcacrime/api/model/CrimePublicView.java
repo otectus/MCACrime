@@ -123,19 +123,23 @@ public record CrimePublicView(CrimeCommunityKey community, UUID subject, Band ba
         if (view == null || observer == null) {
             return false;
         }
+        boolean reported = reportedToAuthority != null && reportedToAuthority.test(view.id());
         Optional<CrimeCommunityKey> community = view.community();
-        if (community.isEmpty() || !community.get().equals(observer)) {
+        // A wilderness case stays wilderness, but an identified accepted report makes the permitted
+        // fact public in its receiving authority. Callers scope `reported` to this observer.
+        if (community.isPresent() && !community.get().equals(observer)) {
             return false;
         }
+        if (community.isEmpty() && !reported) return false;
         String detection = view.context("detection").orElse("");
         boolean authorityKnown = "jailbreak".equals(detection) || "command".equals(detection);
-        if (!view.witnessed() && !authorityKnown) {
+        if (!view.witnessed() && !authorityKnown && !reported) {
             return false;
         }
-        if (!observationsEnabled || authorityKnown) {
+        if (!observationsEnabled || authorityKnown || reported) {
             return true;
         }
-        return reportedToAuthority != null && reportedToAuthority.test(view.id());
+        return false;
     }
 
     /**

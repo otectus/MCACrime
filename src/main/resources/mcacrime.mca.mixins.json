@@ -5,6 +5,7 @@
   "compatibilityLevel": "JAVA_21",
   "plugin": "dev.otectus.mcacrime.mixin.mca.McaJusticeMixinPlugin",
   "mixins": [
+    "MailboxMarker",
     "TragedyPenaltyMarker",
     "VillagerPenaltyMarker"
   ],

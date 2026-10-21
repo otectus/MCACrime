@@ -81,6 +81,11 @@ public final class CrimeClientPayloadHandler implements CrimeClientPayloadRouter
     }
 
     @Override
+    public void onServerRules(dev.otectus.mcacrime.network.ServerRulesS2CPacket payload) {
+        dev.otectus.mcacrime.network.ServerRulesView.set(payload);
+    }
+
+    @Override
     public void onCriminalJob(CriminalJobSyncS2CPacket payload) {
         CrimeClientHandlers.onCriminalJob(payload);
     }
@@ -143,5 +148,15 @@ public final class CrimeClientPayloadHandler implements CrimeClientPayloadRouter
     @Override
     public void onDecreeMenu(dev.otectus.mcacrime.network.DecreeMenuS2CPacket payload) {
         CrimeClientHandlers.onDecreeMenu(payload);
+    }
+
+    @Override
+    public void onReportMenu(dev.otectus.mcacrime.network.ReportMenuS2CPacket payload) {
+        CrimeClientHandlers.onReportMenu(payload);
+    }
+
+    @Override
+    public void onPlayerReports(dev.otectus.mcacrime.network.PlayerReportsS2CPacket payload) {
+        CrimeClientHandlers.onPlayerReports(payload);
     }
 }

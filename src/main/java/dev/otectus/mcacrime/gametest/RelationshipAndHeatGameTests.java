@@ -247,6 +247,88 @@ public final class RelationshipAndHeatGameTests {
         }
     }
 
+    /**
+     * Port-only (0.7.9): a real right-click on an MCA villager is decided at its precise half and decided
+     * once. MCA 1.21.1 opens its screen from {@code interactAt}, so the refusal has to happen at
+     * {@code EntityInteractSpecific}; a client that also sends the plain half gets the same answer again
+     * and no second refusal line.
+     */
+    @GameTest(template = "cell_parity")
+    public static void aRealRightClickIsRefusedAtItsPreciseHalfAndDecidedOnce(GameTestHelper helper) {
+        var level = helper.getLevel();
+        var villager = villager(helper);
+        var sent = new ArrayList<Packet<?>>();
+        var player = player(helper, sent);
+        var bystanderSent = new ArrayList<Packet<?>>();
+        var bystander = player(helper, bystanderSent);
+        position(helper, bystander, 3);
+        var grace = McaCrimeConfig.COMMON.enableMinorHarmForgiveness;
+        boolean gracePrevious = grace.get();
+        try {
+            grace.set(false);
+            helper.assertTrue(villager.hurt(level.damageSources().playerAttack(player), 1), "The punch did no damage");
+            DamageIncidentService.flush(level.getServer());
+            helper.assertTrue(!VictimMemoryService.memories(level.getServer(), villager.getUUID(), player.getUUID()).isEmpty(),
+                    "The punch left no memory, so the regression proves nothing");
+            sent.clear();
+            var precise = new PlayerInteractEvent.EntityInteractSpecific(player, InteractionHand.MAIN_HAND, villager,
+                    net.minecraft.world.phys.Vec3.ZERO);
+            NeoForge.EVENT_BUS.post(precise);
+            helper.assertTrue(precise.isCanceled(), "The precise half reached MCA's screen past the refusal");
+            long refusals = sent.stream().filter(RelationshipAndHeatGameTests::isRefusalChat).count();
+            helper.assertTrue(refusals > 0, "The refused precise click explained nothing");
+            var echo = new PlayerInteractEvent.EntityInteract(player, InteractionHand.MAIN_HAND, villager);
+            NeoForge.EVENT_BUS.post(echo);
+            helper.assertTrue(echo.isCanceled(), "The plain half of the same click was answered differently");
+            helper.assertTrue(sent.stream().filter(RelationshipAndHeatGameTests::isRefusalChat).count() == refusals,
+                    "The plain half of the same click was refused a second time");
+
+            var bystanderClick = new PlayerInteractEvent.EntityInteractSpecific(bystander, InteractionHand.MAIN_HAND,
+                    villager, net.minecraft.world.phys.Vec3.ZERO);
+            NeoForge.EVENT_BUS.post(bystanderClick);
+            helper.assertTrue(!bystanderClick.isCanceled(), "A bystander's precise click was refused");
+            var bystanderEcho = new PlayerInteractEvent.EntityInteract(bystander, InteractionHand.MAIN_HAND, villager);
+            NeoForge.EVENT_BUS.post(bystanderEcho);
+            helper.assertTrue(!bystanderEcho.isCanceled() && bystanderSent.stream().noneMatch(RelationshipAndHeatGameTests::isChat),
+                    "A bystander's click was claimed or messaged");
+        } finally {
+            grace.set(gracePrevious);
+            CrimeReactionService.clear(level, villager.getUUID());
+            villager.discard(); player.discard(); bystander.discard();
+        }
+        helper.succeed();
+    }
+
+    /**
+     * Port-only (0.7.9): drawing a weapon on an MCA villager opens the Crime menu at the precise half of
+     * the click, ahead of MCA's screen as on Forge, and the plain half opens no second menu.
+     */
+    @GameTest(template = "cell_parity")
+    public static void anArmedPreciseClickOpensExactlyOneCrimeMenu(GameTestHelper helper) {
+        var villager = villager(helper);
+        var sent = new ArrayList<Packet<?>>();
+        var player = player(helper, sent);
+        try {
+            helper.assertTrue(McaCrimeConfig.COMMON.weaponTriggerEnabled.get(), "The regression needs the armed trigger on");
+            player.setItemInHand(InteractionHand.MAIN_HAND, new ItemStack(Items.DIAMOND_SWORD));
+            var precise = new PlayerInteractEvent.EntityInteractSpecific(player, InteractionHand.MAIN_HAND, villager,
+                    net.minecraft.world.phys.Vec3.ZERO);
+            NeoForge.EVENT_BUS.post(precise);
+            helper.assertTrue(precise.isCanceled(), "The armed click reached MCA's screen instead of the Crime menu");
+            var echo = new PlayerInteractEvent.EntityInteract(player, InteractionHand.MAIN_HAND, villager);
+            NeoForge.EVENT_BUS.post(echo);
+            helper.assertTrue(echo.isCanceled(), "The plain half of the armed click was answered differently");
+            long menus = sent.stream().filter(p -> p instanceof ClientboundCustomPayloadPacket payload
+                    && payload.payload() instanceof ActionMenuS2CPacket).count();
+            helper.assertTrue(menus == 1, "One armed click opened " + menus + " Crime menus");
+        } finally {
+            CrimeActionService.forgetMenu(player.getUUID());
+            ActionSessionManager.forgetActor(player.getUUID());
+            villager.discard(); player.discard();
+        }
+        helper.succeed();
+    }
+
     private static boolean isRefusalChat(Packet<?> packet) {
         return packet instanceof ClientboundSystemChatPacket chat
                 && chat.content().getContents() instanceof TranslatableContents text

@@ -22,6 +22,7 @@ import dev.otectus.mcacrime.jail.JailRegistry;
 import dev.otectus.mcacrime.jail.JailService;
 import dev.otectus.mcacrime.jail.JailState;
 import dev.otectus.mcacrime.state.CrimeAttachments;
+import dev.otectus.mcacrime.state.PlayerCrimeData;
 import dev.otectus.mcacrime.state.world.CrimeWorldData;
 import dev.otectus.mcacrime.state.world.ServerMutationGate;
 import net.minecraft.network.chat.Component;
@@ -105,7 +106,7 @@ public final class ArrestService {
      *
      * <p>{@link Cause#VOLUNTARY_SURRENDER} is the reason this exists. A surrender only writes its Heat
      * reduction once the arrest has succeeded, so by the time this runs the attachment still holds the
-     * pre-surrender number — and sentencing from that would quietly delete the entire mechanical
+     * pre-surrender number -- and sentencing from that would quietly delete the entire mechanical
      * payoff for giving yourself up. Passing the figure keeps the ordering safe and the sentence
      * correct at the same time.
      *
@@ -146,8 +147,7 @@ public final class ArrestService {
             assessed = decision.cases();
             decree = decision.decree();
         } else {
-            decree = dev.otectus.mcacrime.decree.DecreeService.inForce(server, player.getUUID(),
-                    dev.otectus.mcacrime.decree.DecreeService.communityOf(player).orElse(null))
+            decree = dev.otectus.mcacrime.decree.DecreeService.inForceHere(player)
                     .map(dev.otectus.mcacrime.decree.Decree::id).orElse(null);
         }
         List<UUID> assessedCaseIds = assessed.stream().map(CrimeRecord::id).toList();
@@ -188,7 +188,7 @@ public final class ArrestService {
             if (JailService.recapture(player)) {
                 return Outcome.ALREADY_SERVING;
             }
-            JailState running = CrimeAttachments.get(player).getJail();
+            JailState running = dev.otectus.mcacrime.state.CrimeAttachments.get(player).getJail();
             if (running == null || !running.isEscaped() || !running.isTemporaryCell()) {
                 return abort(player, Outcome.NO_CELL, "mcacrime.arrest.no_cell");
             }
@@ -223,7 +223,8 @@ public final class ArrestService {
         boolean inCustody;
         if (hunter != null || (resuming != null && held != null && held.isLawful())) {
             // Already in lawful custody, so captureLawful would refuse. Custody passes from the hunter
-            // to the law in place, exactly as it does at the end of an escort.
+            // -- or from the jail an escaped prisoner is still on the books of -- to the law in place,
+            // exactly as it does at the end of an escort.
             inCustody = CustodyService.transferLawfulCustody(server, player.getUUID(),
                     CustodyOwner.guard(custodian));
         } else {
@@ -405,7 +406,7 @@ public final class ArrestService {
         }
         boolean anchorResolves = anchor != null
                 && JailService.resolveLevel(server, anchor.dim()) != null;
-        long online = CrimeAttachments.get(player).getOnlineTicksLived();
+        long online = dev.otectus.mcacrime.state.CrimeAttachments.get(player).getOnlineTicksLived();
         boolean expired = state != null && state.expired(online);
         boolean guardPresent = state != null && state.getGuard() != null
                 && player.level() instanceof ServerLevel level

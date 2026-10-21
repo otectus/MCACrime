@@ -2,8 +2,11 @@ package dev.otectus.mcacrime.tether;
 
 import dev.otectus.mcacrime.McaCrime;
 import dev.otectus.mcacrime.McaCrimeConfig;
+import dev.otectus.mcacrime.action.McaVillagerClicks;
 import dev.otectus.mcacrime.audio.CrimeSounds;
 import dev.otectus.mcacrime.entity.ChainKnotEntity;
+import dev.otectus.mcacrime.enforcement.RestraintHandlers;
+import dev.otectus.mcacrime.restraint.RestraintAction;
 import dev.otectus.mcacrime.state.world.CrimeWorldData;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
@@ -36,6 +39,10 @@ import java.util.List;
  * <p>Every branch either does something and consumes the interaction, or does nothing and lets it
  * through. Nothing here swallows a right-click silently, which is the difference between "the chain
  * would not go on" and "talking to that villager stopped working".
+ *
+ * <p>Port-only (0.7.9): MCA 1.21.1 opens its screen from {@code interactAt}, so for an MCA villager the
+ * precise {@code EntityInteractSpecific} is routed here as well, once per click
+ * ({@code action/McaVillagerClicks}).
  */
 @EventBusSubscriber(modid = McaCrime.MOD_ID)
 public final class TetherInteractHandler {
@@ -50,16 +57,29 @@ public final class TetherInteractHandler {
         if (event.getLevel().isClientSide() || !(event.getEntity() instanceof ServerPlayer actor)) {
             return;
         }
-        if (handle(actor, event.getTarget(), event.getHand())) {
+        var echo = McaVillagerClicks.echo(McaVillagerClicks.Route.TETHER, actor, event.getTarget(), event.getHand());
+        if (echo != null ? echo.consumed() : handle(actor, event.getTarget(), event.getHand())) {
+            event.setCanceled(true);
+            event.setCancellationResult(InteractionResult.CONSUME);
+        }
+    }
+
+    /** The precise half, which is the one that decides for an MCA villager on this port. */
+    @SubscribeEvent(priority = EventPriority.NORMAL)
+    public static void onEntityInteractSpecific(PlayerInteractEvent.EntityInteractSpecific event) {
+        if (!McaVillagerClicks.decidesHere(event)) {
+            return;
+        }
+        boolean consumed = handle((ServerPlayer) event.getEntity(), event.getTarget(), event.getHand());
+        McaVillagerClicks.decided(McaVillagerClicks.Route.TETHER, event.getEntity(), event.getTarget(),
+                event.getHand(), consumed ? InteractionResult.CONSUME : null);
+        if (consumed) {
             event.setCanceled(true);
             event.setCancellationResult(InteractionResult.CONSUME);
         }
     }
 
     private static boolean handle(ServerPlayer actor, @Nullable Entity target, InteractionHand hand) {
-        if (!(target instanceof LivingEntity subject)) {
-            return false;
-        }
         CrimeWorldData data = TetherService.data(actor.level());
         if (data == null) {
             return false;
@@ -67,15 +87,25 @@ public final class TetherInteractHandler {
         ItemStack held = actor.getItemInHand(hand);
 
         // Already leading somebody, and clicked something they could ride: put them in it (M4.4).
-        if (held.isEmpty() && !actor.isCrouching() && seat(actor, data, subject)) {
+        if (held.isEmpty() && !actor.isCrouching() && target != null
+                && actorMayUseHands(actor, false) && seat(actor, data, target)) {
             return true;
+        }
+        if (!(target instanceof LivingEntity subject)) {
+            return false;
         }
         // A chain in hand, on something chainable: lead them.
         if (held.is(Items.CHAIN) && TetherService.chainable(subject)) {
+            if (!actorMayUseHands(actor, true)) {
+                return false;
+            }
             return attach(actor, data, subject, hand, held);
         }
         // An empty crouching hand on somebody this player is leading: let them go.
         if (held.isEmpty() && actor.isCrouching()) {
+            if (!actorMayUseHands(actor, false)) {
+                return false;
+            }
             return release(actor, data, subject);
         }
         return false;
@@ -119,7 +149,7 @@ public final class TetherInteractHandler {
     }
 
     /** Puts whoever this actor is leading into the thing they clicked. */
-    private static boolean seat(ServerPlayer actor, CrimeWorldData data, LivingEntity vehicle) {
+    private static boolean seat(ServerPlayer actor, CrimeWorldData data, Entity vehicle) {
         for (TetherRecord tether : TetherService.index(data).forHolder(actor.getUUID())) {
             Entity subject = TetherService.find(actor.getServer(), tether.subject());
             if (!(subject instanceof LivingEntity living) || living == vehicle) {
@@ -167,6 +197,9 @@ public final class TetherInteractHandler {
         if (!leading && !anchored) {
             return; // an ordinary fence; nothing to do with us
         }
+        if (!RestraintHandlers.permits(actor, RestraintAction.INTERACT_BLOCK)) {
+            return;
+        }
         ChainKnotEntity knot = ChainKnotEntity.getOrCreate(level, pos);
         if (knot == null) {
             return;
@@ -210,5 +243,11 @@ public final class TetherInteractHandler {
             return; // an ordinary cow or a villager nobody may lead: let the interaction through
         }
         actor.displayClientMessage(Component.translatable(TetherService.messageKey(refusal)), true);
+    }
+
+    /** This NORMAL-priority handler must enforce before the generic LOW backstop runs. */
+    private static boolean actorMayUseHands(ServerPlayer actor, boolean usesItem) {
+        return RestraintHandlers.permits(actor, RestraintAction.INTERACT_ENTITY)
+                && (!usesItem || RestraintHandlers.permits(actor, RestraintAction.USE_ITEM));
     }
 }

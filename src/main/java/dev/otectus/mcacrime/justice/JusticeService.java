@@ -24,9 +24,10 @@ import java.util.UUID;
 /** Shared evidence selection for challenge, review, settlement and arrest assessment. */
 public final class JusticeService {
     public record Settings(boolean observations, boolean globalPropagation, double confidence) {
-        public static Settings fromConfig() {
+        public static Settings resolve(MinecraftServer server) {
             var c = McaCrimeConfig.COMMON;
-            return new Settings(c.enableObservations.get(), c.globalCrimePropagation.get(),
+            return new Settings(dev.otectus.mcacrime.config.CrimeWorldSettings.resolve(server).observations(),
+                    c.globalCrimePropagation.get(),
                     c.reportConfidenceThreshold.get());
         }
     }
@@ -40,21 +41,28 @@ public final class JusticeService {
         boolean maskWorn = c.maskEnabled.get() && c.guardsChallengeMaskWearers.get()
                 && dev.otectus.mcacrime.mask.Masks.isMasked(player);
         CrimeCommunityKey jurisdiction = ReportService.jurisdictionOf(level, guard);
+        var evidence = dev.otectus.mcacrime.api.jurisdiction.JurisdictionPolicies.resolve(
+                level.getServer(), jurisdiction, player.getUUID());
+        Settings settings = Settings.resolve(level.getServer());
+        if (!dev.otectus.mcacrime.api.jurisdiction.JurisdictionPolicies.allowsSharedReports(evidence))
+            settings = new Settings(settings.observations(), false, settings.confidence());
+        boolean wanted = CrimeState.isWanted(player)
+                && dev.otectus.mcacrime.api.jurisdiction.JurisdictionPolicies.allowsStandaloneWanted(evidence);
         // A royal decree is local by construction: it names one village, and only that village's guards
         // act on it (0.7.8). Read through the decree service, which asks MCA Capitals whether it still
         // stands; nothing about it widens to any other jurisdiction.
-        UUID decree = dev.otectus.mcacrime.decree.DecreeService.inForce(level.getServer(), player.getUUID(),
+        UUID decree = dev.otectus.mcacrime.decree.DecreeService.enforceableHere(player,
                 jurisdiction).map(dev.otectus.mcacrime.decree.Decree::id).orElse(null);
         return evaluate(CrimeWorldData.get(level.getServer()), player.getUUID(),
-                jurisdiction, level.getGameTime(), Settings.fromConfig(),
+                jurisdiction, level.getGameTime(), settings,
                 LegalTarget.isEscapedPrisoner(player), LegalTarget.isHoldingCaptive(player),
-                CrimeState.isWanted(player), LegalTarget.isResistingArrest(player), maskWorn, decree);
+                wanted, LegalTarget.isResistingArrest(player), maskWorn, decree);
     }
 
     public static LegalDecision evaluate(MinecraftServer server, UUID offender,
                                          @Nullable CrimeCommunityKey jurisdiction, long now) {
         return evaluate(server == null ? null : CrimeWorldData.get(server), offender, jurisdiction,
-                now, Settings.fromConfig(), false, false);
+                now, Settings.resolve(server), false, false);
     }
 
     /** Reads the offender's indexed reports once, independent of their number of private cases. */

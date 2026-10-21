@@ -45,6 +45,11 @@ public final class ImbueDamage {
         return key;
     }
 
+    /** Whether a source is the passive Imbue transfer rather than a voluntary attack. */
+    public static boolean isImbue(@Nullable DamageSource source) {
+        return source != null && source.is(imbue());
+    }
+
     /**
      * The Imbue source in {@code level}, attributed to the captor.
      *

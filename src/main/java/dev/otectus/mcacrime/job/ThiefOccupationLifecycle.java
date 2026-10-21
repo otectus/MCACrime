@@ -111,7 +111,7 @@ public final class ThiefOccupationLifecycle {
     private static void reconcile(MinecraftServer server) {
         CrimeWorldData world = CrimeWorldData.get(server);
         WorldCriminalJobService jobs = WorldCriminalJobService.of(server);
-        boolean enabled = McaCrimeConfig.COMMON.enableThieves.get();
+        boolean enabled = dev.otectus.mcacrime.config.CrimeWorldSettings.resolve(server).thieves();
         for (CriminalVillagerRecord record : world.criminalVillagers()) {
             if (record.job() != CriminalJob.THIEF && record.status() != OccupationStatus.PENDING) {
                 continue;

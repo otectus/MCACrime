@@ -83,6 +83,26 @@ public final class CrimeDataComponents {
                     .persistent(KeyBinding.CODEC)
                     .networkSynchronized(KeyBinding.STREAM_CODEC));
 
+    /** The labels map on the wire, bounded at the ring's own ceiling like the contents. */
+    private static final StreamCodec<net.minecraft.network.RegistryFriendlyByteBuf, java.util.Map<java.util.UUID,
+            net.minecraft.network.chat.Component>> RING_LABELS_STREAM_CODEC = ByteBufCodecs.map(java.util.HashMap::new,
+            net.minecraft.core.UUIDUtil.STREAM_CODEC, net.minecraft.network.chat.ComponentSerialization.STREAM_CODEC,
+            dev.otectus.mcacrime.locks.KeyRingBindings.MAX_CAPACITY);
+
+    /**
+     * The custom names of the keys that went onto a ring, by lock (0.8.0).
+     *
+     * <p>A separate, optional component rather than a change to {@link #KEY_RING_CONTENTS}, so a ring
+     * saved before 0.8.0 decodes exactly as it did and simply has no names. A name comes back onto the key
+     * when it is taken off the ring; it is presentation, never compared or trusted for access.
+     */
+    public static final DeferredHolder<DataComponentType<?>, DataComponentType<java.util.Map<java.util.UUID,
+            net.minecraft.network.chat.Component>>> KEY_RING_LABELS = COMPONENTS.registerComponentType(
+                    "key_ring_labels", builder -> builder
+                            .persistent(Codec.unboundedMap(net.minecraft.core.UUIDUtil.STRING_CODEC,
+                                    net.minecraft.network.chat.ComponentSerialization.CODEC))
+                            .networkSynchronized(RING_LABELS_STREAM_CODEC));
+
     /** How many keys a fired mold can still cast. */
     public static final DeferredHolder<DataComponentType<?>, DataComponentType<Integer>>
             KEY_MOLD_QUALITY = COMPONENTS.registerComponentType("key_mold_quality", builder -> builder

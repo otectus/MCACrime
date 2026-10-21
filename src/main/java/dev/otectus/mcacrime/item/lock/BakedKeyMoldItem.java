@@ -83,7 +83,26 @@ public class BakedKeyMoldItem extends Item {
     public void appendHoverText(ItemStack stack, TooltipContext context, List<Component> tooltip,
                                 TooltipFlag flag) {
         super.appendHoverText(stack, context, tooltip, flag);
-        tooltip.add(Component.translatable("item.mcacrime.baked_key_mold.tooltip.quality", quality(stack))
-                .withStyle(ChatFormatting.DARK_GRAY));
+        // Whether the mold can cast, how many casts are left, and whose key (0.8.0). A mold with no
+        // recorded key says plainly that it cannot cast rather than showing a cast count.
+        java.util.Optional<dev.otectus.mcacrime.locks.KeyBinding> binding = KeyMoldItem.recorded(stack);
+        if (binding.isEmpty()) {
+            dev.otectus.mcacrime.help.TooltipHelp.append(tooltip, Component.translatable(
+                            "item.mcacrime.baked_key_mold.tooltip.blank"),
+                    List.of(Component.translatable("item.mcacrime.baked_key_mold.tooltip.blank.1")),
+                    dev.otectus.mcacrime.help.CrimeHelpTopic.KEYMOLD);
+            return;
+        }
+        if (quality(stack) <= 0) {
+            dev.otectus.mcacrime.help.TooltipHelp.append(tooltip, Component.translatable(
+                    "item.mcacrime.baked_key_mold.tooltip.spent", KeyItem.label(binding.get())), List.of(),
+                    dev.otectus.mcacrime.help.CrimeHelpTopic.KEYMOLD);
+            return;
+        }
+        dev.otectus.mcacrime.help.TooltipHelp.append(tooltip, Component.translatable(
+                        "item.mcacrime.baked_key_mold.tooltip.usable", quality(stack), KeyItem.label(binding.get())),
+                List.of(Component.translatable("item.mcacrime.baked_key_mold.tooltip.usable.1"),
+                        Component.translatable("item.mcacrime.baked_key_mold.tooltip.usable.2")),
+                dev.otectus.mcacrime.help.CrimeHelpTopic.KEYMOLD);
     }
 }

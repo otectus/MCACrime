@@ -64,6 +64,11 @@ public final class CrimeRecipes {
             KEY_MOLD_COPY = RECIPE_SERIALIZERS.register("key_mold_copy",
             () -> new SimpleCraftingRecipeSerializer<>(KeyMoldCopyRecipe::new));
 
+    /** A blank Key Mold plus a bound Key: the same impression as clay, for blank molds (0.8.0). */
+    public static final DeferredHolder<RecipeSerializer<?>, RecipeSerializer<dev.otectus.mcacrime.recipe.lock.KeyMoldImprintRecipe>>
+            KEY_MOLD_IMPRINT = RECIPE_SERIALIZERS.register("key_mold_imprint",
+            () -> new SimpleCraftingRecipeSerializer<>(dev.otectus.mcacrime.recipe.lock.KeyMoldImprintRecipe::new));
+
     /** A fired mold and an ingot into one cast key. */
     public static final DeferredHolder<RecipeSerializer<?>, RecipeSerializer<BakedKeyMoldCopyRecipe>>
             BAKED_KEY_MOLD_COPY = RECIPE_SERIALIZERS.register("baked_key_mold_copy",

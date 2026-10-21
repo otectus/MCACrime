@@ -58,11 +58,8 @@ public class BunkBlockEntity extends BlockEntity {
         }
         ServerPlayer player = server.getPlayerList().getPlayer(sleeper);
         boolean restored = BunkRespawnPolicy.release(player);
-        if (player == null) {
-            // Offline: drop the snapshot rather than keeping it for an arbitrary future login, which
-            // would mean a spawn point being rewritten hours after the sentence ended.
-            BunkRespawnPolicy.forget(sleeper);
-        }
+        // Offline players keep the persisted snapshot. Login reconciliation verifies that the same
+        // custody/sentence episode ended and that the bunk is still their exact respawn point.
         setSleeper(null);
         return restored;
     }

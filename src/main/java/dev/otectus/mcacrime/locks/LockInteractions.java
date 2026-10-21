@@ -63,6 +63,14 @@ public final class LockInteractions {
     public static Route route(boolean bindBreaker, boolean masterKey, boolean boundKeyMatches,
                               boolean blankKey, boolean lockpick, boolean holderBound,
                               boolean operatorAuthorised) {
+        return route(bindBreaker, masterKey, boundKeyMatches, blankKey, lockpick, holderBound,
+                !holderBound, operatorAuthorised);
+    }
+
+    /** Route variant that distinguishes an unbound holder from an authorized first-key window. */
+    public static Route route(boolean bindBreaker, boolean masterKey, boolean boundKeyMatches,
+                              boolean blankKey, boolean lockpick, boolean holderBound,
+                              boolean keyInitializable, boolean operatorAuthorised) {
         if (!holderBound) {
             return blankKey ? Route.BIND : Route.PASS;
         }
@@ -71,6 +79,9 @@ public final class LockInteractions {
         }
         if (masterKey && operatorAuthorised) {
             return Route.TOGGLE;
+        }
+        if (blankKey && keyInitializable) {
+            return Route.BIND;
         }
         if (boundKeyMatches) {
             return Route.TOGGLE;
@@ -157,10 +168,19 @@ public final class LockInteractions {
             return InteractionResult.PASS;
         }
         LockRecord lock = holder.lockId().map(data::lock).orElse(null);
+        if (lock == null && isKeyRing(stack) && !KeyRingBindings.hasRoom(stack, maxKeysPerRing())) {
+            // A full ring on a new lock used to do nothing at all (0.8.0): it is not a blank key, so the
+            // route passed silently. It is a ring that cannot take one more key, and it says so.
+            player.displayClientMessage(Component.translatable("mcacrime.lock.ring_full",
+                    KeyRingBindings.count(stack), maxKeysPerRing()), true);
+            return InteractionResult.FAIL;
+        }
         boolean operator = CreativeAuthorization.permits(player);
+        boolean keyInitializable = lock == null || LockService.mayInitializeKey(lock,
+                player.getUUID(), operator);
         Route route = route(isBindBreaker(stack), isMasterKey(stack),
                 presented(stack, lock).isPresent(), isBlankKey(stack), isLockpick(stack),
-                lock != null, operator);
+                lock != null, keyInitializable, operator);
         return switch (route) {
             case BIND -> bind(player, data, stack, holder, soundPos);
             case BREAK_BINDING -> breakBinding(player, data, holder, lock);
@@ -189,21 +209,52 @@ public final class LockInteractions {
             return InteractionResult.FAIL;
         }
         Optional<LockRecord> created = LockService.getOrCreate(data, target, player.getUUID());
+        // Every refusal below names its reason (0.8.0); before, each returned FAIL with nothing said.
         if (created.isEmpty()) {
+            player.displayClientMessage(Component.translatable("mcacrime.lock.unavailable"), true);
             return InteractionResult.FAIL;
         }
         LockRecord lock = created.get();
         if (!holder.bindLock(lock.lockId())) {
+            player.displayClientMessage(Component.translatable("mcacrime.lock.unavailable"), true);
+            return InteractionResult.FAIL;
+        }
+        boolean operator = CreativeAuthorization.permits(player);
+        if (!LockService.mayInitializeKey(lock, player.getUUID(), operator)) {
+            player.displayClientMessage(Component.translatable(lock.keyInitialized()
+                    ? "mcacrime.lock.first_key_issued" : "mcacrime.lock.first_key_owner_only"), true);
             return InteractionResult.FAIL;
         }
         String name = holder.lockDisplayName().getString();
         KeyBinding binding = KeyBinding.forLock(lock, name);
+        Optional<KeyBinding> priorRingBinding = Optional.empty();
         if (isKeyRing(stack)) {
-            if (!KeyRingBindings.add(stack, binding, maxKeysPerRing())) {
+            priorRingBinding = KeyRingBindings.find(stack, lock.lockId());
+            boolean written = KeyRingBindings.holds(stack, lock.lockId())
+                    ? KeyRingBindings.replace(stack, binding)
+                    : KeyRingBindings.add(stack, binding, maxKeysPerRing());
+            if (!written) {
+                player.displayClientMessage(Component.translatable("mcacrime.lock.ring_full",
+                        KeyRingBindings.count(stack), maxKeysPerRing()), true);
                 return InteractionResult.FAIL;
             }
         } else {
             binding.writeTo(stack);
+        }
+        if (LockService.initializeKey(data, lock.lockId(), player.getUUID(), operator).isEmpty()) {
+            // The server is the authority. Do not leave a usable key behind when the state commit
+            // refused (for example a frozen recovery store).
+            if (isKeyRing(stack)) {
+                if (priorRingBinding.isPresent()) {
+                    KeyRingBindings.replace(stack, priorRingBinding.get());
+                } else {
+                    KeyRingBindings.remove(stack, lock.lockId());
+                }
+            } else {
+                KeyBinding.clear(stack);
+            }
+            player.displayClientMessage(Component.translatable("mcacrime.lock.unavailable"), true);
+            return InteractionResult.FAIL;
         }
         holder.onLockChanged();
         CrimeSounds.keyBound(player);
@@ -257,19 +308,51 @@ public final class LockInteractions {
         if (lock == null || !(isKey(stack) || isKeyRing(stack))) {
             return InteractionResult.PASS;
         }
-        LockAccess.Decision decision = LockAccess.evaluate(lock,
-                isKey(stack) ? KeyBinding.read(stack).orElse(null)
-                        : KeyRingBindings.find(stack, lock.lockId()).orElse(null),
-                false);
-        player.displayClientMessage(Component.translatable(LockAccess.messageKey(decision)), true);
+        player.displayClientMessage(Component.translatable(refusalKey(lock, stack)), true);
         return InteractionResult.FAIL;
     }
 
     /**
-     * The lock-holding block entity at {@code pos}, with a door's upper half resolved to its lower.
+     * Which kind of wrong this key is for this lock (0.8.0), whether or not the lock is locked: a blank
+     * key the lock will not bind, a ring with no key for it, another lock's key, or this lock's key from
+     * before a rekey. Before 0.8.0 the answer came from {@link LockAccess#evaluate}, which says
+     * "Unlocked." for any key on an unlocked lock -- so a wrong key on an open door claimed to have
+     * opened it. Only what the server can establish is said, and never a binding or a code.
+     */
+    static String refusalKey(LockRecord lock, ItemStack stack) {
+        if (isKey(stack) && !KeyBinding.bound(stack)) {
+            return lock.keyInitialized() ? "mcacrime.lock.first_key_issued" : "mcacrime.lock.first_key_owner_only";
+        }
+        KeyBinding presented = isKey(stack) ? KeyBinding.read(stack).orElse(null)
+                : KeyRingBindings.find(stack, lock.lockId()).orElse(null);
+        return refusalKey(lock, presented, isKeyRing(stack));
+    }
+
+    /** The pure half of {@link #refusalKey(LockRecord, ItemStack)}, for a binding already read. */
+    public static String refusalKey(LockRecord lock, @Nullable KeyBinding presented, boolean fromRing) {
+        if (presented == null) {
+            return fromRing ? "mcacrime.lock.ring_no_key" : "mcacrime.lock.locked";
+        }
+        if (!presented.lockId().equals(lock.lockId())) {
+            return "mcacrime.lock.wrong_key";
+        }
+        if (!lock.accepts(presented.bindingRevision())) {
+            return "mcacrime.lock.rekeyed";
+        }
+        return LockAccess.messageKey(LockAccess.evaluate(lock, presented, false));
+    }
+
+    /**
+     * The lock holder answering for {@code pos}, with a door's upper half resolved to its lower.
      *
      * <p>Doors are the case that needs it: only the lower half carries the handle, and a player
      * clicking the top of a cell door is working the same lock.
+     *
+     * <p>A padlock hanging on a cell door that nobody has bound a key to answers for that door. The
+     * padlock's lock already targets the door's canonical position, so the position-based protection
+     * checks see it; this is what lets the interaction see it too, so a key or a pick used on the door
+     * from either side works the padlock rather than an empty handle. That is how a prisoner inside a
+     * generated cell, who cannot reach the padlock on the outside face, still picks it.
      */
     @Nullable
     public static LockHolder holderAt(@Nullable Level level, @Nullable BlockPos pos) {
@@ -294,12 +377,6 @@ public final class LockInteractions {
         if (own == null) {
             return null;
         }
-        // A padlock hanging on a cell door that nobody has bound a key to answers for that door. The
-        // padlock's lock already targets the door's canonical position, so the position-based
-        // protection checks see it; this is what lets the interaction see it too, so a key or a pick
-        // used on the door from either side works the padlock rather than an empty handle. That is
-        // how a prisoner inside a generated cell, who cannot reach the padlock on the outside face,
-        // still picks it.
         if (own.lockId().isPresent()
                 || !(level.getBlockState(lower).getBlock() instanceof net.minecraft.world.level.block.DoorBlock)) {
             return own;

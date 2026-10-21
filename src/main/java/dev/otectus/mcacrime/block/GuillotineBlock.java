@@ -42,8 +42,11 @@ import org.jetbrains.annotations.Nullable;
  * "who is in this device?" has no answer.
  *
  * <p>The block decides nothing about life and death. It toggles a blade, and the block entity asks
- * {@link ExecutionAuthorization} whether this device may act. With no live authorisation the blade
- * falls, the device opens, and the occupant walks away unharmed.
+ * {@link ExecutionAuthorization} whether this device may act. With no live authorisation for this fall
+ * the blade still drops and harms nobody; the occupant stays held in the pillory below until its boards
+ * are opened, which releases them physically and pardons nothing. A click on a pillory with the frame in
+ * hand places the frame (on the top face of the upper half) instead of working the boards, so placing
+ * it never releases whoever the pillory holds.
  */
 public class GuillotineBlock extends BaseEntityBlock {
 

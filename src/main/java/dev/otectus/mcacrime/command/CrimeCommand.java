@@ -15,6 +15,7 @@ import dev.otectus.mcacrime.captivity.CustodyRegistry;
 import dev.otectus.mcacrime.captivity.CustodyReleaseReason;
 import dev.otectus.mcacrime.captivity.CustodyService;
 import dev.otectus.mcacrime.api.McaCrimeApi;
+import dev.otectus.mcacrime.action.CrimeTargetResolver;
 import dev.otectus.mcacrime.action.CrimeActionIds;
 import dev.otectus.mcacrime.action.CrimeActionService;
 import dev.otectus.mcacrime.compat.McaCompat;
@@ -89,8 +90,6 @@ import java.util.UUID;
 @EventBusSubscriber(modid = McaCrime.MOD_ID)
 public final class CrimeCommand {
 
-    /** How far {@code /crime job} looks for the villager the operator means. */
-    private static final double JOB_TARGET_RADIUS = 8.0D;
 
     /** How far {@code /crime mugtest} will look for a thief. Wider than the job radius on purpose. */
     private static final double MUGTEST_RADIUS = 32.0D;
@@ -114,8 +113,19 @@ public final class CrimeCommand {
 
     private static void register(CommandDispatcher<CommandSourceStack> dispatcher) {
         dispatcher.register(Commands.literal("crime")
+                // A bare /crime used to be an "incomplete command" error; it now opens the help overview
+                // (0.8.0), which is read-only and open to everybody, the console included.
+                .executes(ctx -> CrimeHelpCommand.overview(ctx.getSource()))
+                .then(CrimeHelpCommand.tree())
                 .then(RecoveryCommand.tree())
                 .then(DecreeCommand.tree())
+                .then(dev.otectus.mcacrime.command.CrimeRulesCommand.build())
+                .then(Commands.literal("report").executes(c -> dev.otectus.mcacrime.report.PlayerCrimeReportService.openTargetedFromCommand(c.getSource().getPlayerOrException())))
+                .then(Commands.literal("reports").executes(c -> dev.otectus.mcacrime.report.PlayerCrimeReportService.openReports(c.getSource().getPlayerOrException())))
+                .then(Commands.literal("news")
+                        .then(Commands.literal("on").executes(c -> dev.otectus.mcacrime.news.CrimeNewsService.preference(c.getSource().getPlayerOrException(), true)))
+                        .then(Commands.literal("off").executes(c -> dev.otectus.mcacrime.news.CrimeNewsService.preference(c.getSource().getPlayerOrException(), false)))
+                        .then(Commands.literal("status").executes(c -> dev.otectus.mcacrime.news.CrimeNewsService.status(c.getSource().getPlayerOrException()))))
                 .then(Commands.literal("collectbounty").executes(ctx -> BountyService.collect(ctx.getSource().getPlayerOrException())))
                 .then(Commands.literal("karma")
                         .executes(CrimeCommand::karma))
@@ -201,13 +211,25 @@ public final class CrimeCommand {
                                         .executes(ctx -> assignJail(ctx, IntegerArgumentType.getInteger(ctx, "radius"))))))
                 .then(Commands.literal("job")
                         .requires(src -> src.hasPermission(3))
+                        // 0.8.0: an optional single-entity target. Without one the operator's aim decides
+                        // (CrimeTargetResolver); with one, exactly that entity is used, and from the
+                        // console a target is required.
                         .then(Commands.literal("assign")
                                 .then(Commands.literal("thief")
-                                        .executes(ctx -> assignJob(ctx, CriminalJob.THIEF)))
+                                        .executes(ctx -> assignJob(ctx, CriminalJob.THIEF, null))
+                                        .then(Commands.argument("target", EntityArgument.entity())
+                                                .executes(ctx -> assignJob(ctx, CriminalJob.THIEF,
+                                                        EntityArgument.getEntity(ctx, "target")))))
                                 .then(Commands.literal("fence")
-                                        .executes(ctx -> assignJob(ctx, CriminalJob.FENCE))))
+                                        .executes(ctx -> assignJob(ctx, CriminalJob.FENCE, null))
+                                        .then(Commands.argument("target", EntityArgument.entity())
+                                                .executes(ctx -> assignJob(ctx, CriminalJob.FENCE,
+                                                        EntityArgument.getEntity(ctx, "target"))))))
                         .then(Commands.literal("clear")
-                                .executes(ctx -> assignJob(ctx, CriminalJob.NONE)))
+                                .executes(ctx -> assignJob(ctx, CriminalJob.NONE, null))
+                                .then(Commands.argument("target", EntityArgument.entity())
+                                        .executes(ctx -> assignJob(ctx, CriminalJob.NONE,
+                                                EntityArgument.getEntity(ctx, "target")))))
                         .then(Commands.literal("list")
                                 .executes(CrimeCommand::listJobs)))
                 .then(Commands.literal("warrant")
@@ -386,7 +408,16 @@ public final class CrimeCommand {
                         .then(Commands.literal("jobs")
                                 .executes(CrimeCommand::debugJobs))
                         .then(Commands.literal("villager")
-                                .executes(CrimeCommand::debugVillager))
+                                .executes(ctx -> debugVillager(ctx, null))
+                                .then(Commands.argument("target", EntityArgument.entity())
+                                        .executes(ctx -> debugVillager(ctx, EntityArgument.getEntity(ctx, "target")))))
+                        // 0.8.0: what a command would target, and why, without changing anything.
+                        .then(Commands.literal("target")
+                                .executes(ctx -> debugTarget(ctx, null))
+                                .then(Commands.argument("target", EntityArgument.entity())
+                                        .executes(ctx -> debugTarget(ctx, EntityArgument.getEntity(ctx, "target")))))
+                        .then(Commands.literal("mca")
+                                .executes(CrimeCommand::debugMca))
                         .then(Commands.literal("custody")
                                 .executes(CrimeCommand::debugCustody))
                         .then(Commands.literal("actions")
@@ -475,19 +506,37 @@ public final class CrimeCommand {
     }
 
     /**
-     * What Townstead knows about one villager. With no target, the nearest MCA villager within eight
-     * blocks, which is the same reach {@code /crime debug witness} uses.
+     * What Townstead knows about one villager. With no target, the villager the operator is looking at,
+     * or the only one in view, under the same operator policy {@code /crime job} uses (0.8.0).
      */
     private static int debugTownsteadEntity(CommandContext<CommandSourceStack> ctx, @Nullable Entity selected)
             throws CommandSyntaxException {
         CommandSourceStack source = ctx.getSource();
-        Entity target = selected != null ? selected : nearestMcaVillager(source.getPlayerOrException(), 8);
+        Entity target = selected != null ? selected : operatorTarget(source, null,
+                CrimeTargetResolver.Policy.OPERATOR, "/crime debug townstead entity <target>");
         if (target == null) {
-            source.sendFailure(Component.literal("No villager nearby; name one with "
-                    + "/crime debug townstead entity <target>."));
             return 0;
         }
         return send(source, TownsteadDiagnostics.entity(target));
+    }
+
+    /**
+     * The entity an operator command means (0.8.0): the named one, checked for kind, or the resolver's
+     * choice -- aim first, then the single visible candidate. Null after the reason has been sent.
+     */
+    @Nullable
+    private static Entity operatorTarget(CommandSourceStack source, @Nullable Entity explicit,
+                                         CrimeTargetResolver.Policy policy, String usage) {
+        CrimeTargetResolver.Request request = CrimeTargetResolver.Request.of(policy,
+                CrimeTargetResolver.Need.MCA_VILLAGER, usage);
+        CrimeTargetResolver.Resolution resolution = explicit != null
+                ? CrimeTargetResolver.explicit(explicit, source.getEntity(), request)
+                : CrimeTargetResolver.implicit(source, request);
+        if (!resolution.selected()) {
+            source.sendFailure(resolution.explain());
+            return null;
+        }
+        return resolution.entity();
     }
 
     /** The building and settlement at the caller's feet, plus Townstead's calendar for this server. */
@@ -507,9 +556,10 @@ public final class CrimeCommand {
     private static int debugAwareness(CommandContext<CommandSourceStack> ctx, String mode, Entity selected)
             throws CommandSyntaxException {
         ServerPlayer player = ctx.getSource().getPlayerOrException();
-        Entity target = selected == null ? nearestMcaVillager(player, 8) : selected;
-        if (!(target instanceof LivingEntity villager) || !McaCompat.isMcaVillager(villager)) {
-            ctx.getSource().sendFailure(Component.literal("No MCA villager selected.")); return 0;
+        Entity target = operatorTarget(ctx.getSource(), selected, CrimeTargetResolver.Policy.OPERATOR,
+                "/crime debug " + mode + " <villager>");
+        if (!(target instanceof LivingEntity villager)) {
+            return 0;
         }
         var server = ctx.getSource().getServer();
         if (mode.equals("threat")) {
@@ -693,14 +743,19 @@ public final class CrimeCommand {
     }
 
     private static int validate(CommandContext<CommandSourceStack> ctx) {
-        // 0.7.7: whether MCA's own heart penalties are gated at all on this MCA build. A degraded answer
-        // is not a config problem, so it is reported beside the result rather than as one.
-        ctx.getSource().sendSuccess(() -> Component.literal("Native heart hooks: "
-                + dev.otectus.mcacrime.compat.mca.NativeJusticeCapabilities.status()
-                + "; applied=" + dev.otectus.mcacrime.mixin.mca.McaJusticeMixinPlugin.APPLIED
-                + "; degraded=" + dev.otectus.mcacrime.mixin.mca.McaJusticeMixinPlugin.DEGRADED
-                + "; thief combat policy=" + McaCrimeConfig.COMMON.thiefCombatPolicy.get()
-                + "; Reputation exemption=" + dev.otectus.mcacrime.compat.ReputationExemptionBridge.status()), false);
+        var server = ctx.getSource().getServer();
+        var news = dev.otectus.mcacrime.state.world.CrimeWorldData.get(server).news();
+        var reports = dev.otectus.mcacrime.report.PlayerReportData.get(server);
+        ctx.getSource().sendSuccess(() -> Component.literal("Village justice: settings="
+                + dev.otectus.mcacrime.config.CrimeWorldSettings.resolve(server).sourceName()
+                + "; combat=" + dev.otectus.mcacrime.compat.mca.NativeJusticeCapabilities.status()
+                + "; native hooks=" + dev.otectus.mcacrime.mixin.mca.McaJusticeMixinPlugin.APPLIED
+                + "; native degraded=" + dev.otectus.mcacrime.mixin.mca.McaJusticeMixinPlugin.DEGRADED
+                + "; mailbox=" + dev.otectus.mcacrime.compat.McaMailBridge.status()
+                + "; Reputation exemption=" + dev.otectus.mcacrime.compat.ReputationExemptionBridge.status()
+                + "; reports=" + reports.reportCount() + "; pending dispatch=" + reports.pendingDispatchCount()
+                + "; news facts=" + news.facts.size() + "; retained envelopes=" + news.envelopes.size()
+                + "; dropped optional news=" + news.dropped), false);
         ctx.getSource().sendSuccess(() -> Component.literal("MCA Capitals: " + dev.otectus.mcacrime.compat.CapitalsBridge.status()
                 + "; royal decrees " + dev.otectus.mcacrime.compat.CapitalsDiagnostics.decreeState()), false);
         List<String> problems = ConfigValidator.validateCurrentConfig();
@@ -843,24 +898,101 @@ public final class CrimeCommand {
 
     // --- op debug: exercises the whole McaCompat adapter end-to-end ---
 
-    private static int debugVillager(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
-        ServerPlayer player = ctx.getSource().getPlayerOrException();
-        Entity target = nearestMcaVillager(player, 10.0D);
+    private static int debugVillager(CommandContext<CommandSourceStack> ctx, @Nullable Entity explicit) {
+        CommandSourceStack source = ctx.getSource();
+        Entity target = operatorTarget(source, explicit, CrimeTargetResolver.Policy.DIAGNOSTIC,
+                "/crime debug villager <target>");
         if (target == null) {
-            ctx.getSource().sendFailure(Component.translatable("mcacrime.command.debug.none", 10));
             return 0;
         }
         String profession = McaCompat.getProfessionId(target).map(net.minecraft.resources.ResourceLocation::toString).orElse("<none>");
         String villageId = McaCompat.getHomeVillageId(target).stream().mapToObj(Integer::toString).findFirst().orElse("<none>");
+        // Hearts are a relationship with one player, so the line needs a player to ask about; from the
+        // console it says so instead of printing a zero that would read as a real value.
+        String hearts = source.getEntity() instanceof ServerPlayer player
+                ? Integer.toString(McaCompat.getHearts(player, target)) : "<run as a player>";
         String message = "MCA villager debug:"
                 + "\n  uuid=" + McaCompat.getVillagerUuid(target)
                 + "\n  name=" + McaCompat.getVillagerDisplayName(target).getString()
                 + "\n  profession=" + profession
+                + "\n  adult=" + McaCompat.isAdultVillager(target)
                 + "\n  isGuard=" + McaCompat.isGuard(target)
-                + "\n  hearts=" + McaCompat.getHearts(player, target)
+                + "\n  hearts=" + hearts
                 + "\n  villageId=" + villageId;
-        ctx.getSource().sendSuccess(() -> Component.literal(message), false);
+        source.sendSuccess(() -> Component.literal(message), false);
         return 1;
+    }
+
+    /**
+     * What a command would target from here, and why (0.8.0). Read-only: names the selection mode, the
+     * entity's registry id, the distance and sight line, MCA's identity answer and binding, and the
+     * outcome each policy reaches -- the facts behind a "no villager" report, without any case data.
+     */
+    private static int debugTarget(CommandContext<CommandSourceStack> ctx, @Nullable Entity explicit) {
+        CommandSourceStack source = ctx.getSource();
+        ServerPlayer player = source.getEntity() instanceof ServerPlayer p ? p : null;
+        var operator = CrimeTargetResolver.Request.of(CrimeTargetResolver.Policy.OPERATOR,
+                CrimeTargetResolver.Need.MCA_VILLAGER, "/crime debug target <target>");
+        var gameplay = CrimeTargetResolver.Request.of(CrimeTargetResolver.Policy.GAMEPLAY,
+                CrimeTargetResolver.Need.MCA_VILLAGER, "/crime mug");
+        var responder = CrimeTargetResolver.Request.of(CrimeTargetResolver.Policy.GAMEPLAY,
+                CrimeTargetResolver.Need.RESPONDER, "/crime report");
+        CrimeTargetResolver.Resolution chosen = explicit != null
+                ? CrimeTargetResolver.explicit(explicit, source.getEntity(), operator)
+                : CrimeTargetResolver.implicit(source, operator);
+        source.sendSuccess(() -> Component.translatable("mcacrime.target.debug.header",
+                CrimeTargetResolver.Policy.GAMEPLAY.rangeText(), CrimeTargetResolver.Policy.OPERATOR.rangeText()), false);
+        source.sendSuccess(() -> Component.translatable("mcacrime.target.debug.selection",
+                chosen.mode().id(), chosen.outcome().id()), false);
+        Entity entity = chosen.entity();
+        if (entity != null) {
+            String type = String.valueOf(net.minecraft.core.registries.BuiltInRegistries.ENTITY_TYPE.getKey(entity.getType()));
+            String distance = chosen.distance() < 0 ? "-" : String.format(Locale.ROOT, "%.2f", chosen.distance());
+            String sight = player == null || player.level() != entity.level() ? "-"
+                    : Boolean.toString(player.hasLineOfSight(entity));
+            source.sendSuccess(() -> Component.translatable("mcacrime.target.debug.entity", type,
+                    entity.getDisplayName(), distance, sight), false);
+            source.sendSuccess(() -> Component.translatable("mcacrime.target.debug.identity",
+                    McaCompat.isMcaVillager(entity), McaCompat.isMcaVillagerLike(entity),
+                    McaCompat.isAdultVillager(entity),
+                    dev.otectus.mcacrime.detect.EntitySelectors.isResponder(entity)), false);
+        }
+        source.sendSuccess(() -> Component.literal("binding: " + dev.otectus.mcacrime.compat.mca.McaBinding.describe()), false);
+        if (player != null) {
+            var mug = CrimeTargetResolver.resolve(player, gameplay);
+            var report = CrimeTargetResolver.resolve(player, responder);
+            source.sendSuccess(() -> Component.translatable("mcacrime.target.debug.gameplay",
+                    mug.outcome().id(), report.outcome().id()), false);
+            if (explicit == null && !chosen.selected()) {
+                for (Component line : CrimeTargetResolver.describeNearby(player, operator)) {
+                    source.sendSuccess(() -> line, false);
+                }
+            }
+        }
+        Component reason = chosen.explain();
+        if (reason != null) {
+            source.sendSuccess(() -> Component.translatable("mcacrime.target.debug.rejection", reason), false);
+        }
+        return chosen.selected() ? 1 : 0;
+    }
+
+    /**
+     * MCA's binding in full (0.8.0): the package root, whether villager identity bound, and every
+     * missing member, so "recognition unavailable" can be traced to a version without reading logs.
+     */
+    private static int debugMca(CommandContext<CommandSourceStack> ctx) {
+        CommandSourceStack source = ctx.getSource();
+        var resolution = dev.otectus.mcacrime.compat.mca.McaHandles.resolution();
+        source.sendSuccess(() -> Component.literal("MCA binding: status=" + resolution.status()
+                + " root=" + (resolution.root() == null ? "<none>" : resolution.root())), false);
+        source.sendSuccess(() -> Component.literal("  villager recognition: "
+                + (McaCompat.villagerRecognitionAvailable() ? "available" : "UNAVAILABLE")), false);
+        source.sendSuccess(() -> Component.literal("  missing required: " + resolution.unresolvedRequired()), false);
+        source.sendSuccess(() -> Component.literal("  missing optional: " + resolution.unresolvedOptional()), false);
+        source.sendSuccess(() -> Component.literal("  thief occupation members missing: "
+                + resolution.capabilityMissing(dev.otectus.mcacrime.compat.mca.McaBinding.THIEF_OCCUPATION_CAPABILITY)), false);
+        source.sendSuccess(() -> Component.literal("  relationship api: " + McaCompat.isRelationshipApiAvailable()), false);
+        return McaCompat.villagerRecognitionAvailable() ? 1 : 0;
     }
 
     /**
@@ -1382,8 +1514,12 @@ public final class CrimeCommand {
             sb.append("\n  asCaptive=").append(rec == null ? "-"
                     : (rec.isLawful() ? "lawful" : "kidnap") + " by " + rec.getOwner().type());
         }
-        Entity villager = nearestMcaVillager(player, 10.0D);
-        if (villager != null) {
+        CrimeTargetResolver.Resolution aimed = CrimeTargetResolver.resolve(player, CrimeTargetResolver.Request.of(
+                CrimeTargetResolver.Policy.DIAGNOSTIC, CrimeTargetResolver.Need.MCA_VILLAGER, "/crime debug villager <target>"));
+        Entity villager = aimed.entity();
+        if (!aimed.selected()) {
+            sb.append("\n  villager: ").append(aimed.outcome().id());
+        } else {
             sb.append("\n  relationshipApi=").append(McaCompat.isRelationshipApiAvailable());
             sb.append("\n  villager.spouse=").append(McaCompat.getSpouseUuid(villager).map(UUID::toString).orElse("-"));
             sb.append("\n  villager.parents=").append(McaCompat.getParentUuids(villager).size());
@@ -1399,19 +1535,21 @@ public final class CrimeCommand {
     // --- criminal jobs (0.5.1) ---
 
     /**
-     * Assigns or clears a criminal job on the nearest MCA villager.
+     * Assigns or clears a criminal job on the villager the operator means.
      *
-     * <p>The target is the nearest villager within 8 blocks rather than an entity selector, because
-     * the thing an operator actually wants to say is "this one, the one I am looking at", and a
-     * selector for an MCA villager needs a UUID nobody has to hand.
+     * <p>0.8.0: "the one I am looking at" is now what the code does, not only what this comment used to
+     * say. The resolver takes the villager under the crosshair within eight blocks; with nothing aimed,
+     * the only MCA villager in clear view in that range; with several, it asks. A named target is used
+     * exactly, from anywhere, including the console. The 0.7.x rule -- the nearest villager in an
+     * inflated box -- changed a bystander behind the operator, a villager behind a wall, or one more than
+     * ten blocks away in the box's corner.
      */
-    private static int assignJob(CommandContext<CommandSourceStack> ctx, CriminalJob job)
-            throws CommandSyntaxException {
-        ServerPlayer player = ctx.getSource().getPlayerOrException();
-        Entity villager = nearestMcaVillager(player, JOB_TARGET_RADIUS);
+    private static int assignJob(CommandContext<CommandSourceStack> ctx, CriminalJob job,
+                                 @Nullable Entity explicit) throws CommandSyntaxException {
+        String usage = job == CriminalJob.NONE ? "/crime job clear <target>"
+                : "/crime job assign " + job.id() + " <target>";
+        Entity villager = operatorTarget(ctx.getSource(), explicit, CrimeTargetResolver.Policy.OPERATOR, usage);
         if (villager == null) {
-            ctx.getSource().sendFailure(Component.translatable("mcacrime.command.job.none_nearby",
-                    (int) JOB_TARGET_RADIUS));
             return 0;
         }
         MinecraftServer server = ctx.getSource().getServer();
@@ -1567,7 +1705,7 @@ public final class CrimeCommand {
         StringBuilder sb = new StringBuilder("Thief debug:");
         sb.append("\n  tracked=").append(controllers.size())
                 .append(" muggings=").append(sessions.size())
-                .append(" enableThieves=").append(McaCrimeConfig.COMMON.enableThieves.get());
+                .append(" enableThieves=").append(dev.otectus.mcacrime.config.CrimeWorldSettings.resolve(ctx.getSource().getServer()).thieves());
         for (ThiefBehaviorController controller : controllers) {
             sb.append("\n  ").append(controller.thiefId())
                     .append(" ").append(controller.state())
@@ -1619,11 +1757,9 @@ public final class CrimeCommand {
     private static int debugThief(CommandContext<CommandSourceStack> ctx, @Nullable Entity explicit)
             throws CommandSyntaxException {
         CommandSourceStack source = ctx.getSource();
-        Entity villager = explicit != null ? explicit
-                : nearestMcaVillager(source.getPlayerOrException(), JOB_TARGET_RADIUS);
+        Entity villager = operatorTarget(source, explicit, CrimeTargetResolver.Policy.OPERATOR,
+                "/crime debug thief <villager>");
         if (villager == null) {
-            source.sendFailure(Component.literal("No MCA villager within " + (int) JOB_TARGET_RADIUS
-                    + " blocks; name one with /crime debug thief <villager>"));
             return 0;
         }
         WorldCriminalJobService jobs = WorldCriminalJobService.of(source.getServer());
@@ -1676,15 +1812,18 @@ public final class CrimeCommand {
         }
         StringBuilder sb = new StringBuilder("Criminal jobs debug:");
         sb.append("\n  thieves=").append(thieves).append(" fences=").append(fences);
-        sb.append("\n  enableThieves=").append(McaCrimeConfig.COMMON.enableThieves.get())
+        sb.append("\n  enableThieves=").append(dev.otectus.mcacrime.config.CrimeWorldSettings.resolve(ctx.getSource().getServer()).thieves())
                 .append(" enableFences=").append(McaCrimeConfig.COMMON.enableFences.get());
         sb.append("\n  presentThief=").append(McaCrimeConfig.COMMON.presentThiefAsMcaProfession.get())
                 .append(" presentFence=").append(McaCrimeConfig.COMMON.presentFenceAsMcaProfession.get());
-        Entity villager = nearestMcaVillager(player, JOB_TARGET_RADIUS);
-        if (villager == null) {
-            sb.append("\n  nearest: none within ").append((int) JOB_TARGET_RADIUS).append(" blocks");
+        CrimeTargetResolver.Resolution aimed = CrimeTargetResolver.resolve(player, CrimeTargetResolver.Request.of(
+                CrimeTargetResolver.Policy.OPERATOR, CrimeTargetResolver.Need.MCA_VILLAGER, "/crime debug thief <villager>"));
+        Entity villager = aimed.entity();
+        if (!aimed.selected()) {
+            sb.append("\n  target: ").append(aimed.outcome().id()).append(" (")
+                    .append(aimed.request().policy().rangeText()).append(" blocks)");
         } else {
-            sb.append("\n  nearest=").append(villager.getUUID())
+            sb.append("\n  target=").append(villager.getUUID())
                     .append(" job=").append(jobs.get(villager.getUUID()).id())
                     .append(" adult=").append(McaCompat.isAdultVillager(villager))
                     .append(" law=").append(McaCompat.isGuard(villager) || McaCompat.isArcher(villager))
@@ -1694,14 +1833,6 @@ public final class CrimeCommand {
         String message = sb.toString();
         ctx.getSource().sendSuccess(() -> Component.literal(message), false);
         return thieves + fences;
-    }
-
-    private static Entity nearestMcaVillager(ServerPlayer player, double radius) {
-        AABB box = player.getBoundingBox().inflate(radius);
-        List<Entity> candidates = player.level().getEntities(player, box, McaCompat::isMcaVillager);
-        return candidates.stream()
-                .min(Comparator.comparingDouble(e -> e.distanceToSqr(player)))
-                .orElse(null);
     }
 
     /** A band's localized name, tinted to its band color for command output. */
@@ -1895,14 +2026,18 @@ public final class CrimeCommand {
     }
 
     /**
-     * The operator's own act: start a guard-carried execution, or carry one out where no device
-     * exists.
+     * The operator's own act: start a guard-carried execution through the device and escort path.
      *
-     * <p>Never a shortcut past the device. With an assigned site and a standing guillotine in range
-     * this begins the ordinary escort, which arms an order at the device and waits out the ceremony
-     * window like every other execution. Only when there is no device at all does it act directly,
-     * and then it says so — which is the operator overriding, visibly, rather than the mod quietly
-     * killing somebody.
+     * <p>Never a shortcut past the device and never a kill command. With an assigned execution site and
+     * a standing guillotine in range this begins the ordinary escort, which places the prisoner in the
+     * device, arms an order and waits out the ceremony like every other execution. With no usable site
+     * the sentence stands, the prisoner stays in custody, and the operator is told so. (Before 0.8.0
+     * this comment also described a direct execution where no device existed; the body has not done
+     * that since the device requirement became absolute, and the comment now says what the code does.)
+     *
+     * <p>The walker is the command's own living source when it has one -- an operator in game -- and
+     * otherwise the nearest available guard to the prisoner, which is what makes the command usable
+     * from the console. Every refusal names its reason.
      */
     private static int capitalExecute(CommandContext<CommandSourceStack> ctx)
             throws CommandSyntaxException {
@@ -1919,26 +2054,52 @@ public final class CrimeCommand {
             return 0;
         }
         var level = captive.level() instanceof net.minecraft.server.level.ServerLevel lvl ? lvl : null;
-        var executor = ctx.getSource().getEntity() instanceof net.minecraft.world.entity.LivingEntity actor
-                ? actor : null;
-        if (level != null && executor != null) {
-            var outcome = dev.otectus.mcacrime.enforcement.CondemnedEscortService.begin(level, executor,
-                    captive);
-            if (outcome == dev.otectus.mcacrime.enforcement.CondemnedEscortService.Outcome.BEGUN) {
+        net.minecraft.world.entity.LivingEntity executor =
+                ctx.getSource().getEntity() instanceof net.minecraft.world.entity.LivingEntity actor ? actor
+                        : level == null ? null : nearestAvailableGuard(level, captive);
+        if (level == null || executor == null) {
+            ctx.getSource().sendFailure(Component.translatable("mcacrime.capital.escort.no_guard",
+                    target.getDisplayName()));
+            return 0;
+        }
+        var outcome = dev.otectus.mcacrime.enforcement.CondemnedEscortService.begin(level, executor, captive);
+        switch (outcome) {
+            case BEGUN -> {
                 ctx.getSource().sendSuccess(() -> Component.translatable("mcacrime.capital.escort.begun",
                         target.getDisplayName()), true);
                 return 1;
             }
-            if (outcome != dev.otectus.mcacrime.enforcement.CondemnedEscortService.Outcome.NO_SITE) {
-                ctx.getSource().sendFailure(Component.translatable("mcacrime.capital.refused"));
-                return 0;
-            }
+            case NO_SITE -> ctx.getSource().sendFailure(Component.translatable("mcacrime.capital.escort.no_site",
+                    target.getDisplayName()));
+            case NOT_PERMITTED -> ctx.getSource().sendFailure(Component.translatable(
+                    !dev.otectus.mcacrime.detention.ExecutionAuthorization.featureEnabled()
+                            ? "mcacrime.execution.refused.disabled"
+                            : !dev.otectus.mcacrime.detention.ExecutionAuthorization.guardMayExecute()
+                                    ? "mcacrime.capital.escort.guards_forbidden"
+                                    : "mcacrime.readonly"));
+            case ALREADY_ESCORTING -> ctx.getSource().sendFailure(Component.translatable(
+                    "mcacrime.capital.escort.already", target.getDisplayName()));
+            case NOT_CONDEMNED -> ctx.getSource().sendFailure(Component.translatable(
+                    "mcacrime.capital.escort.not_in_custody", target.getDisplayName()));
+            case SITE_RESERVED -> ctx.getSource().sendFailure(Component.translatable(
+                    "mcacrime.capital.escort.site_reserved"));
+            case NO_CLAIM -> ctx.getSource().sendFailure(Component.translatable(
+                    "mcacrime.capital.escort.walker_busy", executor.getDisplayName()));
         }
-        // No assigned site or no device: the sentence stands and the prisoner stays in custody. The
-        // operator is told plainly rather than left wondering whether anything happened.
-        ctx.getSource().sendFailure(Component.translatable("mcacrime.capital.escort.no_site",
-                target.getDisplayName()));
         return 0;
+    }
+
+    /** The nearest guard able to respond, within sixteen blocks of the prisoner, for a console order. */
+    @Nullable
+    private static net.minecraft.world.entity.LivingEntity nearestAvailableGuard(ServerLevel level,
+                                                                                 net.minecraft.world.entity.LivingEntity captive) {
+        return level.getEntitiesOfClass(net.minecraft.world.entity.LivingEntity.class,
+                        captive.getBoundingBox().inflate(16.0D),
+                        entity -> entity != captive && entity.isAlive()
+                                && dev.otectus.mcacrime.detect.EntitySelectors.isAvailableResponder(entity))
+                .stream()
+                .min(Comparator.comparingDouble(entity -> entity.distanceToSqr(captive)))
+                .orElse(null);
     }
 
     private static int reportClemency(CommandContext<CommandSourceStack> ctx,

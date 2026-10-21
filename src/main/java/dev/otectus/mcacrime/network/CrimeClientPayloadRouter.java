@@ -68,6 +68,10 @@ public final class CrimeClientPayloadRouter {
         handler.onWeaponPolicy(payload);
     }
 
+    public static void handleServerRules(ServerRulesS2CPacket payload, IPayloadContext context) {
+        handler.onServerRules(payload);
+    }
+
     public static void handleCriminalJob(CriminalJobSyncS2CPacket payload, IPayloadContext context) {
         handler.onCriminalJob(payload);
     }
@@ -120,6 +124,14 @@ public final class CrimeClientPayloadRouter {
         handler.onDecreeMenu(payload);
     }
 
+    public static void handleReportMenu(ReportMenuS2CPacket payload, IPayloadContext context) {
+        handler.onReportMenu(payload);
+    }
+
+    public static void handlePlayerReports(PlayerReportsS2CPacket payload, IPayloadContext context) {
+        handler.onPlayerReports(payload);
+    }
+
     /** What the client side supplies. Every method defaults to doing nothing, which is what a server does. */
     public interface Handler {
 
@@ -153,6 +165,9 @@ public final class CrimeClientPayloadRouter {
 
 
         default void onWeaponPolicy(WeaponPolicyS2CPacket payload) {
+        }
+
+        default void onServerRules(ServerRulesS2CPacket payload) {
         }
 
         default void onCriminalJob(CriminalJobSyncS2CPacket payload) {
@@ -192,6 +207,12 @@ public final class CrimeClientPayloadRouter {
         }
 
         default void onDecreeMenu(DecreeMenuS2CPacket payload) {
+        }
+
+        default void onReportMenu(ReportMenuS2CPacket payload) {
+        }
+
+        default void onPlayerReports(PlayerReportsS2CPacket payload) {
         }
     }
 }

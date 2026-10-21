@@ -9,6 +9,8 @@ import net.minecraft.world.level.Level;
 
 import org.jetbrains.annotations.Nullable;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -75,8 +77,26 @@ public final class LockService {
         if (data == null || dimension == null || pos == null) {
             return Optional.empty();
         }
-        LockTarget target = LockTargetNormalizer.forBlock(level, dimension, pos);
-        return at(data, target);
+        BlockPos partner = LockTargetNormalizer.partner(level, pos);
+        LockTarget target = LockTargetNormalizer.canonical(dimension, pos, partner);
+        Optional<LockRecord> canonical = at(data, target);
+        if (canonical.isPresent() || partner == null) {
+            return canonical;
+        }
+
+        // A single chest can acquire a partner whose coordinate sorts before its own. Its stored
+        // target is then the old single position while both live halves normalize to the new one.
+        // Resolve both physical members and move the one lock to the new canonical coordinate.
+        List<LockRecord> members = atBlockMembers(data, dimension, pos, partner);
+        if (members.size() == 1) {
+            return moveTo(data, members.get(0).lockId(), target);
+        }
+        if (members.size() > 1) {
+            // Placement validation rejects this state. If an old/corrupt world already contains it,
+            // fail closed by reporting a locked record rather than making the whole group look open.
+            return members.stream().filter(LockRecord::locked).findFirst().or(() -> members.stream().findFirst());
+        }
+        return Optional.empty();
     }
 
     /** The lock on an already-canonical target. */
@@ -151,6 +171,33 @@ public final class LockService {
         return existing.isPresent() ? existing : create(data, target, owner);
     }
 
+    /**
+     * Records that the first key for the current binding revision has been issued.
+     *
+     * <p>This is a one-way transition, authorized by the persisted owner or by operator authority.
+     * It is deliberately separate from key copying: an established lock never becomes copyable just
+     * because somebody presents a blank key. Rekeying opens a fresh initialization window.
+     */
+    public static Optional<LockRecord> initializeKey(@Nullable CrimeWorldData data,
+                                                     @Nullable UUID lockId,
+                                                     @Nullable UUID actor,
+                                                     boolean operatorAuthorised) {
+        LockRecord lock = data == null ? null : data.lock(lockId);
+        if (lock == null || lock.keyInitialized()
+                || (!operatorAuthorised && lock.ownerId().filter(owner -> owner.equals(actor)).isEmpty())) {
+            return Optional.empty();
+        }
+        return commit(data, lock.markKeyInitialized());
+    }
+
+    /** Whether this actor may consume the current first-key initialization window. */
+    public static boolean mayInitializeKey(@Nullable LockRecord lock, @Nullable UUID actor,
+                                           boolean operatorAuthorised) {
+        return lock != null && !lock.keyInitialized()
+                && (operatorAuthorised
+                || lock.ownerId().filter(owner -> owner.equals(actor)).isPresent());
+    }
+
     /** Commits a changed record. Every mutator routes through this one write. */
     private static Optional<LockRecord> commit(@Nullable CrimeWorldData data, @Nullable LockRecord lock) {
         if (data == null || lock == null || !data.putLock(lock)) {
@@ -206,6 +253,49 @@ public final class LockService {
             return Optional.empty(); // somebody else's group; one owner per group
         }
         return commit(data, lock.movedTo(target));
+    }
+
+    /** Every distinct lock stored on either exact block position, without canonicalizing either. */
+    public static List<LockRecord> atBlockMembers(@Nullable CrimeWorldData data,
+                                                  @Nullable ResourceLocation dimension,
+                                                  @Nullable BlockPos first,
+                                                  @Nullable BlockPos second) {
+        Map<UUID, LockRecord> found = new LinkedHashMap<>();
+        if (data == null || dimension == null) {
+            return List.of();
+        }
+        for (LockRecord record : data.locks()) {
+            if (record.target().kind() != LockTarget.Kind.BLOCK
+                    || !dimension.equals(record.target().dimension())) {
+                continue;
+            }
+            BlockPos stored = record.target().pos();
+            if ((first != null && first.equals(stored)) || (second != null && second.equals(stored))) {
+                found.put(record.lockId(), record);
+            }
+        }
+        return List.copyOf(found.values());
+    }
+
+    /**
+     * Moves the sole lock on a two-block group to its current canonical coordinate.
+     *
+     * @return empty when the group is unowned or conflicting; a conflict is never silently merged
+     */
+    public static Optional<LockRecord> reconcileBlockGroup(@Nullable CrimeWorldData data,
+                                                           @Nullable ResourceLocation dimension,
+                                                           @Nullable BlockPos first,
+                                                           @Nullable BlockPos second) {
+        List<LockRecord> members = atBlockMembers(data, dimension, first, second);
+        if (members.size() != 1 || dimension == null || first == null) {
+            return Optional.empty();
+        }
+        LockTarget canonical = LockTargetNormalizer.canonical(dimension, first, second);
+        LockRecord lock = members.get(0);
+        if (LockTargetNormalizer.sameGroup(lock.target(), canonical)) {
+            return Optional.of(lock);
+        }
+        return moveTo(data, lock.lockId(), canonical);
     }
 
     /**

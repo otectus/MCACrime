@@ -474,6 +474,13 @@ static ServiceRefusalView       serviceRefusal(ServerLevel level, Entity provide
                                                UUID subject, String serviceKind);
 static List<CivicContractView>  civicContracts(MinecraftServer server, UUID offender);
 
+// jurisdiction policy extension (0.7.5); see JurisdictionPolicyApi below
+static void registerJurisdictionPolicyProvider(MinecraftServer server, JurisdictionPolicyProvider provider);
+static void unregisterJurisdictionPolicyProvider(MinecraftServer server, JurisdictionPolicyProvider provider);
+static Optional<JurisdictionSnapshot> jurisdictionPolicy(MinecraftServer server, CrimeCommunityKey community,
+                                                         @Nullable UUID subject);
+static boolean mayEnforce(LivingEntity responder, LivingEntity target);
+
 // royal decrees through MCA Capitals (0.7.8)
 static List<DecreeView> decrees(MinecraftServer server, UUID offender);
 ```
@@ -549,6 +556,73 @@ keep working:
 Every method reports rather than throws: `Result` is `ACCEPTED`, `TOO_LATE`, `BAD_ID`, `DUPLICATE`,
 `FULL` or `INVALID`, with `accepted()` for the happy path. A companion that fails to register should
 log one line and keep working, not take the game down during setup.
+
+## `InstitutionalServiceApi` (0.7.5)
+
+A private, authenticated policy read for a paid institutional service, such as a recognised
+workshop commission offered by Ultima Kingdoms. It is separate from `serviceRefusal`: it never gates
+food or shelter, does not consult personal victim memory or global standing, and answers
+*unavailable* instead of *allowed* whenever MCA: Crime cannot establish the answer.
+
+```java
+public static WorkshopAccess workshop(ServerPlayer player, Entity giver);
+
+public record WorkshopAccess(String status, String reason, String fingerprint,
+                             List<CivicContractView> restitution);
+public static final String ALLOWED = "allowed", REFUSED = "refused", UNAVAILABLE = "unavailable";
+public static final int MAX_RESTITUTION = 8;
+```
+
+- **No arbitrary subject.** The subject is the online player making the request, the giver must be
+  the same loaded, living entity within 8 blocks, and the community is resolved from that giver at
+  call time. The facade is not a directory of other players' cases.
+- **Public knowledge only.** A case refuses the service when it is unresolved or escaped *and*
+  public in the giver's community under the same rule `publicView` uses — the per-world observation
+  setting and reports accepted in that community. Resolving every such case restores access at once.
+- **A fingerprint to re-check.** `fingerprint` binds the relevant case ids and resolution revisions,
+  the policy flags, the community and the returned restitution rows. A caller compares it with a
+  fresh result before committing a paid transaction.
+- **Restitution is the requester's own.** At most eight of the requester's completed local service
+  contracts, newest first.
+
+Townstead integration and `townstead.serviceRestrictions` must both be on; otherwise the answer is
+`unavailable` with reason `service_disabled`.
+
+## `JurisdictionPolicyApi` (0.7.5)
+
+An additive extension through which one political or territorial mod supplies immutable
+sovereignty, control and treaty *evidence* for a village community. MCA: Crime alone decides what
+that evidence means legally.
+
+```java
+public static void register(MinecraftServer server, JurisdictionPolicyProvider provider);
+public static void unregister(MinecraftServer server, JurisdictionPolicyProvider provider);
+public static Optional<JurisdictionSnapshot> policy(MinecraftServer server, CrimeCommunityKey community,
+                                                    @Nullable UUID subject);
+public static boolean mayEnforce(LivingEntity responder, LivingEntity target);
+```
+
+`JurisdictionPolicyProvider` (in `api.jurisdiction`) answers `resolve(server, community, subject)`
+and, optionally, `jurisdiction(server, responder)` for responders that are not MCA guards.
+`JurisdictionSnapshot` carries the community, jurisdiction and law-profile ids, the recognised
+sovereign and physical controller, `CivilLaw`, `Cooperation`, the occupied/contested/safe-conduct
+flags, a sequence number, an `Availability` and an explanation.
+
+- **One provider per server**, registered and removed on the server thread. A second registration
+  is refused.
+- **Conservative interpretation.** For an MCA guard's challenge, missing, suspended or unavailable
+  evidence changes nothing. Occupation never switches local civilian law off. `Cooperation.LOCAL_ONLY`
+  stops reports from other communities counting. Safe conduct with remote-wanted immunity suppresses
+  only a standalone remote Wanted pursuit, never a local case.
+- **`mayEnforce`** answers whether a responder has a Crime-owned local basis to use force against a
+  target. Occupation, political hostility or a global Heat value alone is never enough. Unless the
+  evidence is available with `Cooperation.CONFIGURED`, only reports from the responder's own
+  community count and a Wanted flag is ignored. Callers must still apply server protection,
+  friendly-fire and attack-capability rules. From 0.7.8 a royal decree in force in the responder's own
+  community is a local basis too, exactly like a local case; a decree of any other community is not.
+  From 0.7.9 that decree counts only while the target is inside that community: once they leave it,
+  the decree gives the responder no basis until they return.
+- A provider that throws or answers for a different community is treated as absent.
 
 ## `CrimeDialogueHooks` — voicing this mod's lines (0.7.5)
 

@@ -169,6 +169,55 @@ public class BunkBlock extends BaseEntityBlock {
                 : pos.relative(state.getValue(FACING));
     }
 
+    /**
+     * NeoForge's sleeping hooks must classify this custom two-block bed as a bed.
+     *
+     * <p>Not optional on 1.21.1: {@code LivingEntity.checkBedExists} asks {@code isBed} every tick and
+     * wakes a sleeper whose block says no, so without this a bunk could never be slept in.
+     */
+    @Override
+    public boolean isBed(BlockState state, BlockGetter level, BlockPos pos, @Nullable LivingEntity sleeper) {
+        return true;
+    }
+
+    @Override
+    public Direction getBedDirection(BlockState state, LevelReader level, BlockPos pos) {
+        return state.getValue(FACING);
+    }
+
+    /**
+     * Uses vanilla's safe stand-up search when this bunk is the player's respawn point.
+     *
+     * <p>1.21.1 answers with a position and the yaw to face, which vanilla's own beds compute as
+     * "looking at the bed"; {@code RespawnPosAngle.of} is that calculation.
+     */
+    @Override
+    public java.util.Optional<ServerPlayer.RespawnPosAngle> getRespawnPosition(BlockState state,
+            net.minecraft.world.entity.EntityType<?> type, LevelReader levelReader, BlockPos pos,
+            float orientation) {
+        if (!(levelReader instanceof Level level) || !net.minecraft.world.level.block.BedBlock.canSetSpawn(level)) {
+            return java.util.Optional.empty();
+        }
+        BlockPos head = headPos(state, pos);
+        return net.minecraft.world.level.block.BedBlock.findStandUpPosition(type, levelReader, head,
+                        state.getValue(FACING), orientation)
+                .map(position -> ServerPlayer.RespawnPosAngle.of(position, head));
+    }
+
+    /** Keeps both halves and the sleeper marker in step with vanilla's wake-up path. */
+    @Override
+    public void setBedOccupied(BlockState state, Level level, BlockPos pos, LivingEntity sleeper,
+                               boolean occupied) {
+        BlockPos head = headPos(state, pos);
+        BlockState headState = level.getBlockState(head);
+        if (headState.is(this)) {
+            level.setBlock(head, headState.setValue(OCCUPIED, occupied), Block.UPDATE_ALL);
+            if (!occupied && level.getBlockEntity(head) instanceof BunkBlockEntity bunk) {
+                bunk.setSleeper(null);
+            }
+        }
+    }
+
     /** 1.21.1 splits the old {@code use}; a bunk is used with an empty hand or with anything held. */
     @Override
     protected InteractionResult useWithoutItem(BlockState state, Level level, BlockPos pos, Player player,
@@ -196,8 +245,13 @@ public class BunkBlock extends BaseEntityBlock {
      * away — must leave the player's spawn exactly as it was.
      */
     private InteractionResult sleep(Level level, BlockPos head, BlockState state, Player player) {
+        ServerPlayer sleeper = player instanceof ServerPlayer serverPlayer ? serverPlayer : null;
+        // Settle an ended offline episode before capturing what this attempt is about to replace.
+        BunkRespawnPolicy.reconcileOnLogin(sleeper);
+        BunkRespawnPolicy.RespawnState before = BunkRespawnPolicy.current(sleeper);
         var outcome = player.startSleepInBed(head);
         if (outcome.left().isPresent()) {
+            BunkRespawnPolicy.restoreImmediate(sleeper, before);
             Player.BedSleepingProblem problem = outcome.left().get();
             Component message = problem.getMessage();
             if (message != null) {
@@ -205,10 +259,10 @@ public class BunkBlock extends BaseEntityBlock {
             }
             return InteractionResult.CONSUME;
         }
-        level.setBlock(head, state.setValue(OCCUPIED, Boolean.TRUE), Block.UPDATE_ALL);
-        if (player instanceof ServerPlayer sleeper && BunkRespawnPolicy.setsRespawn()) {
-            BunkRespawnPolicy.take(sleeper, head);
-            sleeper.setRespawnPosition(level.dimension(), head, player.getYRot(), false, false);
+        if (!BunkRespawnPolicy.setsRespawn()) {
+            BunkRespawnPolicy.restoreImmediate(sleeper, before);
+        } else if (sleeper != null) {
+            BunkRespawnPolicy.take(sleeper, head, before);
         }
         if (level.getBlockEntity(head) instanceof BunkBlockEntity bunk) {
             bunk.setSleeper(player.getUUID());

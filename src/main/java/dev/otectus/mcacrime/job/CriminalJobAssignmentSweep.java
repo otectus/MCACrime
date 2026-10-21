@@ -15,9 +15,9 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.phys.AABB;
+import net.neoforged.neoforge.event.tick.ServerTickEvent;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
-import net.neoforged.neoforge.event.tick.ServerTickEvent;
 import net.neoforged.neoforge.server.ServerLifecycleHooks;
 
 import java.util.ArrayList;
@@ -72,7 +72,7 @@ public final class CriminalJobAssignmentSweep {
             return;
         }
         counter = 0;
-        AssignmentPolicy policy = AssignmentPolicy.fromConfig();
+        AssignmentPolicy policy = AssignmentPolicy.resolve(server);
         if (!policy.enableThieves() && !policy.enableFences()) {
             return;
         }

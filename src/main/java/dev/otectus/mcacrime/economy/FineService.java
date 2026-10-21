@@ -218,11 +218,12 @@ public final class FineService {
     // ------------------------------------------------------------------ internals
 
     /**
-     * The debit, through the receipt ledger so the money leaving is durable before anything else.
+     * The fine's debit, as a receipt.
      *
-     * <p>A fine has no recipient -- the emeralds are destroyed rather than paid to a village -- so the
+     * <p>A fine has no recipient — the money leaves the world rather than arriving anywhere — so the
      * credit half of the transfer is trivially successful. What the receipt buys is the debit side: a
-     * crash between the charge and the settlement leaves a row saying the player paid.
+     * durable record of what was taken, from whom and under which transaction, which is what a case
+     * stamped {@code FINE_TRANSACTION} points at.
      */
     private static boolean charge(CrimeWorldData data, UUID transactionId, ServerPlayer player,
                                   long amount, long now) {

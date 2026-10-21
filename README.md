@@ -9,6 +9,7 @@ never hears about it.
 
 - **Minecraft** 1.21.1 · **NeoForge** · **Java** 21
 - **Requires** MCA Reborn, the version pinned in `gradle.properties`
+- **Requires** GeckoLib (compatible version declared in `gradle.properties`) for the shaped mask models
 - **Optional integrations** MCA: Reputation, MCA: Quests, Townstead, Locks Reforged, and MCA Capitals, using their NeoForge 1.21.1 builds
 - **Not required** the Cuffed mod, whose feature set 0.7.5 absorbs natively, and Locks Reforged
 - **Licence** GPL-3.0-only
@@ -22,6 +23,21 @@ property. Recovered goods go to their owner's escrow, with delivery attempted im
 online owners and on login for everyone else. A living thief's stolen property also appears in the
 search screen (0.7.7): its owner takes it back, and a lawful search seals it for the owner. See the
 [death and recovery phase notes](docs/MCA_CRIME_PHASE2_DEATH_RECOVERY.md) for validation and limits.
+
+After a robbery or witnessed attempt, approach a guard peacefully and choose **Report a crime**.
+The server supplies your recent accounts; unknown identities remain unknown. `/crime report` opens
+the same picker for a targeted nearby guard, and `/crime reports` shows your accepted reports.
+Acceptance may mean a guard is responding or that the case awaits an available guard. Actual arrest
+uses the existing custody, sentence and property recovery systems; property is secured in owner
+escrow, with delivery when possible. Reporting pays no reward.
+
+Relevant public outcomes and personal report/property updates arrive as nonempty digests through
+**`/mca mail`**, normally once per Minecraft day. `/crime news off`, `on`, and `status` manage your
+subscription. MCA's own mailing switch still applies. Publication never gives guards new knowledge.
+
+World owners can set genuine rules in **Create World → Game Rules**. Overrides default off, preserving
+COMMON config. Use `/crime rules import` to carry configured values into a world, or `/crime rules defaults`
+to start from shipped defaults; both use normal operator permissions. See [configuration](CONFIG.md).
 
 The Thief combat policy (`villageJustice.thiefCombatPolicy`, 0.7.7 on this port) exempts adult
 canonical Thieves from combat blame by default; children, guards, restrained prisoners and unresolved
@@ -136,15 +152,13 @@ No hearts replacement. No trials. Villagers still never decide to commit a crime
 villager with the Thief occupation robs players, never another villager. A player can recruit an
 eligible relative as an accomplice, though: that villager is then individually wanted, arrestable,
 and bailable by family for what they did. No positive karma for trading, gifting, or clicking
-through dialogue; those are farmable and belong to systems that already own them. Eight narrowly
-scoped mixins, all of them on vanilla classes and none on MCA: seven common —
-`MobDeathEquipmentMixin` (`Mob.setItemSlot`, before MCA clears a dying villager's equipment),
-`MaskStationAcquisitionMixin`, `NativeJobAssignmentMixin`, `ThiefPoiValidationMixin`,
-`ThiefBrainMixin` and `MerchantOffersAccessor` (the Thief profession and its worksite), and
-`SandSensingMixin` (`Sensing.hasLineOfSight`, for sand blindness) — plus client-only
-`RestraintPoseMixin`, which poses restrained arms. Those eight live in the required mixin config; a
+through dialogue; those are farmable and belong to systems that already own them. Mixins stay narrow
+and are all either vanilla-targeted or optional: the required config touches vanilla classes only
+(thirteen common hooks and the client-only `RestraintPoseMixin`, which poses restrained arms); a
 second, plugin-gated config applies five small hooks into Townstead and is skipped entirely when
-Townstead is not installed. No per-tick village scans, no AI text
+Townstead is not installed; and a third, plugin-gated config touches MCA's own heart, guard-alert and
+mailbox sites only after matching each by exact descriptor, degrading that one capability on an MCA
+build whose shape differs. No per-tick village scans, no AI text
 generation, no telemetry, no outbound network calls. Turning a subsystem off changes behaviour only,
 and deletes nothing; time-based retention does — stale criminal-villager records, expired bounty
 contracts, and claims past their retention window are dropped on a timer.
@@ -228,6 +242,54 @@ Crime's blocks alike. See [docs/0.7.8/BLUEPRINT_PRISON.md](docs/0.7.8/BLUEPRINT_
 - **Chat colouring** by band exists but is **off by default**, and is server-authoritative when
   enabled.
 
+## Help in the game (0.8.0)
+
+`/crime help` lists the topics and `/crime help <topic>` opens one: `commands`, `targeting`, `guillotine`,
+`keys`, `keyring`, `keymold` and `masks`. Help is read-only, works for every player and from the console,
+and `/crime` on its own shows the overview. Tooltips give one line of guidance; hold Shift for the rest and
+the matching topic. The Mask Station's **?** button prints `/crime help masks`. The short versions:
+
+**Pointing a command at a villager.** `/crime mug` and `/crime report` use the villager or guard under your
+crosshair, within 4 blocks and in clear sight; they never pick somebody else nearby. Operator commands
+(`/crime job assign thief|fence`, `/crime job clear`, `/crime debug villager`) use the villager under your
+crosshair too; aiming at nothing, they take the only visible MCA villager within 8 blocks, and ask you to
+look at one when there are several. Each also accepts an explicit `[target]` (one entity, any selector),
+which is how to run it from the console or a command block. A refusal says why: nothing in reach, the wrong
+kind of entity, a wall in the way, several candidates, or MCA villager recognition unavailable.
+`/crime debug target [target]` shows what a command saw, and `/crime debug mca` shows the MCA binding.
+
+**The pillory and guillotine.**
+
+1. Place a **Pillory** on solid ground. It is two blocks tall.
+2. Place the **Guillotine** on top of its upper half (three blocks of height in all); it faces the way the
+   pillory does. Crouch while holding a block to place it against the device instead of using the device.
+3. Have the subject stand at the pillory's spot, just behind the boards on the side you placed it from
+   (or escort them there), and right-click the boards to secure them. The action bar names who was secured.
+4. Use the frame to drop the blade, and again to raise it. The blow only lands on a subject under a capital
+   sentence (the only capital offence is killing a guard) while capital punishment and the guillotine are
+   enabled; otherwise the blade falls harmlessly and the action bar says why.
+5. Right-click the boards to release the subject. Releasing somebody is not a pardon.
+
+Guards carry out sentences at an assigned execution site; the operator commands are in
+`/crime help guillotine`, and the timing settings in [CONFIG.md](CONFIG.md).
+
+**Copying keys.**
+
+1. Use a blank **Key** on your own padlock, safe or cell door to bind it to that lock.
+2. Two or more bound keys in a crafting grid make a **Key Ring**; a ring and more keys add to it; a ring
+   alone gives back its last key. A renamed key keeps its name on the ring.
+3. A bound key and a clay ball, or a blank **Key Mold** and a bound key, make a recorded Key Mold. The key
+   comes back.
+4. Fire the mold in a furnace into a **Baked Key Mold**, then cast a key with an iron ingot. A mold casts
+   four keys.
+5. A key alone in the grid is reset to a blank key, erasing its binding. Rekeying a lock stops every old
+   key, ring entry and later copy from opening it.
+
+**Dyeing masks.** Every style takes all 16 dyes. At the **Mask Station**, put a dye in the third slot while
+making a mask, or put a mask in the first slot and pick its own style to recolour it; another style of the
+same family restyles it and keeps its wear, name and enchantments. Two dyes blend like leather armour, and
+a water cauldron washes the colour out. In creative, the **Masks** tab holds every style in every colour.
+
 ## Commands
 
 Everything is under `/crime`. Checking your own standing and acting on your own situation needs no
@@ -240,6 +302,8 @@ gameplay commands below are accessibility fallbacks and use identical validation
 cooldowns, and finite accounts.
 
 ```
+/crime help [topic]                          the in-game guide (commands, targeting, guillotine,
+                                             keys, keyring, keymold, masks)
 /crime karma                                 your karma and band
 /crime status                                karma, band, Heat, Wanted, sentence, charges, options
 /crime payfine                               pay off cases in the active currency, oldest first
@@ -256,7 +320,10 @@ cooldowns, and finite accounts.
 
 /crime query <player>                        another player's full status           (level 2)
 /crime ledger <player>                       another player's every crime record    (level 2)
-/crime debug villager|custody|actions        villager, custody, or action state     (level 2)
+/crime debug villager [target]               a villager's crime and job state       (level 2)
+/crime debug custody|actions                 custody or action state                (level 2)
+/crime debug target [target]                 how a command would choose its target  (level 2)
+/crime debug mca                             the MCA binding and villager recognition (level 2)
 /crime debug integrations                    API version, bridge state, outbox      (level 2)
 /crime debug outbox [dead]                   queued or dead-lettered cross-mod work (level 2)
 /crime debug thief [villager]                why a villager may or may not mug now   (level 2)
@@ -272,6 +339,8 @@ cooldowns, and finite accounts.
 /crime assignjail <pos> [radius]                                                    (level 3)
 /crime repair <player> [inspect]             find, explain and fix a stuck sentence (level 3)
 /crime decree void <player>                  clear every decree against a player    (level 3)
+/crime job assign thief|fence [target]       give the aimed or named villager a criminal job (level 3)
+/crime job clear [target]                    clear the aimed or named villager's job (level 3)
 ```
 
 `/crime debug integrations` deliberately emits no player UUIDs, so its output can be pasted
@@ -379,7 +448,13 @@ data/<namespace>/mcareputation/incidents/*.json
 ```
 
 `/crime reload` swaps them in and reports the counts; `/crime validate` lists every problem with
-its file and field. Schemas and worked examples are in **[DATAPACK.md](DATAPACK.md)**.
+its file and field. Schemas and worked examples are in **[DATAPACK.md](DATAPACK.md)**, along with the
+dynamic key recipes and the recipe-book unlock advancements (0.8.0).
+
+A resource pack that retextures masks should also cover the dyed art 0.8.0 adds: each style's
+`<style>_dyed` and `<style>_dyed_detail` textures (item and worn) and its `<style>_dyed` item model, which
+the style's own model selects through the `mcacrime:dyed` predicate. See the 0.8.0 entry in
+[CHANGELOG.md](CHANGELOG.md).
 
 ## For mod authors
 
@@ -391,12 +466,12 @@ See **[API.md](API.md)**.
 
 ## Upgrading an existing world
 
-Older saves are migrated on load, up to schema 17, without a server or a config
-being consulted. 0.7.8 bumps the network protocol to 18, so client and server must be updated
-together; 0.7.5 also retired twenty-one config keys whose replacements are named one for one in
-[CONFIG.md](CONFIG.md). The migration is **not reversible** — take a copy of your world first. The
-policy, what changes about village identity, and what an old jar does with a new save are in
-**[MIGRATION.md](docs/MIGRATION.md)**.
+Older saves are migrated on load, up to schema 18 (from 0.7.9, which was never published on its own and
+first ships in 0.8.0; 0.8.0 adds no step of its own), without a server or a config being consulted. 0.8.0
+bumps the network protocol to 21, so client and server must be updated together; 0.7.5 also retired
+twenty-one config keys whose replacements are named one for one in [CONFIG.md](CONFIG.md). The migration
+is **not reversible** — take a copy of your world first. The policy, what changes about village identity,
+and what an old jar does with a new save are in **[MIGRATION.md](docs/MIGRATION.md)**.
 
 ## Documentation
 
@@ -409,6 +484,7 @@ policy, what changes about village identity, and what an old jar does with a new
 | [CHANGELOG.md](CHANGELOG.md) | release notes |
 | [NeoForge parity](docs/NEOFORGE_PARITY_2026-09-08.md) | 0.6.0 feature parity, platform adaptations, and validation |
 | [0.7.5 parity](docs/0.7.5/PARITY.md) | 0.7.5 platform adaptations, deliberate divergences and omitted baseline classes |
+| [0.8.0 validation](docs/0.8.0/VALIDATION.md) | how 0.8.0 was verified on this port: the builds, unit tests, GameTests, upgrade and client runs, and what stayed blocked |
 | [0.7.2 stage notes](docs/0.7.2/) | the Thief occupation, Mask Station, mask catalogue and Sand Bottle as shipped on this port |
 | [CURSEFORGE.md](CURSEFORGE.md) | the store listing copy |
 | [mca-crime-spec-document.md](docs/mca-crime-spec-document.md) | the original design specification |

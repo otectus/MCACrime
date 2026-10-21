@@ -136,19 +136,31 @@ public final class EscapeService {
         if (!withinBudget(subject.getUUID(), now)) {
             return new Attempt(Outcome.REFUSED, worn.remainingDurability(), false);
         }
+        EscapeTiming timing = timing(subject.getUUID(), worn.instanceId(), now);
+        int minInterval = minWorkIntervalTicks();
+        if (!actorMayAccept(subject.getUUID(), now, minInterval)
+                || !timing.mayAccept(now, minInterval)) {
+            return new Attempt(Outcome.REFUSED, worn.remainingDurability(), false);
+        }
         WorkSession session = session(subject, sessionId, slot, state.revision(), now);
         if (session == null) {
             return Attempt.of(Outcome.REFUSED);
         }
-        if (!session.acceptInput(inputSeq, now, minWorkIntervalTicks(), input.index(), true)) {
+        // Interval and cooldown live with the worn instance below. The session still owns replay and
+        // alternation checks, but replacing it during a slot switch cannot reset those two clocks.
+        if (!session.acceptInput(inputSeq, now, 0, input.index(), true)) {
             return new Attempt(Outcome.REFUSED, worn.remainingDurability(), false);
         }
+        timing.accept(now);
+        ACTOR_LAST_INPUT.put(subject.getUUID(), now);
 
         int unbreaking = unbreakingLevel(subject, worn);
         if (RANDOM.nextDouble() >= breakChance(unbreaking)) {
             return new Attempt(Outcome.MISSED, worn.remainingDurability(), false);
         }
-        session.stampCooldown(now + cooldownTicks(unbreaking, RANDOM.nextInt(20)));
+        long cooldownUntil = now + cooldownTicks(unbreaking, RANDOM.nextInt(20));
+        session.stampCooldown(cooldownUntil);
+        timing.stampCooldown(cooldownUntil);
 
         AppliedRestraint strained = worn.damaged(1);
         if (strained.remainingDurability() > 0) {
@@ -311,10 +323,94 @@ public final class EscapeService {
 
     private static final java.util.Map<UUID, Window> BUDGET = new java.util.LinkedHashMap<>();
 
+    /** Escape cadence follows the piece of gear even when changing slots replaces its WorkSession. */
+    private record TimingKey(UUID actor, UUID instance) {
+    }
+
+    private static final class EscapeTiming {
+        private long lastInputTick = Long.MIN_VALUE;
+        private long cooldownUntilTick = Long.MIN_VALUE;
+        private long lastTouchedTick;
+
+        private EscapeTiming(long now) {
+            lastTouchedTick = now;
+        }
+
+        private boolean mayAccept(long now, int minIntervalTicks) {
+            lastTouchedTick = now;
+            return now >= cooldownUntilTick
+                    && (lastInputTick == Long.MIN_VALUE
+                    || now - lastInputTick >= Math.max(0, minIntervalTicks));
+        }
+
+        private void accept(long now) {
+            lastInputTick = now;
+            lastTouchedTick = now;
+        }
+
+        private void stampCooldown(long untilTick) {
+            cooldownUntilTick = Math.max(cooldownUntilTick, untilTick);
+        }
+    }
+
+    private static final int MAX_TIMINGS = 512;
+    private static final long TIMING_IDLE_TICKS = 1_200L;
+    private static final java.util.Map<TimingKey, EscapeTiming> TIMINGS = new java.util.LinkedHashMap<>();
+    private static final java.util.Map<UUID, Long> ACTOR_LAST_INPUT = new java.util.LinkedHashMap<>();
+
+    /** Slot switching cannot turn one actor's minimum interval into one interval per slot. */
+    private static boolean actorMayAccept(UUID actor, long now, int minIntervalTicks) {
+        Long last = ACTOR_LAST_INPUT.get(actor);
+        return last == null || now < last || now - last >= Math.max(0, minIntervalTicks);
+    }
+
+    private static EscapeTiming timing(UUID actor, UUID instance, long now) {
+        TimingKey key = new TimingKey(actor, instance);
+        EscapeTiming timing = TIMINGS.get(key);
+        if (timing != null) {
+            timing.lastTouchedTick = now;
+            return timing;
+        }
+        if (TIMINGS.size() >= MAX_TIMINGS) {
+            TIMINGS.entrySet().removeIf(entry -> now < entry.getValue().lastTouchedTick
+                    || now - entry.getValue().lastTouchedTick >= TIMING_IDLE_TICKS);
+            if (TIMINGS.size() >= MAX_TIMINGS) {
+                java.util.Iterator<TimingKey> oldest = TIMINGS.keySet().iterator();
+                if (oldest.hasNext()) {
+                    oldest.next();
+                    oldest.remove();
+                }
+            }
+        }
+        EscapeTiming opened = new EscapeTiming(now);
+        TIMINGS.put(key, opened);
+        return opened;
+    }
+
+    /** Forgets one removed restraint's cadence without disturbing another slot. */
+    public static void forget(@Nullable UUID actor, @Nullable UUID instance) {
+        if (actor != null && instance != null) {
+            TIMINGS.remove(new TimingKey(actor, instance));
+        }
+    }
+
+    /** Forgets all transient escape state for a player who left the server. */
+    public static void forget(@Nullable UUID actor) {
+        if (actor == null) {
+            return;
+        }
+        BUDGET.remove(actor);
+        SERVER_INPUTS.remove(actor);
+        ACTOR_LAST_INPUT.remove(actor);
+        TIMINGS.keySet().removeIf(key -> actor.equals(key.actor()));
+    }
+
     /** Forgets every struggle budget. Server stop, and the start of each test. */
     public static void resetBudgets() {
         BUDGET.clear();
         SERVER_INPUTS.clear();
+        ACTOR_LAST_INPUT.clear();
+        TIMINGS.clear();
     }
 
     private static int maxInputsPerSecond() {

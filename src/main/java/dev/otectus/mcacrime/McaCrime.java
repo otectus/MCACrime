@@ -43,6 +43,7 @@ public final class McaCrime {
     }
 
     public McaCrime(IEventBus modBus, ModContainer container) {
+        dev.otectus.mcacrime.config.CrimeGameRules.register();
         container.registerConfig(ModConfig.Type.COMMON, McaCrimeConfig.COMMON_SPEC);
         container.registerConfig(ModConfig.Type.CLIENT, McaCrimeConfig.CLIENT_SPEC);
 
@@ -118,9 +119,14 @@ public final class McaCrime {
                     net.neoforged.neoforge.server.ServerLifecycleHooks.getCurrentServer();
             if (server != null) {
                 CrimeNetwork.broadcastWeaponPolicy(server);
+                CrimeNetwork.broadcastServerRules(server);
                 // Both criminal-job presentation keys are answered once per villager, so a reload that
                 // flips one has to revisit the criminals that already exist rather than only the next.
                 WorldCriminalJobService.of(server).refreshPresentation();
+                // refreshBehaviors re-asks the role question for every recorded criminal, which is why
+                // it follows the EntitySelectors.invalidate() above rather than preceding it: a reload
+                // that added a modded guard to responderEntities drops that villager's thief
+                // controller here instead of at the next restart. No role result is cached (0.7.2).
                 WorldCriminalJobService.of(server).refreshBehaviors();
                 // Fence stock is priced from the config and assembled from tags, so a reload that
                 // retuned the default price has to reach the next screen that opens. Only with a
@@ -190,6 +196,8 @@ public final class McaCrime {
             // Force the crime-type registry (and its built-in ids) to class-load before any datapack parse.
             CrimeTypeRegistry.bootstrap();
             CrimeActionService.bootstrap();
+            // A dyed mask washes clean in a water cauldron, like leather armour (0.8.0).
+            dev.otectus.mcacrime.mask.MaskWashing.register(CrimeItems.masks());
             // Before anything can charge anybody: pick the currency named by integrations.currencyId.
             Currencies.reload();
             // Load-time config validation: surface a broken config in the log (and /crime validate).

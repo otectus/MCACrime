@@ -25,7 +25,8 @@ Use `C:\Projects\.mcmod-tools\gradlew-quiet.ps1 -Project "<project-dir>" -Task <
 
 ```
 McaCrime / McaCrimeConfig  mod entrypoint and the whole config spec, at the package root
-api        public facade, events, and model records for companion mods - keep it stable
+api        public facade, events, and model records for companion mods - keep it stable;
+           api/jurisdiction and JurisdictionPolicyApi / InstitutionalServiceApi serve MCA: Kingdoms
 crime engine state ledger memory   core value types, decay, cases, villager memory
 detect     classification, witness selection, community resolution
 enforcement jail captivity ransom  arrest, guards, restraints, cells, custody, kidnapping
@@ -34,7 +35,8 @@ job        criminal occupation system (Thief, Fence); Thief is a native professi
 block      the Mask Station block and its registry; a village point of interest, no block entity
 menu       the Mask Station container menu, its layout, selection policy and denied click routes
 recipe     the mcacrime:mask_making recipe type, its JSON contract, craft plan and catalogue
-mask       mask concealment, deferred Heat, restyling and data-component transfer
+mask       mask concealment, deferred Heat, restyling and data-component transfer; the worn GeckoLib
+           model is client/render/mask
 effect     sand blindness, exposure policy, recovery ledger and the sand incident path
 entity     the thrown Sand Bottle projectile and its registry
 bounty     warrant tracking, bounty payouts, claim ledgers, contract board
@@ -48,20 +50,29 @@ decree     royal decrees: a capital ruler's local wanted order, read through com
 activity   enforcement claims over a villager and which operations they yield (work start, navigation)
 facility   civic facilities: building refs, roles, assignments, cell reservations, custody care
 civic      read-only village security projection, plus civic work: tasks, service contracts,
-           service-refusal rules (opt-in, townstead.communityService / serviceRestrictions)
+           service-refusal rules (opt-in, townstead.communityService / serviceRestrictions),
+           InstitutionalWorkshopPolicy
+report     player crime reports: threat and report receipts (own SavedData mcacrime_player_reports),
+           responder dispatch
+news       village news: the bounded crimeNews projection and digests delivered through MCA's mailbox
+           (compat/McaMailBridge)
 property   explicit property law (opt-in, townstead.propertyLaw): policies, pure access table,
            per-tick matched-pair transfer attribution, loss receipts, bounded auto-protection
 client mixin/client  client-only; common code must never import these
-mixin      twelve common vanilla-only mixins: equipment capture, Thief worksite and brain, sand sight,
-           Thief-fight gossip, hopper lock gate, restraint container-click / jump / player-action gates
+mixin      thirteen common vanilla-only mixins: equipment capture, Thief worksite and brain, sand sight,
+           Thief-fight gossip, hopper lock gate, restraint container-click / jump / player-action gates,
+           the game-rule type accessor
 mixin/townstead  five plugin-gated Townstead mixins in a second, optional mixin config
-mixin/mca  MCA's native heart sites (hurt, killing penalty) and its guard-alert friend test, plugin-gated,
-           in a third optional config
+mixin/mca  MCA's native heart sites (hurt, killing penalty), its guard-alert friend test and its mailbox
+           (news receipts), plugin-gated, in a third optional config
 network item audio command config util  plumbing
 ```
 
 ## Key Dependencies
 
+- **GeckoLib** - mandatory (0.7.9), the shaped mask models; `implementation` in Gradle, version and
+  range in `gradle.properties`. The only third-party type `src/main/java` names: `item/MaskItem` is a
+  `GeoItem`, and its renderer lives in `client/render/mask`, installed from `client/McaCrimeClient`.
 - **MCA Reborn** - mandatory at runtime, but `localRuntime` and `testRuntimeOnly` in Gradle; no MCA type may appear anywhere in `src/main/java` (enforced by `NoMcaStaticLinkTest`). Every MCA class and member is resolved by name at runtime by `compat/mca/McaBinding`, so one jar works across MCA's package-root migrations.
 - **MCA: Reputation** - optional companion, resolved by name at runtime. Compiles only when `../MCAReputation_1.21.1/build/classes/java/main` exists; override that path with `-PmcaReputationClasses=<dir>` to build against a snapshot instead of a sibling checkout. Pass `-PrequireReputation=true` to force the build to fail if it is absent.
 - **MCA: Quests** - optional integration, resolved by name at runtime. Publishes bounties as guard-given contracts. Compiles only when `../MCAQuests_1.21.1/build/classes/java/main` exists; override that path with `-PmcaQuestsClasses=<dir>`. Pass `-PrequireQuests=true` to force the build to fail if it is absent.
@@ -75,17 +86,19 @@ network item audio command config util  plumbing
 ## Conventions
 
 - Registration is imperative on the MOD bus in the `McaCrime` constructor. DeferredRegisters for items and creative tabs are attached in `item/CrimeItems.register`; villager professions are registered in `job/CriminalProfessions.register`. Gameplay handlers are `@EventBusSubscriber` (inherits FORGE bus) or on the mod bus. NeoForge uses a different annotation system; check the imports (`net.neoforged.*`).
-- Config is hand-written `ModConfigSpec`, **COMMON + CLIENT only, no SERVER spec**: common is server-authoritative, client is presentation only. `config/ConfigValidator` runs at setup and on every reload. 0.7.2 adds the common `[maskStation]` (`enableMaskStationCrafting`, `enableMaskRestyling`) and `[sandBottle]` sections, `memory.emptyHandApologyMode`, and client `sandParticles`.
+- Config is hand-written `ModConfigSpec`, **COMMON + CLIENT only, no SERVER spec**: common is server-authoritative, client is presentation only. `config/ConfigValidator` runs at setup and on every reload. 0.7.2 adds the common `[maskStation]` (`enableMaskStationCrafting`, `enableMaskRestyling`) and `[sandBottle]` sections, `memory.emptyHandApologyMode`, and client `sandParticles`. Seventeen COMMON settings can be owned by the world's game rules (0.7.9): read them through `config/CrimeWorldSettings.resolve(server)`, never straight from `McaCrimeConfig`, and call `CrimeWorldSettings.invalidate()` after changing one in a test, because the answer is memoized per tick.
 - Three mixin configs, all declared by `[[mixins]]` blocks in
   `src/main/resources/META-INF/neoforge.mods.toml` (NeoForge does not honour the Forge-era
   `MixinConfigs` manifest attribute), and `checkJarContents` asserts exactly those three and no refmap
   in any. `mcacrime.mixins.json` is required and targets **vanilla classes only**.
   `mcacrime.mca.mixins.json` (0.7.7) is `required: false`, gated by `mixin/mca/McaJusticeMixinPlugin`,
-  which matches MCA's `VillagerEntityMCA.hurt`/`die` and `Relationship.onTragedy` by name and exact
-  descriptor before rewriting them for `compat/mca/NativeCombatContext`; its two `@Pseudo` markers name
-  MCA only as dotted strings. It is Forge's native justice layer without the mailbox: the heart hooks and the `isFriend` call in
-  `hurt` that gates MCA's guard alert (optional: a build without exactly one such call keeps MCA's own
-  answer),
+  which matches MCA's `VillagerEntityMCA.hurt`/`die`, `Relationship.onTragedy` and (0.7.9)
+  `PlayerSaveData`'s inbox, constructor, `save`, `sendMail` and `getMail` by name and exact descriptor
+  before rewriting them for `compat/mca/NativeCombatContext` and `compat/McaMailBridge`; its three
+  `@Pseudo` markers (`VillagerPenaltyMarker`, `TragedyPenaltyMarker`, `MailboxMarker`) name MCA only as
+  dotted strings. It is Forge's native justice layer: the heart hooks, the `isFriend` call in `hurt`
+  that gates MCA's guard alert (optional: a build without exactly one such call keeps MCA's own
+  answer), and the news-receipt hooks on MCA's mailbox,
   checked by `McaJusticeTargetTest` against every jar in `mca_probe_versions`.
   `mcacrime.townstead.mixins.json` is `required: false` with `defaultRequire 0`, gated by
   `mixin/townstead/TownsteadMixinPlugin` on Townstead being loaded *and* the target class existing;
@@ -94,7 +107,7 @@ network item audio command config util  plumbing
   strings and never name a Townstead or MCA type. Nothing here carries a refmap - NeoForge 1.21.1 runs on Mojang names, so every `@Mixin`,
   `@Inject` and `@Redirect` is `remap = false`, as is every `@At` that names a vanilla descriptor.
   `NoTownsteadStaticLinkTest`, `NoMcaStaticLinkTest`, `MixinConfigTest` and
-  `TownsteadMixinTargetTest` enforce that. Thirteen vanilla-targeting mixins, twelve common:
+  `TownsteadMixinTargetTest` enforce that. Fourteen vanilla-targeting mixins, thirteen common:
   `MobDeathEquipmentMixin` (`Mob.setItemSlot`, HEAD) observes equipment before MCA clears a dying
   villager's; `MaskStationAcquisitionMixin` (`VillagerProfession.acquirableJobSite`, RETURN) hides the
   Mask Station from every profession except Thief; `NativeJobAssignmentMixin`
@@ -111,7 +124,8 @@ network item audio command config util  plumbing
   automation policy where 1.21.1 performs the transfer, `RestraintContainerClickMixin`
   (`AbstractContainerMenu.clicked`, HEAD), `RestraintJumpMixin` (`LivingEntity.jumpFromGround`, HEAD)
   and `RestraintPlayerActionMixin` (`ServerGamePacketListenerImpl.handlePlayerAction`, HEAD) enforce
-  the restriction policy of what a subject is wearing. One client-only: `mixin/client/RestraintPoseMixin`
+  the restriction policy of what a subject is wearing; and `GameRuleTypeAccessor` (`GameRules.Type.argument`,
+  0.7.9) bounds the integer world rules' command argument. One client-only: `mixin/client/RestraintPoseMixin`
   (`LivingEntityRenderer.render`) poses restrained arms. `MixinConfigTest` verifies side separation and
   registration. No MixinExtras.
 - All MCA access is `MethodHandle` lookups in `compat/mca/McaBinding` behind the `compat/McaCompat` facade, because MCA's package root has moved between releases; missing members degrade to stubs. `NoMcaStaticLinkTest` fails the build if static linkage returns, and `McaBindingProbeTest` replays the binding against every jar in `mca_probe_versions`.

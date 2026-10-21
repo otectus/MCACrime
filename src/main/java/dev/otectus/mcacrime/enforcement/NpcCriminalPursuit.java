@@ -65,6 +65,8 @@ public final class NpcCriminalPursuit {
         if (guard.getUUID().equals(incident.offenderId())) {
             return; // a guard is not sent after itself
         }
+        if (!(level.getEntity(incident.offenderId()) instanceof LivingEntity suspect)
+                || !NpcArrestService.arrestableSuspect(level.getServer(), suspect)) return;
         long now = level.getGameTime();
         if (ResponderAssignments.isCommitted(guard.getUUID(),
                 dev.otectus.mcacrime.activity.CrimeActivityView.Kind.PURSUIT, now)) {
@@ -184,7 +186,7 @@ public final class NpcCriminalPursuit {
             }
             ACTIVE.replace(guardId, pursuit, pursuit.scheduled(now + REPATH_INTERVAL_TICKS));
             // A sanded guard does not get to re-read the suspect's live coordinates every repath.
-            // The pursuit is not dropped — the case and the identity survive — but the guard walks
+            // The pursuit is not dropped -- the case and the identity survive -- but the guard walks
             // to where they last actually saw them and keeps walking there (0.7.2 §13.5, SAND-07).
             boolean sighted = dev.otectus.mcacrime.ai.NpcAwareness.canSeeNow(guard, thief);
             if (sighted) {

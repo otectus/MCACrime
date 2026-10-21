@@ -1,6 +1,7 @@
 package dev.otectus.mcacrime.state;
 
 import dev.otectus.mcacrime.crime.Band;
+import dev.otectus.mcacrime.detention.BunkRespawnPolicy;
 import dev.otectus.mcacrime.enforcement.ArrestPhase;
 import dev.otectus.mcacrime.enforcement.ArrestState;
 import dev.otectus.mcacrime.jail.JailState;
@@ -179,6 +180,22 @@ public final class PlayerCrimeData implements INBTSerializable<CompoundTag> {
      */
     @Nullable
     private ArrestState arrest;
+
+    /**
+     * The home displaced by a custody bunk, persisted until that exact custody/sentence episode ends.
+     * Null means this mod does not currently own the player's respawn point.
+     */
+    @Nullable
+    private BunkRespawnPolicy.Snapshot bunkRespawnSnapshot;
+
+    @Nullable
+    public BunkRespawnPolicy.Snapshot getBunkRespawnSnapshot() {
+        return bunkRespawnSnapshot;
+    }
+
+    public void setBunkRespawnSnapshot(@Nullable BunkRespawnPolicy.Snapshot snapshot) {
+        this.bunkRespawnSnapshot = snapshot;
+    }
 
     public long getKarma() {
         return karma;
@@ -468,6 +485,7 @@ public final class PlayerCrimeData implements INBTSerializable<CompoundTag> {
         this.heldByRef = other.heldByRef;
         this.jail = other.jail == null ? null : other.jail.copy(); // death does NOT clear jail (§7.1)
         this.arrest = other.arrest == null ? null : other.arrest.copy(); // nor does it end an arrest
+        this.bunkRespawnSnapshot = other.bunkRespawnSnapshot;
     }
 
     public CompoundTag save() {
@@ -524,6 +542,9 @@ public final class PlayerCrimeData implements INBTSerializable<CompoundTag> {
         }
         if (arrest != null) {
             tag.put("arrest", arrest.save());
+        }
+        if (bunkRespawnSnapshot != null) {
+            tag.put("bunkRespawn", bunkRespawnSnapshot.save());
         }
         return tag;
     }
@@ -585,6 +606,9 @@ public final class PlayerCrimeData implements INBTSerializable<CompoundTag> {
         // Absent in every pre-0.4.0 save, which reads as no arrest. No migration, like the resisting
         // flag before it.
         arrest = tag.contains("arrest") ? ArrestState.load(tag.getCompound("arrest")) : null;
+        bunkRespawnSnapshot = tag.contains("bunkRespawn", Tag.TAG_COMPOUND)
+                ? BunkRespawnPolicy.Snapshot.load(tag.getCompound("bunkRespawn")).orElse(null)
+                : null;
     }
 
     /**

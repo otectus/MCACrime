@@ -3,22 +3,18 @@ package dev.otectus.mcacrime.client;
 import dev.otectus.mcacrime.McaCrime;
 import dev.otectus.mcacrime.item.CrimeItems;
 import dev.otectus.mcacrime.item.MaskItem;
-import net.minecraft.world.item.ArmorMaterial;
 import net.minecraft.world.item.Item;
-import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.entity.LivingEntity;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.neoforge.client.event.ClientPlayerNetworkEvent;
 import net.neoforged.neoforge.client.event.EntityRenderersEvent;
 import net.neoforged.neoforge.client.event.RegisterColorHandlersEvent;
 import net.neoforged.neoforge.client.event.RegisterMenuScreensEvent;
-import net.neoforged.neoforge.client.extensions.common.IClientItemExtensions;
-import net.neoforged.neoforge.client.extensions.common.RegisterClientExtensionsEvent;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
 
 /**
- * Client-only setup: cache hygiene across connections, and the two halves of a dyed mask.
+ * Client-only setup: cache hygiene across connections, and the inventory half of a dyed mask (the
+ * worn half is {@code client/render/mask/MaskArmorRenderer}).
  *
  * <p>The config screen factory moved to {@link McaCrimeClient}, where the mod container is injected.
  */
@@ -76,10 +72,25 @@ public final class CrimeClientSetup {
 
         @SubscribeEvent
         public static void onClientSetup(net.neoforged.fml.event.lifecycle.FMLClientSetupEvent event) {
+            // Item guidance expands while Shift is held (0.8.0). The check is client-only, so the common
+            // tooltip helper is handed it here rather than naming Screen itself.
+            dev.otectus.mcacrime.help.TooltipHelp.installExpandedCheck(
+                    net.minecraft.client.gui.screens.Screen::hasShiftDown);
             event.enqueueWork(() -> net.minecraft.client.renderer.item.ItemProperties.register(
                     CrimeItems.KEY_RING.get(), McaCrime.id("keys"),
                     (stack, level, entity, seed) ->
                             dev.otectus.mcacrime.locks.KeyRingBindings.count(stack)));
+            // A dyed mask draws its dyed model (0.8.0): a neutral base the colour tints and its details
+            // untinted over it, where an undyed one keeps its original art. Every style's model selects
+            // the dyed one through this predicate, which reads presence, not value: a mask dyed white
+            // is dyed. Registered for the whole catalogue, like the colour handler.
+            event.enqueueWork(() -> {
+                for (Item mask : CrimeItems.masks()) {
+                    net.minecraft.client.renderer.item.ItemProperties.register(mask, McaCrime.id("dyed"),
+                            (stack, level, entity, seed) ->
+                                    dev.otectus.mcacrime.mask.MaskColors.hasColor(stack) ? 1.0F : 0.0F);
+                }
+            });
         }
 
         /** The station's and the frisking screen's menus, bound to the menu types the server opens. */
@@ -92,34 +103,16 @@ public final class CrimeClientSetup {
         }
 
         /**
-         * A dyed mask shows its dye in the inventory (0.7.2 §5.3, §7.2). Layer 0 only: the item
-         * model's single layer carries the tint, and an undyed mask reads as opaque white.
+         * A dyed mask shows its dye in the inventory (0.7.2 §5.3, §7.2; split into base and detail in
+         * 0.8.0). Layer 0 only: it is the undyed model's single layer, which reads as opaque white so a
+         * mask nobody dyed looks exactly as it always did, and the dyed model's neutral base, which takes
+         * the colour. A dyed model's layer 1 is its detail -- lenses, eyes, straps, trim -- and stays
+         * untinted.
          */
         @SubscribeEvent
         public static void onRegisterItemColors(RegisterColorHandlersEvent.Item event) {
             event.register((stack, layer) -> layer > 0 ? MaskItem.OPAQUE_WHITE : MaskItem.colorOf(stack),
                     CrimeItems.masks().toArray(new Item[0]));
-        }
-
-        /**
-         * The worn half of the same tint. 1.21.1 colours an armour layer through the client item
-         * extension rather than through {@code DyeableLeatherItem}, so a mask dyed in the bag is
-         * dyed on the face as well.
-         */
-        @SubscribeEvent
-        public static void onRegisterClientExtensions(RegisterClientExtensionsEvent event) {
-            event.registerItem(new IClientItemExtensions() {
-                @Override
-                public int getDefaultDyeColor(ItemStack stack) {
-                    return MaskItem.colorOf(stack);
-                }
-
-                @Override
-                public int getArmorLayerTintColor(ItemStack stack, LivingEntity entity,
-                                                  ArmorMaterial.Layer layer, int layerIndex, int fallback) {
-                    return layer.dyeable() ? fallback : MaskItem.OPAQUE_WHITE;
-                }
-            }, CrimeItems.masks().toArray(new Item[0]));
         }
     }
 

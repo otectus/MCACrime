@@ -40,13 +40,13 @@ public record TheftPolicy(long minCurrencySteal, long maxCurrencySteal, boolean 
         mode = mode == null ? ItemTheftMode.SINGLE_ITEM : mode;
     }
 
-    public static TheftPolicy fromConfig() {
+    public static TheftPolicy resolve(net.minecraft.server.MinecraftServer server) {
         McaCrimeConfig.Common c = McaCrimeConfig.COMMON;
         return new TheftPolicy(
                 c.thiefMinCurrencySteal.get(),
                 c.thiefMaxCurrencySteal.get(),
                 c.thiefStealAllIfBelowMinimum.get(),
-                c.thiefProtectHotbar.get(),
+                dev.otectus.mcacrime.config.CrimeWorldSettings.resolve(server).thiefProtectHotbar(),
                 c.thiefProtectArmor.get(),
                 c.thiefProtectOffhand.get(),
                 c.thiefItemTheftMode.get());

@@ -28,6 +28,9 @@ import org.jetbrains.annotations.Nullable;
  */
 public final class MountTransfer {
 
+    /** The one passenger currently being moved by this service on this thread. */
+    private static final ThreadLocal<java.util.UUID> TRUSTED_TRANSFER = new ThreadLocal<>();
+
     /** Why a forced mount was refused. Each is a distinct message rather than a silent failure. */
     public enum Refusal {
         NONE,
@@ -160,7 +163,8 @@ public final class MountTransfer {
         if (refusal != Refusal.NONE) {
             return refusal;
         }
-        return subject.startRiding(vehicle, true) ? Refusal.NONE : Refusal.VEHICLE_FULL;
+        return trusted(subject, () -> subject.startRiding(vehicle, true))
+                ? Refusal.NONE : Refusal.VEHICLE_FULL;
     }
 
     // --- getting out again -----------------------------------------------------------------------------
@@ -221,7 +225,29 @@ public final class MountTransfer {
             return;
         }
         Vec3 exit = emergencyExit(subject, vehicle);
-        subject.stopRiding();
+        trusted(subject, () -> {
+            subject.stopRiding();
+            return true;
+        });
         subject.teleportTo(exit.x, exit.y, exit.z);
+    }
+
+    /** True only during this service's synchronous forced mount or emergency dismount. */
+    public static boolean trustedTransfer(@Nullable Entity subject) {
+        return subject != null && subject.getUUID().equals(TRUSTED_TRANSFER.get());
+    }
+
+    private static boolean trusted(Entity subject, java.util.function.BooleanSupplier operation) {
+        java.util.UUID previous = TRUSTED_TRANSFER.get();
+        TRUSTED_TRANSFER.set(subject.getUUID());
+        try {
+            return operation.getAsBoolean();
+        } finally {
+            if (previous == null) {
+                TRUSTED_TRANSFER.remove();
+            } else {
+                TRUSTED_TRANSFER.set(previous);
+            }
+        }
     }
 }

@@ -42,7 +42,7 @@ Two files, written on first run:
 
 Three rules hold throughout:
 
-1. **Everything is config.** Every number, chance, threshold, duration, and toggle in this mod is an
+1. **Config is the default authority.** Selected gameplay settings may be explicitly overridden by this world’s game rules (see below). Every configurable number, chance, threshold, duration, and toggle is an
    option here rather than a constant in the source. The whole key set was declared up front so the
    generated TOML shows the entire design surface from day one — which means a few blocks are
    present but **not yet wired**. Those are marked below; do not tune them expecting an effect.
@@ -56,22 +56,6 @@ Three rules hold throughout:
 The same checks run at load and log warnings.
 
 ---
-
-## `[villageJustice]` (0.7.7 on this port)
-
-The two keys the Thief combat policy reads, under the same section and names as the Forge build. Forge's
-`[villageJustice]` also carries player reports and village news, which this port has not taken
-(`docs/PORT_PARITY.md`); this port has no per-world game rules, so these COMMON values are authoritative.
-
-| Option | Default | Range | What it does |
-|---|---|---|---|
-| `thiefDefenseGraceTicks` | `1200` | `0 … 240000` | How long being held up keeps justifying the victim's force after the mugging ends -- a mugger running off with the purse is still the aggressor to the player chasing them. Also the strict-mode identified robbery evidence window. `0` ends it with the mugging. Custody ends eligibility immediately. |
-| `thiefCombatPolicy` | `ALL_THIEVES` | `NORMAL_LAW`, `EVIDENCE_REQUIRED`, `ALL_THIEVES` | Combat blame policy. All-Thieves includes free Thieves after serving a sentence; children, guards, unresolved roles and restrained prisoners remain protected. It creates neither report evidence nor rewards. Under every policy the victim of a mugging may fight the mugger off, from the moment it starts and for `thiefDefenseGraceTicks` after it ends; under `NORMAL_LAW` killing the mugger is still charged, as excessive defensive force. |
-
-An exempt blow is exempt everywhere it would otherwise count: no Heat, case, wanted status or guard
-aggression here; no MCA hurt or killing hearts, no MCA guard alert and no villager gossip natively (each
-gated by the optional native hooks, see `/crime validate`); and no MCA: Reputation assault or killing
-incident when Reputation 0.6.1 or newer is installed.
 
 ## `[bands]`
 
@@ -172,9 +156,8 @@ A forgiven hit creates no case, Karma, Heat, memory, observation or reaction. Th
 (the `minor_harm_warned` dialogue line, within `dialogue.speechRadius`) and the attacker is told that
 the next hit counts. MCA's own heart loss for the hit is held back until the hit is decided at the end
 of the tick and then applied, dropped or refunded to match, so a forgiven hit costs no hearts either.
-On this NeoForge port there is no per-incident exemption bridge to MCA: Reputation yet, so when
-Reputation records villager assault itself (rather than receiving MCA: Crime's cases) it still sees a
-forgiven hit as an assault; with the normal integration a forgiven hit creates no case to deliver.
+With MCA: Reputation present and recording villager assault itself, the same hit is answered as
+exempt through its per-incident exemption query.
 
 The grace ledger is kept in memory. Relogging keeps it; a server restart clears it. Persisting a grace
 that lasts five minutes by default would need a world schema change, and it was not worth one.
@@ -1052,7 +1035,7 @@ Every setting here is a no-op when the companion mod is absent.
 | `retryMaxDelayTicks` | `24000` | `20 … 1728000` | Ceiling on the retry delay. |
 | `dedupeRetentionTicks` | `168000` | `1200 … 1728000` | Reserved, no effect in this release: replays are recognised by transaction receipts and record revisions, which do not expire, and nothing writes to the table this would age out. |
 | `currencyId` | `mcacrime:emerald` | string | Which registered currency fines, bail, ransom, theft and bounties are paid in. Built in: `mcacrime:emerald`, `mcacrime:item` (the item named by `currencyItem`, one item to one unit) and `mcacrime:numismatic` (the Numismatic Overhaul purse, in bronze, offered only when that mod is installed). Economy mods register their own ids through `McaCrimeApi.registerCurrency`; an unregistered id falls back to emeralds with one warning rather than taking the economy offline. |
-| `currencyItem` | `minecraft:emerald` | string | The item `mcacrime:item` pays in, as a registry id. Only read when `currencyId` is `mcacrime:item`; ignored otherwise. An unknown or absent item falls back to emeralds with one warning. |
+| `currencyItem` | `minecraft:emerald` | string | The item `mcacrime:item` pays in, as a registry id. Only paid in when `currencyId` is `mcacrime:item`; validated regardless. An unknown or absent item falls back to emeralds with one warning. |
 | `mcaQuestsBounties` | `true` | — | Publish open bounties as MCA: Quests contracts when that mod is installed. A bounty is paid once whichever route claims it. |
 
 A companion that is not installed yet is a *delay*, and the write is retried. A payload the companion
@@ -1261,14 +1244,14 @@ damage: it lives on the worn instance, so two prisoners never share one counter.
 | `pilloryBreakoutTransitions` | `100` | `0 … 10000` | How many crouch transitions break a pillory open from the inside. `0` disables breaking out; stale-occupancy cleanup runs either way. |
 | `guillotineEnabled` | `true` | — | Whether the guillotine may carry out an authorised execution at all. Off leaves the block placeable and usable as a restraint device that never takes a life. |
 | `guillotineDropsHead` | `true` | — | Whether an executed player's head drops at the device. A non-player victim never fabricates a player head. |
-| `guillotineActivationDelayTicks` | `5` | `1 … 200` | Ticks between the blade being released and the blow landing. Persisted, so an unload inside the window neither cancels nor repeats it. |
+| `guillotineActivationDelayTicks` | `5` | `1 … 200` | Ticks between the blade being released and the blow landing: the blade's own fall. A player's lever releases the blade at once, so this is the whole wait for a manual execution. The fall is persisted, so a reload neither repeats a blow nor freezes the blade; the execution order is not, so an unload or restart inside the fall cancels it and the blade then harms nobody (corrected in 0.8.0). |
 | `bunkSetsRespawn` | `true` | — | Whether sleeping in a bunk sets the sleeper's respawn point. The previous point is restored on release only while this system still owns the override. |
 
 ## `[locks]`
 
 | Option | Default | Range | What it does |
 |---|---|---|---|
-| `maxKeysPerRing` | `16` | `1 … 64` | How many keys one key ring holds. Lowering this never erases keys from a fuller ring; it refuses further additions until the ring is back within the limit. |
+| `maxKeysPerRing` | `16` | `1 … 64` | How many keys one key ring holds. Lowering this never erases keys from a fuller ring; it refuses further additions until the ring is back within the limit. Since 0.8.0 the server sends its value to each client, so a ring's tooltip shows the server's capacity, not the client's own config. |
 | `foreignLockPolicy` | `REFUSE` | `REFUSE`, `IGNORE` | What to do when another lock mod already owns the target. `REFUSE` declines to be the second lock on one block — two independent access checks on one chest is how a player gets locked out of their own container. |
 | `lockAutomationPolicy` | `BLOCK_ALL` | `BLOCK_ALL`, `ALLOW_INSERT`, `ALLOW_ALL` | What automation may do to a locked container. Checked on every operation, so a handler fetched while the safe was open stops working the moment it is locked. |
 | `protectLockedBlocksFromBreaking` | `true` | — | Whether a locked block resists being broken by hand. |
@@ -1366,7 +1349,7 @@ the condemned simply stays in custody. `enabled = false` switches the whole feat
 | `enabled` | `true` | — | Master switch for the whole feature. Off leaves the guillotine a usable device that never receives a lawful execution order. |
 | `guardKillingIsCapital` | `true` | — | The only offence gate there is. Off means no offence qualifies and every sentence is custodial, whatever the Heat, charge count or band. |
 | `npcOffendersEligible` | `false` | — | Whether a villager offender may be capitally sentenced at all. Off by default: an NPC arrest has no player in the loop. |
-| `executionDelayTicks` | `1200` | `0 … 72000` | The ceremony window between arming the device and the blade — the rescue and pardon window. Clemency, rescue, escape, guard death, device destruction or a chunk unload inside it returns the condemned to custody, never to freedom. |
+| `executionDelayTicks` | `1200` | `0 … 72000` | How long an execution order stays valid once armed. A guard arms it on placing the condemned in the device and releases the blade so that it lands at the end of this window: the ceremony, which is the rescue and pardon window, is this value minus the blade's fall and 2 ticks. A player's lever arms the same order and releases the blade at once, with no ceremony. Clemency, rescue, escape, guard death, device destruction or a chunk unload inside it cancels the order and returns the condemned to custody, never to freedom. Never shorter in effect than `detention.guillotineActivationDelayTicks` plus 3 ticks (0.8.0; see below). |
 | `condemnedEscortTimeoutTicks` | `2400` | `20 … 216000` | How long a guard may spend walking a condemned captive to a device before giving up and returning them to a cell. The captive stays condemned and stays held; only the walk ends. |
 | `guardMayExecute` | `true` | — | Whether an on-duty enforcement guard may carry out a sentence. Off leaves execution to players only. |
 | `executionSiteSearchRadius` | `48` | `8 … 128` | How far a guard looks for an assigned execution site. A site is an explicit facility assignment, never a guillotine somebody happened to place. |
@@ -1377,6 +1360,16 @@ the condemned simply stays in custody. `enabled = false` switches the whole feat
 
 `executionDelayTicks` must be at or below `condemnedEscortTimeoutTicks`, and both must be finite and
 non-negative. `/crime validate` reports any violation.
+
+**The effective order window (0.8.0).** An order is kept for whichever is longer: `executionDelayTicks`,
+or the blade's fall (`detention.guillotineActivationDelayTicks`) plus 3 ticks. Before 0.8.0 a blade at
+least as long as the window let the order expire before the blow landed, so no execution, manual or
+guard-led, ever struck. When the window has to be stretched, `/crime validate` and the startup log say so,
+and a guard's ceremony shrinks to one tick. With the defaults (1200 and 5) nothing is stretched: a guard
+waits 1193 ticks before releasing the blade, and a player's lever lands the blow 5 ticks after the pull.
+At the moment of the blow the device checks that the order it was released with is still the subject's
+order, for this device, this occupant and this actor, and that the capital sentence still stands; anything
+else voids the order and harms nobody.
 
 ## Retired in 0.7.5
 
@@ -1488,3 +1481,57 @@ A few coherent configurations rather than a list of switches:
 - **Suite standing without suite double-counting.** With MCA: Reputation installed, leave
   `enableReputation`, `mirrorReputationFallback`, and `suppressLocalVillagePenalty` all at their
   defaults. Changing the third is the one that quietly doubles every penalty.
+
+## `[villageJustice]`
+
+| Option | Default | Range | What it does |
+|---|---|---|---|
+| `enablePlayerReports` | `true` | boolean | Permit server-evidenced player reports to nearby responders; observations must also be enabled. |
+| `enableCrimeNews` | `true` | boolean | Optional relevant digests through MCA's native mailbox, subject to its mailing switch and personal subscription. |
+| `crimeNewsIntervalDays` | `1` | `1 … 30` | Monotonic Minecraft days between nonempty combined editions. |
+| `crimeNewsMaxStories` | `4` | `1 … 8` | Stories per edition, also bounded by four pages and 2,000 serialized text characters. |
+| `thiefDefenseGraceTicks` | `1200` | `0 … 240000` | How long being held up keeps justifying the victim's force after the mugging ends (0.7.7) -- a mugger running off with the purse is still the aggressor to the player chasing them. Also the strict-mode identified robbery evidence window. `0` ends it with the mugging. Custody ends eligibility immediately. |
+| `thiefCombatPolicy` | `ALL_THIEVES` | `NORMAL_LAW`, `EVIDENCE_REQUIRED`, `ALL_THIEVES` | Combat blame policy. All-Thieves includes free Thieves after serving a sentence; children, guards, unresolved roles and restrained prisoners remain protected. It creates neither report evidence nor rewards. Under every policy the victim of a mugging may fight the mugger off, from the moment it starts and for `thiefDefenseGraceTicks` after it ends; under `NORMAL_LAW` killing the mugger is still charged, as excessive defensive force (0.7.7). |
+
+An exempt blow is exempt everywhere it would otherwise count: no Heat, case, wanted status or guard
+aggression here; no MCA hurt or killing hearts, no MCA guard alert and no villager gossip natively (each
+gated by the optional native hooks, see `/crime validate`); and no MCA: Reputation assault or killing
+incident when Reputation 0.6.1 or newer is installed.
+
+## Per-world game rules
+
+Set `mcaCrimeUseWorldRules` in Create World → Game Rules, or with `/gamerule` during play.
+It defaults to **false**, preserving every existing server COMMON setting. When true, **all 17 mapped
+settings** use stored world-rule values, including values equal to shipped defaults. Switching back
+to false preserves those stored overrides. Client config never controls server gameplay.
+
+`/crime rules import` copies all validated mapped COMMON values and enables overrides in one batch.
+Use it when converting a configured existing world. `/crime rules defaults` explicitly resets the
+mapped values to shipped defaults and enables overrides. Both require vanilla permission level 2;
+`/crime rules status` shows effective values and source without changing anything.
+
+| Rule | Default | Legal values / mapped config |
+|---|---|---|
+| `mcaCrimeDetection` | true | `enableCrimeDetection` |
+| `mcaCrimeObservations` | true | `enableObservations` |
+| `mcaCrimeThieves` | true | `enableThieves` |
+| `mcaCrimeNpcMugging` | true | `enableNpcMugging` |
+| `mcaCrimeSeriousNpcCrime` | false | `enableNpcCrime` |
+| `mcaCrimePvpCrime` | false | `pvpCountsAsCrime` |
+| `mcaCrimeRequireWitnessForHeat` | true | `requireWitnessForHeat` |
+| `mcaCrimePlayerReports` | true | `enablePlayerReports` |
+| `mcaCrimeThiefCombatPolicy` | 2 | 0 normal law; 1 evidence required; 2 all eligible Thieves |
+| `mcaCrimeNews` | true | `enableCrimeNews` |
+| `mcaCrimeNewsIntervalDays` | 1 | 1–30 |
+| `mcaCrimeNewsMaxStories` | 4 | 1–8, subject to page/text bounds |
+| `mcaCrimeThiefMugCooldownTicks` | 24000 | 0–240000 |
+| `mcaCrimePlayerMugProtectionTicks` | 36000 | 0–1728000 |
+| `mcaCrimeMaxMuggingsPerDay` | 2 | 0–64; zero means unlimited |
+| `mcaCrimeThiefJailTicks` | 12000 | 200–240000 |
+| `mcaCrimeThiefProtectHotbar` | true | `thiefProtectHotbar` |
+
+Out-of-range editor/NBT/API integers normalize to the nearest legal bound; `/gamerule` rejects them
+through bounded integer arguments. Changes affect new actions and grants. Existing sentence and
+protection deadlines retain their assigned durations. Disabling mugging terminates uncommitted
+threats safely; disabling reporting invalidates offers and preserves accepted reports. Turning news
+off stops optional delivery and avoids a backlog burst when reenabled.
