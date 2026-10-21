@@ -96,16 +96,61 @@ public final class PlayerCrimeReportService {
         return new Menu(session.id, session.revision, responder.getUUID(), now, choices, empty);
     }
 
-    /** Non-cheat command adapter; uses the same four-block ray target and the same menu service. */
+    /**
+     * Non-cheat command adapter: the responder under the player's crosshair, within four blocks and in
+     * clear view, and the same menu service the guard's crime-menu row opens.
+     *
+     * <p>0.8.0: selection is {@link dev.otectus.mcacrime.action.CrimeTargetResolver}'s gameplay policy, so
+     * the command never falls back to some other guard nearby, and every refusal is its own message --
+     * nothing aimed at, a villager who is not a guard, a guard who cannot take reports right now,
+     * reporting switched off, or a reporter who is restrained. This adapter is still not gated by
+     * {@code allowGameplayCommandFallback}, exactly as before: that policy is unchanged.
+     */
     public static int openTargetedFromCommand(ServerPlayer player) {
-        LivingEntity responder = dev.otectus.mcacrime.action.CrimeActionService.rayTraceLiving(player, 4.0D);
-        Menu menu = responder == null ? null : open(player, responder);
+        var target = dev.otectus.mcacrime.action.CrimeTargetResolver.resolve(player,
+                dev.otectus.mcacrime.action.CrimeTargetResolver.Request.of(
+                        dev.otectus.mcacrime.action.CrimeTargetResolver.Policy.GAMEPLAY,
+                        dev.otectus.mcacrime.action.CrimeTargetResolver.Need.RESPONDER, "/crime report"));
+        if (!target.selected() || !(target.entity() instanceof LivingEntity responder)) {
+            player.sendSystemMessage(target.explain());
+            return 0;
+        }
+        String refusal = openRefusal(player, responder);
+        Menu menu = refusal == null ? open(player, responder) : null;
         if (menu == null) {
-            player.sendSystemMessage(Component.translatable("mcacrime.report.rejected.guard_unavailable"));
+            player.sendSystemMessage(Component.translatable(
+                    refusal == null ? "mcacrime.report.rejected.guard_unavailable" : refusal));
             return 0;
         }
         dev.otectus.mcacrime.network.CrimeNetwork.sendReportMenu(player, menu);
         return 1;
+    }
+
+    /**
+     * Why {@link #open} would refuse, as the message for the reporter, or null when it would not.
+     * Checked in the order the reporter can do something about: their own state, then the server's
+     * settings, then the guard.
+     */
+    @Nullable
+    public static String openRefusal(ServerPlayer player, LivingEntity responder) {
+        if (!basicPlayer(player)) {
+            return "mcacrime.report.rejected.reporter_unavailable";
+        }
+        MinecraftServer server = player.getServer();
+        if (server == null) {
+            return "mcacrime.report.rejected.disabled";
+        }
+        CrimeWorldSettings settings = CrimeWorldSettings.resolve(server);
+        if (!settings.playerReports()) {
+            return "mcacrime.report.rejected.disabled";
+        }
+        if (!settings.observations()) {
+            return "mcacrime.report.rejected.observations_disabled";
+        }
+        if (!validResponder(player, responder)) {
+            return "mcacrime.report.rejected.guard_unavailable";
+        }
+        return null;
     }
 
     public static int openReports(ServerPlayer player) {

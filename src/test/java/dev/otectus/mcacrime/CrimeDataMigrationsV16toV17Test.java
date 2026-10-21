@@ -31,7 +31,7 @@ class CrimeDataMigrationsV16toV17Test {
     void decreesAreSeventeenAndFollowSixteenDirectly() {
         assertEquals(17, CrimeDataMigrations.SCHEMA_DECREES);
         assertEquals(CrimeDataMigrations.SCHEMA_VILLAGE_JUSTICE + 1, CrimeDataMigrations.SCHEMA_DECREES);
-        assertEquals(CrimeDataMigrations.SCHEMA_DECREES, CrimeDataMigrations.CURRENT_SCHEMA);
+        assertTrue(CrimeDataMigrations.CURRENT_SCHEMA >= CrimeDataMigrations.SCHEMA_DECREES);
     }
 
     @Test

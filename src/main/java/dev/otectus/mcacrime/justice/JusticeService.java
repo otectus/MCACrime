@@ -51,7 +51,7 @@ public final class JusticeService {
         // A royal decree is local by construction: it names one village, and only that village's guards
         // act on it (0.7.8). Read through the decree service, which asks MCA Capitals whether it still
         // stands; nothing about it widens to any other jurisdiction.
-        UUID decree = dev.otectus.mcacrime.decree.DecreeService.inForce(level.getServer(), player.getUUID(),
+        UUID decree = dev.otectus.mcacrime.decree.DecreeService.enforceableHere(player,
                 jurisdiction).map(dev.otectus.mcacrime.decree.Decree::id).orElse(null);
         return evaluate(CrimeWorldData.get(level.getServer()), player.getUUID(),
                 jurisdiction, level.getGameTime(), settings,

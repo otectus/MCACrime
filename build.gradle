@@ -224,6 +224,33 @@ test {
     }
 }
 
+// Tests that need Minecraft's registries bootstrapped run in a JVM of their own (0.8.0). In the shared
+// `test` JVM an earlier class can leave BuiltInRegistries unable to initialise, and a test that needs it
+// then skips on its assumption instead of proving anything -- MaskColorsTest checks the sixteen standard
+// mask colours against vanilla's own dye blend, which needs real item stacks.
+ext.bootstrappedTests = ['dev.otectus.mcacrime.mask.MaskColorsTest']
+
+test {
+    filter {
+        bootstrappedTests.each { excludeTestsMatching it }
+    }
+}
+
+tasks.register('bootstrapTest', Test) {
+    group = 'verification'
+    description = 'Runs the tests that need a cleanly bootstrapped Minecraft, in their own JVM.'
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform()
+    filter {
+        bootstrappedTests.each { includeTestsMatching it }
+    }
+}
+
+tasks.named('check').configure {
+    dependsOn 'bootstrapTest'
+}
+
 // Resolves TownsteadBinding's manifest against a real Townstead jar, in its own JVM and its own class
 // loader. Separate from `test` because it needs a jar nobody can resolve from a Maven: Townstead is
 // published on CurseForge only, so the path is supplied by the person running it.

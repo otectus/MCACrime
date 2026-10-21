@@ -1505,8 +1505,9 @@ public final class McaCrimeConfig {
                     "fabricates a player head whatever this says.")
                     .define("guillotineDropsHead", true);
             guillotineActivationDelayTicks = b.comment(
-                    "Ticks between the blade being released and the blow landing. Persisted, so an unload",
-                    "inside the window neither cancels nor repeats the execution.")
+                    "Ticks between the blade being released and the blow landing. The fall is persisted so a",
+                    "reload neither repeats a blow nor freezes the blade, but the execution order is not: an",
+                    "unload or restart inside this delay cancels the order and the blade then harms nobody.")
                     .defineInRange("guillotineActivationDelayTicks", 5, 1, 200);
             bunkSetsRespawn = b.comment(
                     "Whether sleeping in a bunk sets the sleeper's respawn point. The previous point is",
@@ -1528,9 +1529,12 @@ public final class McaCrimeConfig {
                     "to players only.")
                     .define("guardMayExecute", true);
             executionDelayTicks = b.comment(
-                    "The ceremony window between arming the device and the blade. This is the rescue and",
-                    "pardon window: clemency, rescue, escape, guard death, device destruction or a chunk",
-                    "unload inside it returns the condemned to custody rather than to freedom.")
+                    "How long an execution order stays valid once armed. A guard arms it on placing the",
+                    "condemned in the device and drops the blade at the end of this window (the ceremony,",
+                    "the rescue and pardon window); a player's lever arms it and releases the blade at once,",
+                    "with no ceremony. Clemency, rescue, escape, guard death, device destruction or a chunk",
+                    "unload inside it cancels the order and returns the condemned to custody, never to",
+                    "freedom. Never shorter in effect than the blade's fall plus 3 ticks.")
                     .defineInRange("executionDelayTicks", 1200, 0, 72000);
             requiresExecutionDevice = b.comment(
                     "Whether a capital sentence needs a real device to be carried out. May only be false",

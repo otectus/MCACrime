@@ -22,7 +22,7 @@ Machine-generated map of this mod. Read this first when picking the project up.
 
 ```
 dev.otectus.mcacrime                                 2 files
-dev.otectus.mcacrime.action                          25 files
+dev.otectus.mcacrime.action                          26 files
 dev.otectus.mcacrime.action.handler                  21 files
 dev.otectus.mcacrime.activity                        4 files
 dev.otectus.mcacrime.ai                              16 files
@@ -42,11 +42,11 @@ dev.otectus.mcacrime.civic                           10 files
 dev.otectus.mcacrime.client                          24 files
 dev.otectus.mcacrime.client.hud                      4 files
 dev.otectus.mcacrime.client.render                   4 files
-dev.otectus.mcacrime.client.render.mask              3 files
+dev.otectus.mcacrime.client.render.mask              4 files
 dev.otectus.mcacrime.client.render.restraint         3 files
 dev.otectus.mcacrime.client.screen                   17 files
 dev.otectus.mcacrime.client.screen.widget            3 files
-dev.otectus.mcacrime.command                         4 files
+dev.otectus.mcacrime.command                         5 files
 dev.otectus.mcacrime.compat                          53 files
 dev.otectus.mcacrime.compat.capitals                 2 files
 dev.otectus.mcacrime.compat.inventory                1 file
@@ -65,7 +65,7 @@ dev.otectus.mcacrime.crime                           3 files
 dev.otectus.mcacrime.crime.type                      6 files
 dev.otectus.mcacrime.decree                          10 files
 dev.otectus.mcacrime.detect                          18 files
-dev.otectus.mcacrime.detention                       5 files
+dev.otectus.mcacrime.detention                       6 files
 dev.otectus.mcacrime.dialogue                        7 files
 dev.otectus.mcacrime.economy                         17 files
 dev.otectus.mcacrime.economy.account                 6 files
@@ -78,9 +78,10 @@ dev.otectus.mcacrime.entity                          5 files
 dev.otectus.mcacrime.event                           3 files
 dev.otectus.mcacrime.facility                        7 files
 dev.otectus.mcacrime.frisk                           18 files
+dev.otectus.mcacrime.help                            3 files
 dev.otectus.mcacrime.incident                        4 files
 dev.otectus.mcacrime.integration                     9 files
-dev.otectus.mcacrime.item                            11 files
+dev.otectus.mcacrime.item                            12 files
 dev.otectus.mcacrime.item.contraband                 4 files
 dev.otectus.mcacrime.item.creative                   4 files
 dev.otectus.mcacrime.item.lock                       6 files
@@ -94,7 +95,7 @@ dev.otectus.mcacrime.ledger                          15 files
 dev.otectus.mcacrime.lockpick                        6 files
 dev.otectus.mcacrime.locks                           14 files
 dev.otectus.mcacrime.loot                            3 files
-dev.otectus.mcacrime.mask                            7 files
+dev.otectus.mcacrime.mask                            9 files
 dev.otectus.mcacrime.memory                          18 files
 dev.otectus.mcacrime.menu                            10 files
 dev.otectus.mcacrime.mixin                           13 files
@@ -104,12 +105,12 @@ dev.otectus.mcacrime.mixin.townstead                 5 files
 dev.otectus.mcacrime.mixin.townstead.client          1 file
 dev.otectus.mcacrime.mug                             1 file
 dev.otectus.mcacrime.mug.npc                         13 files
-dev.otectus.mcacrime.network                         48 files
+dev.otectus.mcacrime.network                         50 files
 dev.otectus.mcacrime.news                            2 files
 dev.otectus.mcacrime.property                        15 files
 dev.otectus.mcacrime.ransom                          8 files
 dev.otectus.mcacrime.recipe                          8 files
-dev.otectus.mcacrime.recipe.lock                     8 files
+dev.otectus.mcacrime.recipe.lock                     9 files
 dev.otectus.mcacrime.relationship                    6 files
 dev.otectus.mcacrime.report                          6 files
 dev.otectus.mcacrime.restraint                       42 files
@@ -120,7 +121,7 @@ dev.otectus.mcacrime.tether                          11 files
 dev.otectus.mcacrime.util                            3 files
 ```
 
-## Registered content (75 entries)
+## Registered content (77 entries)
 
 ### Blocks (14)
 
@@ -201,11 +202,12 @@ dev.otectus.mcacrime.util                            3 files
 | `frisking` | `FRISKING` | `MenuType<FriskingMenu>` | src/main/java/dev/otectus/mcacrime/menu/CrimeMenus.java |
 | `mask_station` | `MASK_STATION` | `MenuType<MaskStationMenu>` | src/main/java/dev/otectus/mcacrime/menu/CrimeMenus.java |
 
-### Creative tabs (1)
+### Creative tabs (2)
 
 | id | field | type | declared in |
 |---|---|---|---|
 | `crime` | `TAB` | `CreativeModeTab` | src/main/java/dev/otectus/mcacrime/item/CrimeItems.java |
+| `masks` | `MASKS_TAB` | `CreativeModeTab` | src/main/java/dev/otectus/mcacrime/item/CrimeItems.java |
 
 ### Sounds (7)
 
@@ -232,13 +234,14 @@ dev.otectus.mcacrime.util                            3 files
 |---|---|---|---|
 | `mask_making` | `MASK_MAKING` | `RecipeType<MaskMakingRecipe>` | src/main/java/dev/otectus/mcacrime/recipe/CrimeRecipes.java |
 
-### Recipe serializers (7)
+### Recipe serializers (8)
 
 | id | field | type | declared in |
 |---|---|---|---|
 | `baked_key_mold_copy` | `BAKED_KEY_MOLD_COPY` | `RecipeSerializer<BakedKeyMoldCopyRecipe>` | src/main/java/dev/otectus/mcacrime/recipe/CrimeRecipes.java |
 | `key_mold_bake` | `KEY_MOLD_BAKE` | `RecipeSerializer<KeyMoldBakeRecipe>` | src/main/java/dev/otectus/mcacrime/recipe/CrimeRecipes.java |
 | `key_mold_copy` | `KEY_MOLD_COPY` | `RecipeSerializer<KeyMoldCopyRecipe>` | src/main/java/dev/otectus/mcacrime/recipe/CrimeRecipes.java |
+| `key_mold_imprint` | `KEY_MOLD_IMPRINT` | `RecipeSerializer<KeyMoldImprintRecipe>` | src/main/java/dev/otectus/mcacrime/recipe/CrimeRecipes.java |
 | `key_ring_add` | `KEY_RING_ADD` | `RecipeSerializer<KeyRingAddRecipe>` | src/main/java/dev/otectus/mcacrime/recipe/CrimeRecipes.java |
 | `key_ring_create` | `KEY_RING_CREATE` | `RecipeSerializer<KeyRingCreateRecipe>` | src/main/java/dev/otectus/mcacrime/recipe/CrimeRecipes.java |
 | `key_ring_disassemble` | `KEY_RING_DISASSEMBLE` | `RecipeSerializer<KeyRingDisassembleRecipe>` | src/main/java/dev/otectus/mcacrime/recipe/CrimeRecipes.java |
@@ -267,10 +270,10 @@ _No datagen providers detected — assets and data JSON are hand-written._
 |---|---|
 | blockstates | 14 |
 | block models | 57 |
-| item models | 50 |
+| item models | 66 |
 | block textures | 25 |
-| item textures | 37 |
-| recipes | 38 |
+| item textures | 69 |
+| recipes | 39 |
 | block loot tables | 14 |
 | block tags | 2 |
 | item tags | 15 |
@@ -478,3 +481,31 @@ _Bugs you know about but have not fixed, with the symptom and any lead._
 - Blueprint prisons are two additive `data/mca/tags/blocks` files and nothing else. MCA 7.7.1 asks
   prison-or-house for a barred cell with a bed (its polymorph prompt); 7.6 picks by itself.
 - `tools/capitals` is the production-server harness (`run_runtime.py --restart`, Capitals optional).
+
+## 0.8.0 notes (hand-maintained)
+
+- `action/CrimeTargetResolver` is the one targeting rule: a pure `decide` (policy, recognition, aimed and
+  nearby candidates) behind `resolve`/`implicit`/`explicit` adapters. Policies: `OPERATOR` (8 blocks, sole
+  visible candidate fallback), `DIAGNOSTIC` (10, fallback), `GAMEPLAY` (4, no fallback). Distance is
+  feet-to-feet `distanceToSqr` after the box broad phase; the crosshair test clips blocks first, then
+  intersects hitboxes. `/crime mug`, `/crime report`, job and debug commands all go through it.
+- `help/` (`CrimeHelpTopic`, `CrimeHelpPages`, `TooltipHelp`) and `command/CrimeHelpCommand` are the
+  `/crime help` registry. `TooltipHelp` is common code; the client installs the Shift check
+  (`CrimeClientSetup`), so no common class names `Screen`.
+- Guillotine timing: `ExecutionAuthorization.windowTicks()` = max(`executionDelayTicks`, blade + 3);
+  `Pending` carries an `orderId` and the detention id, and `strikeVerdict` decides the blow against the
+  exact order. `detention/DeviceFeedback` is the once-per-change action-bar voice for both devices;
+  `item/DetentionDeviceItem` explains refused placements.
+- Keys: `KeyRingBindings` keeps raw entries (binding plus optional `CustomName`); `recipe/lock/
+  KeyMoldImprintRecipe` (`mcacrime:key_mold_imprint`) shares `KeyCraftLogic`. `network/ServerRulesS2CPacket`
+  plus the common `network/ServerRulesView` carry the server's ring capacity (protocol `"21"`).
+- Masks: `mask/MaskColors` is the single colour catalogue (standard colour = vanilla blend of one dye,
+  presence vs value, the 272-stack catalogue for the `masks` tab); `mask/MaskWashing` registers the cauldron
+  interaction. Dyed art: `tools/art/build_mask_dye_layers.py` (author tool, `--check`) writes
+  `<style>_dyed*.png` and `<style>_dyed.json`; `client/render/mask/MaskArt` names the worn textures and
+  `MaskArmorRenderer.DetailLayer` re-renders the untinted detail inside the single armour pass.
+- 32 vanilla recipe-unlock advancements under `data/mcacrime/advancements/recipes/`
+  (`RecipeUnlockCoverageTest`).
+- Runtime evidence harnesses: `tools/usability` (dedicated server; targeting, guillotine, keys, masks, and
+  the `upgrade` suite that seeds a world on the previous jar and reopens it), `tools/gameplay`
+  `MaskScenarioChecks` (client contact sheets, two-client observation). See `docs/0.8.0/VALIDATION.md`.

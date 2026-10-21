@@ -185,7 +185,7 @@ public final class StolenGoodsTransfer {
             return data.removeStolenGoods(record.transactionId()) != null;
         }
         StolenGoodsRecord rest = new StolenGoodsRecord(record.transactionId(), record.thief(), record.owner(),
-                remainder.save(new CompoundTag()), 0L, record.stolenAt(), record.providerId());
+                remainder.save(new CompoundTag()), 0L, record.stolenAt(), record.providerId(), record.custody());
         return data.putStolenGoods(rest).stored();
     }
 
@@ -202,6 +202,7 @@ public final class StolenGoodsTransfer {
         Optional<TheftExecutor.TheftResult> filed;
         try {
             filed = StolenGoodsLedger.commitTheft(data, transferId, searcher.getUUID(), record.owner(), "", now,
+                    StolenGoodsRecord.Custody.INVENTORY,
                     () -> new TheftExecutor.TheftResult(portion.copy(), 0L));
         } catch (RuntimeException failed) {
             McaCrime.LOGGER.error("MCA: Crime could not file the re-theft {}; nothing was taken", transferId, failed);

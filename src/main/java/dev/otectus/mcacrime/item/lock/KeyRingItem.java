@@ -1,5 +1,7 @@
 package dev.otectus.mcacrime.item.lock;
 
+import dev.otectus.mcacrime.help.CrimeHelpTopic;
+import dev.otectus.mcacrime.help.TooltipHelp;
 import dev.otectus.mcacrime.locks.KeyBinding;
 import dev.otectus.mcacrime.locks.KeyRingBindings;
 import dev.otectus.mcacrime.locks.LockInteractions;
@@ -57,16 +59,55 @@ public class KeyRingItem extends Item {
         return stack == null || stack.isEmpty() ? 0 : KeyRingBindings.count(stack.getTag());
     }
 
+    /** How many key names a tooltip lists before it summarises the rest. */
+    public static final int TOOLTIP_LABELS = 6;
+
+    /**
+     * The ring's keys and how to use it (0.8.0).
+     *
+     * <p>The capacity is the server's, from {@code ServerRulesS2CPacket}; until the server has said, the
+     * line gives the count and says the limit is the server's, rather than quoting this client's own
+     * config file as if it were the rule. Names are bounded to {@link #TOOLTIP_LABELS}: a key's anvil
+     * name if it had one, the lock's name otherwise, and "an unnamed lock" when there is neither.
+     */
     @Override
     public void appendHoverText(ItemStack stack, @Nullable Level level, List<Component> tooltip,
                                 TooltipFlag flag) {
         super.appendHoverText(stack, level, tooltip, flag);
-        int count = count(stack);
-        tooltip.add(Component.translatable("item.mcacrime.key_ring.tooltip.count", count,
-                LockInteractions.maxKeysPerRing()).withStyle(ChatFormatting.GRAY));
-        for (KeyBinding binding : bindings(stack)) {
-            binding.displayName().ifPresent(name ->
-                    tooltip.add(Component.literal(" " + name).withStyle(ChatFormatting.DARK_GRAY)));
+        List<KeyRingBindings.Entry> entries = KeyRingBindings.entries(stack.getTag());
+        java.util.OptionalInt capacity = dev.otectus.mcacrime.network.ServerRulesView.maxKeysPerRing();
+        tooltip.add((capacity.isPresent()
+                ? Component.translatable("item.mcacrime.key_ring.tooltip.count", entries.size(), capacity.getAsInt())
+                : Component.translatable("item.mcacrime.key_ring.tooltip.count_unknown", entries.size()))
+                .withStyle(ChatFormatting.GRAY));
+        for (int i = 0; i < entries.size() && i < TOOLTIP_LABELS; i++) {
+            tooltip.add(Component.literal(" - ").append(label(entries.get(i))).withStyle(ChatFormatting.DARK_GRAY));
         }
+        if (entries.size() > TOOLTIP_LABELS) {
+            tooltip.add(Component.translatable("item.mcacrime.key_ring.tooltip.more", entries.size() - TOOLTIP_LABELS)
+                    .withStyle(ChatFormatting.DARK_GRAY));
+        }
+        TooltipHelp.append(tooltip, Component.translatable(entries.isEmpty()
+                        ? "item.mcacrime.key_ring.tooltip.empty" : "item.mcacrime.key_ring.tooltip.use"),
+                List.of(Component.translatable("item.mcacrime.key_ring.tooltip.add"),
+                        Component.translatable("item.mcacrime.key_ring.tooltip.remove"),
+                        Component.translatable("item.mcacrime.key_ring.tooltip.first"),
+                        Component.translatable("item.mcacrime.key_ring.tooltip.not_master")),
+                CrimeHelpTopic.KEYRING);
+    }
+
+    /** One entry's readable name: the key's own name, then the lock's, then "an unnamed lock". */
+    public static Component label(KeyRingBindings.Entry entry) {
+        if (entry.customName() != null) {
+            try {
+                Component custom = Component.Serializer.fromJson(entry.customName());
+                if (custom != null) {
+                    return custom;
+                }
+            } catch (RuntimeException malformed) {
+                // fall through to the lock's own name
+            }
+        }
+        return KeyItem.label(entry.binding());
     }
 }

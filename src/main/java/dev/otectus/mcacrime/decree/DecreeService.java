@@ -372,6 +372,7 @@ public final class DecreeService {
         forget(ended);
         player.sendSystemMessage(Component.translatable("mcacrime.decree.paid", DecreeText.fine(amount),
                 DecreeText.village(server, ended.community())));
+        liftIfSoleReason(server, decree);
         post(ended, DecreeChangedEvent.Change.FINED);
         return new FineService.Payment(true, transactionId, List.of(), amount, heat, heat, "mcacrime.decree.paid");
     }
@@ -435,7 +436,22 @@ public final class DecreeService {
         return DecreeRules.standing(decree, now, settings.on(), CapitalsBridge.decreesReady(), capital, any, target);
     }
 
-    /** The decree in force against {@code offender} for {@code community}'s guards, if any. */
+    /** A guard may act on a decree only while its target is physically in that jurisdiction. */
+    public static Optional<Decree> enforceableHere(@Nullable ServerPlayer player,
+                                                   @Nullable CrimeCommunityKey jurisdiction) {
+        return jurisdiction == null ? Optional.empty()
+                : inForceHere(player).filter(decree -> jurisdiction.equals(decree.community()));
+    }
+
+    /** The standing decree in the player's present village, never one from a village they left. */
+    public static Optional<Decree> inForceHere(@Nullable ServerPlayer player) {
+        MinecraftServer server = player == null ? null : player.getServer();
+        if (server == null || !CrimeWorldData.get(server).hasOpenDecree(player.getUUID())) return Optional.empty();
+        // Location is deliberately outside the standing cache: leaving a village stands guards down now.
+        return inForce(server, player.getUUID(), communityOf(player).orElse(null));
+    }
+
+    /** The decree standing in a community, independent of the offender's current location. */
     public static Optional<Decree> inForce(@Nullable MinecraftServer server, @Nullable UUID offender,
                                            @Nullable CrimeCommunityKey community) {
         if (server == null || offender == null || community == null) {
@@ -448,7 +464,7 @@ public final class DecreeService {
         return data.openDecree(offender, community).filter(decree -> standing(server, decree).enforced());
     }
 
-    /** Whether any decree is in force against {@code offender} anywhere: the guard scan's cheap gate. */
+    /** Whether any decree stands against {@code offender} anywhere, independent of their location. */
     public static boolean anyInForce(@Nullable MinecraftServer server, @Nullable UUID offender) {
         if (server == null || offender == null) {
             return false;

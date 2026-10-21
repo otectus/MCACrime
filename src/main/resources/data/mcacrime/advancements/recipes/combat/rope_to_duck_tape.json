@@ -1,0 +1,35 @@
+{
+  "parent": "minecraft:recipes/root",
+  "criteria": {
+    "has_restraint_rope": {
+      "conditions": {
+        "items": [
+          {
+            "items": [
+              "mcacrime:restraint_rope"
+            ]
+          }
+        ]
+      },
+      "trigger": "minecraft:inventory_changed"
+    },
+    "has_the_recipe": {
+      "conditions": {
+        "recipe": "mcacrime:rope_to_duck_tape"
+      },
+      "trigger": "minecraft:recipe_unlocked"
+    }
+  },
+  "requirements": [
+    [
+      "has_the_recipe",
+      "has_restraint_rope"
+    ]
+  ],
+  "rewards": {
+    "recipes": [
+      "mcacrime:rope_to_duck_tape"
+    ]
+  },
+  "sends_telemetry_event": false
+}

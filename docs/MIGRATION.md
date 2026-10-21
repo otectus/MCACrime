@@ -6,6 +6,69 @@ the second one, because that is what changes shape between versions.
 
 ---
 
+## 0.8.0
+
+**Coming from 0.7.8.** 0.7.9 was never published, so a server moving from 0.7.8, the last published
+release, also takes the 0.7.9 step below: the automatic migration to world schema 18. Back up the world
+first. A 0.7.8 jar treats a schema-18 save as one from the future and holds Crime state read-only, so going
+back to 0.7.8 means restoring that backup.
+
+**Network protocol 21.** `network/CrimeNetwork.PROTOCOL_VERSION` is `"21"`: one clientbound packet,
+`ServerRulesS2CPacket`, sends the server's effective `locks.maxKeysPerRing` at login and on config reload,
+so a key ring's tooltip shows the server's capacity rather than the client's own setting. Update the client
+and the server together; a 0.7.8 or 0.7.9 client (both protocol 20) fails the handshake cleanly instead of
+misreading a packet.
+
+**World schema 18 is unchanged from 0.7.9.** 0.8.0 adds no step of its own and `mcacrime.dat` keeps its
+0.7.9 shape. This was checked by reopening, on 0.8.0, worlds saved by 0.7.9 and by the published 0.7.8 (which
+migrates to 18 on load), each holding bound keys, a ring, a raw and a baked mold, dyed and undyed masks, an
+armour stand wearing one, and a condemned villager in a pillory with the guillotine blade mid-fall: every
+binding, every mask's data, custody, the sentence and the occupancy survive, and the old, transient
+execution order is not resumed (`docs/0.8.0/VALIDATION.md`).
+
+**Item data.** A key ring's entries may carry the custom name of the key that went onto them (`CustomName`
+inside each entry), so the name comes back when the key is taken off. A ring written by an older release has
+no names and keeps working. Masks keep `display.color`; dyeing, washing and restyling touch only that field (washing
+leaves an empty `display` block, as vanilla's leather washing does) and never the name, lore, damage,
+enchantments, provenance or another mod's data.
+
+**Config.** No key is added or removed. `sentencing.capitalPunishment.executionDelayTicks` and
+`detention.guillotineActivationDelayTicks` keep their names and ranges; their descriptions are corrected.
+When the order window is not longer than the blade's fall plus 3 ticks, `/crime validate` and the startup
+log say so, and the order is kept for that long instead of expiring before the blade lands.
+
+**Resource packs.** Dyed masks draw new art (`textures/item/<style>_dyed*.png`,
+`textures/models/armor/<style>_dyed*.png`, `models/item/<style>_dyed.json`, selected by the `mcacrime:dyed`
+predicate in each style's model). A pack that retextured the original masks still applies to undyed masks;
+dyed masks show the shipped dyed art until the pack adds its own.
+
+**Rollback.** A 0.7.9 jar opens a 0.8.0 world: the schema is the same, a ring's extra names are ignored, and
+a mold made by the new blank-mold impression is an ordinary recorded mold. A 0.7.8 jar does not (see
+"Coming from 0.7.8" above): restore the pre-upgrade backup instead. Roll the client back with the server,
+because the protocol differs. Player advancement progress for the new recipe-unlock advancements is
+ignored by an older jar, which does not ship them.
+
+---
+
+## 0.7.9
+
+**World schema 18: stolen-property custody.** Back up the world before upgrading. The schema step
+preserves existing theft rows; when the server opens the store, it classifies their holders using
+online players and saved offline player identities. A player's row becomes inventory provenance,
+which expires without creating owner escrow. An NPC's row remains the backing store for recoverable
+property. New thefts record that distinction explicitly, and it survives save/reload.
+
+If player-save identities cannot be read, unresolved legacy rows stay intact and cannot be claimed or
+expired into escrow. The server logs the failure and retries classification after the store is reloaded.
+
+**Network protocol 20 is unchanged.** The restraint fix changes packet recipients, not packet formats.
+
+**Rollback.** A 0.7.8 jar reads schema 18 as a save from the future and holds Crime state read-only,
+preserving `mcacrime.dat`. Restore the pre-upgrade world backup to roll back; do not lower the schema
+number by hand, because an older reader would treat player inventory provenance as recoverable loot.
+
+---
+
 ## 0.7.8
 
 **Network protocol 20.** `network/CrimeNetwork.PROTOCOL_VERSION` is `"20"`: the royal decree screen

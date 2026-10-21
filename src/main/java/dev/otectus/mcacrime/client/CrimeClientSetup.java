@@ -50,16 +50,17 @@ public final class CrimeClientSetup {
         }
 
         /**
-         * A dyed mask shows its dye (0.7.2 §5.3, §7.2).
+         * A dyed mask shows its dye (0.7.2 §5.3, §7.2; split into base and detail in 0.8.0).
          *
-         * <p>Layer 0 only: the item model's single layer carries the tint, and
-         * {@code MaskItem.getColor} answers white for an undyed one, so a mask nobody dyed looks
-         * exactly as it did before the station could dye anything.
+         * <p>Layer 0 only: it is the undyed model's single layer, which {@code MaskItem.getColor}
+         * leaves white so a mask nobody dyed looks exactly as it always did, and the dyed model's
+         * neutral base, which takes the colour. A dyed model's layer 1 is its detail -- lenses, eyes,
+         * straps, trim -- and stays untinted.
          *
          * <p>Registered from the catalogue rather than from a hand-written list of items: this is the
-         * inventory half of the tint, the worn half is vanilla's own {@code HumanoidArmorLayer}
-         * multiplying the layer texture by the same {@code DyeableLeatherItem} colour, and a style
-         * that reached one and not the other would be dyed in the bag and grey on the face.
+         * inventory half of the tint, the worn half is {@code MaskArmorRenderer} tinting the same
+         * neutral base by the same {@code DyeableLeatherItem} colour, and a style that reached one and
+         * not the other would be dyed in the bag and grey on the face.
          */
         @SubscribeEvent
         public static void onRegisterItemColors(
@@ -86,6 +87,10 @@ public final class CrimeClientSetup {
 
         @SubscribeEvent
         public static void onClientSetup(FMLClientSetupEvent event) {
+            // Item guidance expands while Shift is held (0.8.0). The check is client-only, so the common
+            // tooltip helper is handed it here rather than naming Screen itself.
+            dev.otectus.mcacrime.help.TooltipHelp.installExpandedCheck(
+                    net.minecraft.client.gui.screens.Screen::hasShiftDown);
             // A key ring shows how many keys are on it (0.7.5 M3.2). The four count textures shipped
             // with the ring and the model that selects between them did not, so until now every ring
             // drew as the same two-key icon whatever it held. The predicate is client-only and reads
@@ -95,6 +100,18 @@ public final class CrimeClientSetup {
                     dev.otectus.mcacrime.McaCrime.id("keys"),
                     (stack, level, holder, seed) -> Math.min(4,
                             dev.otectus.mcacrime.locks.KeyRingBindings.count(stack.getTag()))));
+            // A dyed mask draws its dyed model (0.8.0): a neutral base the colour tints and its details
+            // untinted over it, where an undyed one keeps its original art. Every style's model selects
+            // the dyed one through this predicate, which reads presence, not value: a mask dyed white
+            // is dyed. Registered for the whole catalogue, like the colour handler.
+            event.enqueueWork(() -> {
+                for (net.minecraft.world.item.Item mask : dev.otectus.mcacrime.item.CrimeItems.masks()) {
+                    net.minecraft.client.renderer.item.ItemProperties.register(mask,
+                            dev.otectus.mcacrime.McaCrime.id("dyed"),
+                            (stack, level, holder, seed) ->
+                                    dev.otectus.mcacrime.mask.MaskColors.hasColor(stack) ? 1.0F : 0.0F);
+                }
+            });
             // The station's screen, bound to the menu type the server opens (0.7.2 §8.1).
             event.enqueueWork(() -> net.minecraft.client.gui.screens.MenuScreens.register(
                     dev.otectus.mcacrime.menu.CrimeMenus.MASK_STATION.get(),
@@ -130,6 +147,7 @@ public final class CrimeClientSetup {
         ClientRestraintRig.clear();
         ClientVillageSecurityData.clear();
         ClientWeaponPolicy.clear();
+        dev.otectus.mcacrime.network.ServerRulesView.clear();
         ClientCriminalJobData.clear();
         // The datapack layer belongs to the server that sent it (§3.13). Keeping it would predict the
         // next world's input against the last world's pack.

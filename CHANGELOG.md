@@ -14,6 +14,136 @@ Townstead, reached only by reflection and a plugin-gated mixin config, and silen
 install that does not have it. MCA Capitals is optional the same way: bound by name, verified against
 1.3.5, 1.3.6 and 1.3.7, and silently absent without it.
 
+## [0.8.0] — 2026-10-21
+
+Usability release: commands find the villager you mean, the guillotine says what it is doing, key copying
+is teachable, and every mask takes every dye. **Network protocol `"21"`** (from `"20"`): one new
+server-to-client packet carries the server's effective key-ring capacity, so client and server must update
+together. **0.7.9 was never published on its own**, so coming from 0.7.8, the last published release, this
+release also carries the 0.7.9 changes below, including the automatic migration to **world schema 18**:
+back up the world first, and roll back to 0.7.8 only from that backup. 0.8.0 adds no schema step of its
+own; worlds saved by 0.7.8 and by 0.7.9 were both reopened on 0.8.0 (`docs/0.8.0/VALIDATION.md`). No config
+key is added or removed; two descriptions are corrected and one validation warning is new. New recipe serializer
+`mcacrime:key_mold_imprint`, new creative tab `mcacrime:masks`, and new dyed-mask art that resource packs
+retexturing masks should also cover (see "For pack authors" below). See `docs/MIGRATION.md`.
+
+### Fixed
+
+- **`/crime mug` and `/crime report` could not select anybody.** The gameplay ray passed the squared reach
+  to `ProjectileUtil` as a box inflation, which put the player's eyes inside every hitbox, so an aimed
+  villager was never hit and the commands answered "no target" or "no guard available" (reproduced on
+  0.7.9 with a villager three blocks away). Both now take the entity under the crosshair within the 4-block
+  gameplay reach, clipped against blocks, and the action re-checks the same reach before it commits.
+- **Operator villager commands changed the wrong villager.** `/crime job assign`, `/crime job clear` and
+  `/crime debug villager` picked the nearest MCA villager in an 8-block box: a closer bystander beat the
+  one being looked at, a box corner 10.6 blocks away counted as in range, and a villager behind a wall was
+  chosen. They now use the villager under the crosshair, or, when nothing is aimed at, the only visible
+  candidate within a true 8-block sphere; with several, they ask you to look at one or name it.
+- **"No villager nearby" covered every failure.** Aiming at a vanilla villager, an MCA zombie villager or
+  another mob, a target behind a wall, several candidates, a console sender and a missing MCA binding now
+  each get their own message, and an ineligible villager (a child, say) gets the job service's own reason.
+- **A guillotine whose blade fall was not shorter than the order window never executed.** With
+  `detention.guillotineActivationDelayTicks` at or above `sentencing.capitalPunishment.executionDelayTicks`
+  the order expired before the blade landed, for the lever and for guard-led executions alike. An order
+  now lasts at least the blade's fall plus 3 ticks, and `/crime validate` says when it had to be stretched.
+- **A blade could use the wrong order.** A fall persisted from an earlier order could land under a newer
+  order for the same subject and device. Each release now carries the order it was armed with, and the
+  blow lands only if that exact order, device, occupant, actor and live capital sentence still hold.
+- **Breaking a pillory's lower half left its upper half floating**; both halves and any frame now go.
+- **Two players could secure the same pillory in the same moment.** A second toggle inside half a second
+  of another player's is refused as busy.
+- **Comments and config descriptions described execution behaviour that does not exist**: an
+  unauthorised drop opening the device, an unload keeping an execution alive, and a no-device shortcut in
+  `/crime capital execute`. They now describe what the code does: an unload or restart cancels the order,
+  and a cancelled order harms nobody and frees nobody.
+- **Key rings showed the client's own capacity setting.** The tooltip now shows the server's value, or says
+  the capacity is unknown before the server has sent it.
+- **Binding a key could fail silently.** A full ring, a lock whose first key was already issued and a lock
+  that is not yours now each say so, and a wrong key, a key from before a rekey and a ring holding no key
+  for the lock are told apart.
+- **A key renamed at an anvil lost its name on a ring.** The name now travels with the ring entry and comes
+  back when the key is taken off.
+- **Dyeing an undyed mask white counted as no change** (an undyed mask also reads as white). Whether a mask
+  carries a colour now counts, not only the number.
+- **Most dyes barely showed on dark or strongly coloured masks, and dye flooded lenses, eyes and straps.**
+  A dyed mask now draws a neutral dyeable base under its original details (see Added).
+
+### Added
+
+- **`/crime help [topic]`**: `commands`, `targeting`, `guillotine`, `keys`, `keyring`, `keymold` and
+  `masks` (with aliases such as `key_ring`, `mold`, `pillory` and `dye`), read-only, for every player and
+  from the console. `/crime` alone opens the overview. Links to mutating commands suggest the command
+  instead of running it, and operator lines are shown only to players allowed to use them.
+- **Explicit targets**: `/crime job assign thief [target]`, `/crime job assign fence [target]`,
+  `/crime job clear [target]` (level 3) and `/crime debug villager [target]` (level 2) take one entity and
+  work from the console. **`/crime debug target [target]`** (level 2) reports how a target was chosen, its
+  registry id, distance, sight line, MCA recognition and binding state, and the rejection.
+  **`/crime debug mca`** (level 2) reports the MCA binding.
+- **The pillory and guillotine say what happened** on the action bar, once per change: an empty pillory and
+  where the subject stands, who was secured or released, an occupied device, a blade armed (with its delay),
+  an order that became void and why, a disabled feature, and why a placement was refused (place the
+  guillotine on a pillory, blocked, too high, no room, no ground). Holding a block still places it.
+- **Tooltips that teach**, with Shift for details and a pointer to the matching help topic, on the pillory,
+  guillotine, keys, key rings, key molds, baked key molds, handcuffs and shackles keys, and masks. A blank
+  baked mold says it cannot cast; a ring lists its keys by name.
+- **Blank-mold impression**: a blank Key Mold and a bound Key in a crafting grid make a recorded Key Mold
+  and return the key. The clay-ball impression is unchanged.
+- **Every mask in every dye.** All 16 styles take all 16 dyes at the Mask Station, and a style recolours
+  itself through its own restyle recipe. A standard colour names the mask ("Blue Plague Doctor Mask"); a
+  blend or custom colour shows "Custom colour", with its hex code in advanced tooltips. A **Masks** creative
+  tab holds each style's original followed by its 16 colours (272 stacks), and creative search finds them
+  by colour. A dyed mask washes clean in a water cauldron, which removes only the colour and uses one level
+  of water. The Mask Station has a help button and its preview names the colour and whether a restyle keeps
+  the mask's wear and name.
+- **Dyed mask art**: each style's dyed look is a neutral base the dye tints with its original details drawn
+  untinted on top, in the inventory, in the hand, on the ground and worn. Undyed masks draw exactly the
+  art they always did. Generated by `tools/art/build_mask_dye_layers.py` (author tool, `--check`).
+- **Recipe-book unlocks** for the 32 fixed recipes: picking up an ingredient (an iron nugget, say) adds the
+  recipes that use it to the vanilla recipe book. Key copies, molds, rings and Mask Station recipes depend
+  on the item's data and are taught by `/crime help` instead.
+
+### For pack authors
+
+- A dyed mask's item model is `models/item/<style>_dyed.json` (layer 0 tinted base, layer 1 untinted
+  detail; the Highwayman's Domino keeps its hand-built model with a matching element pair), selected by the
+  `mcacrime:dyed` predicate added to each `models/item/<style>.json`. Its textures are
+  `textures/item/<style>_dyed.png`, `textures/item/<style>_dyed_detail.png`,
+  `textures/models/armor/<style>_dyed.png` and `textures/models/armor/<style>_dyed_detail.png`. A pack that
+  retextures a mask's original art should retexture these too, or dyed copies keep the shipped look.
+- New recipe type `mcacrime:key_mold_imprint` (see `DATAPACK.md`) and 32 recipe-unlock advancements under
+  `data/mcacrime/advancements/recipes/`.
+
+## [0.7.9] — unreleased
+
+Prepared on 2026-10-11 and never published on its own: these changes first ship in 0.8.0.
+
+Network protocol `"20"` is unchanged. **World schema 18** adds explicit custody to stolen-goods
+records. Existing saves migrate automatically: online and saved offline player identities distinguish
+items already handed to players from property held only in an NPC's ledger. Back up the world before
+upgrading. A 0.7.8 jar treats schema 18 as a save from the future and holds Crime state read-only;
+rolling back requires the pre-upgrade backup. See `docs/MIGRATION.md`.
+
+- **Items taken from a thief no longer become a second copy in owner escrow.** Both taking another
+  victim's loot from a thief (`frisk/StolenGoodsTransfer`) and an ordinary criminal search
+  (`frisk/SeizureLedger`) now file provenance for the item handed to the player, not another recoverable
+  item. The default seven-day expiry retires that trail without recreating the goods; claims, arrest
+  and death recovery cannot cash it out either. NPC-held property still recovers once, including the
+  remainder of a partly taken stack. Legacy records whose custody cannot yet be determined stay intact
+  and unclaimable until migration can complete.
+- **Royal decrees stop at their village's boundary.** A guard's home village alone no longer authorises
+  enforcement wherever the player goes. Guard challenges, arrest and the public `McaCrimeApi.mayEnforce`
+  query check the player's current community. Leaving closes a decree-only challenge without counting
+  as a refusal; returning restores the decree's local authority. Independent grounds for enforcement
+  keep their existing rules.
+- **Paying a decree in prison releases a sentence held solely by that decree.** Successful payment now
+  runs the same sentence cleanup as withdrawal and voiding, clearing its custody and restraints. An
+  independent case or another decree bound to the sentence still keeps the prisoner in custody. The
+  fine changes neither Heat nor Karma, and a failed or repeated payment grants no release or extra debit.
+- **Restrained players receive their own state changes immediately.** Physical-state updates, removals
+  and restraint rig updates now reach the wearer as well as the players tracking them, fixing stale
+  local restraint state until reconnect. Distant players receive no additional broadcast, and the
+  packet format is unchanged.
+
 ## [0.7.8] — 2026-10-10
 
 Network protocol `"20"`: client and server must update together. World schema 17, a stamp-only step:

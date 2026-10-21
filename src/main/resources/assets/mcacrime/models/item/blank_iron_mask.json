@@ -2,5 +2,13 @@
   "parent": "item/generated",
   "textures": {
     "layer0": "mcacrime:item/blank_iron_mask"
-  }
+  },
+  "overrides": [
+    {
+      "predicate": {
+        "mcacrime:dyed": 1
+      },
+      "model": "mcacrime:item/blank_iron_mask_dyed"
+    }
+  ]
 }

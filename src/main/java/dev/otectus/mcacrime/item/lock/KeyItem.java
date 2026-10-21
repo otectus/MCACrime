@@ -1,5 +1,7 @@
 package dev.otectus.mcacrime.item.lock;
 
+import dev.otectus.mcacrime.help.CrimeHelpTopic;
+import dev.otectus.mcacrime.help.TooltipHelp;
 import dev.otectus.mcacrime.locks.KeyBinding;
 import dev.otectus.mcacrime.locks.LockInteractions;
 import net.minecraft.ChatFormatting;
@@ -61,20 +63,33 @@ public class KeyItem extends Item {
         }
     }
 
+    /**
+     * What the key is and what to do with it (0.8.0): a blank key says how its first binding happens and
+     * why a lock may refuse it; a bound key names its lock and how it is copied or wiped. Nothing here
+     * claims the key still fits: that needs the lock's current revision, which only the server has.
+     */
     @Override
     public void appendHoverText(ItemStack stack, @Nullable Level level, List<Component> tooltip,
                                 TooltipFlag flag) {
         super.appendHoverText(stack, level, tooltip, flag);
         Optional<KeyBinding> binding = binding(stack);
         if (binding.isEmpty()) {
-            tooltip.add(Component.translatable("item.mcacrime.key.tooltip.blank")
-                    .withStyle(ChatFormatting.DARK_GRAY));
+            TooltipHelp.append(tooltip, Component.translatable("item.mcacrime.key.tooltip.blank"),
+                    List.of(Component.translatable("item.mcacrime.key.tooltip.blank.1"),
+                            Component.translatable("item.mcacrime.key.tooltip.blank.2")),
+                    CrimeHelpTopic.KEYS);
             return;
         }
-        tooltip.add(Component.translatable("item.mcacrime.key.tooltip.bound",
-                        binding.get().displayName()
-                                .map(Component::literal)
-                                .orElseGet(() -> Component.translatable("item.mcacrime.key.tooltip.unnamed")))
-                .withStyle(ChatFormatting.GRAY));
+        TooltipHelp.append(tooltip, Component.translatable("item.mcacrime.key.tooltip.bound", label(binding.get())),
+                List.of(Component.translatable("item.mcacrime.key.tooltip.bound.1"),
+                        Component.translatable("item.mcacrime.key.tooltip.bound.2"),
+                        Component.translatable("item.mcacrime.key.tooltip.bound.3")),
+                CrimeHelpTopic.KEYMOLD);
+    }
+
+    /** A binding's readable name, or "an unnamed lock". Never an id or a lock code. */
+    public static Component label(KeyBinding binding) {
+        return binding.displayName().<Component>map(Component::literal)
+                .orElseGet(() -> Component.translatable("item.mcacrime.key.tooltip.unnamed"));
     }
 }

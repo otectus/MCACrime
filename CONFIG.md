@@ -1243,14 +1243,14 @@ damage: it lives on the worn instance, so two prisoners never share one counter.
 | `pilloryBreakoutTransitions` | `100` | `0 … 10000` | How many crouch transitions break a pillory open from the inside. `0` disables breaking out; stale-occupancy cleanup runs either way. |
 | `guillotineEnabled` | `true` | — | Whether the guillotine may carry out an authorised execution at all. Off leaves the block placeable and usable as a restraint device that never takes a life. |
 | `guillotineDropsHead` | `true` | — | Whether an executed player's head drops at the device. A non-player victim never fabricates a player head. |
-| `guillotineActivationDelayTicks` | `5` | `1 … 200` | Ticks between the blade being released and the blow landing. Persisted, so an unload inside the window neither cancels nor repeats it. |
+| `guillotineActivationDelayTicks` | `5` | `1 … 200` | Ticks between the blade being released and the blow landing: the blade's own fall. A player's lever releases the blade at once, so this is the whole wait for a manual execution. The fall is persisted, so a reload neither repeats a blow nor freezes the blade; the execution order is not, so an unload or restart inside the fall cancels it and the blade then harms nobody (corrected in 0.8.0). |
 | `bunkSetsRespawn` | `true` | — | Whether sleeping in a bunk sets the sleeper's respawn point. The previous point is restored on release only while this system still owns the override. |
 
 ## `[locks]`
 
 | Option | Default | Range | What it does |
 |---|---|---|---|
-| `maxKeysPerRing` | `16` | `1 … 64` | How many keys one key ring holds. Lowering this never erases keys from a fuller ring; it refuses further additions until the ring is back within the limit. |
+| `maxKeysPerRing` | `16` | `1 … 64` | How many keys one key ring holds. Lowering this never erases keys from a fuller ring; it refuses further additions until the ring is back within the limit. Since 0.8.0 the server sends its value to each client, so a ring's tooltip shows the server's capacity, not the client's own config. |
 | `foreignLockPolicy` | `REFUSE` | `REFUSE`, `IGNORE` | What to do when another lock mod already owns the target. `REFUSE` declines to be the second lock on one block — two independent access checks on one chest is how a player gets locked out of their own container. |
 | `lockAutomationPolicy` | `BLOCK_ALL` | `BLOCK_ALL`, `ALLOW_INSERT`, `ALLOW_ALL` | What automation may do to a locked container. Checked on every operation, so a handler fetched while the safe was open stops working the moment it is locked. |
 | `protectLockedBlocksFromBreaking` | `true` | — | Whether a locked block resists being broken by hand. |
@@ -1333,7 +1333,7 @@ the condemned simply stays in custody. `enabled = false` switches the whole feat
 | `enabled` | `true` | — | Master switch for the whole feature. Off leaves the guillotine a usable device that never receives a lawful execution order. |
 | `guardKillingIsCapital` | `true` | — | The only offence gate there is. Off means no offence qualifies and every sentence is custodial, whatever the Heat, charge count or band. |
 | `npcOffendersEligible` | `false` | — | Whether a villager offender may be capitally sentenced at all. Off by default: an NPC arrest has no player in the loop. |
-| `executionDelayTicks` | `1200` | `0 … 72000` | The ceremony window between arming the device and the blade — the rescue and pardon window. Clemency, rescue, escape, guard death, device destruction or a chunk unload inside it returns the condemned to custody, never to freedom. |
+| `executionDelayTicks` | `1200` | `0 … 72000` | How long an execution order stays valid once armed. A guard arms it on placing the condemned in the device and releases the blade so that it lands at the end of this window: the ceremony, which is the rescue and pardon window, is this value minus the blade's fall and 2 ticks. A player's lever arms the same order and releases the blade at once, with no ceremony. Clemency, rescue, escape, guard death, device destruction or a chunk unload inside it cancels the order and returns the condemned to custody, never to freedom. Never shorter in effect than `detention.guillotineActivationDelayTicks` plus 3 ticks (0.8.0; see below). |
 | `condemnedEscortTimeoutTicks` | `2400` | `20 … 216000` | How long a guard may spend walking a condemned captive to a device before giving up and returning them to a cell. The captive stays condemned and stays held; only the walk ends. |
 | `guardMayExecute` | `true` | — | Whether an on-duty enforcement guard may carry out a sentence. Off leaves execution to players only. |
 | `executionSiteSearchRadius` | `48` | `8 … 128` | How far a guard looks for an assigned execution site. A site is an explicit facility assignment, never a guillotine somebody happened to place. |
@@ -1344,6 +1344,16 @@ the condemned simply stays in custody. `enabled = false` switches the whole feat
 
 `executionDelayTicks` must be at or below `condemnedEscortTimeoutTicks`, and both must be finite and
 non-negative. `/crime validate` reports any violation.
+
+**The effective order window (0.8.0).** An order is kept for whichever is longer: `executionDelayTicks`,
+or the blade's fall (`detention.guillotineActivationDelayTicks`) plus 3 ticks. Before 0.8.0 a blade at
+least as long as the window let the order expire before the blow landed, so no execution, manual or
+guard-led, ever struck. When the window has to be stretched, `/crime validate` and the startup log say so,
+and a guard's ceremony shrinks to one tick. With the defaults (1200 and 5) nothing is stretched: a guard
+waits 1193 ticks before releasing the blade, and a player's lever lands the blow 5 ticks after the pull.
+At the moment of the blow the device checks that the order it was released with is still the subject's
+order, for this device, this occupant and this actor, and that the capital sentence still stands; anything
+else voids the order and harms nobody.
 
 ## Retired in 0.7.5
 

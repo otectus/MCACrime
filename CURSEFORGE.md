@@ -12,15 +12,17 @@ MCA: Crime is server-authoritative. It does not use generative AI, send gameplay
 
 ## Latest Release
 
-**0.7.5 brings the working core of the Cuffed feature set into MCA: Crime as native code, and neither Cuffed nor Locks Reforged is required for any of it.** Restraints are now real gear in three independent slots—head, arms and legs—each with its own durability. Shackles, handcuffs, duct tape and a bundle hood; keys, struggling and a server-owned lockpicking mini-game; padlocks, a safe, a cell door and key rings; chains, fence and tripwire-hook anchors and guard escorts; a pillory, a guillotine and prison bunks; a search opened from the crime menu on a restrained subject; a reinforced prison building set; and five restraint enchantments.
+**0.8.0 is a usability release: the things that worked but were hard to find or hard to trust.**
 
-**A capital sentence for killing a guard** is the one feature here that is not from Cuffed. The only capital offence is killing a guard; nothing escalates automatically; an execution is always a deliberate act at a guillotine by a player or an on-duty guard; and with no usable guillotine the condemned simply stays in custody. One config key switches the whole thing off.
+- **Commands find the villager you mean.** `/crime mug` and `/crime report` now pick the villager or guard under your crosshair within 4 blocks (before 0.8.0 they could not select anybody). Operator job and debug commands use the villager you are looking at, never a closer bystander or one behind a wall, take an explicit `[target]` from the console, and say exactly why when they refuse. `/crime debug target` shows what a command saw.
+- **The pillory and guillotine explain themselves.** The action bar names who was secured or released, why a blade fell harmlessly, and why a placement was refused. A blade slower than the order window no longer lets every execution expire unstruck, and the blow lands only for the exact order, device, occupant and live sentence it was released for.
+- **Key copying you can learn in the game.** A blank Key Mold now takes an impression from a bound key, renamed keys keep their names on a ring, every key item explains its next step, and a ring shows the server's real capacity.
+- **Every mask in every dye.** All 16 styles in all 16 colours, named by colour ("Blue Plague Doctor Mask"), with dyed art that keeps lenses, eyes, straps and trim their own colours. A **Masks** creative tab holds all 272, and a water cauldron washes the colour out.
+- **Help in the game.** `/crime help` covers commands, targeting, the guillotine, keys, key rings, key molds and masks; tooltips point at the right topic; fixed recipes appear in the recipe book when you pick up an ingredient.
 
-0.7.5 uses **world schema 16** and **network protocol 18**: update the client and the server together, and back up your world before upgrading. Twenty-one config keys are retired, with their replacements named one for one in CONFIG.md.
+0.8.0 also ships the fixes prepared as 0.7.9, which was never published on its own: items taken from a thief no longer become a second copy in owner escrow, royal decrees stop at their village's boundary, paying a decree in prison releases a sentence held only by that decree, and a restrained player sees their own restraint changes at once.
 
-The mod also opens the Crime menu by drawing a weapon on an MCA villager: right-click while holding any sword, axe, trident, bow, crossbow, or modded firearm to open the menu. Sneaking is not required by default, the off hand counts, and the whole trigger can be configured off. The unbound keybind lets players open the menu for whoever is under their crosshair without drawing a weapon. An unbound `/crime debug weapon` command shows how the held item classifies and which rule decided it.
-
-The Heat and sentence status boxes now default to the bottom-left corner where they sit clear of the hotbar, health rows, and MCA: Quests' quest log. The HUD anchor is configurable and can be cycled from the in-game settings screen.
+0.8.0 uses **network protocol 21**: update the client and the server together. Coming from 0.7.8, worlds migrate automatically to **world schema 18**: back up your world first, and roll back only from that backup. No config key was added or removed.
 
 For the full list of changes, see [CHANGELOG.md](https://github.com/otectus/MCACrime/blob/main/CHANGELOG.md).
 
@@ -145,6 +147,7 @@ MCA's Blueprint counts MCA: Crime's reinforced bars, the gapped bars and the cel
 All commands are under **/crime**. Players can inspect and act on their own state without operator permission. Reading another player's legal state requires permission level 2; mutations and administration require level 3.
 
 ~~~text
+/crime help [topic]                          the in-game guide (commands, targeting, guillotine, keys, keyring, keymold, masks)
 /crime karma                                 show your Karma and band
 /crime status                                show Karma, Heat, Wanted, jail, and escape state
 /crime payfine                               settle eligible cases, oldest first
@@ -159,7 +162,10 @@ All commands are under **/crime**. Players can inspect and act on their own stat
 
 /crime query <player>                        inspect another player                 (level 2)
 /crime ledger <player>                       inspect another player's cases         (level 2)
-/crime debug villager|custody|actions        inspect runtime feature state          (level 2)
+/crime debug villager [target]               inspect a villager's crime and job state (level 2)
+/crime debug custody|actions                 inspect runtime feature state          (level 2)
+/crime debug target [target]                 show how a command would choose its target (level 2)
+/crime debug mca                             show the MCA binding and villager recognition (level 2)
 /crime debug weapon                          show weapon classification             (level 2)
 /crime debug guards                          report guard population per village     (level 2)
 /crime debug arrest                          report arrest lifecycle and phase       (level 2)
@@ -173,6 +179,8 @@ All commands are under **/crime**. Players can inspect and act on their own stat
 /crime jail <player> <ticks>                                                       (level 3)
 /crime release <player>                      universal jail/custody backstop         (level 3)
 /crime assignjail <pos> [radius]                                                    (level 3)
+/crime job assign thief|fence [target]       give the aimed or named villager a criminal job (level 3)
+/crime job clear [target]                    clear the aimed or named villager's job (level 3)
 ~~~
 
 **/crime debug integrations** deliberately avoids printing player UUIDs so its output can be included in a public bug report.

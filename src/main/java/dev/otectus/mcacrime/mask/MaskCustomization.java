@@ -159,7 +159,10 @@ public final class MaskCustomization {
         if (from == null || to == null || from != to) {
             return MaskRestyleRejection.NONE;
         }
-        boolean colorChanges = dye != null && colorOf(tint(source.copy(), dye)) != colorOf(source);
+        // Presence as well as value (0.8.0): "no colour" and "a stored colour" draw differently, so a dye
+        // that lands an undyed mask on a stored colour is a change even where the numbers would match.
+        boolean colorChanges = dye != null && !MaskColors.storedColor(tint(source.copy(), dye))
+                .equals(MaskColors.storedColor(source));
         return decide(from, to, source.getTag(), colorChanges);
     }
 
@@ -179,16 +182,6 @@ public final class MaskCustomization {
         }
         ItemStack dyed = DyeableLeatherItem.dyeArmor(stack, List.of(dye));
         return dyed == null || dyed.isEmpty() ? stack : dyed;
-    }
-
-    /** The dye colour on a stack, or white when it carries none (matching {@code MaskItem#getColor}). */
-    public static int colorOf(@Nullable ItemStack stack) {
-        if (stack == null || stack.isEmpty()) {
-            return 0xFFFFFF;
-        }
-        CompoundTag display = stack.getTagElement("display");
-        return display != null && display.contains("color", CompoundTag.TAG_INT)
-                ? display.getInt("color") : 0xFFFFFF;
     }
 
     /** The family a stack's registered style belongs to, or empty when it is not a registered style. */

@@ -419,6 +419,30 @@ in the mod depends on that recipe existing, only on bundles being obtainable som
 older world is not stranded when the id leaves the creative tab; see
 [docs/MIGRATION.md](docs/MIGRATION.md).
 
+### The key recipes are dynamic
+
+The key workflow's recipes read and write the binding a stack carries, so they are special recipes with no
+fields: a file is just its `type`. They never appear in the recipe book (a fixed preview cannot show a
+binding), and `/crime help keys`, `/crime help keyring` and `/crime help keymold` teach them instead.
+
+| File | `type` | What it does |
+|---|---|---|
+| `key_mold_copy.json` | `mcacrime:key_mold_copy` | A bound key and a clay ball make a Key Mold recording the key's binding; the key is returned. |
+| `key_mold_imprint.json` | `mcacrime:key_mold_imprint` | **0.8.0.** A blank Key Mold and a bound key make the same recorded mold; the key is returned. A recorded mold, a baked mold, a blank key or anything extra in the grid is refused. |
+| `key_mold_bake.json` | `mcacrime:key_mold_bake` | Fires a recorded Key Mold into a Baked Key Mold in a furnace, keeping the binding. Takes `ingredient`, `result`, `experience` and `cookingtime` like a smelting recipe. |
+| `baked_key_mold_copy.json` | `mcacrime:baked_key_mold_copy` | A Baked Key Mold and an iron ingot cast one matching key; the mold comes back with one cast fewer and is used up by its last. |
+| `key_ring_create.json`, `key_ring_add.json`, `key_ring_disassemble.json` | `mcacrime:key_ring_*` | Bound keys for different locks make a ring; a ring and more keys add to it; a ring alone gives back its last key. |
+
+A pack that does not want one of these overrides its file with a recipe that never matches (a conditional
+file, or another special type); nothing else depends on any of them.
+
+### Recipe-book unlocks (0.8.0)
+
+Every fixed-result recipe in `data/mcacrime/recipes/` has a vanilla unlock advancement under
+`data/mcacrime/advancements/recipes/<category>/<name>.json`: picking up any of the recipe's ingredients
+adds it to the player's recipe book. A pack that replaces a fixed recipe should replace or remove its
+unlock advancement too, or the book will offer the recipe whenever one of the old ingredients is picked up.
+
 ---
 
 ## Damage types

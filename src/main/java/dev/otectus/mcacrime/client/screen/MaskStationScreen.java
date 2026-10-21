@@ -79,6 +79,18 @@ public class MaskStationScreen extends AbstractContainerScreen<MaskStationMenu> 
         grid = new MaskStyleGrid(leftPos + GRID_X, topPos + GRID_Y,
                 GRID_COLUMNS * CELL + CrimeSprites.SCROLLBAR_W + 2, GRID_ROWS * CELL);
         addRenderableWidget(grid);
+        // A small help affordance (0.8.0): the tooltip says how the station works in three sentences, and
+        // a click prints the full /crime help masks page to chat. Help is read-only, so the click runs it.
+        addRenderableWidget(net.minecraft.client.gui.components.Button.builder(Component.literal("?"), button -> {
+                    if (minecraft != null && minecraft.player != null) {
+                        minecraft.player.connection.sendCommand("crime help masks");
+                    }
+                })
+                .bounds(leftPos + 180, topPos + 9, 14, 14)
+                .tooltip(net.minecraft.client.gui.components.Tooltip.create(
+                        Component.translatable("mcacrime.mask_station.help.tooltip")))
+                .createNarration(message -> Component.translatable("mcacrime.mask_station.help.narration"))
+                .build());
         lastGeneration = -1;
         rebuild();
     }
@@ -201,6 +213,12 @@ public class MaskStationScreen extends AbstractContainerScreen<MaskStationMenu> 
                     font.split(menu.previewStack().getHoverName(), 220));
             MaskMakingRecipe selected = selectedRecipe();
             if (selected != null) lines.addAll(font.split(cost(selected), 220));
+            // What the result will be (0.8.0): its colour in words, and what a restyle carries across.
+            lines.addAll(font.split(previewColour(menu.previewStack()), 220));
+            if (selected != null) {
+                lines.addAll(font.split(Component.translatable(selected.operation() == MaskOperation.RESTYLE
+                        ? "mcacrime.mask_station.preview.keeps" : "mcacrime.mask_station.preview.new"), 220));
+            }
             lines.addAll(font.split(Component.translatable("mcacrime.mask_station.take_output"), 220));
             setTooltipForNextRenderPass(lines);
         }
@@ -253,7 +271,7 @@ public class MaskStationScreen extends AbstractContainerScreen<MaskStationMenu> 
 
     @Override
     protected void renderLabels(GuiGraphics graphics, int mouseX, int mouseY) {
-        drawFitted(graphics, title, titleLabelX, titleLabelY, 157, PanelColours.TEXT, mouseX, mouseY);
+        drawFitted(graphics, title, titleLabelX, titleLabelY, 146, PanelColours.TEXT, mouseX, mouseY);
         Component mode = Component.translatable(restyleMode()
                 ? "mcacrime.mask_station.mode.restyle" : "mcacrime.mask_station.mode.make");
         CrimeSprites.row(graphics, 197, 8, 51, 17, CrimeSprites.RowState.IDLE);
@@ -291,6 +309,18 @@ public class MaskStationScreen extends AbstractContainerScreen<MaskStationMenu> 
         drawFitted(graphics, primary, 12, 113, imageWidth - 24,
                 ready ? 0x365F52 : PanelColours.TEXT, mouseX, mouseY);
         drawFitted(graphics, secondary, 12, 124, imageWidth - 24, PanelColours.TEXT_MUTED, mouseX, mouseY);
+    }
+
+    /** The preview's colour in words: a standard colour by name, a custom one as such, or none. */
+    private static Component previewColour(ItemStack preview) {
+        java.util.Optional<Integer> stored = dev.otectus.mcacrime.mask.MaskColors.storedColor(preview);
+        if (stored.isEmpty()) {
+            return Component.translatable("mcacrime.mask_station.preview.color.none");
+        }
+        return dev.otectus.mcacrime.mask.MaskColors.standardOf(stored.get())
+                .<Component>map(dye -> Component.translatable("mcacrime.mask_station.preview.color",
+                        Component.translatable(dev.otectus.mcacrime.mask.MaskColors.colorNameKey(dye))))
+                .orElseGet(() -> Component.translatable("mcacrime.mask_station.preview.color.custom"));
     }
 
     /** Keep long names/translations inside their region; hovering reveals the complete text. */

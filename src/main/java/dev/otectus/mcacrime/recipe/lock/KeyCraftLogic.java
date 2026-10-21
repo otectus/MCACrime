@@ -90,21 +90,24 @@ public final class KeyCraftLogic {
             return Optional.empty();
         }
         List<KeyBinding> bindings = new ArrayList<>();
+        List<KeyRingBindings.Entry> entries = new ArrayList<>();
         for (Input input : grid) {
             if (input.kind() != Kind.KEY) {
                 return Optional.empty();
             }
-            Optional<KeyBinding> binding = KeyBinding.read(input.tag());
-            if (binding.isEmpty() || contains(bindings, binding.get())) {
+            Optional<KeyRingBindings.Entry> entry = KeyRingBindings.Entry.ofKey(input.tag());
+            if (entry.isEmpty() || contains(bindings, entry.get().binding())) {
                 return Optional.empty();
             }
-            bindings.add(binding.get());
+            bindings.add(entry.get().binding());
+            entries.add(entry.get());
         }
         if (bindings.size() > KeyRingBindings.clampCapacity(capacity)) {
             return Optional.empty();
         }
+        // Each key's anvil name travels with its entry (0.8.0) and comes back on disassembly.
         CompoundTag ring = new CompoundTag();
-        KeyRingBindings.write(ring, bindings);
+        KeyRingBindings.writeEntries(ring, entries);
         return Optional.of(new Result(Kind.RING, ring, 1, consumeAll(grid)));
     }
 
@@ -119,6 +122,7 @@ public final class KeyCraftLogic {
         List<Input> grid = clean(inputs);
         Input ring = null;
         List<KeyBinding> added = new ArrayList<>();
+        List<KeyRingBindings.Entry> entries = new ArrayList<>();
         for (Input input : grid) {
             switch (input.kind()) {
                 case RING -> {
@@ -128,11 +132,12 @@ public final class KeyCraftLogic {
                     ring = input;
                 }
                 case KEY -> {
-                    Optional<KeyBinding> binding = KeyBinding.read(input.tag());
-                    if (binding.isEmpty() || contains(added, binding.get())) {
+                    Optional<KeyRingBindings.Entry> entry = KeyRingBindings.Entry.ofKey(input.tag());
+                    if (entry.isEmpty() || contains(added, entry.get().binding())) {
                         return Optional.empty();
                     }
-                    added.add(binding.get());
+                    added.add(entry.get().binding());
+                    entries.add(entry.get());
                 }
                 default -> {
                     return Optional.empty();
@@ -144,9 +149,9 @@ public final class KeyCraftLogic {
         }
         CompoundTag result = ring.tag().copy();
         int limit = KeyRingBindings.clampCapacity(capacity);
-        for (KeyBinding binding : added) {
-            if (KeyRingBindings.holds(result, binding.lockId())
-                    || !KeyRingBindings.add(result, binding, limit)) {
+        for (KeyRingBindings.Entry entry : entries) {
+            if (KeyRingBindings.holds(result, entry.binding().lockId())
+                    || !KeyRingBindings.addEntry(result, entry, limit)) {
                 return Optional.empty(); // over capacity, or already there: refuse rather than drop it
             }
         }
@@ -165,12 +170,13 @@ public final class KeyCraftLogic {
             return Optional.empty();
         }
         CompoundTag ring = grid.get(0).tag().copy();
-        Optional<KeyBinding> removed = KeyRingBindings.removeLast(ring);
+        Optional<KeyRingBindings.Entry> removed = KeyRingBindings.removeLastEntry(ring);
         if (removed.isEmpty()) {
             return Optional.empty();
         }
+        // The key comes back as it went on: its binding, and its anvil name if it had one (0.8.0).
         CompoundTag key = new CompoundTag();
-        removed.get().writeTo(key);
+        removed.get().writeToKey(key);
         List<Optional<Input>> remaining = new ArrayList<>();
         remaining.add(Optional.of(new Input(Kind.RING, ring)));
         return Optional.of(new Result(Kind.KEY, key, 1, remaining));
@@ -202,6 +208,38 @@ public final class KeyCraftLogic {
             remaining.add(input.kind() == Kind.KEY ? Optional.of(input) : Optional.empty());
         }
         return Optional.of(new Result(Kind.RAW_MOLD, mold, 1, remaining));
+    }
+
+    /**
+     * A blank raw mold plus one bound key becomes that mold with the key's impression (0.8.0).
+     *
+     * <p>The same impression {@link #moldCopy} takes from clay, for the blank molds the creative tab
+     * and loot hand out: the key is handed back, the binding is recorded whole (identity, revision and
+     * name), and the mold keeps whatever else it carried, such as its own name. Only an actually blank
+     * raw mold qualifies -- a mold that already records a key is never overwritten, a baked mold never
+     * takes a new impression, and a blank or foreign key gives nothing to copy.
+     */
+    public static Optional<Result> moldImprint(@Nullable List<Input> inputs) {
+        List<Input> grid = clean(inputs);
+        Input mold = single(grid, Kind.RAW_MOLD);
+        Input key = single(grid, Kind.KEY);
+        if (mold == null || key == null || grid.size() != 2) {
+            return Optional.empty();
+        }
+        if (recorded(mold.tag()).isPresent()) {
+            return Optional.empty();
+        }
+        Optional<KeyBinding> binding = KeyBinding.read(key.tag());
+        if (binding.isEmpty()) {
+            return Optional.empty();
+        }
+        CompoundTag imprinted = mold.tag().copy();
+        imprinted.put(KeyBinding.TAG_COPIED_KEY, binding.get().save());
+        List<Optional<Input>> remaining = new ArrayList<>();
+        for (Input input : grid) {
+            remaining.add(input.kind() == Kind.KEY ? Optional.of(input) : Optional.empty());
+        }
+        return Optional.of(new Result(Kind.RAW_MOLD, imprinted, 1, remaining));
     }
 
     /**

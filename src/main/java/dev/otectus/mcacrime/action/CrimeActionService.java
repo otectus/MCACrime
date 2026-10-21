@@ -39,9 +39,6 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
-import net.minecraft.world.entity.projectile.ProjectileUtil;
-import net.minecraft.world.phys.EntityHitResult;
-import net.minecraft.world.phys.Vec3;
 
 import javax.annotation.Nullable;
 import java.util.UUID;
@@ -221,14 +218,22 @@ public final class CrimeActionService {
         return startTargeted(actor, action, actor.getUUID(), nonce);
     }
 
+    /**
+     * {@code /crime mug}: the MCA villager under the player's crosshair, within the action's own four
+     * blocks and in clear view, or a precise reason (0.8.0). Never the nearest villager: gameplay
+     * selection does not fall back, so a command cannot rob a bystander the player did not look at.
+     * Selection uses the same feet-to-feet reach and sight test the mug handler applies, so the command
+     * never offers an action that the handler would then refuse for reach.
+     */
     public static int startMugFromCommand(ServerPlayer actor) {
         if (!commandFallbackAllowed(actor)) return 0;
-        LivingEntity target = rayTraceLiving(actor, 4.0D);
-        if (target == null) {
-            actor.sendSystemMessage(Component.translatable("mcacrime.mug.notarget"));
+        CrimeTargetResolver.Resolution target = CrimeTargetResolver.resolve(actor, CrimeTargetResolver.Request.of(
+                CrimeTargetResolver.Policy.GAMEPLAY, CrimeTargetResolver.Need.MCA_VILLAGER, "/crime mug"));
+        if (!target.selected() || !(target.entity() instanceof LivingEntity victim)) {
+            actor.sendSystemMessage(target.explain());
             return 0;
         }
-        return reportCommandResult(actor, startTargeted(actor, CrimeActionIds.MUG, target.getUUID(), UUID.randomUUID()));
+        return reportCommandResult(actor, startTargeted(actor, CrimeActionIds.MUG, victim.getUUID(), UUID.randomUUID()));
     }
 
     /** Command adapter for every self action. Identical validation, timing, locks, and cooldowns. */
@@ -432,14 +437,18 @@ public final class CrimeActionService {
         return RansomService.demand(player);
     }
 
+    /**
+     * The living entity under the player's crosshair within {@code reach} of their eyes, or null.
+     *
+     * <p>0.8.0 fix: this used to pass {@code reach * reach} to the {@code ProjectileUtil} overload whose
+     * last argument is a hitbox <em>inflation</em>, so every candidate box grew by sixteen blocks, the
+     * player's eye sat inside all of them, and the ray clipped nothing -- {@code /crime mug} and
+     * {@code /crime report} could not target anything at all. It now uses the resolver's crosshair:
+     * blocks clipped first, then hitboxes with vanilla's pick radius. Commands use
+     * {@link CrimeTargetResolver} directly, which also explains a miss.
+     */
     @Nullable
     public static LivingEntity rayTraceLiving(ServerPlayer player, double reach) {
-        Vec3 eye = player.getEyePosition();
-        Vec3 end = eye.add(player.getViewVector(1.0F).scale(reach));
-        EntityHitResult hit = ProjectileUtil.getEntityHitResult(player.level(), player, eye, end,
-                player.getBoundingBox().expandTowards(player.getViewVector(1.0F).scale(reach)).inflate(1.0D),
-                entity -> entity instanceof LivingEntity && entity.isPickable() && entity != player,
-                (float) (reach * reach));
-        return hit != null && hit.getEntity() instanceof LivingEntity living ? living : null;
+        return CrimeTargetResolver.crosshair(player, reach) instanceof LivingEntity living ? living : null;
     }
 }

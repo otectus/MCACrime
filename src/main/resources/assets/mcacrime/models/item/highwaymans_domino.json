@@ -128,5 +128,13 @@
         }
       }
     }
+  ],
+  "overrides": [
+    {
+      "predicate": {
+        "mcacrime:dyed": 1
+      },
+      "model": "mcacrime:item/highwaymans_domino_dyed"
+    }
   ]
 }

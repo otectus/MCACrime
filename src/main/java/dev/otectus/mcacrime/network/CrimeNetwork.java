@@ -37,8 +37,9 @@ public final class CrimeNetwork {
 
     // 17 added bounded player-report menus, submission and private receipt status; 18 drops the
     // warden-guide and identity-projection packets, which shifts every later message index; 19 adds
-    // the paused-sentence flag to the self status; 20 (0.7.8) appends the royal decree menu and its answer.
-    private static final String PROTOCOL_VERSION = "20";
+    // the paused-sentence flag to the self status; 20 (0.7.8) appends the royal decree menu and its answer;
+    // 21 (0.8.0) appends the server-rules sync the key ring tooltip quotes its capacity from.
+    private static final String PROTOCOL_VERSION = "21";
 
     public static final SimpleChannel CHANNEL = NetworkRegistry.newSimpleChannel(
             new ResourceLocation(McaCrime.MOD_ID, "main"),
@@ -163,6 +164,9 @@ public final class CrimeNetwork {
                 DecreeMenuS2CPacket::encode, DecreeMenuS2CPacket::decode, DecreeMenuS2CPacket::handle);
         toServer(DecreeActionC2SPacket.class,
                 DecreeActionC2SPacket::encode, DecreeActionC2SPacket::decode, DecreeActionC2SPacket::handle);
+        // 0.8.0, protocol 21: the server settings a tooltip quotes, appended so no index before it moves.
+        toClient(ServerRulesS2CPacket.class,
+                ServerRulesS2CPacket::encode, ServerRulesS2CPacket::decode, ServerRulesS2CPacket::handle);
     }
 
     /** The decree screen, to the ruler who asked for it and nobody else. */
@@ -252,14 +256,14 @@ public final class CrimeNetwork {
     /**
      * Tells everybody tracking this subject what changed about them.
      *
-     * <p>Tracking rather than everybody: gear is drawn by the people who can see the person wearing
-     * it, and a server-wide broadcast would hand every client the whole prison roster.
+     * <p>The wearer and their trackers need the update. Entity tracking alone excludes a player's own
+     * connection, leaving their movement/UI state stale until a full resync.
      */
     public static void broadcastPhysicalStateDelta(Entity subject, PhysicalStateDeltaS2CPacket packet) {
         if (subject == null) {
             return;
         }
-        CHANNEL.send(PacketDistributor.TRACKING_ENTITY.with(() -> subject), packet);
+        CHANNEL.send(PacketDistributor.TRACKING_ENTITY_AND_SELF.with(() -> subject), packet);
     }
 
     /** Sends one client a removal for a subject nobody can track any more. */
@@ -267,12 +271,12 @@ public final class CrimeNetwork {
         CHANNEL.send(PacketDistributor.PLAYER.with(() -> to), packet);
     }
 
-    /** Tells everybody tracking this subject to forget their physical state. */
+    /** Tells the subject and everybody tracking them to forget their physical state. */
     public static void broadcastPhysicalStateRemoval(Entity subject, PhysicalStateRemoveS2CPacket packet) {
         if (subject == null) {
             return;
         }
-        CHANNEL.send(PacketDistributor.TRACKING_ENTITY.with(() -> subject), packet);
+        CHANNEL.send(PacketDistributor.TRACKING_ENTITY_AND_SELF.with(() -> subject), packet);
     }
 
     /**
@@ -287,12 +291,12 @@ public final class CrimeNetwork {
                 new RestraintRigSyncS2CPacket(subject, humanoid, rig));
     }
 
-    /** Tells everybody tracking this subject what body their restraint is being drawn on. */
+    /** Tells the subject and their trackers what body their restraint is being drawn on. */
     public static void broadcastRestraintRig(Entity subject, boolean humanoid, String rig) {
         if (subject == null) {
             return;
         }
-        CHANNEL.send(PacketDistributor.TRACKING_ENTITY.with(() -> subject),
+        CHANNEL.send(PacketDistributor.TRACKING_ENTITY_AND_SELF.with(() -> subject),
                 new RestraintRigSyncS2CPacket(subject.getUUID(), humanoid, rig));
     }
 
@@ -422,6 +426,19 @@ public final class CrimeNetwork {
         }
         WeaponPolicyS2CPacket packet = new WeaponPolicyS2CPacket(WeaponPolicySnapshot.fromConfig());
         CHANNEL.send(PacketDistributor.ALL.noArg(), packet);
+    }
+
+    /** Tells one client the server settings its tooltips quote (0.8.0). Login, beside the weapon policy. */
+    public static void sendServerRules(ServerPlayer to) {
+        CHANNEL.send(PacketDistributor.PLAYER.with(() -> to), ServerRulesS2CPacket.fromConfig());
+    }
+
+    /** Re-sends them to everybody after a config reload. */
+    public static void broadcastServerRules(MinecraftServer server) {
+        if (server == null) {
+            return;
+        }
+        CHANNEL.send(PacketDistributor.ALL.noArg(), ServerRulesS2CPacket.fromConfig());
     }
 
     /** Tells one tracking client that this villager has a criminal job. */

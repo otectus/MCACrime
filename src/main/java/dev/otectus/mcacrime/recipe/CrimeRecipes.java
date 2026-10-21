@@ -4,6 +4,7 @@ import dev.otectus.mcacrime.McaCrime;
 import dev.otectus.mcacrime.recipe.lock.BakedKeyMoldCopyRecipe;
 import dev.otectus.mcacrime.recipe.lock.KeyMoldBakeRecipe;
 import dev.otectus.mcacrime.recipe.lock.KeyMoldCopyRecipe;
+import dev.otectus.mcacrime.recipe.lock.KeyMoldImprintRecipe;
 import dev.otectus.mcacrime.recipe.lock.KeyRingAddRecipe;
 import dev.otectus.mcacrime.recipe.lock.KeyRingCreateRecipe;
 import dev.otectus.mcacrime.recipe.lock.KeyRingDisassembleRecipe;
@@ -59,6 +60,11 @@ public final class CrimeRecipes {
     public static final RegistryObject<RecipeSerializer<KeyMoldCopyRecipe>> KEY_MOLD_COPY =
             RECIPE_SERIALIZERS.register("key_mold_copy",
                     () -> new SimpleCraftingRecipeSerializer<>(KeyMoldCopyRecipe::new));
+
+    /** A blank Key Mold plus a bound Key: the same impression as clay, for blank molds (0.8.0). */
+    public static final RegistryObject<RecipeSerializer<KeyMoldImprintRecipe>> KEY_MOLD_IMPRINT =
+            RECIPE_SERIALIZERS.register("key_mold_imprint",
+                    () -> new SimpleCraftingRecipeSerializer<>(KeyMoldImprintRecipe::new));
 
     public static final RegistryObject<RecipeSerializer<BakedKeyMoldCopyRecipe>> BAKED_KEY_MOLD_COPY =
             RECIPE_SERIALIZERS.register("baked_key_mold_copy",

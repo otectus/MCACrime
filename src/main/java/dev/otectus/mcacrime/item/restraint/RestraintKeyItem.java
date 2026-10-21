@@ -34,6 +34,21 @@ public class RestraintKeyItem extends Item {
         return opens;
     }
 
+    /**
+     * Says what this key opens and, because the word "key" invites it, what it does not (0.8.0): it is a
+     * restraint key, not a lock key, and no ring or mold takes it.
+     */
+    @Override
+    public void appendHoverText(net.minecraft.world.item.ItemStack stack, @Nullable net.minecraft.world.level.Level level,
+                                java.util.List<net.minecraft.network.chat.Component> tooltip,
+                                net.minecraft.world.item.TooltipFlag flag) {
+        super.appendHoverText(stack, level, tooltip, flag);
+        dev.otectus.mcacrime.help.TooltipHelp.append(tooltip,
+                net.minecraft.network.chat.Component.translatable("item.mcacrime.restraint_key.tooltip." + opens.id()),
+                java.util.List.of(net.minecraft.network.chat.Component.translatable("item.mcacrime.restraint_key.tooltip.1")),
+                dev.otectus.mcacrime.help.CrimeHelpTopic.KEYS);
+    }
+
     /** The family {@code item} opens, or null when it is not a restraint key. */
     @Nullable
     public static RestraintFamily opensFamily(@Nullable net.minecraft.world.item.Item item) {

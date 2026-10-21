@@ -238,6 +238,31 @@ class LangCoverageTest {
             require(lang, missing, key);
         }
 
+        // 0.8.0: the guillotine explains a harmless fall from its strike verdict, targeting names the
+        // kind of entity aimed at, and the device items build their tooltip lines by index.
+        for (dev.otectus.mcacrime.detention.ExecutionAuthorization.StrikeVerdict verdict
+                : dev.otectus.mcacrime.detention.ExecutionAuthorization.StrikeVerdict.values()) {
+            require(lang, missing, "mcacrime.device.guillotine.verdict." + verdict.name().toLowerCase(Locale.ROOT));
+        }
+        for (dev.otectus.mcacrime.action.CrimeTargetResolver.Kind kind
+                : dev.otectus.mcacrime.action.CrimeTargetResolver.Kind.values()) {
+            require(lang, missing, kind.key());
+        }
+        for (String device : List.of("pillory", "guillotine")) {
+            require(lang, missing, "item.mcacrime." + device + ".tooltip");
+            for (int i = 1; i <= 3; i++) {
+                require(lang, missing, "item.mcacrime." + device + ".tooltip." + i);
+            }
+        }
+        for (dev.otectus.mcacrime.help.CrimeHelpTopic topic : dev.otectus.mcacrime.help.CrimeHelpTopic.values()) {
+            require(lang, missing, topic.titleKey());
+            require(lang, missing, topic.summaryKey());
+        }
+        // RestraintKeyItem names what it opens from its family id; only the two key families have items.
+        for (String family : List.of("handcuffs", "shackles")) {
+            require(lang, missing, "item.mcacrime.restraint_key.tooltip." + family);
+        }
+
         assertTrue(missing.isEmpty(),
                 "These translation keys are built by concatenation and have no entry in en_us.json:\n  "
                         + String.join("\n  ", missing));

@@ -96,6 +96,7 @@ public final class CapitalsRuntimeChecks {
     private final List<ServerPlayer> fixtures = new ArrayList<>();
     /** Every system-message key each fixture player was sent: the fastest way to see why a service refused. */
     private final Map<UUID, List<String>> told = new HashMap<>();
+    private final Map<UUID, Integer> crimePackets = new HashMap<>();
     /** What the first run leaves for the second: a prison room, and with Capitals an open decree. */
     private final Map<String, String> survivor = new java.util.LinkedHashMap<>();
     private MinecraftServer server;
@@ -216,6 +217,8 @@ public final class CapitalsRuntimeChecks {
     // ================================================================== phase zero
 
     private void phaseZero() {
+        check("a restrained player receives their own delta, removal and rig without reconnecting", this::restraintRecipients);
+        check("legacy property distinguishes online and offline player inventory from NPC-held loot", this::legacyPropertyCustody);
         check("the mca bar and door tags carry the prison set beside vanilla's", this::tags);
         check("a cell of reinforced bars, a gapped bar and a cell door is offered and recorded as an MCA prison",
                 () -> requirePrison(room(20, 20, 7, 0, 1, true, false)));
@@ -251,12 +254,15 @@ public final class CapitalsRuntimeChecks {
         check("a duke of another capital is a stranger here", this::foreignDuke);
         check("the village guard challenges on the decree and takes the fine; Heat and Karma untouched", this::finedAtChallenge);
         check("a guard of no village sees no decree", this::guardOfNowhere);
+        check("a home guard loses decree authority when its target leaves, and regains it on return", this::decreeBoundary);
         check("succession leaves the decree standing; the former ruler cannot withdraw, the new one can", this::succession);
         check("raising the target to Noble voids the standing decree", this::ennobled);
         check("Capitals' own warrant is reported in /crime status, never enforced", this::capitalsWarrant);
         check("the chronicle line is written only when switched on", this::chronicle);
         check("a decree-only arrest carries the decree's term and serving it answers the decree", this::arrestAndServe);
         check("an operator's release hands the decree back unanswered", this::adminRelease);
+        check("paying a decree in custody releases its sole sentence, with no second debit on replay", () -> payInCustody(false));
+        check("paying a decree keeps custody required by an ordinary case", () -> payInCustody(true));
         check("the decree table round-trips through the world save", this::roundTrip);
         check("an open decree is left for the restart", this::leaveSurvivor);
     }
@@ -679,6 +685,98 @@ public final class CapitalsRuntimeChecks {
         stranger.discard();
     }
 
+    private void decreeBoundary() {
+        ServerPlayer target = realPlayer(capitalRoom);
+        Decree decree = issueOk(target, DecreeReason.OTHER);
+        net.minecraft.world.phys.Vec3 home = guard.position();
+        try {
+            require(JusticeService.forGuard(level, guard, target).decreeOnly(), "no local decree authority");
+            require(dev.otectus.mcacrime.api.McaCrimeApi.mayEnforce(guard, target), "API refused the local decree");
+            require(GuardChallengeService.challenge(level, guard, target), "local challenge did not open");
+            target.setPos(capitalRoom.getX() + 1024, capitalRoom.getY(), capitalRoom.getZ() + 1024);
+            guard.setPos(target.getX() + 1, target.getY(), target.getZ());
+            require(!DecreeService.communityOf(target).filter(capitalVillage::equals).isPresent(), "target is still local");
+            require(DecreeService.inForce(server, target.getUUID(), capitalVillage).isPresent(), "decree itself ended");
+            require(!JusticeService.forGuard(level, guard, target).mayChallenge(), "home guard enforced outside its village");
+            require(!dev.otectus.mcacrime.api.McaCrimeApi.mayEnforce(guard, target), "API enforced outside the village");
+            require(DecreeService.inForceHere(target).isEmpty(), "guard scan still sees a local decree");
+            GuardChallengeService.tick(server);
+            require(GuardChallengeService.open(target.getUUID()) == null, "leaving the village kept the challenge open");
+            require(!dev.otectus.mcacrime.enforcement.LegalTarget.isResistingArrest(target), "leaving fabricated a refusal");
+            require(!GuardChallengeService.challenge(level, guard, target), "an outside challenge opened");
+            target.setPos(capitalRoom.getX() + .5, capitalRoom.getY(), capitalRoom.getZ() + .5);
+            guard.setPos(home);
+            require(decree.id().equals(JusticeService.forGuard(level, guard, target).decree()),
+                    "returning to the village failed to restore enforcement");
+        } finally {
+            guard.setPos(home);
+            GuardChallengeService.standDown(target);
+            DecreeService.withdraw(ruler, target.getUUID(), DecreeProvenance.COMMAND);
+            offline(target);
+        }
+    }
+
+    private void restraintRecipients() {
+        ServerPlayer wearer = realPlayer(level.getSharedSpawnPos());
+        ServerPlayer distant = realPlayer(level.getSharedSpawnPos().offset(1024, 0, 1024));
+        try {
+            var view = new dev.otectus.mcacrime.restraint.PhysicalRestraintView(wearer.getUUID(), 1L, 1L,
+                    Map.of(dev.otectus.mcacrime.restraint.RestraintSlot.ARMS,
+                            new dev.otectus.mcacrime.restraint.PhysicalRestraintView.SlotView(
+                                    dev.otectus.mcacrime.restraint.RestraintDefinitions.HANDCUFFS_ARMS, 1F, false)), -1, false);
+            List<Runnable> updates = List.of(
+                    () -> dev.otectus.mcacrime.network.CrimeNetwork.broadcastPhysicalStateDelta(wearer,
+                            new dev.otectus.mcacrime.network.PhysicalStateDeltaS2CPacket(view)),
+                    () -> dev.otectus.mcacrime.restraint.RestraintSyncService.broadcastRemoval(wearer, 2L),
+                    () -> dev.otectus.mcacrime.network.CrimeNetwork.broadcastRestraintRig(wearer, true, "player"));
+            for (int i = 0; i < updates.size(); i++) {
+                crimePackets.clear();
+                updates.get(i).run();
+                require(crimePackets.getOrDefault(wearer.getUUID(), 0) == 1, "wearer missed update " + i);
+                require(crimePackets.getOrDefault(distant.getUUID(), 0) == 0, "update leaked to an untracking player");
+            }
+        } finally {
+            offline(wearer);
+            offline(distant);
+        }
+    }
+
+    private void legacyPropertyCustody() {
+        ServerPlayer online = realPlayer(level.getSharedSpawnPos());
+        ServerPlayer saved = realPlayer(level.getSharedSpawnPos());
+        CrimeWorldData original = data;
+        try {
+            online.getInventory().add(new ItemStack(Items.DIAMOND));
+            saved.getInventory().add(new ItemStack(Items.DIAMOND));
+            server.getPlayerList().saveAll();
+            offline(saved);
+            UUID npc = UUID.randomUUID(), owner = UUID.randomUUID();
+            var scratch = new CrimeWorldData();
+            for (UUID thief : List.of(online.getUUID(), saved.getUUID(), npc)) {
+                var record = dev.otectus.mcacrime.state.world.StolenGoodsRecord.ofStack(UUID.randomUUID(), thief,
+                        owner, new ItemStack(Items.DIAMOND), 0L, 0L);
+                scratch.putStolenGoods(record);
+            }
+            CompoundTag oldSave = ((net.minecraft.world.level.saveddata.SavedData) scratch).save(new CompoundTag());
+            oldSave.putInt("schema", 17);
+            for (var row : oldSave.getList("stolenGoods", net.minecraft.nbt.Tag.TAG_COMPOUND)) {
+                ((CompoundTag) row).remove("custody");
+            }
+            server.overworld().getDataStorage().set(CrimeWorldData.DATA_NAME, CrimeWorldData.load(oldSave));
+            CrimeWorldData migrated = CrimeWorldData.get(server);
+            require(!migrated.stolenGoodsByThief(online.getUUID()).get(0).recoverable(), "online inventory became loot");
+            require(!migrated.stolenGoodsByThief(saved.getUUID()).get(0).recoverable(), "offline inventory became loot");
+            require(migrated.stolenGoodsByThief(npc).get(0).recoverable(), "NPC loot lost its backing store");
+            require(dev.otectus.mcacrime.mug.npc.StolenGoodsLedger.expire(migrated, 7, 7, java.util.Set.of()) == 3,
+                    "migrated rows did not expire");
+            require(migrated.propertyEscrowFor(owner).size() == 1, "legacy inventory minted extra escrow");
+        } finally {
+            server.overworld().getDataStorage().set(CrimeWorldData.DATA_NAME, original);
+            offline(online);
+            offline(saved);
+        }
+    }
+
     private void succession() {
         try {
             ServerPlayer target = realPlayer(capitalRoom);
@@ -817,6 +915,45 @@ public final class CapitalsRuntimeChecks {
         }
     }
 
+    private void payInCustody(boolean ordinaryCase) {
+        ServerPlayer target = realPlayer(capitalRoom);
+        Decree decree = issueOk(target, DecreeReason.DISORDER);
+        try {
+            UUID sentence = arrestOnDecree(target, decree);
+            UUID caseId = UUID.randomUUID();
+            if (ordinaryCase) {
+                require(data.tryAddRecord(new dev.otectus.mcacrime.ledger.CrimeRecord(caseId, target.getUUID(), null,
+                        new ResourceLocation("mcacrime", "theft"), java.util.OptionalInt.empty(), capitalVillage,
+                        true, java.util.Set.of(guard.getUUID()), level.getGameTime(), 5L, -5L, 20L, 400L,
+                        dev.otectus.mcacrime.ledger.Resolution.UNRESOLVED, 0L, List.of(), null, sentence, Map.of())),
+                        "could not bind the independent case");
+            }
+            require(!DecreeService.pay(target, decree.id()).paid(), "empty purse paid a decree");
+            require(JailService.isJailed(target) && data.decree(decree.id()).open(), "failed payment released custody");
+            target.getInventory().add(new ItemStack(Items.EMERALD, 40));
+            long heat = CrimeState.getHeat(target), karma = CrimeState.getKarma(target);
+            require(DecreeService.pay(target, decree.id()).paid(), "in-custody payment refused: " + told(target));
+            require(data.decree(decree.id()).state() == DecreeState.FINED, "payment did not settle the decree");
+            require(JailService.isJailed(target) == ordinaryCase, "payment left the wrong custody state");
+            if (ordinaryCase) {
+                require(data.casesForSentence(target.getUUID(), sentence).stream().anyMatch(c -> c.id().equals(caseId)),
+                        "payment unbound the independent case");
+            } else {
+                require(data.getCustody(target.getUUID()) == null, "legal custody survived release");
+                require(data.physicalRestraint(target.getUUID()) == null
+                        || data.physicalRestraint(target.getUUID()).vacant(), "sentence restraints survived release");
+            }
+            require(CrimeState.getHeat(target) == heat && CrimeState.getKarma(target) == karma, "payment changed Heat or Karma");
+            require(target.getInventory().countItem(Items.EMERALD) == 8, "fine did not charge exactly 32 emeralds");
+            require(!DecreeService.pay(target, decree.id()).paid(), "payment replay succeeded");
+            require(target.getInventory().countItem(Items.EMERALD) == 8, "payment replay charged again");
+        } finally {
+            if (JailService.isJailed(target)) JailService.release(target, ReleaseReason.ADMIN);
+            ArrestStates.clear(target);
+            offline(target);
+        }
+    }
+
     private void roundTrip() {
         CompoundTag saved = ((net.minecraft.world.level.saveddata.SavedData) data).save(new CompoundTag());
         CrimeWorldData loaded = CrimeWorldData.load(saved);
@@ -922,8 +1059,10 @@ public final class CapitalsRuntimeChecks {
         };
         new io.netty.channel.embedded.EmbeddedChannel(connection);
         player.connection = new ServerGamePacketListenerImpl(server, connection, player) {
-            @Override public void send(Packet<?> packet) { }
-            @Override public void send(Packet<?> packet, @javax.annotation.Nullable net.minecraft.network.PacketSendListener listener) { }
+            @Override public void send(Packet<?> packet) { recordCrimePacket(player, packet); }
+            @Override public void send(Packet<?> packet, @javax.annotation.Nullable net.minecraft.network.PacketSendListener listener) {
+                recordCrimePacket(player, packet);
+            }
         };
         player.setPos(at.getX() + .5, at.getY(), at.getZ() + .5);
         // New server players have a grace period; these fixtures represent players already playing.
@@ -934,6 +1073,13 @@ public final class CapitalsRuntimeChecks {
         fixtures.add(player);
         require(CrimeCapabilities.get(player).isPresent(), "player capability missing");
         return player;
+    }
+
+    private void recordCrimePacket(ServerPlayer player, Packet<?> packet) {
+        if (packet instanceof net.minecraft.network.protocol.game.ClientboundCustomPayloadPacket payload
+                && payload.getIdentifier().equals(new ResourceLocation("mcacrime", "main"))) {
+            crimePackets.merge(player.getUUID(), 1, Integer::sum);
+        }
     }
 
     private void offline(ServerPlayer player) {

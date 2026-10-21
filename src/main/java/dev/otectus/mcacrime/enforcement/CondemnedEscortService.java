@@ -77,6 +77,8 @@ public final class CondemnedEscortService {
         long claimGeneration;
         /** When the order was armed, or 0 while the pair are still walking. */
         long armedAt;
+        /** The id of the order this escort armed; the blade carries out that order or none. */
+        UUID orderId;
         /** Set once the blade has been dropped, so it is dropped exactly once. */
         boolean bladeDropped;
     }
@@ -115,21 +117,22 @@ public final class CondemnedEscortService {
 
     /** {@code detention.guillotineActivationDelayTicks}: how long the blade itself takes to land. */
     private static int bladeDelayTicks() {
-        try {
-            return McaCrimeConfig.COMMON.guillotineActivationDelayTicks.get();
-        } catch (IllegalStateException | NullPointerException notLoaded) {
-            return 5;
-        }
+        return ExecutionAuthorization.bladeTicks();
     }
 
     /**
      * When the blade should be dropped, relative to the moment the order was armed.
      *
      * <p>Pure, and it exists because of an off-by-one that would be invisible in play and fatal to
-     * the feature: the authorisation's window closes at {@code armedAt + delay}, and the blade takes
+     * the feature: the authorisation's window closes at {@code armedAt + window}, and the blade takes
      * its own delay to land. Dropping it at the very end of the window would land it after the window
-     * closed, {@link GuillotineBlockEntity#strikes} would refuse, and every guard-carried execution
-     * would quietly do nothing. The ceremony is therefore the window minus the blade's own fall.
+     * closed, the strike would refuse, and every guard-carried execution would quietly do nothing. The
+     * ceremony is therefore the window minus the blade's own fall.
+     *
+     * <p>Callers pass {@link ExecutionAuthorization#windowTicks()}, the window the order was actually
+     * armed with, which is never shorter than the blade's fall plus its margin (0.8.0). Before that a
+     * blade delay at least as long as {@code executionDelayTicks} left the ceremony at one tick and the
+     * blow still landed after the order had expired.
      */
     public static long dropAt(long armedAt, int windowTicks, int bladeTicks) {
         long ceremony = Math.max(1L, (long) windowTicks - Math.max(1, bladeTicks) - 2L);
@@ -349,7 +352,8 @@ public final class CondemnedEscortService {
         DetentionRecord detention = DetentionService.forSubject(data, captiveId).orElse(null);
         long generation = detention == null ? 1L : detention.occupantGeneration();
         Optional<ExecutionAuthorization.Pending> armed = ExecutionAuthorization.arm(server, captiveId,
-                guard.getUUID(), false, true, level.dimension().location(), device, now, generation);
+                guard.getUUID(), false, true, level.dimension().location(), device, now, generation,
+                detention == null ? null : detention.id());
         if (armed.isEmpty()) {
             // Refused: the feature was switched off mid-walk, guards were forbidden, or somebody else
             // already armed this subject. The prisoner stays in the device, condemned and held.
@@ -358,6 +362,7 @@ public final class CondemnedEscortService {
             return;
         }
         escort.armedAt = now;
+        escort.orderId = armed.get().orderId();
         McaCrime.LOGGER.info("MCA: Crime - an execution of {} is armed at {} by guard {}", captiveId,
                 device, guard.getUUID());
     }
@@ -376,7 +381,7 @@ public final class CondemnedEscortService {
             end(server, captiveId, escort, "the order was cleared inside the window");
             return;
         }
-        if (now < dropAt(escort.armedAt, ExecutionAuthorization.delayTicks(), bladeDelayTicks())) {
+        if (now < dropAt(escort.armedAt, ExecutionAuthorization.windowTicks(), bladeDelayTicks())) {
             return; // still the rescue and pardon window; nothing happens in it by design
         }
         BlockPos frame = escort.device.above(2);
@@ -386,7 +391,7 @@ public final class CondemnedEscortService {
             return;
         }
         escort.bladeDropped = blockEntity.dropBladeFor(level, frame, level.getBlockState(frame),
-                captiveId, escort.guard);
+                captiveId, escort.guard, escort.orderId);
         if (!escort.bladeDropped) {
             end(server, captiveId, escort, "the device would not operate");
         }

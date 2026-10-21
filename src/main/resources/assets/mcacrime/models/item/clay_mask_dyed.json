@@ -1,0 +1,7 @@
+{
+  "parent": "item/generated",
+  "textures": {
+    "layer0": "mcacrime:item/clay_mask_dyed",
+    "layer1": "mcacrime:item/clay_mask_dyed_detail"
+  }
+}

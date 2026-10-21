@@ -1,0 +1,35 @@
+{
+  "parent": "minecraft:recipes/root",
+  "criteria": {
+    "has_reinforced_stone": {
+      "conditions": {
+        "items": [
+          {
+            "items": [
+              "mcacrime:reinforced_stone"
+            ]
+          }
+        ]
+      },
+      "trigger": "minecraft:inventory_changed"
+    },
+    "has_the_recipe": {
+      "conditions": {
+        "recipe": "mcacrime:reinforced_stone_stairs_mirrored"
+      },
+      "trigger": "minecraft:recipe_unlocked"
+    }
+  },
+  "requirements": [
+    [
+      "has_the_recipe",
+      "has_reinforced_stone"
+    ]
+  ],
+  "rewards": {
+    "recipes": [
+      "mcacrime:reinforced_stone_stairs_mirrored"
+    ]
+  },
+  "sends_telemetry_event": false
+}

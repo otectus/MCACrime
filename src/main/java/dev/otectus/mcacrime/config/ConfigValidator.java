@@ -920,6 +920,33 @@ public final class ConfigValidator {
     }
 
     /**
+     * The blade against the order window (0.8.0), the one pair of keys from two sections that only
+     * means something together.
+     *
+     * <p>An order lasts {@code executionDelayTicks}; the blade takes {@code guillotineActivationDelayTicks}
+     * to land. When the blade is not shorter than the window by {@code BLADE_MARGIN_TICKS}, the order is
+     * kept for longer -- the effective window {@code ExecutionAuthorization.windowTicks()} -- so the blow
+     * can still land; before 0.8.0 that combination meant no execution, manual or guard-led, ever struck.
+     * A warning, because the configured values are legal and now work: it says what the server will do.
+     */
+    public static List<String> validateExecutionTiming(boolean enabled, int executionDelayTicks,
+                                                       int guillotineDelayTicks) {
+        List<String> problems = new ArrayList<>();
+        if (enabled && dev.otectus.mcacrime.detention.ExecutionAuthorization.windowStretched(
+                executionDelayTicks, guillotineDelayTicks)) {
+            problems.add("sentencing.capitalPunishment.executionDelayTicks (" + executionDelayTicks
+                    + ") is not longer than the blade's fall, detention.guillotineActivationDelayTicks ("
+                    + guillotineDelayTicks + "), plus "
+                    + dev.otectus.mcacrime.detention.ExecutionAuthorization.BLADE_MARGIN_TICKS
+                    + " ticks. Execution orders are kept for "
+                    + dev.otectus.mcacrime.detention.ExecutionAuthorization.effectiveWindow(
+                            executionDelayTicks, guillotineDelayTicks)
+                    + " ticks so the blade can land, and a guard's ceremony is one tick long.");
+        }
+        return problems;
+    }
+
+    /**
      * The capital sentencing keys M4.10 owns (0.7.5 §3.19).
      *
      * <p>{@code requiresExecutionDevice = false} with the feature on is the one combination that is
@@ -1777,6 +1804,8 @@ public final class ConfigValidator {
                 c.executionDelayTicks.get(), c.guardMayExecute.get(),
                 c.guardKillingIsCapital.get(), c.npcOffendersEligible.get(),
                 c.condemnedEscortTimeoutTicks.get(), c.executionSiteSearchRadius.get()));
+        problems.addAll(validateExecutionTiming(c.capitalPunishmentEnabled.get(),
+                c.executionDelayTicks.get(), c.guillotineActivationDelayTicks.get()));
         problems.addAll(validateEnchantments(
                 c.allowedEnchantments.get(), c.imbueTransferPerLevel.get(),
                 c.imbueMaxTransferFraction.get(), c.imbueMaxRecipients.get(),

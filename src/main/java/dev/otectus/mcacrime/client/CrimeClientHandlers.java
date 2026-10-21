@@ -168,6 +168,10 @@ public final class CrimeClientHandlers {
         ClientWeaponPolicy.set(msg.policy());
     }
 
+    public static void onServerRules(dev.otectus.mcacrime.network.ServerRulesS2CPacket msg) {
+        dev.otectus.mcacrime.network.ServerRulesView.set(msg);
+    }
+
     public static void onCriminalJob(CriminalJobSyncS2CPacket msg) {
         ClientCriminalJobData.put(msg.villager(), msg.job());
     }

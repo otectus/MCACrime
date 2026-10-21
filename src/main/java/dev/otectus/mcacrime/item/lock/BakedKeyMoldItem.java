@@ -1,6 +1,8 @@
 package dev.otectus.mcacrime.item.lock;
 
 import dev.otectus.mcacrime.item.CrimeItems;
+import dev.otectus.mcacrime.help.CrimeHelpTopic;
+import dev.otectus.mcacrime.help.TooltipHelp;
 import dev.otectus.mcacrime.locks.KeyBinding;
 import net.minecraft.ChatFormatting;
 import net.minecraft.network.chat.Component;
@@ -79,11 +81,31 @@ public class BakedKeyMoldItem extends Item {
         return KeyMoldItem.recorded(mold);
     }
 
+    /**
+     * Whether the mold can cast, how many casts it has left, and whose key it copies (0.8.0). A mold with
+     * no recorded key -- the creative tab's sample -- says plainly that it cannot cast, rather than
+     * showing a cast count as though it were a usable template.
+     */
     @Override
     public void appendHoverText(ItemStack stack, @Nullable Level level, List<Component> tooltip,
                                 TooltipFlag flag) {
         super.appendHoverText(stack, level, tooltip, flag);
-        tooltip.add(Component.translatable("item.mcacrime.baked_key_mold.tooltip.quality", quality(stack))
-                .withStyle(ChatFormatting.DARK_GRAY));
+        Optional<KeyBinding> binding = recorded(stack);
+        if (binding.isEmpty()) {
+            TooltipHelp.append(tooltip, Component.translatable("item.mcacrime.baked_key_mold.tooltip.blank"),
+                    List.of(Component.translatable("item.mcacrime.baked_key_mold.tooltip.blank.1")),
+                    CrimeHelpTopic.KEYMOLD);
+            return;
+        }
+        if (quality(stack) <= 0) {
+            TooltipHelp.append(tooltip, Component.translatable("item.mcacrime.baked_key_mold.tooltip.spent",
+                    KeyItem.label(binding.get())), List.of(), CrimeHelpTopic.KEYMOLD);
+            return;
+        }
+        TooltipHelp.append(tooltip, Component.translatable("item.mcacrime.baked_key_mold.tooltip.usable",
+                        quality(stack), KeyItem.label(binding.get())),
+                List.of(Component.translatable("item.mcacrime.baked_key_mold.tooltip.usable.1"),
+                        Component.translatable("item.mcacrime.baked_key_mold.tooltip.usable.2")),
+                CrimeHelpTopic.KEYMOLD);
     }
 }

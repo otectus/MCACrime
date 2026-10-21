@@ -119,6 +119,7 @@ public final class McaCrime {
                     net.minecraftforge.server.ServerLifecycleHooks.getCurrentServer();
             if (server != null) {
                 dev.otectus.mcacrime.network.CrimeNetwork.broadcastWeaponPolicy(server);
+                dev.otectus.mcacrime.network.CrimeNetwork.broadcastServerRules(server);
                 // Both criminal-job presentation keys are answered once per villager, so a reload that
                 // flips one has to revisit the criminals that already exist rather than only the next.
                 WorldCriminalJobService.of(server).refreshPresentation();
@@ -194,6 +195,8 @@ public final class McaCrime {
             // Force the crime-type registry (and its built-in ids) to class-load before any datapack parse.
             CrimeTypeRegistry.bootstrap();
             CrimeActionService.bootstrap();
+            // A dyed mask washes clean in a water cauldron, like leather armour (0.8.0).
+            dev.otectus.mcacrime.mask.MaskWashing.register(CrimeItems.masks());
             // Before anything can charge anybody: pick the currency named by integrations.currencyId.
             Currencies.reload();
             // Load-time config validation: surface a broken config in the log (and /crime validate).

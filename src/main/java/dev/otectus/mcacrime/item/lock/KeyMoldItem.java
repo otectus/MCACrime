@@ -1,6 +1,8 @@
 package dev.otectus.mcacrime.item.lock;
 
 import dev.otectus.mcacrime.item.CrimeItems;
+import dev.otectus.mcacrime.help.CrimeHelpTopic;
+import dev.otectus.mcacrime.help.TooltipHelp;
 import dev.otectus.mcacrime.locks.KeyBinding;
 import net.minecraft.ChatFormatting;
 import net.minecraft.nbt.CompoundTag;
@@ -62,13 +64,23 @@ public class KeyMoldItem extends Item {
         return KeyBinding.load(tag.getCompound(KeyBinding.TAG_COPIED_KEY));
     }
 
+    /** Whether the mold holds an impression, whose, and the next step (0.8.0). */
     @Override
     public void appendHoverText(ItemStack stack, @Nullable Level level, List<Component> tooltip,
                                 TooltipFlag flag) {
         super.appendHoverText(stack, level, tooltip, flag);
-        tooltip.add(Component.translatable(recorded(stack).isPresent()
-                        ? "item.mcacrime.key_mold.tooltip.bound"
-                        : "item.mcacrime.key_mold.tooltip.blank")
-                .withStyle(ChatFormatting.GRAY));
+        Optional<KeyBinding> binding = recorded(stack);
+        if (binding.isPresent()) {
+            TooltipHelp.append(tooltip, Component.translatable("item.mcacrime.key_mold.tooltip.bound",
+                            KeyItem.label(binding.get())),
+                    List.of(Component.translatable("item.mcacrime.key_mold.tooltip.bound.1"),
+                            Component.translatable("item.mcacrime.key_mold.tooltip.bound.2")),
+                    CrimeHelpTopic.KEYMOLD);
+            return;
+        }
+        TooltipHelp.append(tooltip, Component.translatable("item.mcacrime.key_mold.tooltip.blank"),
+                List.of(Component.translatable("item.mcacrime.key_mold.tooltip.blank.1"),
+                        Component.translatable("item.mcacrime.key_mold.tooltip.blank.2")),
+                CrimeHelpTopic.KEYMOLD);
     }
 }

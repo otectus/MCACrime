@@ -53,6 +53,24 @@ public final class McaCompat {
         return McaHandles.isVillager(entity);
     }
 
+    /**
+     * True for anything implementing MCA's {@code VillagerLike}: the human villager and the zombie
+     * variant. Only for telling a player which kind of MCA entity they aimed at; every gameplay rule
+     * asks {@link #isMcaVillager}.
+     */
+    public static boolean isMcaVillagerLike(Entity entity) {
+        return McaHandles.isVillagerLike(entity);
+    }
+
+    /**
+     * Whether MCA's villager identity bound at all (0.8.0). False means {@link #isMcaVillager} answers
+     * no for everybody, which a command must report as "recognition unavailable" rather than as "no
+     * villager here": the two have different fixes.
+     */
+    public static boolean villagerRecognitionAvailable() {
+        return McaHandles.available();
+    }
+
     public static UUID getVillagerUuid(Entity entity) {
         return entity.getUUID();
     }

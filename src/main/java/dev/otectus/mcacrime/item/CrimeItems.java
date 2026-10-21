@@ -175,11 +175,13 @@ public final class CrimeItems {
 
     /** The pillory's block item (0.7.5 M4.5). */
     public static final RegistryObject<Item> PILLORY = ITEMS.register("pillory",
-            () -> new BlockItem(CrimeBlocks.PILLORY.get(), new Item.Properties()));
+            () -> new DetentionDeviceItem(CrimeBlocks.PILLORY.get(), new Item.Properties(),
+                    DetentionDeviceItem.Device.PILLORY));
 
     /** The guillotine's block item (0.7.5 M4.6). */
     public static final RegistryObject<Item> GUILLOTINE = ITEMS.register("guillotine",
-            () -> new BlockItem(CrimeBlocks.GUILLOTINE.get(), new Item.Properties()));
+            () -> new DetentionDeviceItem(CrimeBlocks.GUILLOTINE.get(), new Item.Properties(),
+                    DetentionDeviceItem.Device.GUILLOTINE));
 
     /** The prison bunk's block item (0.7.5 M4.7). */
     public static final RegistryObject<Item> BUNK = ITEMS.register("bunk",
@@ -245,6 +247,23 @@ public final class CrimeItems {
                         output.accept(CREATIVE_KEY.get());
                         output.accept(CREATIVE_BIND_BREAKER.get());
                     })
+                    .build());
+
+    /**
+     * Every mask in every standard colour (0.8.0): each style's original, then its sixteen dyes, in the
+     * catalogue's stable order -- 272 stacks, generated from {@link MaskVariant} and the dye list by
+     * {@code MaskColors.catalogue}, never listed by hand. The undyed originals stay in the Crime tab too.
+     * Creative search indexes these stacks with their names ("Blue Plague Doctor Mask").
+     */
+    public static final RegistryObject<CreativeModeTab> MASKS_TAB = TABS.register("masks", () ->
+            CreativeModeTab.builder()
+                    .title(Component.translatable("itemGroup.mcacrime.masks"))
+                    .icon(() -> dev.otectus.mcacrime.mask.MaskColors.sample(MASKS.get(MaskVariant.RAVEN).get(),
+                            net.minecraft.world.item.DyeColor.LIGHT_BLUE))
+                    .withTabsBefore(TAB.getKey())
+                    .displayItems((params, output) ->
+                            dev.otectus.mcacrime.mask.MaskColors.catalogue(variant -> MASKS.get(variant).get())
+                                    .forEach(output::accept))
                     .build());
 
     private CrimeItems() {

@@ -66,6 +66,7 @@ public final class StolenGoodsInventoryProvider implements InventoryProvider {
             return List.of();
         }
         List<StolenGoodsRecord> records = new ArrayList<>(CrimeWorldData.get(server).stolenGoodsByThief(subject.getUUID()));
+        records.removeIf(record -> !record.recoverable());
         records.sort(Comparator.comparingLong(StolenGoodsRecord::stolenAt)
                 .thenComparing(StolenGoodsRecord::transactionId));
         return records;

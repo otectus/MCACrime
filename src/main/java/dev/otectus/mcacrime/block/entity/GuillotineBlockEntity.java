@@ -46,9 +46,12 @@ import java.util.UUID;
  *       victim as the responsible entity ({@code init/ModDamageTypes.java:24}). Here the actor who
  *       gave the order is the responsible entity.</li>
  *   <li><b>The unpersisted delay.</b> {@code chopDelay} is a field the source never saves
- *       ({@code :327} against {@code :339-344}), so an unload inside the five-tick window cancels the
- *       execution silently. It is persisted here, along with a completion marker, so an unload can
- *       neither cancel nor repeat it.</li>
+ *       ({@code :327} against {@code :339-344}). It is persisted here, with a completion marker, so a
+ *       reload neither repeats a blow that landed nor leaves the blade frozen half way. What a reload
+ *       does <em>not</em> keep is the execution order: orders are memory-only
+ *       ({@link ExecutionAuthorization}), unloading the device clears them, and the order id this
+ *       device armed lives only in memory -- so a blade still falling after a reload lands on nobody,
+ *       and cannot borrow an order somebody gave afterwards.</li>
  *   <li><b>The fabricated head.</b> The head drop reads the victim's game profile unconditionally.
  *       Here only a player drops a player head; a villager drops nothing extra, because a villager
  *       has no head item and inventing one would be this mod making up loot.</li>
@@ -78,6 +81,18 @@ public class GuillotineBlockEntity extends BlockEntity {
     private UUID pendingActor;
 
     /**
+     * The order this fall is allowed to carry out, or null for a harmless fall (0.8.0).
+     *
+     * <p>Deliberately not persisted. An order is memory-only, so after a reload there is no order to
+     * name; a stale id here could only ever match nothing, and a missing one matches nothing too.
+     */
+    @Nullable
+    private UUID armedOrder;
+
+    /** When the blade was last released, for the "already falling" feedback. Transient. */
+    private long releasedAt = Long.MIN_VALUE;
+
+    /**
      * The completion marker.
      *
      * <p>Persisted, and the whole reason a restart inside the window cannot double-run the blow: a
@@ -94,27 +109,34 @@ public class GuillotineBlockEntity extends BlockEntity {
     /**
      * Somebody pulled the lever.
      *
-     * <p>Raising the blade resets the device and cancels nothing that has already landed. Dropping it
-     * starts the delay and pins the target — but only <em>arms</em> the blow if a live authorisation
-     * names this subject, this device and this actor. Without one the blade still falls: the device
-     * works, it simply takes nobody's life.
+     * <p>Raising the blade resets the device and cancels an order that has not yet struck. Dropping it
+     * starts the blade's own delay ({@code detention.guillotineActivationDelayTicks}) and pins the
+     * target, and <em>arms</em> the blow only if a live authorisation names this subject, this device
+     * and this actor. There is no ceremony countdown on this path: the order is armed and the blade
+     * released by the same click. Without an order the blade still falls: the device works, it simply
+     * takes nobody's life, and the actor is told why on the action bar.
      */
     public void pullLever(Level level, BlockPos pos, BlockState state, @Nullable Player actor) {
         if (level.isClientSide()) {
             return;
         }
         if (bladeDown) {
-            raise(level, pos, state);
+            raise(level, pos, state, actor);
             return;
         }
         bladeDown = true;
         completed = false;
         chopDelay = activationDelayTicks();
+        releasedAt = level.getGameTime();
+        armedOrder = null;
         LivingEntity occupant = occupant(level, pos);
         pendingTarget = occupant == null ? null : occupant.getUUID();
         pendingActor = actor == null ? null : actor.getUUID();
         if (occupant != null && actor != null) {
             armOrExplain(level, pos, occupant, actor);
+        } else if (actor instanceof net.minecraft.server.level.ServerPlayer player) {
+            dev.otectus.mcacrime.detention.DeviceFeedback.say(player, GuillotineBlock.devicePos(pos),
+                    Component.translatable("mcacrime.device.guillotine.empty"));
         }
         apply(level, pos, state);
         CrimeSounds.guillotineUsed(level, pos, true);
@@ -128,21 +150,35 @@ public class GuillotineBlockEntity extends BlockEntity {
      * without a player behind it.
      */
     private void armOrExplain(Level level, BlockPos pos, LivingEntity occupant, Player actor) {
+        BlockPos device = GuillotineBlock.devicePos(pos);
+        if (!guillotineEnabled() && actor instanceof net.minecraft.server.level.ServerPlayer player) {
+            // The device's own switch. Checked before arming so no order exists that the strike would
+            // then have to refuse, and so the actor learns which setting is responsible.
+            dev.otectus.mcacrime.detention.DeviceFeedback.say(player, device,
+                    Component.translatable("mcacrime.device.guillotine.disabled", occupant.getDisplayName()));
+            return;
+        }
         CrimeWorldData data = PilloryBlock.data(level);
         DetentionRecord detention = data == null ? null
                 : DetentionService.forSubject(data, occupant.getUUID()).orElse(null);
         long generation = detention == null ? 1L : detention.occupantGeneration();
         var armed = ExecutionAuthorization.arm(level.getServer(), occupant.getUUID(), actor.getUUID(),
-                true, false, level.dimension().location(), GuillotineBlock.devicePos(pos),
-                level.getGameTime(), generation);
+                true, false, level.dimension().location(), device,
+                level.getGameTime(), generation, detention == null ? null : detention.id());
         if (armed.isEmpty()) {
-            actor.displayClientMessage(Component.translatable(
-                    ExecutionAuthorization.messageKey(ExecutionAuthorization.lastRefusal())), true);
+            if (actor instanceof net.minecraft.server.level.ServerPlayer player) {
+                dev.otectus.mcacrime.detention.DeviceFeedback.say(player, device,
+                        dev.otectus.mcacrime.detention.DeviceFeedback.refusal(
+                                ExecutionAuthorization.lastRefusal(), occupant));
+            }
             return;
         }
-        actor.displayClientMessage(
-                Component.translatable(ExecutionAuthorization.messageKey(
-                        ExecutionAuthorization.Refusal.NONE)), true);
+        armedOrder = armed.get().orderId();
+        if (actor instanceof net.minecraft.server.level.ServerPlayer player) {
+            dev.otectus.mcacrime.detention.DeviceFeedback.say(player, device,
+                    Component.translatable("mcacrime.device.guillotine.armed", occupant.getDisplayName(),
+                            chopDelay));
+        }
         CrimeSounds.guillotineArmed(level, pos);
     }
 
@@ -158,17 +194,20 @@ public class GuillotineBlockEntity extends BlockEntity {
      *
      * @param actor the guard the death is attributed to; never null, because an execution with no
      *              actor is the automatic death §3.19 rules out
+     * @param order the id of the order the guard armed; the strike carries out that order or none
      * @return false when the device is already down or has already struck
      */
     public boolean dropBladeFor(Level level, BlockPos pos, BlockState state, @Nullable UUID subject,
-                                @Nullable UUID actor) {
+                                @Nullable UUID actor, @Nullable UUID order) {
         if (level.isClientSide() || bladeDown || completed || subject == null || actor == null) {
             return false;
         }
         bladeDown = true;
         chopDelay = activationDelayTicks();
+        releasedAt = level.getGameTime();
         pendingTarget = subject;
         pendingActor = actor;
+        armedOrder = order;
         apply(level, pos, state);
         CrimeSounds.guillotineUsed(level, pos, true);
         return true;
@@ -176,6 +215,12 @@ public class GuillotineBlockEntity extends BlockEntity {
 
     /** Raises the blade and resets the device. Any order armed at it is cleared, not carried out. */
     public void raise(Level level, BlockPos pos, BlockState state) {
+        raise(level, pos, state, null);
+    }
+
+    /** As {@link #raise(Level, BlockPos, BlockState)}, telling the player who raised it what that did. */
+    public void raise(Level level, BlockPos pos, BlockState state, @Nullable Player actor) {
+        boolean cancelling = chopDelay > 0 && armedOrder != null;
         bladeDown = false;
         chopDelay = 0;
         if (pendingTarget != null) {
@@ -183,9 +228,15 @@ public class GuillotineBlockEntity extends BlockEntity {
         }
         pendingTarget = null;
         pendingActor = null;
+        armedOrder = null;
         completed = false;
         apply(level, pos, state);
         CrimeSounds.guillotineUsed(level, pos, false);
+        if (actor instanceof net.minecraft.server.level.ServerPlayer player) {
+            dev.otectus.mcacrime.detention.DeviceFeedback.say(player, GuillotineBlock.devicePos(pos),
+                    Component.translatable(cancelling ? "mcacrime.device.guillotine.cancelled"
+                            : "mcacrime.device.guillotine.raised"));
+        }
     }
 
     // --- the tick --------------------------------------------------------------------------------------
@@ -203,13 +254,6 @@ public class GuillotineBlockEntity extends BlockEntity {
     }
 
     /**
-     * The blow: at most one attributed damage action, and only under a live authorisation.
-     *
-     * <p>Every early return is a case in which the device opens instead of killing, which is the
-     * specification's rule: an unlawful, unsentenced or merely restrained subject in a guillotine can
-     * still be released, never executed.
-     */
-    /**
      * Whether the blow may land at all.
      *
      * <p>Pure, and the fix for the double kill stated as one rule: four facts, one answer, one
@@ -221,6 +265,14 @@ public class GuillotineBlockEntity extends BlockEntity {
         return !alreadyCompleted && targetPresent && featureEnabled && authorised;
     }
 
+    /**
+     * The blow: at most one attributed damage action, and only for the order this fall armed.
+     *
+     * <p>Every refusal is a fall that harms nobody and changes nothing else: the occupant stays in the
+     * device, the sentence and the custody stand, and the boards open only through the pillory's own
+     * release. An unsentenced, pardoned or merely restrained subject in a guillotine can still be
+     * released through the ordinary paths; they are never executed by a stale or missing order.
+     */
     private void strike(Level level, BlockPos pos, BlockState state) {
         if (completed) {
             return; // already struck; a reload replaying the last tick changes nothing
@@ -231,13 +283,30 @@ public class GuillotineBlockEntity extends BlockEntity {
         LivingEntity target = pendingTarget == null ? null
                 : asLiving(TetherService.find(level.getServer(), pendingTarget));
         UUID targetId = pendingTarget;
+        UUID order = armedOrder;
         pendingTarget = null;
+        armedOrder = null;
         BlockPos device = GuillotineBlock.devicePos(pos);
-        if (!strikes(false, target != null && target.isAlive(), guillotineEnabled(),
-                ExecutionAuthorization.authorised(targetId, level.dimension().location(), device,
-                        level.getGameTime()))) {
-            // No order, or one that was cleared inside the window by a pardon, a rescue or a death.
-            // The blade has fallen and nobody has died, which is exactly what is supposed to happen.
+        var dimension = level.dimension().location();
+        CrimeWorldData data = PilloryBlock.data(level);
+        DetentionRecord occupancy = data == null ? null : DetentionService.at(data, dimension, device).orElse(null);
+        ExecutionAuthorization.StrikeVerdict verdict = ExecutionAuthorization.strikeVerdict(
+                guillotineEnabled() && ExecutionAuthorization.featureEnabled(),
+                target != null && target.isAlive(),
+                ExecutionAuthorization.condemned(level.getServer(), targetId),
+                ExecutionAuthorization.pending(targetId, level.getGameTime()).orElse(null), order,
+                targetId, pendingActor, dimension, device,
+                occupancy == null ? null : occupancy.subject(), occupancy == null ? null : occupancy.id(),
+                occupancy == null ? 0L : occupancy.occupantGeneration());
+        if (verdict != ExecutionAuthorization.StrikeVerdict.STRIKE) {
+            // No order, a stale one, or one cleared inside the window by a pardon, a rescue or a death.
+            // The blade has fallen and nobody has been harmed, which is exactly what is supposed to
+            // happen. Only a fall that had armed an order is worth a word to whoever gave it.
+            if (order != null) {
+                tellActor(level, device, Component.translatable("mcacrime.device.guillotine.order_void",
+                        Component.translatable("mcacrime.device.guillotine.verdict."
+                                + verdict.name().toLowerCase(java.util.Locale.ROOT))));
+            }
             return;
         }
         Entity actor = pendingActor == null ? null : TetherService.find(level.getServer(), pendingActor);
@@ -272,6 +341,19 @@ public class GuillotineBlockEntity extends BlockEntity {
         head.getOrCreateTag().putString("SkullOwner", player.getGameProfile().getName());
         level.addFreshEntity(new net.minecraft.world.entity.item.ItemEntity(level,
                 target.getX(), target.getY() + 0.5D, target.getZ(), head));
+    }
+
+    private void tellActor(Level level, BlockPos device, Component message) {
+        net.minecraft.server.level.ServerPlayer player = pendingActor == null || level.getServer() == null ? null
+                : level.getServer().getPlayerList().getPlayer(pendingActor);
+        if (player != null) {
+            dev.otectus.mcacrime.detention.DeviceFeedback.say(player, device, message);
+        }
+    }
+
+    /** Whether the blade was released within the last {@code ticks}. Feedback only. */
+    public boolean releasedWithin(Level level, long ticks) {
+        return bladeDown && releasedAt != Long.MIN_VALUE && level.getGameTime() - releasedAt <= ticks;
     }
 
     @Nullable
@@ -392,7 +474,9 @@ public class GuillotineBlockEntity extends BlockEntity {
      * The chunk is going away with an order armed at this device.
      *
      * <p>§3.19's seventh clearing rule. The condemned stay condemned and in custody; nothing about
-     * the sentence changes, and the order simply has to be given again.
+     * the sentence changes, and the order simply has to be given again. The persisted blade delay may
+     * finish its fall after the chunk returns, but the order it armed is gone and the id it would need
+     * was never saved, so that fall harms nobody.
      */
     @Override
     public void setRemoved() {

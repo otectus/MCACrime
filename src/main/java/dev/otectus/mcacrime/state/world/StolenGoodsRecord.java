@@ -25,13 +25,28 @@ import java.util.UUID;
  * running game. Decoding happens on the server, at the one moment the item has to become real again.
  */
 public record StolenGoodsRecord(UUID transactionId, UUID thief, UUID owner, @Nullable CompoundTag stackTag,
-                                long currency, long stolenAt, String providerId) {
+                                long currency, long stolenAt, String providerId, Custody custody) {
+
+    /** Only LEDGER owns property. INVENTORY is a trail of an item already handed to a player. */
+    public enum Custody { LEDGER, INVENTORY, LEGACY }
 
     public StolenGoodsRecord {
         // Defensive: an NBT compound is mutable, and a record everybody can edit in place is not a
         // ledger entry.
         stackTag = stackTag == null ? null : stackTag.copy();
         providerId = providerId == null ? "" : providerId;
+        custody = java.util.Objects.requireNonNull(custody, "custody");
+    }
+
+    public StolenGoodsRecord(UUID transactionId, UUID thief, UUID owner, @Nullable CompoundTag stackTag,
+                             long currency, long stolenAt, String providerId) {
+        this(transactionId, thief, owner, stackTag, currency, stolenAt, providerId, Custody.LEDGER);
+    }
+
+    public boolean recoverable() { return custody == Custody.LEDGER; }
+
+    public StolenGoodsRecord withCustody(Custody value) {
+        return new StolenGoodsRecord(transactionId, thief, owner, stackTag, currency, stolenAt, providerId, value);
     }
 
     /** Legacy records did not identify their currency provider. */
@@ -78,6 +93,7 @@ public record StolenGoodsRecord(UUID transactionId, UUID thief, UUID owner, @Nul
         tag.putLong("currency", currency);
         tag.putLong("stolenAt", stolenAt);
         if (!providerId.isEmpty()) tag.putString("provider", providerId);
+        tag.putString("custody", custody.name());
         return tag;
     }
 
@@ -89,6 +105,15 @@ public record StolenGoodsRecord(UUID transactionId, UUID thief, UUID owner, @Nul
                 tag.getUUID("owner"),
                 tag.contains("stack") ? tag.getCompound("stack") : null,
                 tag.getLong("currency"),
-                tag.getLong("stolenAt"), tag.getString("provider"));
+                tag.getLong("stolenAt"), tag.getString("provider"), readCustody(tag));
+    }
+
+    private static Custody readCustody(CompoundTag tag) {
+        try {
+            return Custody.valueOf(tag.getString("custody"));
+        } catch (IllegalArgumentException unknown) {
+            // Old saves need the server's player identities before an item may be recovered.
+            return Custody.LEGACY;
+        }
     }
 }

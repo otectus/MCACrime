@@ -470,6 +470,25 @@ public final class ReviewRuntimeChecks {
             var refiled = data.stolenGoodsByThief(victim.getUUID());
             require(refiled.size() == 1 && other.equals(refiled.get(0).owner()),
                     "taking another victim's property did not stay that victim's: " + refiled);
+            require(!refiled.get(0).recoverable(), "re-theft recorded an extra claimable copy");
+            var expiryData = new CrimeWorldData();
+            expiryData.putStolenGoods(refiled.get(0));
+            expiryData.putStolenGoods(rest);
+            expiryData = CrimeWorldData.load(((net.minecraft.world.level.saveddata.SavedData) expiryData).save(new CompoundTag()));
+            require(dev.otectus.mcacrime.mug.npc.StolenGoodsLedger.expire(expiryData, now / 24000L + 7, 7,
+                    java.util.Set.of()) == 2, "re-theft provenance and NPC remainder did not expire");
+            require(count(victim, stack -> stack.is(Items.BREAD)) == 2, "physical re-theft item was lost");
+            require(expiryData.propertyEscrowFor(other).size() == 1
+                    && expiryData.propertyEscrowFor(other).get(0).stackTag().getByte("Count") == 3,
+                    "expiry duplicated the two breads already held by the player");
+
+            var seizureData = new CrimeWorldData();
+            var seized = dev.otectus.mcacrime.frisk.SeizureLedger.criminal(seizureData, UUID.randomUUID(),
+                    victim.getUUID(), other, now, () -> new ItemStack(Items.DIAMOND));
+            require(seized.committed(), "criminal seizure was refused");
+            require(dev.otectus.mcacrime.mug.npc.StolenGoodsLedger.expire(seizureData, now / 24000L + 7, 7,
+                    java.util.Set.of()) == 1 && seizureData.propertyEscrowFor(other).isEmpty(),
+                    "ordinary criminal seizure minted a recovery copy");
 
             int emeraldsBefore = count(victim, stack -> stack.is(Items.EMERALD));
             int purseIndex = stolenIndex(thief, view, purseTx);

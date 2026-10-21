@@ -179,8 +179,8 @@ public final class McaCrimeApi {
             boolean wanted = target instanceof ServerPlayer player && cooperation
                     && JurisdictionPolicies.allowsStandaloneWanted(evidence) && CrimeState.isWanted(player);
             // A royal decree of this responder's own village is a local ground like a local case (0.7.8).
-            UUID decree = target instanceof ServerPlayer
-                    ? dev.otectus.mcacrime.decree.DecreeService.inForce(level.getServer(), target.getUUID(), community)
+            UUID decree = target instanceof ServerPlayer subject
+                    ? dev.otectus.mcacrime.decree.DecreeService.enforceableHere(subject, community)
                             .map(dev.otectus.mcacrime.decree.Decree::id).orElse(null)
                     : null;
             var decision = dev.otectus.mcacrime.justice.JusticeService.evaluate(

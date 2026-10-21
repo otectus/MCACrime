@@ -1,0 +1,20 @@
+// Usability fixtures (0.8.0) run in a disposable production server, never in the release jar.
+allprojects {
+    afterEvaluate {
+        sourceSets {
+            usabilityRuntime {
+                java.srcDir 'tools/usability/java'
+                compileClasspath = sourceSets.main.compileClasspath + sourceSets.main.output
+            }
+        }
+        tasks.register('usabilityRuntimeJar', Jar) {
+            dependsOn tasks.named('usabilityRuntimeClasses')
+            archiveBaseName = 'crime-usability-runtime-checks'
+            from sourceSets.usabilityRuntime.output
+            from('tools/usability/resources')
+            doFirst { manifest.attributes.remove('MixinConfigs') }
+        }
+        reobf { usabilityRuntimeJar {} }
+        tasks.named('usabilityRuntimeJar').configure { finalizedBy 'reobfUsabilityRuntimeJar' }
+    }
+}

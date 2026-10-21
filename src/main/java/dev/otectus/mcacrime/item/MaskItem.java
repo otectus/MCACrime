@@ -8,7 +8,6 @@ import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.item.ArmorItem;
 import net.minecraft.world.item.DyeableLeatherItem;
 import net.minecraft.world.item.Item;
-import net.minecraft.nbt.CompoundTag;
 import net.minecraft.world.item.ItemStack;
 
 import net.minecraft.network.chat.Component;
@@ -76,25 +75,58 @@ public class MaskItem extends ArmorItem implements DyeableLeatherItem, GeoItem {
      * <p>The interface's own default answers {@code DEFAULT_LEATHER_COLOR} for a stack with no colour
      * tag, which is right for a leather cap and wrong for painted art: it would multiply every shipped
      * mask texture by a brown the artist never chose. White is the identity for both the item colour
-     * handler and vanilla's worn-armour tint, so an undyed mask looks exactly as it did before masks
-     * could be dyed at all.
+     * handler and the worn renderer's tint, so an undyed mask looks exactly as it did before masks
+     * could be dyed at all. Whether a mask is dyed at all is {@code MaskColors.hasColor}, never this
+     * value: a mask dyed white answers the same white and still draws its dyed art (0.8.0).
      */
     @Override
     public int getColor(ItemStack stack) {
-        CompoundTag display = stack.getTagElement("display");
-        return display != null && display.contains("color", CompoundTag.TAG_INT)
-                ? display.getInt("color") : 0xFFFFFF;
+        return dev.otectus.mcacrime.mask.MaskColors.storedColor(stack).orElse(0xFFFFFF);
+    }
+
+    /**
+     * A mask dyed one of the sixteen standard colours carries it in its name -- "Blue Plague Doctor Mask"
+     * (0.8.0). Only the canonical colour counts: a blend or a custom colour keeps the plain style name
+     * and is described in the tooltip instead, and a player's own name always wins, because
+     * {@code getHoverName} reads it before this.
+     */
+    @Override
+    public Component getName(ItemStack stack) {
+        return dev.otectus.mcacrime.mask.MaskColors.standardOf(stack)
+                .<Component>map(dye -> Component.translatable("item.mcacrime.mask.colored",
+                        Component.translatable(dev.otectus.mcacrime.mask.MaskColors.colorNameKey(dye)),
+                        Component.translatable(variant.displayKey())))
+                .orElseGet(() -> super.getName(stack));
     }
 
     /**
      * Names the family and says the thing a collection of sixteen faces otherwise invites players to
-     * guess wrongly: the scary one is not the good one (0.7.2 section 4.2).
+     * guess wrongly: the scary one is not the good one (0.7.2 section 4.2). Then the colour, in words
+     * (0.8.0): a standard colour by name, anything else as a custom colour with its hex value in advanced
+     * tooltips only, and where to change or wash it.
      */
     @Override
     public void appendHoverText(ItemStack stack, @Nullable Level level, List<Component> tooltip,
                                 TooltipFlag flag) {
         tooltip.add(Component.translatable(variant.family().displayKey())
                 .withStyle(net.minecraft.ChatFormatting.GRAY));
+        java.util.Optional<Integer> color = dev.otectus.mcacrime.mask.MaskColors.storedColor(stack);
+        if (color.isPresent()) {
+            java.util.Optional<net.minecraft.world.item.DyeColor> standard =
+                    dev.otectus.mcacrime.mask.MaskColors.standardOf(color.get());
+            Component line = standard.<Component>map(dye -> Component.translatable("item.mcacrime.mask.color",
+                            Component.translatable(dev.otectus.mcacrime.mask.MaskColors.colorNameKey(dye))))
+                    .orElseGet(() -> flag.isAdvanced()
+                            ? Component.translatable("item.mcacrime.mask.color.custom_hex",
+                                    dev.otectus.mcacrime.mask.MaskColors.hex(color.get()))
+                            : Component.translatable("item.mcacrime.mask.color.custom"));
+            tooltip.add(line.copy().withStyle(net.minecraft.ChatFormatting.GRAY));
+        }
+        dev.otectus.mcacrime.help.TooltipHelp.append(tooltip,
+                Component.translatable("item.mcacrime.mask.tooltip"),
+                List.of(Component.translatable("item.mcacrime.mask.tooltip.1"),
+                        Component.translatable("item.mcacrime.mask.tooltip.2")),
+                dev.otectus.mcacrime.help.CrimeHelpTopic.MASKS);
     }
 
     @Override

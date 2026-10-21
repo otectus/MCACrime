@@ -13,8 +13,7 @@ public final class MaskArmorModel extends GeoModel<MaskItem> {
 
     @Override
     public ResourceLocation getTextureResource(MaskItem mask) {
-        return new ResourceLocation(McaCrime.MOD_ID,
-                "textures/models/armor/" + mask.getVariant().textureName() + "_layer_1.png");
+        return MaskArt.original(mask.getVariant());
     }
 
     @Override

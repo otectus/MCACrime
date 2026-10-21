@@ -218,6 +218,54 @@ prison or a house, as it does for a vanilla cell. See
 - **Chat colouring** by band exists but is **off by default**, and is server-authoritative when
   enabled.
 
+## Help in the game (0.8.0)
+
+`/crime help` lists the topics and `/crime help <topic>` opens one: `commands`, `targeting`, `guillotine`,
+`keys`, `keyring`, `keymold` and `masks`. Help is read-only, works for every player and from the console,
+and `/crime` on its own shows the overview. Tooltips give one line of guidance; hold Shift for the rest and
+the matching topic. The Mask Station's **?** button prints `/crime help masks`. The short versions:
+
+**Pointing a command at a villager.** `/crime mug` and `/crime report` use the villager or guard under your
+crosshair, within 4 blocks and in clear sight; they never pick somebody else nearby. Operator commands
+(`/crime job assign thief|fence`, `/crime job clear`, `/crime debug villager`) use the villager under your
+crosshair too; aiming at nothing, they take the only visible MCA villager within 8 blocks, and ask you to
+look at one when there are several. Each also accepts an explicit `[target]` (one entity, any selector),
+which is how to run it from the console or a command block. A refusal says why: nothing in reach, the wrong
+kind of entity, a wall in the way, several candidates, or MCA villager recognition unavailable.
+`/crime debug target [target]` shows what a command saw, and `/crime debug mca` shows the MCA binding.
+
+**The pillory and guillotine.**
+
+1. Place a **Pillory** on solid ground. It is two blocks tall.
+2. Place the **Guillotine** on top of its upper half (three blocks of height in all); it faces the way the
+   pillory does. Crouch while holding a block to place it against the device instead of using the device.
+3. Have the subject stand at the pillory's spot, just behind the boards on the side you placed it from
+   (or escort them there), and right-click the boards to secure them. The action bar names who was secured.
+4. Use the frame to drop the blade, and again to raise it. The blow only lands on a subject under a capital
+   sentence (the only capital offence is killing a guard) while capital punishment and the guillotine are
+   enabled; otherwise the blade falls harmlessly and the action bar says why.
+5. Right-click the boards to release the subject. Releasing somebody is not a pardon.
+
+Guards carry out sentences at an assigned execution site; the operator commands are in
+`/crime help guillotine`, and the timing settings in [CONFIG.md](CONFIG.md).
+
+**Copying keys.**
+
+1. Use a blank **Key** on your own padlock, safe or cell door to bind it to that lock.
+2. Two or more bound keys in a crafting grid make a **Key Ring**; a ring and more keys add to it; a ring
+   alone gives back its last key. A renamed key keeps its name on the ring.
+3. A bound key and a clay ball, or a blank **Key Mold** and a bound key, make a recorded Key Mold. The key
+   comes back.
+4. Fire the mold in a furnace into a **Baked Key Mold**, then cast a key with an iron ingot. A mold casts
+   four keys.
+5. A key alone in the grid is reset to a blank key, erasing its binding. Rekeying a lock stops every old
+   key, ring entry and later copy from opening it.
+
+**Dyeing masks.** Every style takes all 16 dyes. At the **Mask Station**, put a dye in the third slot while
+making a mask, or put a mask in the first slot and pick its own style to recolour it; another style of the
+same family restyles it and keeps its wear, name and enchantments. Two dyes blend like leather armour, and
+a water cauldron washes the colour out. In creative, the **Masks** tab holds every style in every colour.
+
 ## Commands
 
 Everything is under `/crime`. Checking your own standing and acting on your own situation needs no
@@ -230,6 +278,8 @@ gameplay commands below are accessibility fallbacks and use identical validation
 cooldowns, and finite accounts.
 
 ```
+/crime help [topic]                          the in-game guide (commands, targeting, guillotine,
+                                             keys, keyring, keymold, masks)
 /crime karma                                 your karma and band
 /crime status                                karma, band, Heat, Wanted, sentence, charges, options
 /crime payfine                               pay off cases in the active currency, oldest first
@@ -246,7 +296,10 @@ cooldowns, and finite accounts.
 
 /crime query <player>                        another player's full status           (level 2)
 /crime ledger <player>                       another player's every crime record    (level 2)
-/crime debug villager|custody|actions        villager, custody, or action state     (level 2)
+/crime debug villager [target]               a villager's crime and job state       (level 2)
+/crime debug custody|actions                 custody or action state                (level 2)
+/crime debug target [target]                 how a command would choose its target  (level 2)
+/crime debug mca                             the MCA binding and villager recognition (level 2)
 /crime debug integrations                    API version, bridge state, outbox      (level 2)
 /crime debug outbox [dead]                   queued or dead-lettered cross-mod work (level 2)
 /crime debug thief [villager]                why a villager may or may not mug now   (level 2)
@@ -262,6 +315,8 @@ cooldowns, and finite accounts.
 /crime assignjail <pos> [radius]                                                    (level 3)
 /crime repair <player> [inspect]             find, explain and fix a stuck sentence (level 3)
 /crime decree void <player>                  clear every decree against a player    (level 3)
+/crime job assign thief|fence [target]       give the aimed or named villager a criminal job (level 3)
+/crime job clear [target]                    clear the aimed or named villager's job (level 3)
 ```
 
 `/crime debug integrations` deliberately emits no player UUIDs, so its output can be pasted
@@ -332,7 +387,13 @@ data/<namespace>/mcareputation/incidents/*.json
 ```
 
 `/crime reload` swaps them in and reports the counts; `/crime validate` lists every problem with
-its file and field. Schemas and worked examples are in **[DATAPACK.md](DATAPACK.md)**.
+its file and field. Schemas and worked examples are in **[DATAPACK.md](DATAPACK.md)**, along with the
+dynamic key recipes and the recipe-book unlock advancements (0.8.0).
+
+A resource pack that retextures masks should also cover the dyed art 0.8.0 adds: each style's
+`<style>_dyed` and `<style>_dyed_detail` textures (item and worn) and its `<style>_dyed` item model, which
+the style's own model selects through the `mcacrime:dyed` predicate. See the 0.8.0 entry in
+[CHANGELOG.md](CHANGELOG.md).
 
 ## For mod authors
 
@@ -344,12 +405,12 @@ inventories. See **[API.md](API.md)**.
 
 ## Upgrading an existing world
 
-Older saves are migrated on load, up to schema 17, without a server or a config
-being consulted. 0.7.8 bumps the network protocol to 20, so client and server must be updated
-together; 0.7.5 also retired twenty-one config keys whose replacements are named one for one in
-[CONFIG.md](CONFIG.md). The migration is **not reversible** — take a copy of your world first. The
-policy, what changes about village identity, and what an old jar does with a new save are in
-**[docs/MIGRATION.md](docs/MIGRATION.md)**.
+Older saves are migrated on load, up to schema 18 (from 0.7.9, which was never published on its own and
+first ships in 0.8.0; 0.8.0 adds no step of its own), without a server or a config being consulted. 0.8.0
+bumps the network protocol to 21, so client and server must be updated together; 0.7.5 also retired
+twenty-one config keys whose replacements are named one for one in [CONFIG.md](CONFIG.md). The migration
+is **not reversible** — take a copy of your world first. The policy, what changes about village identity,
+and what an old jar does with a new save are in **[docs/MIGRATION.md](docs/MIGRATION.md)**.
 
 ## Documentation
 
@@ -361,6 +422,7 @@ policy, what changes about village identity, and what an old jar does with a new
 | [docs/MIGRATION.md](docs/MIGRATION.md) | schema migration, removal, and rollback |
 | [docs/0.7.8/CAPITALS.md](docs/0.7.8/CAPITALS.md) | MCA Capitals support matrix and royal decrees |
 | [docs/0.7.8/BLUEPRINT_PRISON.md](docs/0.7.8/BLUEPRINT_PRISON.md) | building an MCA prison from Crime's cell blocks |
+| [docs/0.8.0/VALIDATION.md](docs/0.8.0/VALIDATION.md) | how 0.8.0 was verified: the builds, tests, production-server and client runs, and what stayed blocked |
 | [CHANGELOG.md](CHANGELOG.md) | release notes |
 | [CURSEFORGE.md](CURSEFORGE.md) | the store listing copy |
 | [mca-crime-spec-document.md](mca-crime-spec-document.md) | the original design specification |

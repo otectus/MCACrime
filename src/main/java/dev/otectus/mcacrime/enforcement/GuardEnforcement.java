@@ -133,7 +133,7 @@ public final class GuardEnforcement {
                     // reaction ticker in the middle of walking somebody to a cell.
                     EscortService.noteOwned(player);
                 } else if (legalTarget || alert != null || hasKnownCases(server, player, level.getGameTime())
-                        || dev.otectus.mcacrime.decree.DecreeService.anyInForce(server, player.getUUID())) {
+                        || dev.otectus.mcacrime.decree.DecreeService.inForceHere(player).isPresent()) {
                     // A decree only opens the door: pursue() still asks each guard for its own decision,
                     // and a guard from any other village finds no decree in it (0.7.8).
                     pursue(level, player, alert, legalTarget, radius);

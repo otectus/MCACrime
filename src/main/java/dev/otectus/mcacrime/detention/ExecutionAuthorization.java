@@ -34,7 +34,17 @@ import java.util.UUID;
  *
  * <p>Memory-only, deliberately. A restart is a chunk unload for every chunk at once, and the clearing
  * rule for a chunk unload is "return them to custody" — so an authorisation that survived a restart
- * would be the one clearing rule the table could not honour.
+ * would be the one clearing rule the table could not honour. A guillotine's blade delay <em>is</em>
+ * persisted with the block, but a blade still falling after a reload has no order to carry out: every
+ * order has its own {@link Pending#orderId}, the device remembers only the id it armed (in memory), and
+ * the strike compares the two, so an old fall can never borrow a newer order for the same subject.
+ *
+ * <p><b>Timing (0.8.0).</b> An order is usable for {@link #windowTicks()}: the configured
+ * {@code executionDelayTicks}, stretched when necessary to cover the blade's own fall
+ * ({@code guillotineActivationDelayTicks}) plus {@link #BLADE_MARGIN_TICKS}. Before 0.8.0 a blade delay
+ * at least as long as the window -- both legal settings -- let every order expire mid-fall, so neither
+ * the lever nor a guard ever struck. {@code ConfigValidator} reports the stretch so the operator can see
+ * the effective value.
  */
 public final class ExecutionAuthorization {
 
@@ -49,12 +59,22 @@ public final class ExecutionAuthorization {
      * @param expiresAt  the game time the window closes at
      * @param generation the subject's physical generation when the order was given, so an order
      *                   cannot outlive the custody episode it belongs to
+     * @param orderId    this order's own identity; a device strikes only for the order it armed
+     * @param detentionId the occupancy the subject was in when the order was given, or null when the
+     *                   arming path had none to name; a release and re-detention is a new occupancy
      */
     public record Pending(UUID subject, @Nullable ResourceLocation dimension, BlockPos device,
-                          UUID actor, long armedAt, long expiresAt, long generation) {
+                          UUID actor, long armedAt, long expiresAt, long generation,
+                          UUID orderId, @Nullable UUID detentionId) {
 
         public Pending {
             device = device == null ? BlockPos.ZERO : device.immutable();
+            orderId = orderId == null ? UUID.randomUUID() : orderId;
+        }
+
+        public Pending(UUID subject, @Nullable ResourceLocation dimension, BlockPos device, UUID actor,
+                       long armedAt, long expiresAt, long generation) {
+            this(subject, dimension, device, actor, armedAt, expiresAt, generation, UUID.randomUUID(), null);
         }
 
         /** Whether the window is still open at {@code now}. */
@@ -142,6 +162,40 @@ public final class ExecutionAuthorization {
         }
     }
 
+    /** {@code detention.guillotineActivationDelayTicks}: how long the blade takes to land once released. */
+    public static int bladeTicks() {
+        try {
+            return McaCrimeConfig.COMMON.guillotineActivationDelayTicks.get();
+        } catch (IllegalStateException | NullPointerException notLoaded) {
+            return 5;
+        }
+    }
+
+    /**
+     * Ticks an order must outlast the blade by. Three covers the release tick, the landing tick and the
+     * one-tick difference between the server tick that arms a guard's order and the level tick that
+     * moves the blade, which is the boundary {@code CondemnedEscortService.dropAt} plans around.
+     */
+    public static final int BLADE_MARGIN_TICKS = 3;
+
+    /** How long an armed order stays usable on this server. See the class documentation. */
+    public static int windowTicks() {
+        return effectiveWindow(delayTicks(), bladeTicks());
+    }
+
+    /**
+     * The window an order actually gets: the configured one, or the blade's fall plus the margin when
+     * that is longer. Pure, so the boundary is a unit test.
+     */
+    public static int effectiveWindow(int configuredWindow, int bladeTicks) {
+        return Math.max(Math.max(1, configuredWindow), Math.max(1, bladeTicks) + BLADE_MARGIN_TICKS);
+    }
+
+    /** Whether the configured window had to be stretched to cover the blade. Diagnostics. */
+    public static boolean windowStretched(int configuredWindow, int bladeTicks) {
+        return effectiveWindow(configuredWindow, bladeTicks) > Math.max(1, configuredWindow);
+    }
+
     /** {@code sentencing.capitalPunishment.guardMayExecute}. */
     public static boolean guardMayExecute() {
         try {
@@ -224,6 +278,17 @@ public final class ExecutionAuthorization {
                                                      @Nullable ResourceLocation dimension,
                                                      @Nullable BlockPos device, long now,
                                                      long generation) {
+        return arm(server, subject, actor, actorIsPlayer, actorIsGuard, dimension, device, now, generation,
+                null);
+    }
+
+    /** As above, naming the occupancy the order belongs to, which the strike then requires unchanged. */
+    public static synchronized Optional<Pending> arm(@Nullable MinecraftServer server,
+                                                     @Nullable UUID subject, @Nullable UUID actor,
+                                                     boolean actorIsPlayer, boolean actorIsGuard,
+                                                     @Nullable ResourceLocation dimension,
+                                                     @Nullable BlockPos device, long now,
+                                                     long generation, @Nullable UUID detentionId) {
         Refusal refusal = check(featureEnabled(), condemned(server, subject), actorIsPlayer, actorIsGuard,
                 guardMayExecute(), device != null && subject != null && actor != null,
                 subject != null && PENDING.containsKey(subject));
@@ -232,7 +297,7 @@ public final class ExecutionAuthorization {
             return Optional.empty();
         }
         Pending pending = new Pending(subject, dimension, device, actor, now,
-                now + Math.max(1L, delayTicks()), Math.max(1L, generation));
+                now + windowTicks(), Math.max(1L, generation), UUID.randomUUID(), detentionId);
         PENDING.put(subject, pending);
         return Optional.of(pending);
     }
@@ -266,6 +331,76 @@ public final class ExecutionAuthorization {
     public static boolean authorised(@Nullable UUID subject, @Nullable ResourceLocation dimension,
                                      @Nullable BlockPos device, long now) {
         return pending(subject, now).filter(p -> p.at(dimension, device)).isPresent();
+    }
+
+    /** Why a strike would or would not land, checked at the moment of the blow (0.8.0). */
+    public enum StrikeVerdict {
+        /** Every fact still holds: one attributed damage attempt may be made. */
+        STRIKE,
+        /** No live order for this subject, or the window closed. */
+        NO_ORDER,
+        /** There is an order, but not the one this device armed: a stale fall or a newer order. */
+        DIFFERENT_ORDER,
+        /** The order names another device or dimension. */
+        WRONG_DEVICE,
+        /** The order was given by somebody other than the actor the device would attribute. */
+        WRONG_ACTOR,
+        /** The subject is no longer the occupant this order was given for. */
+        OCCUPANCY_CHANGED,
+        /** The capital sentence is gone: pardoned, commuted, or resolved. */
+        NOT_CONDEMNED,
+        /** The feature or the guillotine's own switch is off. */
+        DISABLED,
+        /** Nobody alive is there to strike. */
+        NO_TARGET
+    }
+
+    /**
+     * The strike-time check as a pure function of the facts the device gathered.
+     *
+     * <p>Order, actor and occupancy are compared by identity, never by "is there some order for this
+     * subject": that is what keeps a blade persisted from before an unload, or dropped for an earlier
+     * occupancy, from carrying out an order somebody gave later.
+     *
+     * @param order           the live order for this subject, or null
+     * @param armedOrder      the order id the device recorded when the blade was released, or null
+     * @param occupantId      who the detention at this device holds now, or null
+     * @param occupancyId     the id of that detention, or null
+     * @param occupancyGeneration that detention's occupant generation
+     */
+    public static StrikeVerdict strikeVerdict(boolean enabled, boolean targetAlive, boolean condemned,
+                                              @Nullable Pending order, @Nullable UUID armedOrder,
+                                              @Nullable UUID subject, @Nullable UUID actor,
+                                              @Nullable ResourceLocation dimension, @Nullable BlockPos device,
+                                              @Nullable UUID occupantId, @Nullable UUID occupancyId,
+                                              long occupancyGeneration) {
+        if (!enabled) {
+            return StrikeVerdict.DISABLED;
+        }
+        if (!targetAlive || subject == null) {
+            return StrikeVerdict.NO_TARGET;
+        }
+        if (order == null) {
+            return StrikeVerdict.NO_ORDER;
+        }
+        if (armedOrder == null || !armedOrder.equals(order.orderId()) || !subject.equals(order.subject())) {
+            return StrikeVerdict.DIFFERENT_ORDER;
+        }
+        if (!order.at(dimension, device)) {
+            return StrikeVerdict.WRONG_DEVICE;
+        }
+        if (actor == null || !actor.equals(order.actor())) {
+            return StrikeVerdict.WRONG_ACTOR;
+        }
+        if (occupantId == null || !occupantId.equals(subject)
+                || (order.detentionId() != null && !order.detentionId().equals(occupancyId))
+                || Math.max(1L, occupancyGeneration) != order.generation()) {
+            return StrikeVerdict.OCCUPANCY_CHANGED;
+        }
+        if (!condemned) {
+            return StrikeVerdict.NOT_CONDEMNED;
+        }
+        return StrikeVerdict.STRIKE;
     }
 
     /** Ends one order. Idempotent; the subject stays condemned and in custody. */

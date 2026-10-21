@@ -371,6 +371,8 @@ public final class CrimeWorldData extends SavedData {
      */
     private transient boolean reconciliationAttempted;
 
+    private transient boolean legacyStolenGoodsCustody;
+
     public CrimeWorldData() {
     }
 
@@ -379,7 +381,34 @@ public final class CrimeWorldData extends SavedData {
         CrimeWorldData data = overworld.getDataStorage()
                 .computeIfAbsent(CrimeWorldData::load, CrimeWorldData::new, DATA_NAME);
         data.reconcilePhysicalState(overworld.getGameTime());
+        data.reconcileStolenGoodsCustody(server);
         return data;
+    }
+
+    private void reconcileStolenGoodsCustody(MinecraftServer server) {
+        if (!legacyStolenGoodsCustody || !ServerMutationGate.allows(this)) return;
+        legacyStolenGoodsCustody = false; // retry after reload on I/O failure, not on every world-data read
+        // Include offline players: absence from the loaded entity list is not evidence of an NPC.
+        Set<UUID> players = new java.util.HashSet<>();
+        server.getPlayerList().getPlayers().forEach(player -> players.add(player.getUUID()));
+        java.nio.file.Path directory = server.getWorldPath(net.minecraft.world.level.storage.LevelResource.PLAYER_DATA_DIR);
+        try {
+            if (!java.nio.file.Files.notExists(directory)) {
+                try (var files = java.nio.file.Files.list(directory)) {
+                    files.forEach(path -> {
+                        String name = path.getFileName().toString();
+                        if (name.endsWith(".dat") || name.endsWith(".dat_old")) {
+                            try { players.add(UUID.fromString(name.substring(0, name.indexOf('.')))); }
+                            catch (IllegalArgumentException ignored) { /* Not a player save. */ }
+                        }
+                    });
+                }
+            }
+            dev.otectus.mcacrime.mug.npc.StolenGoodsLedger.reconcileLegacyCustody(this, players);
+        } catch (java.io.IOException | java.io.UncheckedIOException | SecurityException failure) {
+            // Leave legacy property unclaimable and intact until its custody can be determined.
+            McaCrime.LOGGER.error("MCA: Crime could not classify legacy stolen property from player saves", failure);
+        }
     }
 
     /**
@@ -3025,6 +3054,7 @@ public final class CrimeWorldData extends SavedData {
         for (int i = 0; i < stolenList.size(); i++) {
             try {
                 StolenGoodsRecord record = StolenGoodsRecord.load(stolenList.getCompound(i));
+                data.legacyStolenGoodsCustody |= record.custody() == StolenGoodsRecord.Custody.LEGACY;
                 data.stolenGoods.put(record.transactionId(), record);
                 data.indexStolen(record);
             } catch (RuntimeException e) {

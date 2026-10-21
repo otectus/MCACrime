@@ -184,6 +184,7 @@ public final class CrimeDetectionHandlers {
         ActionSessionManager.forgetActor(event.getEntity().getUUID());
         dev.otectus.mcacrime.action.CrimeActionService.forgetMenu(event.getEntity().getUUID());
         dev.otectus.mcacrime.memory.ApologyClaimLedger.forget(event.getEntity().getUUID());
+        dev.otectus.mcacrime.detention.DeviceFeedback.forget(event.getEntity().getUUID());
         // Same class of leak, three more maps: a guard encounter, an enforcement alert, and a dossier
         // cooldown stamp all keyed by player and all previously removed by nothing.
         dev.otectus.mcacrime.enforcement.GuardChallengeService.forget(event.getEntity().getUUID());

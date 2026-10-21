@@ -140,7 +140,9 @@ public final class CrimeDataMigrations {
      * stamped 17 takes the from-the-future path and holds the store read-only, exactly as for 16.
      */
     public static final int SCHEMA_DECREES = 17;
-    public static final int CURRENT_SCHEMA = SCHEMA_DECREES;
+    /** Stolen property has explicit custody; older readers would recover player inventory twice. */
+    public static final int SCHEMA_STOLEN_CUSTODY = 18;
+    public static final int CURRENT_SCHEMA = SCHEMA_STOLEN_CUSTODY;
 
     /** Root NBT key holding the schema integer. Absent means 0. */
     public static final String TAG_SCHEMA = "schema";
@@ -214,6 +216,9 @@ public final class CrimeDataMigrations {
         }
         if (schema < 17) {
             working = v16to17(working);
+        }
+        if (schema < 18) {
+            working = v17to18(working);
         }
         working.putInt(TAG_SCHEMA, CURRENT_SCHEMA);
         return working;
@@ -674,6 +679,13 @@ public final class CrimeDataMigrations {
         } catch (IllegalArgumentException e) {
             return null;
         }
+    }
+
+    /** Custody cannot be inferred from a tag alone; the server resolves old rows against player saves. */
+    public static CompoundTag v17to18(CompoundTag in) {
+        CompoundTag out = in.copy();
+        out.putInt(TAG_SCHEMA, SCHEMA_STOLEN_CUSTODY);
+        return out;
     }
 
     // ------------------------------------------------------------------ helpers

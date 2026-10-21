@@ -169,6 +169,13 @@ public final class LockInteractions {
             return InteractionResult.PASS;
         }
         LockRecord lock = holder.lockId().map(data::lock).orElse(null);
+        if (lock == null && isKeyRing(stack) && !KeyRingBindings.hasRoom(stack.getTag(), maxKeysPerRing())) {
+            // A full ring on a new lock used to do nothing at all (0.8.0): it is not a blank key, so the
+            // route passed silently. It is a ring that cannot take one more key, and it says so.
+            player.displayClientMessage(Component.translatable("mcacrime.lock.ring_full",
+                    KeyRingBindings.count(stack.getTag()), maxKeysPerRing()), true);
+            return InteractionResult.FAIL;
+        }
         boolean operator = CreativeAuthorization.permits(player);
         boolean keyInitializable = lock == null || LockService.mayInitializeKey(lock,
                 player.getUUID(), operator);
@@ -202,16 +209,21 @@ public final class LockInteractions {
             player.displayClientMessage(Component.translatable("mcacrime.lock.foreign_owner"), true);
             return InteractionResult.FAIL;
         }
+        // Every refusal below names its reason (0.8.0); before, each returned FAIL with nothing said.
         Optional<LockRecord> created = LockService.getOrCreate(data, target, player.getUUID());
         if (created.isEmpty()) {
+            player.displayClientMessage(Component.translatable("mcacrime.lock.unavailable"), true);
             return InteractionResult.FAIL;
         }
         LockRecord lock = created.get();
         if (!holder.bindLock(lock.lockId())) {
+            player.displayClientMessage(Component.translatable("mcacrime.lock.unavailable"), true);
             return InteractionResult.FAIL;
         }
         boolean operator = CreativeAuthorization.permits(player);
         if (!LockService.mayInitializeKey(lock, player.getUUID(), operator)) {
+            player.displayClientMessage(Component.translatable(lock.keyInitialized()
+                    ? "mcacrime.lock.first_key_issued" : "mcacrime.lock.first_key_owner_only"), true);
             return InteractionResult.FAIL;
         }
         String name = holder.lockDisplayName().getString();
@@ -224,6 +236,8 @@ public final class LockInteractions {
                     ? KeyRingBindings.replace(tag, binding)
                     : KeyRingBindings.add(tag, binding, maxKeysPerRing());
             if (!written) {
+                player.displayClientMessage(Component.translatable("mcacrime.lock.ring_full",
+                        KeyRingBindings.count(tag), maxKeysPerRing()), true);
                 return InteractionResult.FAIL;
             }
         } else {
@@ -241,6 +255,7 @@ public final class LockInteractions {
             } else {
                 KeyBinding.clear(stack.getTag());
             }
+            player.displayClientMessage(Component.translatable("mcacrime.lock.unavailable"), true);
             return InteractionResult.FAIL;
         }
         holder.onLockChanged();
@@ -295,12 +310,38 @@ public final class LockInteractions {
         if (lock == null || !(isKey(stack) || isKeyRing(stack))) {
             return InteractionResult.PASS;
         }
-        LockAccess.Decision decision = LockAccess.evaluate(lock,
-                isKey(stack) ? KeyBinding.read(stack.getTag()).orElse(null)
-                        : KeyRingBindings.find(stack.getTag(), lock.lockId()).orElse(null),
-                false);
-        player.displayClientMessage(Component.translatable(LockAccess.messageKey(decision)), true);
+        player.displayClientMessage(Component.translatable(refusalKey(lock, stack)), true);
         return InteractionResult.FAIL;
+    }
+
+    /**
+     * Which kind of wrong this key is for this lock (0.8.0), whether or not the lock is locked: a blank
+     * key the lock will not bind, a ring with no key for it, another lock's key, or this lock's key from
+     * before a rekey. Before 0.8.0 the answer came from {@link LockAccess#evaluate}, which says
+     * "Unlocked." for any key on an unlocked lock -- so a wrong key on an open door claimed to have
+     * opened it. Only what the server can establish is said, and never a binding or a code.
+     */
+    static String refusalKey(LockRecord lock, ItemStack stack) {
+        if (isKey(stack) && !KeyBinding.bound(stack.getTag())) {
+            return lock.keyInitialized() ? "mcacrime.lock.first_key_issued" : "mcacrime.lock.first_key_owner_only";
+        }
+        KeyBinding presented = isKey(stack) ? KeyBinding.read(stack.getTag()).orElse(null)
+                : KeyRingBindings.find(stack.getTag(), lock.lockId()).orElse(null);
+        return refusalKey(lock, presented, isKeyRing(stack));
+    }
+
+    /** The pure half of {@link #refusalKey(LockRecord, ItemStack)}, for a binding already read. */
+    public static String refusalKey(LockRecord lock, @Nullable KeyBinding presented, boolean fromRing) {
+        if (presented == null) {
+            return fromRing ? "mcacrime.lock.ring_no_key" : "mcacrime.lock.locked";
+        }
+        if (!presented.lockId().equals(lock.lockId())) {
+            return "mcacrime.lock.wrong_key";
+        }
+        if (!lock.accepts(presented.bindingRevision())) {
+            return "mcacrime.lock.rekeyed";
+        }
+        return LockAccess.messageKey(LockAccess.evaluate(lock, presented, false));
     }
 
     /**

@@ -1,0 +1,7 @@
+{
+  "parent": "item/generated",
+  "textures": {
+    "layer0": "mcacrime:item/brigand_visor_dyed",
+    "layer1": "mcacrime:item/brigand_visor_dyed_detail"
+  }
+}

@@ -147,8 +147,7 @@ public final class ArrestService {
             assessed = decision.cases();
             decree = decision.decree();
         } else {
-            decree = dev.otectus.mcacrime.decree.DecreeService.inForce(server, player.getUUID(),
-                    dev.otectus.mcacrime.decree.DecreeService.communityOf(player).orElse(null))
+            decree = dev.otectus.mcacrime.decree.DecreeService.inForceHere(player)
                     .map(dev.otectus.mcacrime.decree.Decree::id).orElse(null);
         }
         List<UUID> assessedCaseIds = assessed.stream().map(CrimeRecord::id).toList();

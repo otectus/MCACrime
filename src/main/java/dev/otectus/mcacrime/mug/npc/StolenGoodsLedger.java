@@ -42,12 +42,21 @@ public final class StolenGoodsLedger {
     public static java.util.Optional<TheftExecutor.TheftResult> commitTheft(CrimeWorldData data,
             UUID id, UUID thief, UUID owner, String provider, long now,
             java.util.function.Supplier<TheftExecutor.TheftResult> remove) {
+        return commitTheft(data, id, thief, owner, provider, now, StolenGoodsRecord.Custody.LEDGER, remove);
+    }
+
+    /** The caller identifies whether the result stays in this ledger or becomes a physical item. */
+    public static java.util.Optional<TheftExecutor.TheftResult> commitTheft(CrimeWorldData data,
+            UUID id, UUID thief, UUID owner, String provider, long now, StolenGoodsRecord.Custody custody,
+            java.util.function.Supplier<TheftExecutor.TheftResult> remove) {
+        if (custody == null || custody == StolenGoodsRecord.Custody.LEGACY)
+            throw new IllegalArgumentException("New thefts must identify their property custody");
         if (!ServerMutationGate.allows(data) || thief == null || owner == null || remove == null
                 || !data.reserveTheft(id)) return java.util.Optional.empty();
         try {
             var result = remove.get();
             if (result == null) throw new IllegalStateException("Theft provider returned no result");
-            if (result.tookSomething() && record(data, id, thief, owner, result, now, provider) == null)
+            if (result.tookSomething() && record(data, id, thief, owner, result, now, provider, custody) == null)
                 throw new IllegalStateException("Reserved theft provenance could not be stored");
             return java.util.Optional.of(result);
         } finally {
@@ -78,6 +87,12 @@ public final class StolenGoodsLedger {
 
     public static UUID record(CrimeWorldData data, UUID transactionId, UUID thief, UUID owner,
                               TheftExecutor.TheftResult result, long now, String providerId) {
+        return record(data, transactionId, thief, owner, result, now, providerId, StolenGoodsRecord.Custody.LEDGER);
+    }
+
+    private static UUID record(CrimeWorldData data, UUID transactionId, UUID thief, UUID owner,
+                               TheftExecutor.TheftResult result, long now, String providerId,
+                               StolenGoodsRecord.Custody custody) {
         if (data == null || transactionId == null || thief == null || owner == null
                 || result == null || !result.tookSomething()) {
             return null;
@@ -89,7 +104,7 @@ public final class StolenGoodsLedger {
         // result; refusing here cannot undo a transfer that the caller has already performed.
         var base = StolenGoodsRecord.ofStack(transactionId, thief, owner, result.stack(), result.currency(), now);
         if (!data.putStolenGoods(new StolenGoodsRecord(transactionId, thief, owner, base.stackTag(),
-                base.currency(), now, providerId)).stored()) {
+                base.currency(), now, providerId, custody)).stored()) {
             return null;
         }
         return transactionId;
@@ -167,6 +182,7 @@ public final class StolenGoodsLedger {
         }
         List<StolenGoodsRecord> claimed = new ArrayList<>(held.size());
         for (StolenGoodsRecord record : held) {
+            if (!record.recoverable()) continue;
             if (owner != null && !owner.equals(record.owner())) {
                 continue;
             }
@@ -190,6 +206,7 @@ public final class StolenGoodsLedger {
 
     /** Turns one record into a lot owed to its owner. False when the escrow had no room. */
     private static boolean escrow(CrimeWorldData data, StolenGoodsRecord record, long now) {
+        if (!record.recoverable()) return false;
         // Derived from the transaction id rather than random, so replaying the same claim twice
         // produces the same lot id and cannot mint a second copy of the property.
         UUID lotId = UUID.nameUUIDFromBytes(("lot:" + record.transactionId())
@@ -256,8 +273,11 @@ public final class StolenGoodsLedger {
             }
             // "Laundered" is investigation metadata, not a licence to delete. The trail goes cold --
             // nobody is coming to reclaim this at the scene any more -- but the property itself is still
-            // somebody's, so it moves to escrow rather than out of existence.
-            if (!escrow(data, record, today * TICKS_PER_DAY)) {
+            // somebody's, so ledger-held property moves to escrow. Inventory rows only describe an
+            // item already handed over: retire the trail without creating another item. Unclassified
+            // legacy rows remain intact until the server has resolved their custody.
+            if (record.custody() != StolenGoodsRecord.Custody.INVENTORY
+                    && !escrow(data, record, today * TICKS_PER_DAY)) {
                 continue;
             }
             if (data.removeStolenGoods(record.transactionId()) != null) {
@@ -265,9 +285,20 @@ public final class StolenGoodsLedger {
             }
         }
         if (expired > 0) {
-            CrimeDebug.crime("stolen goods laundered: {} record(s) older than {} day(s) moved to escrow",
+            CrimeDebug.crime("stolen goods laundered: {} record(s) older than {} day(s) retired or moved to escrow",
                     expired, persistenceDays);
         }
         return expired;
+    }
+
+    /** Old player rows describe real inventory; old NPC rows are the property's only backing store. */
+    public static void reconcileLegacyCustody(CrimeWorldData data, Set<UUID> players) {
+        if (!ServerMutationGate.allows(data)) return;
+        for (StolenGoodsRecord record : data.stolenGoods()) {
+            if (record.custody() == StolenGoodsRecord.Custody.LEGACY) {
+                data.putStolenGoods(record.withCustody(players.contains(record.thief())
+                        ? StolenGoodsRecord.Custody.INVENTORY : StolenGoodsRecord.Custody.LEDGER));
+            }
+        }
     }
 }
